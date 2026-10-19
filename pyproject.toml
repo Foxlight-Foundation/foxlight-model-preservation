@@ -1,0 +1,40 @@
+[project]
+name = "foxlight-model-preservation"
+version = "0.1.0"
+description = "Portable signed model bundles and receive-only mirror downloads"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+dependencies = ["cryptography>=50,<51", "pydantic>=2.12,<3", "rfc8785>=0.1.4,<0.2"]
+
+[project.scripts]
+model-preserve = "foxlight_model_preservation.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8.4,<10", "ruff>=0.12,<1", "basedpyright>=1.31,<2", "build>=1.3,<2"]
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/foxlight_model_preservation"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--strict-config --strict-markers"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "S"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "S105", "S106"]
+
+[tool.basedpyright]
+include = ["src"]
+typeCheckingMode = "strict"
+pythonVersion = "3.11"

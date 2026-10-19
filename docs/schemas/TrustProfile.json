@@ -1,0 +1,74 @@
+{
+  "$defs": {
+    "TrustedKey": {
+      "additionalProperties": false,
+      "description": "One independently enrolled Ed25519 public key.",
+      "properties": {
+        "key_id": {
+          "pattern": "^ed25519:[0-9a-f]{64}$",
+          "title": "Key Id",
+          "type": "string"
+        },
+        "public_key": {
+          "maxLength": 100,
+          "minLength": 40,
+          "title": "Public Key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key_id",
+        "public_key"
+      ],
+      "title": "TrustedKey",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Explicit historical trust snapshot, never automatically imported from a peer.",
+  "properties": {
+    "schema_version": {
+      "const": "foxlight.model-preservation.trust.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "keys": {
+      "items": {
+        "$ref": "#/$defs/TrustedKey"
+      },
+      "maxItems": 32,
+      "minItems": 1,
+      "title": "Keys",
+      "type": "array"
+    },
+    "threshold": {
+      "maximum": 32,
+      "minimum": 1,
+      "title": "Threshold",
+      "type": "integer"
+    },
+    "revoked_keys": {
+      "default": [],
+      "items": {
+        "pattern": "^ed25519:[0-9a-f]{64}$",
+        "type": "string"
+      },
+      "title": "Revoked Keys",
+      "type": "array"
+    },
+    "as_of": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "As Of",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "keys",
+    "threshold",
+    "as_of"
+  ],
+  "title": "TrustProfile",
+  "type": "object"
+}

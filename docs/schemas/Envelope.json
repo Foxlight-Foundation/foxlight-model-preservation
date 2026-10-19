@@ -1,0 +1,58 @@
+{
+  "$defs": {
+    "Signature": {
+      "additionalProperties": false,
+      "description": "One Ed25519 signature in the standard DSSE envelope.",
+      "properties": {
+        "keyid": {
+          "pattern": "^ed25519:[0-9a-f]{64}$",
+          "title": "Keyid",
+          "type": "string"
+        },
+        "sig": {
+          "maxLength": 100,
+          "minLength": 80,
+          "title": "Sig",
+          "type": "string"
+        }
+      },
+      "required": [
+        "keyid",
+        "sig"
+      ],
+      "title": "Signature",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Bounded standard DSSE envelope; keys are never inferred from this object.",
+  "properties": {
+    "payloadType": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Payloadtype",
+      "type": "string"
+    },
+    "payload": {
+      "maxLength": 16777216,
+      "title": "Payload",
+      "type": "string"
+    },
+    "signatures": {
+      "items": {
+        "$ref": "#/$defs/Signature"
+      },
+      "maxItems": 32,
+      "minItems": 1,
+      "title": "Signatures",
+      "type": "array"
+    }
+  },
+  "required": [
+    "payloadType",
+    "payload",
+    "signatures"
+  ],
+  "title": "Envelope",
+  "type": "object"
+}

@@ -1,0 +1,67 @@
+{
+  "$defs": {
+    "CatalogEntry": {
+      "additionalProperties": false,
+      "description": "An exact preservation identity and replaceable transport hints.",
+      "properties": {
+        "entry_id": {
+          "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+          "title": "Entry Id",
+          "type": "string"
+        },
+        "manifest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Manifest",
+          "type": "string"
+        },
+        "mirrors": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "title": "Mirrors",
+          "type": "array"
+        }
+      },
+      "required": [
+        "entry_id",
+        "manifest",
+        "mirrors"
+      ],
+      "title": "CatalogEntry",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Pinned portable discovery; no freshness or model-authorship claim.",
+  "properties": {
+    "schema_version": {
+      "const": "foxlight.model-preservation.catalog.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "description": {
+      "maxLength": 2000,
+      "minLength": 1,
+      "title": "Description",
+      "type": "string"
+    },
+    "entries": {
+      "items": {
+        "$ref": "#/$defs/CatalogEntry"
+      },
+      "maxItems": 1000,
+      "minItems": 1,
+      "title": "Entries",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "description",
+    "entries"
+  ],
+  "title": "Catalog",
+  "type": "object"
+}
