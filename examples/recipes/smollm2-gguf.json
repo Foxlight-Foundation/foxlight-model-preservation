@@ -1,0 +1,77 @@
+{
+  "attestation": "owner-capture",
+  "members": [
+    {
+      "artifact_identity": "smollm2-gguf:weights",
+      "dependencies": [
+        "notices"
+      ],
+      "files": [
+        {
+          "expected_sha256": "2e8040ceae7815abe0dcb3540b9995eaa1fa0d2ca9e797d0a635ae4433c68c2d",
+          "path": "SmolLM2-135M-Instruct-Q4_K_M.gguf"
+        },
+        {
+          "expected_sha256": "09b1f05942d11f5c47aac9789dde6fa8e431cdd541028532a7fb6f1c0e63d939",
+          "path": "README.md"
+        }
+      ],
+      "format": "gguf",
+      "intake": {
+        "audience": "public",
+        "decision": "Accepted as a public seed candidate based on exact upstream and derivative Apache-2.0 declarations. Preserve derivative/upstream READMEs and the full Apache-2.0 text; no inference qualification or upstream signature asserted.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "README.md"
+        ],
+        "terms_reference": "https://huggingface.co/bartowski/SmolLM2-135M-Instruct-GGUF/blob/09816acd5d99df7be770d85ea30822623dab342c/README.md"
+      },
+      "loader_root": null,
+      "member_id": "weights",
+      "origin_repository": "bartowski/SmolLM2-135M-Instruct-GGUF",
+      "origin_revision": "09816acd5d99df7be770d85ea30822623dab342c",
+      "retained_card": null,
+      "role": "primary"
+    },
+    {
+      "artifact_identity": "smollm2-gguf:notices",
+      "dependencies": [],
+      "files": [
+        {
+          "expected_sha256": "4f97533ad95b1b2fea15fbc075c01b94578ebdd7c8138888fa43fa3abd530dc4",
+          "path": "README.md"
+        },
+        {
+          "expected_sha256": "eca0a31232d967855093e0e50eb602bbd873be9f2dc1e5f0074799b3bbede523",
+          "path": "LICENSE"
+        }
+      ],
+      "format": "text",
+      "intake": {
+        "audience": "public",
+        "decision": "Accepted as a public seed candidate based on exact upstream and derivative Apache-2.0 declarations. Preserve derivative/upstream READMEs and the full Apache-2.0 text; no inference qualification or upstream signature asserted.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "README.md",
+          "LICENSE"
+        ],
+        "terms_reference": "https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct/blob/12fd25f77366fa6b3b4b768ec3050bf629380bac/README.md"
+      },
+      "loader_root": null,
+      "member_id": "notices",
+      "origin_repository": "HuggingFaceTB/SmolLM2-135M-Instruct",
+      "origin_revision": "12fd25f77366fa6b3b4b768ec3050bf629380bac",
+      "retained_card": null,
+      "role": "notices"
+    }
+  ],
+  "name": "smollm2-gguf",
+  "root_member": "weights",
+  "runtime_requirements": [
+    "llama.cpp compatible with SmolLM2 Q4_K_M; engine not bundled"
+  ],
+  "schema_version": "foxlight.model-preservation.v1",
+  "workloads": [
+    "text-generation"
+  ]
+}

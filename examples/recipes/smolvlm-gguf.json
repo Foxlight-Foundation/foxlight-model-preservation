@@ -1,0 +1,110 @@
+{
+  "attestation": "owner-capture",
+  "members": [
+    {
+      "artifact_identity": "smolvlm-gguf:weights",
+      "dependencies": [
+        "projector",
+        "notices"
+      ],
+      "files": [
+        {
+          "expected_sha256": "2a31195d3769c0b0fd0a4906201666108834848db768af11de1d2cef7cd35e65",
+          "path": "SmolVLM-256M-Instruct-Q8_0.gguf"
+        },
+        {
+          "expected_sha256": "e66c089f9f557649bca04d15a95b92c6990783458e07bc26e5240f8481053312",
+          "path": "README.md"
+        }
+      ],
+      "format": "gguf",
+      "intake": {
+        "audience": "public",
+        "decision": "Accepted as a public seed candidate based on exact upstream and derivative Apache-2.0 declarations. Preserve derivative/upstream READMEs and the full Apache-2.0 text; no inference qualification or upstream signature asserted.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "README.md"
+        ],
+        "terms_reference": "https://huggingface.co/ggml-org/SmolVLM-256M-Instruct-GGUF/blob/b9e4379657e1450d04d02eec8e345667265b0a00/README.md"
+      },
+      "loader_root": null,
+      "member_id": "weights",
+      "origin_repository": "ggml-org/SmolVLM-256M-Instruct-GGUF",
+      "origin_revision": "b9e4379657e1450d04d02eec8e345667265b0a00",
+      "retained_card": null,
+      "role": "primary"
+    },
+    {
+      "artifact_identity": "smolvlm-gguf:projector",
+      "dependencies": [
+        "notices"
+      ],
+      "files": [
+        {
+          "expected_sha256": "7e943f7c53f0382a6fc41b6ee0c2def63ba4fded9ab8ed039cc9e2ab905e0edd",
+          "path": "mmproj-SmolVLM-256M-Instruct-Q8_0.gguf"
+        },
+        {
+          "expected_sha256": "e66c089f9f557649bca04d15a95b92c6990783458e07bc26e5240f8481053312",
+          "path": "README.md"
+        }
+      ],
+      "format": "gguf",
+      "intake": {
+        "audience": "public",
+        "decision": "Accepted as a public seed candidate based on exact upstream and derivative Apache-2.0 declarations. Preserve derivative/upstream READMEs and the full Apache-2.0 text; no inference qualification or upstream signature asserted.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "README.md"
+        ],
+        "terms_reference": "https://huggingface.co/ggml-org/SmolVLM-256M-Instruct-GGUF/blob/b9e4379657e1450d04d02eec8e345667265b0a00/README.md"
+      },
+      "loader_root": null,
+      "member_id": "projector",
+      "origin_repository": "ggml-org/SmolVLM-256M-Instruct-GGUF",
+      "origin_revision": "b9e4379657e1450d04d02eec8e345667265b0a00",
+      "retained_card": null,
+      "role": "projector"
+    },
+    {
+      "artifact_identity": "smolvlm-gguf:notices",
+      "dependencies": [],
+      "files": [
+        {
+          "expected_sha256": "0b687c656b2587d84cb85003825746f8b3a08497dff4ed51b54b1090719fa512",
+          "path": "README.md"
+        },
+        {
+          "expected_sha256": "eca0a31232d967855093e0e50eb602bbd873be9f2dc1e5f0074799b3bbede523",
+          "path": "LICENSE"
+        }
+      ],
+      "format": "text",
+      "intake": {
+        "audience": "public",
+        "decision": "Accepted as a public seed candidate based on exact upstream and derivative Apache-2.0 declarations. Preserve derivative/upstream READMEs and the full Apache-2.0 text; no inference qualification or upstream signature asserted.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "README.md",
+          "LICENSE"
+        ],
+        "terms_reference": "https://huggingface.co/HuggingFaceTB/SmolVLM-256M-Instruct/blob/7e3e67edbbed1bf9888184d9df282b700a323964/README.md"
+      },
+      "loader_root": null,
+      "member_id": "notices",
+      "origin_repository": "HuggingFaceTB/SmolVLM-256M-Instruct",
+      "origin_revision": "7e3e67edbbed1bf9888184d9df282b700a323964",
+      "retained_card": null,
+      "role": "notices"
+    }
+  ],
+  "name": "smolvlm-gguf",
+  "root_member": "weights",
+  "runtime_requirements": [
+    "llama.cpp with SmolVLM/mtmd support and matching projector; engine not bundled"
+  ],
+  "schema_version": "foxlight.model-preservation.v1",
+  "workloads": [
+    "vision-text-generation"
+  ]
+}

@@ -1,0 +1,105 @@
+{
+  "attestation": "owner-capture",
+  "members": [
+    {
+      "artifact_identity": "smollm-mlx:weights",
+      "dependencies": [
+        "notices"
+      ],
+      "files": [
+        {
+          "expected_sha256": "c932a31b7de83869e2db8bb4622752ef350ded20a7212822a278506fd70a4465",
+          "path": "README.md"
+        },
+        {
+          "expected_sha256": "4bc9881d39ef7fce3df804d194558e29bd974d965437dc1e6a8f9f7a0939b80d",
+          "path": "config.json"
+        },
+        {
+          "expected_sha256": "0b54e8aa4e53d5383e2e4bc635a56b43f9647f7b13832d5d9ecd8f82dac4f510",
+          "path": "merges.txt"
+        },
+        {
+          "expected_sha256": "e91560ee24b13eee6ddeb14879d728a90780053d69057b15ff199ccadfcfe33b",
+          "path": "model.safetensors"
+        },
+        {
+          "expected_sha256": "2aa3391702d20c3c886cc6148d210c843bfb4dfde32b71fe859f1c744ce35dd3",
+          "path": "model.safetensors.index.json"
+        },
+        {
+          "expected_sha256": "2b7379f3ae813529281a5c602bc5a11c1d4e0a99107aaa597fe936c1e813ca52",
+          "path": "special_tokens_map.json"
+        },
+        {
+          "expected_sha256": "9ca9acddb6525a194ec8ac7a87f24fbba7232a9a15ffa1af0c1224fcd888e47c",
+          "path": "tokenizer.json"
+        },
+        {
+          "expected_sha256": "75668bda11eb0d5ece137b4eb3fb2ad679f847fd19846b726369a26d92f9f28e",
+          "path": "tokenizer_config.json"
+        },
+        {
+          "expected_sha256": "82b84012e3add4d01d12ba14442026e49b8cbbaead1f79ecf3d919784f82dc79",
+          "path": "vocab.json"
+        }
+      ],
+      "format": "mlx",
+      "intake": {
+        "audience": "public",
+        "decision": "Accepted as a public seed candidate based on exact upstream and derivative Apache-2.0 declarations. Preserve derivative/upstream READMEs and the full Apache-2.0 text; no inference qualification or upstream signature asserted.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "README.md"
+        ],
+        "terms_reference": "https://huggingface.co/mlx-community/SmolLM-135M-Instruct-4bit/blob/642e06afe3fab57fd6cc518637c471af0a569e1e/README.md"
+      },
+      "loader_root": null,
+      "member_id": "weights",
+      "origin_repository": "mlx-community/SmolLM-135M-Instruct-4bit",
+      "origin_revision": "642e06afe3fab57fd6cc518637c471af0a569e1e",
+      "retained_card": null,
+      "role": "primary"
+    },
+    {
+      "artifact_identity": "smollm-mlx:notices",
+      "dependencies": [],
+      "files": [
+        {
+          "expected_sha256": "d8b24f2d845a8a2544d8bc9b29dbf71ae11e918439fc568ab54667f81e9eea16",
+          "path": "README.md"
+        },
+        {
+          "expected_sha256": "eca0a31232d967855093e0e50eb602bbd873be9f2dc1e5f0074799b3bbede523",
+          "path": "LICENSE"
+        }
+      ],
+      "format": "text",
+      "intake": {
+        "audience": "public",
+        "decision": "Accepted as a public seed candidate based on exact upstream and derivative Apache-2.0 declarations. Preserve derivative/upstream READMEs and the full Apache-2.0 text; no inference qualification or upstream signature asserted.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "README.md",
+          "LICENSE"
+        ],
+        "terms_reference": "https://huggingface.co/HuggingFaceTB/SmolLM-135M-Instruct/blob/fcc320f490e08fdb4b99d935b2c58d40bf35b0d0/README.md"
+      },
+      "loader_root": null,
+      "member_id": "notices",
+      "origin_repository": "HuggingFaceTB/SmolLM-135M-Instruct",
+      "origin_revision": "fcc320f490e08fdb4b99d935b2c58d40bf35b0d0",
+      "retained_card": null,
+      "role": "notices"
+    }
+  ],
+  "name": "smollm-mlx",
+  "root_member": "weights",
+  "runtime_requirements": [
+    "Apple Silicon and compatible mlx-lm (conversion used 0.15.2); engine not bundled"
+  ],
+  "schema_version": "foxlight.model-preservation.v1",
+  "workloads": [
+    "text-generation"
+  ]
+}

@@ -1,0 +1,246 @@
+{
+  "$defs": {
+    "FileIdentity": {
+      "additionalProperties": false,
+      "description": "Exact file bytes inside a member namespace.",
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "size": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Size",
+          "type": "integer"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "size",
+        "sha256"
+      ],
+      "title": "FileIdentity",
+      "type": "object"
+    },
+    "Intake": {
+      "additionalProperties": false,
+      "description": "Operator declaration retained per member; it is not a grant of rights.",
+      "properties": {
+        "audience": {
+          "enum": [
+            "private",
+            "public",
+            "restricted"
+          ],
+          "title": "Audience",
+          "type": "string"
+        },
+        "license_id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "License Id",
+          "type": "string"
+        },
+        "terms_reference": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "title": "Terms Reference",
+          "type": "string"
+        },
+        "decision": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Decision",
+          "type": "string"
+        },
+        "notice_paths": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "title": "Notice Paths",
+          "type": "array"
+        }
+      },
+      "required": [
+        "audience",
+        "license_id",
+        "terms_reference",
+        "decision",
+        "notice_paths"
+      ],
+      "title": "Intake",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "ManifestMember": {
+      "additionalProperties": false,
+      "description": "Signed exact files, with retained origin statements kept as statements.",
+      "properties": {
+        "member_id": {
+          "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+          "title": "Member Id",
+          "type": "string"
+        },
+        "role": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Role",
+          "type": "string"
+        },
+        "format": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Format",
+          "type": "string"
+        },
+        "origin_repository": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Origin Repository",
+          "type": "string"
+        },
+        "origin_revision": {
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Origin Revision",
+          "type": "string"
+        },
+        "artifact_identity": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Artifact Identity",
+          "type": "string"
+        },
+        "loader_root": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Loader Root"
+        },
+        "dependencies": {
+          "default": [],
+          "items": {
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+            "type": "string"
+          },
+          "title": "Dependencies",
+          "type": "array"
+        },
+        "retained_card": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Retained Card"
+        },
+        "intake": {
+          "$ref": "#/$defs/Intake"
+        },
+        "files": {
+          "items": {
+            "$ref": "#/$defs/FileIdentity"
+          },
+          "maxItems": 100000,
+          "minItems": 1,
+          "title": "Files",
+          "type": "array"
+        }
+      },
+      "required": [
+        "member_id",
+        "role",
+        "format",
+        "origin_repository",
+        "origin_revision",
+        "artifact_identity",
+        "intake",
+        "files"
+      ],
+      "title": "ManifestMember",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Signed complete owner capture; original card trust is never upgraded.",
+  "properties": {
+    "schema_version": {
+      "const": "foxlight.model-preservation.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "root_member": {
+      "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+      "title": "Root Member",
+      "type": "string"
+    },
+    "workloads": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 100,
+      "minItems": 1,
+      "title": "Workloads",
+      "type": "array"
+    },
+    "runtime_requirements": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Runtime Requirements",
+      "type": "array"
+    },
+    "attestation": {
+      "const": "owner-capture",
+      "default": "owner-capture",
+      "title": "Attestation",
+      "type": "string"
+    },
+    "members": {
+      "items": {
+        "$ref": "#/$defs/ManifestMember"
+      },
+      "maxItems": 256,
+      "minItems": 1,
+      "title": "Members",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "name",
+    "root_member",
+    "workloads",
+    "runtime_requirements",
+    "members"
+  ],
+  "title": "Manifest",
+  "type": "object"
+}
