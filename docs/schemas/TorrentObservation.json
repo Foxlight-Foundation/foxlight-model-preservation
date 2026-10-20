@@ -1,0 +1,47 @@
+{
+  "additionalProperties": false,
+  "description": "Safe session observation; no IPs, peer IDs, filenames or request history.",
+  "properties": {
+    "connected_peers": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Connected Peers",
+      "type": "integer"
+    },
+    "ready": {
+      "default": false,
+      "title": "Ready",
+      "type": "boolean"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "enum": [
+            "stopped",
+            "duration",
+            "payload_threshold"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reason"
+    },
+    "stopped": {
+      "default": false,
+      "title": "Stopped",
+      "type": "boolean"
+    },
+    "uploaded_payload_bytes": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Uploaded Payload Bytes",
+      "type": "integer"
+    }
+  },
+  "title": "TorrentObservation",
+  "type": "object"
+}

@@ -1,7 +1,14 @@
 # Changes
 
-## Unreleased
+## 0.4.0
 
+- Add reviewed public-only publication under a separate signing identity, retaining
+  required model data/original notices and excluding private installed evidence.
+- Add optional libtorrent metainfo/web-seed export and explicit seed-only sessions,
+  with native rate/concurrency limits, monitored lifetime and an observed payload
+  stop threshold. Default receiving/verification still import no native binding.
+- Add standalone plan/publish/export/seed commands and real local peer tests.
+  No anonymity, durable daily upload quota or default torrent receiving is claimed.
 - Mark the public Python API as typed (PEP 561) so strict runtime consumers can
   validate the shipped annotations without copied or incomplete type stubs.
 

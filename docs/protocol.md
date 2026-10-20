@@ -133,3 +133,18 @@ must independently verify registry evidence; preserving arbitrary metadata or
 serializing a verification label never grants registry authority. See
 [cards and provenance](cards-and-provenance.md) for exact encoding, trust and
 historical-recovery semantics.
+
+## Public publication and optional BitTorrent adapter
+
+A separate reviewed public publication removes recognized private operational
+evidence and requires explicit retained-member terms plus a distinct publishing
+key. It uses the existing v1 format and signing domain; it does not relabel a
+private envelope, invent registry authority or start serving.
+
+The optional libtorrent adapter exports only authenticated public selections as
+standard torrent metainfo and a public mirror tree. Export does not participate
+in a network. Explicit seeding starts one seed-only session; ordinary receiving
+and verification remain unchanged. The torrent's transfer identity is distinct
+from the signed preservation identity. Verification of the expected manifest and
+all actual SHA-256 file bytes remains mandatory. See [public sharing](public-sharing.md)
+for privacy, stop/limit semantics and external-client receiving instructions.

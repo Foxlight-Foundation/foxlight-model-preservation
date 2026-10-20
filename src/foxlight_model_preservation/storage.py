@@ -318,7 +318,7 @@ def plan_restore(
     with (control or OperationControl()).operation("plan_restore") as active:
         if destination.exists() or destination.is_symlink():
             raise PreservationError("restore destination already exists")
-        manifest = _verify_store(store, manifest_id, trust, active)
+        manifest = verify_store_contents(store, manifest_id, trust, active)
         with directory(store) as root:
             metadata = read_metadata(root, manifest_path(manifest_id))
         request = digest(
@@ -369,13 +369,14 @@ def copy_exact(
         raise PreservationError("source exceeds the declared length")
 
 
-def _copy_object(
+def copy_verified_object(
     source: int,
     source_path: str,
     target: int,
     file: FileIdentity,
     control: OperationControl,
 ) -> None:
+    """Copy one hash-checked object under the caller's destination writer lock."""
     control.phase("checking")
     try:
         verify_object(target, file, control=control)
@@ -449,7 +450,7 @@ def pack(
             for member in manifest.members:
                 with directory(sources[member.member_id]) as source:
                     for file in member.files:
-                        _copy_object(source, file.path, target, file, active)
+                        copy_verified_object(source, file.path, target, file, active)
             active.phase("checking")
             for file in unique_objects(manifest):
                 verify_object(target, file, control=active)
@@ -492,12 +493,13 @@ def verify_store(
 ) -> Manifest:
     """Verify the selected signed generation and every actual required object."""
     with (control or OperationControl()).operation("verify") as active:
-        return _verify_store(destination, manifest_id, trust, active)
+        return verify_store_contents(destination, manifest_id, trust, active)
 
 
-def _verify_store(
+def verify_store_contents(
     destination: Path, manifest_id: str, trust: TrustProfile, control: OperationControl
 ) -> Manifest:
+    """Verify inside a caller-owned operation without opening another invocation."""
     control.phase("checking")
     with directory(destination) as root:
         manifest = verify_manifest(
@@ -532,7 +534,7 @@ def _restore(
         raise PreservationError("restore destination already exists")
     parent = destination.parent
     pending = parent / (".restore-" + uuid.uuid4().hex)
-    manifest = _verify_store(store, manifest_id, trust, control)
+    manifest = verify_store_contents(store, manifest_id, trust, control)
     control.phase("copying")
     parent.mkdir(parents=True, exist_ok=True)
     pending.mkdir(mode=0o700)

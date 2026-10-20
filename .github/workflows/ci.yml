@@ -23,6 +23,10 @@ jobs:
       - run: uv run ruff format --check
       - run: uv run basedpyright
       - run: uv run pytest
+      - name: Qualify optional BitTorrent with real local peers
+        run: |
+          uv sync --locked --dev --extra bittorrent
+          uv run --extra bittorrent pytest tests/test_torrent.py
       - run: uv build
       - name: Install the built wheel outside the checkout
         run: |
