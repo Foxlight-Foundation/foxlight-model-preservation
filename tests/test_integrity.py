@@ -28,6 +28,7 @@ from foxlight_model_preservation.storage import manifest_path, object_path, veri
     "path",
     [
         "",
+        ".",
         "/file",
         "../file",
         "a/../file",
@@ -45,6 +46,28 @@ from foxlight_model_preservation.storage import manifest_path, object_path, veri
 def test_unsafe_paths(path: str) -> None:
     with pytest.raises(PreservationError):
         canonical_path(path)
+
+
+def test_signed_dot_only_file_is_rejected(capture: Capture) -> None:
+    manifest = verify_store(capture.store, capture.identity, capture.trust)
+    value = manifest.model_dump(mode="json")
+    value["members"][0]["files"][0]["path"] = "."
+    payload = canonical_bytes(value)
+    signature = capture.key.sign(authenticated_encoding(BUNDLE_TYPE, payload))
+    envelope = canonical_bytes(
+        {
+            "payloadType": BUNDLE_TYPE,
+            "payload": base64.b64encode(payload).decode(),
+            "signatures": [
+                {
+                    "keyid": public_record(capture.key).key_id,
+                    "sig": base64.b64encode(signature).decode(),
+                }
+            ],
+        }
+    )
+    with pytest.raises(ValidationError, match="canonical and relative"):
+        verify_manifest(envelope, capture.trust, digest(payload))
 
 
 def test_dsse_pae_and_direct_ed25519(capture: Capture) -> None:

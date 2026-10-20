@@ -1,5 +1,6 @@
 """Actual byte copying, safe publication, and new-machine materialization."""
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -7,11 +8,13 @@ from conftest import Capture
 
 from foxlight_model_preservation.models import PreservationError
 from foxlight_model_preservation.storage import (
+    CHUNK_SIZE,
     directory,
     manifest_path,
     object_path,
     pack,
     restore,
+    unique_objects,
     verify_store,
     writer_lock,
 )
@@ -111,3 +114,74 @@ def test_non_regular_source_never_blocks(capture: Capture, tmp_path: Path) -> No
     os.mkfifo(selected)
     with pytest.raises(PreservationError, match="regular"):
         pack(capture.recipe, capture.sources, tmp_path / "fifo", (capture.key,))
+
+
+def test_repeated_capture_reuses_verified_objects_on_full_disk(
+    capture: Capture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    full = shutil.disk_usage(capture.store)._replace(free=0)
+    monkeypatch.setattr(shutil, "disk_usage", lambda _: full)
+    assert (
+        pack(capture.recipe, capture.sources, capture.store, (capture.key,))
+        == capture.identity
+    )
+    verify_store(capture.store, capture.identity, capture.trust)
+
+
+def test_new_capture_needs_space_only_for_unique_objects(
+    capture: Capture, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest = verify_store(capture.store, capture.identity, capture.trust)
+    required = sum(file.size for file in unique_objects(manifest))
+    logical = sum(file.size for member in manifest.members for file in member.files)
+    assert required < logical  # Both members carry the same notice bytes.
+    target = tmp_path / "deduplicated"
+    baseline = shutil.disk_usage(tmp_path)
+
+    def remaining_space(_: object) -> object:
+        used = sum(item.stat().st_size for item in target.glob("objects/sha256/*"))
+        return baseline._replace(free=required + 16 * CHUNK_SIZE - used)
+
+    monkeypatch.setattr(shutil, "disk_usage", remaining_space)
+    assert (
+        pack(capture.recipe, capture.sources, target, (capture.key,))
+        == capture.identity
+    )
+    verify_store(target, capture.identity, capture.trust)
+
+
+@pytest.mark.parametrize("corrupted", [False, True])
+@pytest.mark.parametrize("enough_space", [False, True])
+def test_reuse_requires_valid_bytes_and_space_for_replacement(
+    capture: Capture,
+    monkeypatch: pytest.MonkeyPatch,
+    corrupted: bool,
+    enough_space: bool,
+) -> None:
+    manifest = verify_store(capture.store, capture.identity, capture.trust)
+    file = manifest.members[0].files[0]
+    target = capture.store / object_path(file.sha256)
+    envelope = capture.store / manifest_path(capture.identity)
+    previous_envelope = envelope.read_bytes()
+    if corrupted:
+        target.write_bytes(b"x" * file.size)
+    else:
+        target.unlink()
+    available = shutil.disk_usage(capture.store)._replace(
+        free=file.size + 16 * CHUNK_SIZE - (0 if enough_space else 1)
+    )
+    monkeypatch.setattr(shutil, "disk_usage", lambda _: available)
+    if enough_space:
+        assert (
+            pack(capture.recipe, capture.sources, capture.store, (capture.key,))
+            == capture.identity
+        )
+        verify_store(capture.store, capture.identity, capture.trust)
+    else:
+        with pytest.raises(PreservationError, match="insufficient free space"):
+            pack(capture.recipe, capture.sources, capture.store, (capture.key,))
+        if corrupted:
+            assert target.read_bytes() == b"x" * file.size
+        else:
+            assert not target.exists()
+    assert envelope.read_bytes() == previous_envelope
