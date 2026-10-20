@@ -190,7 +190,12 @@ def publish_public(
     expected_manifest_id: Digest,
     control: OperationControl | None = None,
 ) -> str:
-    """Verify and publish reviewed public files under a distinct publishing key."""
+    """Publish reviewed public files under a distinct key into a fresh directory.
+
+    Existing directories, including empty folders and prior publications, refuse
+    without modification. An interrupted fresh output may contain only selected
+    public objects; it is not a complete publication until its envelope appears.
+    """
     with (control or OperationControl()).operation("pack") as active:
         return _publish_public(
             source,
@@ -221,6 +226,8 @@ def _publish_public(
     enrolled opaque handles to them. Signatures attest an owner publication;
     neither new terms nor a new signature manufacture upstream authorization.
     """
+    if destination.exists() or destination.is_symlink():
+        raise PreservationError("public output must be a fresh directory")
     if source.resolve().is_relative_to(
         destination.resolve()
     ) or destination.resolve().is_relative_to(source.resolve()):
@@ -250,9 +257,14 @@ def _publish_public(
     if len(encoded) > MAX_METADATA_BYTES:
         raise PreservationError("public envelope exceeds metadata size limit")
     active = control
+    active.checkpoint()
+    try:
+        destination.mkdir(mode=0o700, parents=True)
+    except FileExistsError as error:
+        raise PreservationError("public output must be a fresh directory") from error
     with (
         directory(source) as origin,
-        directory(destination, create=True) as target,
+        directory(destination) as target,
         writer_lock(target),
     ):
         for file in unique_objects(manifest):

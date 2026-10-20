@@ -340,3 +340,38 @@ def test_cli_review_then_publish_uses_the_same_exact_public_plan(
     assert json.loads(published.stdout)["manifest"] == identity
     trust = TrustProfile.model_validate_json(public_trust.read_bytes())
     assert verify_store(destination, identity, trust).name == "Public test model"
+
+
+@pytest.mark.parametrize("existing", ["empty", "private", "symlink"])
+def test_publication_never_reuses_an_existing_static_mirror_root(
+    capture: Capture, tmp_path: Path, existing: str
+) -> None:
+    private = private_capture(capture, tmp_path)
+    request = request_for(private)
+    planned = plan_publication(private.store, private.identity, private.trust, request)
+    destination = tmp_path / "public"
+    if existing == "symlink":
+        destination.symlink_to(private.store, target_is_directory=True)
+    else:
+        destination.mkdir()
+        if existing == "private":
+            (destination / "credentials.txt").write_text("unrelated private fixture")
+    before = sorted(str(path.relative_to(tmp_path)) for path in tmp_path.rglob("*"))
+    with pytest.raises(PreservationError, match="fresh directory"):
+        publish_public(
+            private.store,
+            private.identity,
+            private.trust,
+            request,
+            destination,
+            (Ed25519PrivateKey.generate(),),
+            expected_manifest_id=digest(encode_record(planned)),
+        )
+    assert (
+        sorted(str(path.relative_to(tmp_path)) for path in tmp_path.rglob("*"))
+        == before
+    )
+    if existing == "private":
+        assert (
+            destination / "credentials.txt"
+        ).read_text() == "unrelated private fixture"

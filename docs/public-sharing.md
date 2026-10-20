@@ -47,6 +47,11 @@ model-preserve publish PRIVATE_MANIFEST --store /private/archive \
   --expected-manifest-id REVIEWED_PUBLIC_MANIFEST --output /public/model
 ```
 
+The output must be a new directory. Existing folders, including empty folders
+and earlier publications, are refused without modification. Use a fresh output
+name after an interrupted publication; only its signed envelope establishes
+completion. This prevents unrelated leftovers from entering a static mirror.
+
 Review the complete proposed public manifest before using its exact ID. Publication
 verifies source bytes again, requires a distinct signing identity and publishes
 only the selected public objects and new signed envelope. The recognized
