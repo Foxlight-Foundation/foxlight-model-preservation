@@ -1,5 +1,10 @@
 # Changes
 
+## Unreleased
+
+- Mark the public Python API as typed (PEP 561) so strict runtime consumers can
+  validate the shipped annotations without copied or incomplete type stubs.
+
 ## 0.3.0
 
 - Publish the open model-card envelope/body profile and content-identity reader
