@@ -1,0 +1,2727 @@
+{
+  "$comment": "Generated from public Skulk 0b6f71da14777ddfbcbf47a278edb3cda7366ac9 ModelCard; local registry/operator projections excluded. Structural schema only; runtime semantic validation remains required.",
+  "$defs": {
+    "ArtifactBundleConfig": {
+      "additionalProperties": false,
+      "description": "Exact file selection and loader root for one downloadable artifact.",
+      "properties": {
+        "bundle_id": {
+          "description": "Content-derived immutable identity of the normalized file bundle.",
+          "title": "Bundle Id",
+          "type": "string"
+        },
+        "download_size": {
+          "description": "Total bytes transferred for the complete bundle.",
+          "title": "Download Size",
+          "type": "integer"
+        },
+        "files": {
+          "description": "Every repository file required to install and run the artifact.",
+          "items": {
+            "$ref": "#/$defs/ArtifactBundleFile"
+          },
+          "title": "Files",
+          "type": "array"
+        },
+        "root": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Repository-relative directory used as the engine's model root.",
+          "title": "Root"
+        }
+      },
+      "required": [
+        "bundle_id",
+        "files",
+        "download_size"
+      ],
+      "title": "ArtifactBundleConfig",
+      "type": "object"
+    },
+    "ArtifactBundleFile": {
+      "additionalProperties": false,
+      "description": "One exact immutable repository file required by a model artifact.",
+      "properties": {
+        "object_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional algorithm-qualified Hub object identity used for verification.",
+          "title": "Object Id"
+        },
+        "path": {
+          "description": "Canonical repository-relative POSIX path.",
+          "title": "Path",
+          "type": "string"
+        },
+        "size_bytes": {
+          "description": "Exact upstream byte size at the card's immutable source revision.",
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "size_bytes"
+      ],
+      "title": "ArtifactBundleFile",
+      "type": "object"
+    },
+    "AudioCardConfig": {
+      "additionalProperties": false,
+      "description": "Optional speech-specific capability declarations for a model card.",
+      "properties": {
+        "default_response_format": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AudioResponseFormat"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Default encoded audio response format for TTS requests."
+        },
+        "default_voice": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Built-in voice used when a TTS request omits an explicit voice.",
+          "title": "Default Voice"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AudioCardKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Speech serving kind: ``tts`` for text-to-speech or ``stt`` for speech-to-text."
+        },
+        "response_formats": {
+          "default": [],
+          "description": "Encoded audio formats this model can produce for TTS requests.",
+          "items": {
+            "$ref": "#/$defs/AudioResponseFormat"
+          },
+          "title": "Response Formats",
+          "type": "array"
+        },
+        "sample_rates": {
+          "default": [],
+          "description": "Supported output or input sample rates in hertz.",
+          "items": {
+            "exclusiveMinimum": 0,
+            "type": "integer"
+          },
+          "title": "Sample Rates",
+          "type": "array"
+        },
+        "supports_realtime": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Whether the model exposes a realtime session interface.",
+          "title": "Supports Realtime"
+        },
+        "supports_reference_audio": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Whether the model accepts managed reference audio for voice conditioning.",
+          "title": "Supports Reference Audio"
+        },
+        "supports_streaming": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Whether a validated Skulk runtime path can stream partial speech or transcripts.",
+          "title": "Supports Streaming"
+        },
+        "supports_translation": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Whether the model can translate speech instead of only transcribing it.",
+          "title": "Supports Translation"
+        },
+        "supports_voice_listing": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Whether the model can enumerate voices through a voice-listing API.",
+          "title": "Supports Voice Listing"
+        },
+        "voice_catalog": {
+          "default": [],
+          "description": "Optional display and language metadata for every declared built-in voice.",
+          "items": {
+            "$ref": "#/$defs/AudioVoiceConfig"
+          },
+          "title": "Voice Catalog",
+          "type": "array"
+        },
+        "voices": {
+          "default": [],
+          "description": "Stable built-in voice identifiers exposed by the model.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Voices",
+          "type": "array"
+        }
+      },
+      "title": "AudioCardConfig",
+      "type": "object"
+    },
+    "AudioCardKind": {
+      "description": "Speech model kind declared by a model card's ``[audio]`` section.",
+      "enum": [
+        "tts",
+        "stt"
+      ],
+      "title": "AudioCardKind",
+      "type": "string"
+    },
+    "AudioResponseFormat": {
+      "description": "Audio response formats supported by the speech serving API.",
+      "enum": [
+        "mp3",
+        "wav",
+        "flac",
+        "ogg",
+        "opus",
+        "pcm"
+      ],
+      "title": "AudioResponseFormat",
+      "type": "string"
+    },
+    "AudioVoiceConfig": {
+      "additionalProperties": false,
+      "description": "Declarative metadata for one stable TTS voice.",
+      "properties": {
+        "id": {
+          "description": "Model-specific voice identifier accepted by speech synthesis.",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "description": "Human-readable voice name shown by clients.",
+          "title": "Name",
+          "type": "string"
+        },
+        "preferred_languages": {
+          "default": [],
+          "description": "Ordered BCP 47 language tags for which this voice is a preferred match.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Preferred Languages",
+          "type": "array"
+        },
+        "reference_profile": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Bundled reference profile used to condition models without built-in voices.",
+          "title": "Reference Profile"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "title": "AudioVoiceConfig",
+      "type": "object"
+    },
+    "BuiltinToolType": {
+      "description": "Builtin tool contracts that Skulk can advertise to model families.",
+      "enum": [
+        "web_search",
+        "open_url",
+        "extract_page"
+      ],
+      "title": "BuiltinToolType",
+      "type": "string"
+    },
+    "ComponentInfo": {
+      "additionalProperties": false,
+      "description": "One weight component of a multi-component model (e.g. a diffusion stack).",
+      "properties": {
+        "can_shard": {
+          "description": "Whether this component may be split across nodes (vs. loaded whole).",
+          "title": "Can Shard",
+          "type": "boolean"
+        },
+        "component_name": {
+          "description": "Logical name of this component (e.g. ``text_encoder``, ``transformer``).",
+          "title": "Component Name",
+          "type": "string"
+        },
+        "component_path": {
+          "description": "Repo-relative subdirectory holding this component's weights.",
+          "title": "Component Path",
+          "type": "string"
+        },
+        "n_layers": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Layer count for this component when it is shardable; ``None`` otherwise.",
+          "title": "N Layers"
+        },
+        "safetensors_index_filename": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The component's ``*.safetensors.index.json`` filename when sharded across\nfiles; ``None`` for a single-file component.",
+          "title": "Safetensors Index Filename"
+        },
+        "storage_size": {
+          "$ref": "#/$defs/Memory",
+          "description": "On-disk size of this component's weights."
+        }
+      },
+      "required": [
+        "component_name",
+        "component_path",
+        "storage_size",
+        "can_shard"
+      ],
+      "title": "ComponentInfo",
+      "type": "object"
+    },
+    "GgufCacheGeometry": {
+      "additionalProperties": false,
+      "description": "Fixed recurrent state and per-token attention dimensions of one artifact.",
+      "properties": {
+        "attention_layers": {
+          "description": "Target full-attention layers.",
+          "minimum": 0,
+          "title": "Attention Layers",
+          "type": "integer"
+        },
+        "convolution_width": {
+          "description": "Convolution-state elements per recurrent layer and row.",
+          "minimum": 0,
+          "title": "Convolution Width",
+          "type": "integer"
+        },
+        "key_width": {
+          "description": "Key elements per token per layer.",
+          "exclusiveMinimum": 0,
+          "title": "Key Width",
+          "type": "integer"
+        },
+        "nextn_layers": {
+          "description": "Embedded MTP attention layers.",
+          "minimum": 0,
+          "title": "Nextn Layers",
+          "type": "integer"
+        },
+        "recurrent_layers": {
+          "description": "Target recurrent layers.",
+          "minimum": 0,
+          "title": "Recurrent Layers",
+          "type": "integer"
+        },
+        "recurrent_width": {
+          "description": "Recurrent-state elements per recurrent layer and row.",
+          "minimum": 0,
+          "title": "Recurrent Width",
+          "type": "integer"
+        },
+        "value_width": {
+          "description": "Value elements per token per layer.",
+          "exclusiveMinimum": 0,
+          "title": "Value Width",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "attention_layers",
+        "recurrent_layers",
+        "nextn_layers",
+        "key_width",
+        "value_width",
+        "convolution_width",
+        "recurrent_width"
+      ],
+      "title": "GgufCacheGeometry",
+      "type": "object"
+    },
+    "ImageCardConfig": {
+      "additionalProperties": false,
+      "description": "Image geometry, component completeness, sampling, and input/output truth.",
+      "properties": {
+        "components": {
+          "description": "Complete immutable component sources.",
+          "items": {
+            "$ref": "#/$defs/ImageComponent"
+          },
+          "minItems": 1,
+          "title": "Components",
+          "type": "array"
+        },
+        "default_guidance": {
+          "default": 1.0,
+          "description": "Recommended classifier-free guidance.",
+          "maximum": 20.0,
+          "minimum": 1.0,
+          "title": "Default Guidance",
+          "type": "number"
+        },
+        "default_height": {
+          "default": 1024,
+          "description": "Height used for size=auto.",
+          "maximum": 4096,
+          "minimum": 64,
+          "title": "Default Height",
+          "type": "integer"
+        },
+        "default_steps": {
+          "description": "Recommended sampling steps for this checkpoint.",
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Default Steps",
+          "type": "integer"
+        },
+        "default_width": {
+          "default": 1024,
+          "description": "Width used for size=auto.",
+          "maximum": 4096,
+          "minimum": 64,
+          "title": "Default Width",
+          "type": "integer"
+        },
+        "dimension_multiple": {
+          "default": 32,
+          "description": "Required alignment of each canvas dimension.",
+          "maximum": 256,
+          "minimum": 1,
+          "title": "Dimension Multiple",
+          "type": "integer"
+        },
+        "family": {
+          "description": "Intrinsic image architecture/checkpoint family.",
+          "enum": [
+            "qwen_image_21",
+            "qwen_image_21_turbo",
+            "flux_2_klein_4b",
+            "flux_3_klein",
+            "flux_3_klein_base",
+            "moss_image",
+            "z_image_turbo",
+            "sdxl"
+          ],
+          "title": "Family",
+          "type": "string"
+        },
+        "fixed_sigmas": {
+          "default": [],
+          "description": "Fixed sampling grid including terminal zero; empty selects the normal family schedule.",
+          "items": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "type": "number"
+          },
+          "title": "Fixed Sigmas",
+          "type": "array"
+        },
+        "max_pixels": {
+          "default": 4400000,
+          "description": "Declared maximum canvas area.",
+          "maximum": 16777216,
+          "minimum": 4096,
+          "title": "Max Pixels",
+          "type": "integer"
+        },
+        "max_reference_images": {
+          "default": 0,
+          "description": "Maximum supported ordered reference images.",
+          "maximum": 10,
+          "minimum": 0,
+          "title": "Max Reference Images",
+          "type": "integer"
+        },
+        "supports_alpha": {
+          "default": false,
+          "description": "Whether the model produces and consumes RGBA.",
+          "title": "Supports Alpha",
+          "type": "boolean"
+        },
+        "unet_structure": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ImageUnetStructureConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Mixed SDXL modules; card dimensions use count and max width."
+        }
+      },
+      "required": [
+        "family",
+        "components",
+        "default_steps"
+      ],
+      "title": "ImageCardConfig",
+      "type": "object"
+    },
+    "ImageComponent": {
+      "additionalProperties": false,
+      "description": "Complete pinned component source and the entry file its engine loads.",
+      "properties": {
+        "entry_file": {
+          "description": "Path of the loader entry file among the selected files.",
+          "title": "Entry File",
+          "type": "string"
+        },
+        "files": {
+          "description": "All files required by this component.",
+          "items": {
+            "$ref": "#/$defs/ImageComponentFile"
+          },
+          "minItems": 1,
+          "title": "Files",
+          "type": "array"
+        },
+        "parameter_count": {
+          "default": 0,
+          "description": "Logical scalar weight count before packing, excluding quantization scales.",
+          "minimum": 0,
+          "title": "Parameter Count",
+          "type": "integer"
+        },
+        "repository": {
+          "description": "Hub repository hosting this component.",
+          "pattern": "^[^/\\s]+/[^/\\s]+$",
+          "title": "Repository",
+          "type": "string"
+        },
+        "revision": {
+          "description": "Immutable Hub commit.",
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "role": {
+          "description": "Typed loader role, never an arbitrary CLI flag.",
+          "enum": [
+            "model",
+            "diffusion",
+            "vae",
+            "text_encoder",
+            "text_encoder_vision",
+            "tokenizer",
+            "clip_l",
+            "clip_g",
+            "t5xxl"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "tensor_format": {
+          "default": "native",
+          "description": "Intrinsic serialized tensor packing; runtime precision is engine-specific.",
+          "enum": [
+            "native",
+            "modelopt_fp8",
+            "modelopt_nvfp4",
+            "flux3_diffusers"
+          ],
+          "title": "Tensor Format",
+          "type": "string"
+        }
+      },
+      "required": [
+        "role",
+        "repository",
+        "revision",
+        "entry_file",
+        "files"
+      ],
+      "title": "ImageComponent",
+      "type": "object"
+    },
+    "ImageComponentFile": {
+      "additionalProperties": false,
+      "description": "One immutable file needed by a component, including all weight shards.",
+      "properties": {
+        "object_id": {
+          "description": "Immutable Hub object identity, checked during staging.",
+          "pattern": "^(?:sha256:[0-9a-f]{64}|git-sha1:[0-9a-f]{40})$",
+          "title": "Object Id",
+          "type": "string"
+        },
+        "path": {
+          "description": "Canonical repository-relative POSIX path.",
+          "title": "Path",
+          "type": "string"
+        },
+        "size_bytes": {
+          "description": "Pinned upstream file size in bytes.",
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "size_bytes",
+        "object_id"
+      ],
+      "title": "ImageComponentFile",
+      "type": "object"
+    },
+    "ImageUnetStructureConfig": {
+      "additionalProperties": false,
+      "description": "Nonuniform UNet module geometry, independent of text-cache assumptions.",
+      "properties": {
+        "input_block_channels": {
+          "description": "Input-module output channels in checkpoint order.",
+          "items": {
+            "exclusiveMinimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 128,
+          "minItems": 1,
+          "title": "Input Block Channels",
+          "type": "array"
+        },
+        "input_channels": {
+          "description": "Input channels of the UNet's first convolution.",
+          "exclusiveMinimum": 0,
+          "title": "Input Channels",
+          "type": "integer"
+        },
+        "middle_block_channels": {
+          "description": "Middle-module output channels, including attention projections.",
+          "items": {
+            "exclusiveMinimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 128,
+          "minItems": 1,
+          "title": "Middle Block Channels",
+          "type": "array"
+        },
+        "output_block_channels": {
+          "description": "Output-module output channels in checkpoint order.",
+          "items": {
+            "exclusiveMinimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 128,
+          "minItems": 1,
+          "title": "Output Block Channels",
+          "type": "array"
+        },
+        "output_channels": {
+          "description": "Output channels of the UNet's final convolution.",
+          "exclusiveMinimum": 0,
+          "title": "Output Channels",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "input_block_channels",
+        "middle_block_channels",
+        "output_block_channels",
+        "input_channels",
+        "output_channels"
+      ],
+      "title": "ImageUnetStructureConfig",
+      "type": "object"
+    },
+    "LicenseCardConfig": {
+      "additionalProperties": false,
+      "description": "Operator-facing license facts for a model artifact.\n\nSkulk fetches weights only on an explicit request and never redistributes\nthem, so the card surfaces the terms and lets the operator decide. Nothing\nhere is enforced by placement or download.",
+      "properties": {
+        "display_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Product attribution the license requires user interfaces to show\nprominently, for example the model's brand name.",
+          "title": "Display Name"
+        },
+        "name": {
+          "description": "Human-readable license name.",
+          "title": "Name",
+          "type": "string"
+        },
+        "notice": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Short operator-facing note, for example a territorial scope or an\napplication requirement.",
+          "title": "Notice"
+        },
+        "spdx_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "SPDX identifier when one exists; custom community licenses have none.",
+          "title": "Spdx Id"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Where the license text lives.",
+          "title": "Url"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "LicenseCardConfig",
+      "type": "object"
+    },
+    "Memory": {
+      "additionalProperties": false,
+      "properties": {
+        "in_bytes": {
+          "default": 0,
+          "title": "In Bytes",
+          "type": "integer"
+        }
+      },
+      "title": "Memory",
+      "type": "object"
+    },
+    "ModalitiesCardConfig": {
+      "additionalProperties": false,
+      "description": "Optional advanced modality declarations for a model card.",
+      "properties": {
+        "supports_audio_input": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Whether the model accepts audio input.",
+          "title": "Supports Audio Input"
+        },
+        "supports_native_multimodal": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Whether the model natively interleaves modalities (vs. a bolt-on adapter).",
+          "title": "Supports Native Multimodal"
+        }
+      },
+      "title": "ModalitiesCardConfig",
+      "type": "object"
+    },
+    "ModelTask": {
+      "description": "Task families a model card can declare as servable.",
+      "enum": [
+        "TextGeneration",
+        "TextToImage",
+        "ImageToImage",
+        "TextEmbedding",
+        "TextToSpeech",
+        "SpeechToText",
+        "SpeechTranslation",
+        "TextToMusic",
+        "TextToVideo",
+        "ImageToVideo",
+        "ReferenceToVideo"
+      ],
+      "title": "ModelTask",
+      "type": "string"
+    },
+    "MusicCardConfig": {
+      "additionalProperties": false,
+      "description": "Model truth for bounded text-to-music generation, separate from speech.",
+      "properties": {
+        "family": {
+          "$ref": "#/$defs/MusicModelFamily",
+          "description": "Architecture family used by the runner's fixed option translator."
+        },
+        "flow_transformer_gguf": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "MiniMax flow-transformer component selected by this exact artifact.",
+          "title": "Flow Transformer Gguf"
+        },
+        "language_model_gguf": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "MiniMax language-model component selected by this exact artifact.",
+          "title": "Language Model Gguf"
+        },
+        "lyrics": {
+          "$ref": "#/$defs/MusicLyricRequirement",
+          "description": "Whether lyrics are required, permitted, or unsupported."
+        },
+        "max_seconds": {
+          "description": "Longest generation target accepted for this artifact, at most 120 seconds.",
+          "exclusiveMinimum": 0,
+          "title": "Max Seconds",
+          "type": "integer"
+        },
+        "min_seconds": {
+          "description": "Shortest generation target accepted for this artifact.",
+          "exclusiveMinimum": 0,
+          "title": "Min Seconds",
+          "type": "integer"
+        },
+        "rvq_depth_decoder_gguf": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "MiniMax RVQ decoder component selected by this exact artifact.",
+          "title": "Rvq Depth Decoder Gguf"
+        }
+      },
+      "required": [
+        "family",
+        "lyrics",
+        "min_seconds",
+        "max_seconds"
+      ],
+      "title": "MusicCardConfig",
+      "type": "object"
+    },
+    "MusicLyricRequirement": {
+      "description": "Whether a music model accepts or requires a caller's lyrics.",
+      "enum": [
+        "required",
+        "optional",
+        "unsupported"
+      ],
+      "title": "MusicLyricRequirement",
+      "type": "string"
+    },
+    "MusicModelFamily": {
+      "description": "Music-generation family whose options are translated by its engine adapter.",
+      "enum": [
+        "minimax_music3",
+        "ace_step_1_5"
+      ],
+      "title": "MusicModelFamily",
+      "type": "string"
+    },
+    "OutputParserType": {
+      "description": "Output parser strategies supported by the runtime.",
+      "enum": [
+        "generic",
+        "gemma4",
+        "gpt_oss",
+        "deepseek_v32",
+        "muse_glimmer"
+      ],
+      "title": "OutputParserType",
+      "type": "string"
+    },
+    "PlacementCardConfig": {
+      "additionalProperties": false,
+      "description": "Hardware/routing constraints the planner reads from a model card (#149).\n\nThe only card section the planner consults directly. Defaults describe the\ncurrent implicit assumption (an MLX model with no extra memory floor), so\ncards without a ``[placement]`` section behave exactly as before.",
+      "properties": {
+        "backend_preference": {
+          "default": [],
+          "description": "Soft, ordered preference among the node's backend tags (e.g.\n``(\"llama_cpp-vulkan\", \"llama_cpp-rocm\")``).\n\nUnlike ``compatible_backends`` (a hard filter on which nodes are eligible),\nthis only *ranks* eligible nodes/devices: the planner prefers a node that\nadvertises an earlier-listed tag, and the runner picks the earliest-listed\nbackend the chosen node actually has. The same model runs on any compatible\nbackend, but their performance differs per model, so this captures \"fastest\non Vulkan, ROCm is an acceptable fallback\" while still degrading gracefully\nto a node that only offers the fallback. Order is significant and preserved;\nan empty tuple means no preference (use the node's default).",
+          "items": {
+            "type": "string"
+          },
+          "title": "Backend Preference",
+          "type": "array"
+        },
+        "compatible_backends": {
+          "default": [
+            "mlx"
+          ],
+          "description": "Hard constraint: only route to nodes whose advertised backends intersect\nthis set. Making the implicit ``{\"mlx\"}`` explicit is what enables future\nheterogeneous (llama_cpp / rocm / cuda) routing.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Compatible Backends",
+          "type": "array",
+          "uniqueItems": true
+        },
+        "max_context_tokens": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Soft: caps the placement-time KV budget check (see #145) when set.",
+          "title": "Max Context Tokens"
+        },
+        "max_pipeline_split_layer": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Largest layer boundary at which a pipeline rank may begin.\n\nSome architectures end with layers that reuse KV produced by earlier\nconcrete layers. Keeping every split at or before this boundary ensures the\nfinal rank owns those producers as well as their dependent tail. ``None``\nallows the planner to split at any ordinary layer boundary.",
+          "title": "Max Pipeline Split Layer"
+        },
+        "min_vram_gib": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "deprecated": true,
+          "description": "Legacy reference memory figure; actual engine/workload estimates determine placement. This is not a universal hardware eligibility floor.",
+          "title": "Min Vram Gib"
+        }
+      },
+      "title": "PlacementCardConfig",
+      "type": "object"
+    },
+    "PromptRendererType": {
+      "description": "Prompt renderer strategies supported by the runtime.",
+      "enum": [
+        "tokenizer",
+        "gemma4",
+        "dsml"
+      ],
+      "title": "PromptRendererType",
+      "type": "string"
+    },
+    "ReasoningCardConfig": {
+      "additionalProperties": false,
+      "description": "Optional advanced reasoning capability declarations for a model card.",
+      "properties": {
+        "default_effort": {
+          "anyOf": [
+            {
+              "enum": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "xhigh"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Reasoning effort applied when the request does not specify one.",
+          "title": "Default Effort"
+        },
+        "disabled_effort": {
+          "anyOf": [
+            {
+              "enum": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "xhigh"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The effort value that means \"reasoning off\" for this model.",
+          "title": "Disabled Effort"
+        },
+        "format": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReasoningFormat"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How reasoning is marked in the output stream: ``none``, ``token_delimited``\n(special tokens), or ``channel_delimited`` (a separate reasoning channel)."
+        },
+        "supports_budget": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Whether the model accepts a reasoning-effort/budget control.",
+          "title": "Supports Budget"
+        },
+        "supports_toggle": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Whether the model can have reasoning turned on/off per request.",
+          "title": "Supports Toggle"
+        }
+      },
+      "title": "ReasoningCardConfig",
+      "type": "object"
+    },
+    "ReasoningFormat": {
+      "description": "Reasoning marker formats used by model families.",
+      "enum": [
+        "none",
+        "token_delimited",
+        "channel_delimited"
+      ],
+      "title": "ReasoningFormat",
+      "type": "string"
+    },
+    "RegistryCapabilityClaim": {
+      "additionalProperties": false,
+      "description": "Open signed model or artifact capability independent of runtime support.",
+      "properties": {
+        "capability_id": {
+          "description": "Open namespaced intrinsic capability identifier.",
+          "pattern": "^[a-z0-9][a-z0-9._:-]{0,199}$",
+          "title": "Capability Id",
+          "type": "string"
+        },
+        "confidence": {
+          "description": "Source confidence from zero through one.",
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "details": {
+          "additionalProperties": true,
+          "description": "Open capability-specific evidence details.",
+          "title": "Details",
+          "type": "object"
+        },
+        "evidence_urls": {
+          "default": [],
+          "description": "Bounded evidence references.",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Evidence Urls",
+          "type": "array"
+        },
+        "input_modalities": {
+          "default": [],
+          "description": "Declared input modalities.",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Input Modalities",
+          "type": "array"
+        },
+        "output_modalities": {
+          "default": [],
+          "description": "Declared output modalities.",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Output Modalities",
+          "type": "array"
+        },
+        "reviewer_model": {
+          "anyOf": [
+            {
+              "maxLength": 300,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Agent reviewer identity, if any.",
+          "title": "Reviewer Model"
+        },
+        "scope": {
+          "description": "Whether the claim describes the model or selected artifact.",
+          "enum": [
+            "model",
+            "artifact"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "source": {
+          "description": "Evidence channel that produced the claim.",
+          "enum": [
+            "upstream_structured",
+            "artifact_manifest",
+            "agent_analysis"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "status": {
+          "description": "Evidence state without an engine-support implication.",
+          "enum": [
+            "claimed",
+            "observed",
+            "complete",
+            "incomplete",
+            "unknown"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "capability_id",
+        "scope",
+        "status",
+        "source",
+        "confidence"
+      ],
+      "title": "RegistryCapabilityClaim",
+      "type": "object"
+    },
+    "RegistryGgufArtifactMetadata": {
+      "additionalProperties": false,
+      "description": "Header evidence bound to one immutable repository file.",
+      "properties": {
+        "header": {
+          "$ref": "#/$defs/RegistryGgufHeaderMetadata"
+        },
+        "repository": {
+          "maxLength": 512,
+          "minLength": 3,
+          "title": "Repository",
+          "type": "string"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "selected_file": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Selected File",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repository",
+        "revision",
+        "selected_file",
+        "header"
+      ],
+      "title": "RegistryGgufArtifactMetadata",
+      "type": "object"
+    },
+    "RegistryGgufHeaderMetadata": {
+      "additionalProperties": false,
+      "description": "Bounded facts read from one exact artifact's complete GGUF metadata area.\n\nThe digest covers the file prefix through the last metadata value, including\nthe GGUF preamble. It is evidence identity, not a full-artifact checksum.\nConsumers own architecture-specific interpretation and engine allocation.",
+      "properties": {
+        "architecture": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Architecture",
+          "type": "string"
+        },
+        "has_recurrent_layer_override": {
+          "description": "Whether an explicit attention.recurrent_layers field exists.",
+          "title": "Has Recurrent Layer Override",
+          "type": "boolean"
+        },
+        "metadata_bytes": {
+          "maximum": 16777216,
+          "minimum": 24,
+          "title": "Metadata Bytes",
+          "type": "integer"
+        },
+        "metadata_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Metadata Sha256",
+          "type": "string"
+        },
+        "scalars": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "description": "Architecture-relative integer GGUF fields, without defaults.",
+          "maxProperties": 13,
+          "title": "Scalars",
+          "type": "object"
+        }
+      },
+      "required": [
+        "architecture",
+        "scalars",
+        "has_recurrent_layer_override",
+        "metadata_sha256",
+        "metadata_bytes"
+      ],
+      "title": "RegistryGgufHeaderMetadata",
+      "type": "object"
+    },
+    "RuntimeCapabilityCardConfig": {
+      "additionalProperties": false,
+      "description": "Optional runtime behavior hints for a model card.",
+      "properties": {
+        "assistant_model_repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Hugging Face repo ID of a companion *assistant* (drafter) model.\n\nGemma 4 does speculative decoding differently from the Qwen3/DeepSeek\n``mtp.*`` heads: instead of embedded prediction heads, it pairs the target\nwith a separate small ``gemma4_assistant`` model (e.g.\n``\"mlx-community/gemma-4-26B-A4B-it-assistant-bf16\"``) that cross-attends\nover the target's KV cache. When set, the assistant repo is downloaded\nalongside the base model. Mutually exclusive with the ``mtp_*`` fields.\n\nNOTE: consuming the assistant for speculative generation requires the\n``gemma4_assistant`` drafter from mlx-vlm >= 0.5.0 and is not yet wired into\nthe runner \u2014 declaring it here only pre-downloads it. See the Gemma 4 MTP\ninitiative in the foxlight-docs hub (Phase C).",
+          "title": "Assistant Model Repo"
+        },
+        "assistant_model_revision": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{40}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Immutable commit for a separate ``assistant_model_repo``.",
+          "title": "Assistant Model Revision"
+        },
+        "metal_fast_synch": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Per-model override for the MLX ``MLX_METAL_FAST_SYNCH`` flag.\n\n``None`` means \"no opinion\" \u2014 fall through to the cluster default\nselected by the runner. Set explicitly to ``False`` for models that\ndeadlock under FAST_SYNCH on the ring backend (e.g. gemma-4 with\nmultimodal load: the Metal command queue wedges in\n``pipeline_last_eval_output``, transitively starves WindowServer,\nand trips the macOS kernel watchdog into a panic). Set explicitly\nto ``True`` for models that have been measured to benefit and are\nknown to be safe under the deployment's collective backend.",
+          "title": "Metal Fast Synch"
+        },
+        "mtp_concat_order": {
+          "anyOf": [
+            {
+              "enum": [
+                "embed_first",
+                "hidden_first"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Concatenation order of the MTP fc projection input.\n\n``\"embed_first\"`` = ``fc(concat([enorm(embed(t_next)), hnorm(h)]))`` \u2014\nverified for Qwen3.5 (72.4% offline agreement, issue #192).\n``\"hidden_first\"`` is the inherited DeepSeek assumption (unverified).\n``None`` falls through to the family default keyed off the detected\nsidecar layout.",
+          "title": "Mtp Concat Order"
+        },
+        "mtp_heads": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "True when native MTP prediction heads are available via sidecar.\n\nSet alongside ``mtp_sidecar_repo``. When false or absent, the runner\nskips sidecar loading and uses standard autoregressive generation.",
+          "title": "Mtp Heads"
+        },
+        "mtp_max_depth": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum draft depth the MTP heads support.\n\nStart at 1 for Apple Silicon. Deeper values can be evaluated via\nprofiling but are unlikely to amortize on Metal due to near-linear\nverify-pass scaling.",
+          "title": "Mtp Max Depth"
+        },
+        "mtp_norm_convention": {
+          "anyOf": [
+            {
+              "enum": [
+                "zero_centered",
+                "actual_scale"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How the sidecar stores its RMSNorm weights.\n\n``\"zero_centered\"`` means deviation-from-1 (the raw Qwen3.5 checkpoint\nconvention \u2014 the runner applies a +1.0 shift at load, mirroring what\nmlx-lm's ``sanitize()`` does for trunk weights). ``\"actual_scale\"`` means\nthe stored value is the scale itself (DeepSeek convention). ``None``\nfalls through to the family default keyed off the detected sidecar\nlayout. Override per card when a publisher changes conventions \u2014 getting\nthis wrong measured 0% draft acceptance on Qwen3.5-2B (issue #192).",
+          "title": "Mtp Norm Convention"
+        },
+        "mtp_sidecar_repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Hugging Face repo ID containing the published ``mtp.safetensors`` sidecar.\n\nExample: ``\"FoxlightAI/qwen3-5-7b-instruct-mtp-q4k\"``\nThe sidecar is downloaded alongside the base model weights and loaded\ninto the runner for speculative decoding. Produced by SWP.",
+          "title": "Mtp Sidecar Repo"
+        },
+        "mtp_sidecar_revision": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{40}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Immutable commit for a separate ``mtp_sidecar_repo``.",
+          "title": "Mtp Sidecar Revision"
+        },
+        "output_parser": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OutputParserType"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How model output is parsed (``generic``, ``gemma4``, ``gpt_oss``,\n``deepseek_v32``), e.g. for reasoning/tool-call extraction; ``None`` uses the\nfamily default."
+        },
+        "prompt_renderer": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PromptRendererType"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How prompts are rendered for this model (``tokenizer`` chat template,\n``gemma4``, ``dsml``); ``None`` uses the family default."
+        },
+        "served_spec_draft_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Repo-relative GGUF filename of the served draft model (in\n``served_spec_draft_repo``), e.g. ``\"mtp-gemma-4-31B-it.gguf\"``. Required when\n``served_spec_draft_repo`` is set; selects the exact draft quant the runner\npasses to ``--model-draft``.",
+          "title": "Served Spec Draft File"
+        },
+        "served_spec_draft_repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Hugging Face repo of a separate **draft** GGUF for the served engine.\n\nSome served speculative modes need a second model passed to llama-server via\n``--model-draft``, NOT built-in heads: ``draft_simple`` (a vocab-matched small\ndraft model) and ``draft_eagle3`` (an EAGLE-3 head) always require one, and\nGemma 4 ``draft_mtp`` uses its *assistant* as a separate draft GGUF (llama.cpp\nPR #23398) rather than baking heads into the base. Qwen3.6/DeepSeek/GLM\n``draft_mtp`` leave this unset (heads are in the base GGUF). When set, the\ndraft GGUF is downloaded as a companion alongside the base and passed as\n``--model-draft``. Pairs with ``served_spec_draft_file``.",
+          "title": "Served Spec Draft Repo"
+        },
+        "served_spec_draft_revision": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{40}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Immutable commit for a separate ``served_spec_draft_repo``.",
+          "title": "Served Spec Draft Revision"
+        },
+        "served_spec_n_max": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Max draft tokens per step for the served engine (``--spec-draft-n-max``).\n\nMust be a positive integer (validated at card load so a bad value fails fast\nrather than producing an undefined ``--spec-draft-n-max`` at the server).\n``None`` uses the llama-server default (3). Acceptance falls off with depth\n(per-position acceptance drops), so 2-3 is the usual sweet spot; tune per\ncard from measured acceptance.",
+          "title": "Served Spec N Max"
+        },
+        "served_spec_type": {
+          "anyOf": [
+            {
+              "enum": [
+                "none",
+                "draft_mtp",
+                "draft_eagle3",
+                "draft_simple",
+                "draft_dflash",
+                "ngram"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Speculative-decoding mode for the ``llama_server`` (served-backend) engine.\n\nMaps to a ``llama-server --spec-type`` token in the runner\n(``_SPEC_TYPE_FLAG``): ``draft_mtp`` -> ``draft-mtp`` (usually the model's own built-in\nMTP heads; a separate draft is optional, e.g. Gemma 4's assistant;\nQwen3.6/DeepSeek/GLM/Kimi/Nemotron bake theirs in),\n``draft_eagle3`` -> ``draft-eagle3`` (an EAGLE-3 head), ``draft_simple`` ->\n``draft-simple`` (a separate draft model), ``draft_dflash`` ->\n``draft-dflash`` (a separate block-parallel DFlash speculator GGUF via\n``served_spec_draft_repo``/``served_spec_draft_file``; llama-server >=\nb10092), ``ngram`` -> ``ngram-cache`` (prompt-lookup), ``none``/``None``\nplain decoding. Only the served engine reads\nthis; the in-process ``mlx`` and ``llama_cpp`` engines ignore it (MLX\nspeculation is the ``mtp_*`` / ``assistant_model_repo`` fields above).",
+          "title": "Served Spec Type"
+        },
+        "speculative_multi_node": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Whether speculation may run on multi-node placements of this model.\n\n``None`` (default) places no restriction. Set ``False`` for models\nwhere multi-node speculation is measured SLOWER than plain distributed\ndecode: the 2026-06-06 benchmark matrix found gemma-4-26B-A4B (MoE)\nat 30.2 tok/s plain vs 28.2 with MTP on a 2-node pipeline (-7%), while\nsingle-node MTP on the same model measures 2.2x \u2014 fast sharded MoE\ndecode plus modest acceptance makes the per-round draft+verify\noverhead net negative. Single-node speculation is unaffected by this\nknob. The decision is card-driven so every rank makes the same\nspeculate-or-not choice (the distributed agreement collective requires\nrank symmetry).",
+          "title": "Speculative Multi Node"
+        },
+        "video_memory_budget_bytes": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional native-video working-set reservation for larger requests. It may raise, never lower, the artifact-derived estimate; live placement capacity still applies.",
+          "title": "Video Memory Budget Bytes"
+        },
+        "vllm_reasoning_parser": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "vLLM server-side reasoning parser name for this model\n(``--reasoning-parser``).\n\nSame doctrine as ``vllm_tool_call_parser``: an engine-specific platform\nknob, explicit only, no family fallback. Without it vLLM streams a\nreasoning model's thinking inline with its answer (the server only splits\n``reasoning_content`` when a parser is configured), so a card whose model\nalways reasons (Muse Glimmer's ``to=self`` channel) must pin the parser\nthat vLLM registers for the family (``muse_glimmer``, ``qwen3``,\n``deepseek_r1``, ``openai_gptoss``, ...). Pin only pod-validated names.",
+          "title": "Vllm Reasoning Parser"
+        },
+        "vllm_spec_draft_repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Hugging Face repo of a separate draft/speculator model for vLLM\nspeculative decoding (``--speculative-config`` ``model``).\n\nRequired by draft-model methods (``dflash``); must be unset for\n``mtp``, whose drafter lives inside the target checkpoint. The vllm\nengine passes the repo id through to ``vllm serve``, which resolves it\nfrom its own Hugging Face cache at engine start (the target model still\nstages through the Skulk model store; staging the draft through the\nstore as a pinned companion is a follow-up).",
+          "title": "Vllm Spec Draft Repo"
+        },
+        "vllm_spec_draft_revision": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{40}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Immutable commit supplied to vLLM for ``vllm_spec_draft_repo``.",
+          "title": "Vllm Spec Draft Revision"
+        },
+        "vllm_spec_method": {
+          "anyOf": [
+            {
+              "enum": [
+                "mtp",
+                "dflash"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Speculative-decoding method for the ``vllm`` served engine.\n\nMaps to vLLM's ``--speculative-config`` ``method`` key. ``\"mtp\"`` engages\nthe checkpoint's own native multi-token-prediction heads (vLLM resolves\nthe matching drafter architecture, e.g. ``Qwen3_5MTP``, with no separate\ndraft model); requires a checkpoint that ships MTP heads\n(``mtp_num_hidden_layers`` in its config). ``\"dflash\"`` engages a\nseparate block-parallel DFlash speculator (Poolside's scheme, vLLM\n>= 0.25.0) and requires ``vllm_spec_draft_repo`` naming the drafter.\nOnly the vllm engine reads this; ``served_spec_type`` remains the\nllama_server equivalent. The vocabulary starts deliberately narrow and\ngrows as methods are validated live.",
+          "title": "Vllm Spec Method"
+        },
+        "vllm_spec_num_tokens": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Draft tokens per step for vLLM speculative decoding\n(``--speculative-config`` ``num_speculative_tokens``).\n\nRequires ``vllm_spec_method``. Positive; acceptance falls per position\n(measured on Qwen3.6-27B-FP8: 86% at position 0, 69% at position 1), so\n2 is the usual sweet spot for single-layer MTP heads, which re-run their\none layer for deeper positions. Block-parallel drafters (``dflash``)\npredict a whole block at once, so vendor-recommended depths run much\ndeeper (Poolside ships 15 for a block size of 16). ``None`` uses vLLM's\nmethod default.",
+          "title": "Vllm Spec Num Tokens"
+        },
+        "vllm_tool_call_parser": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "vLLM server-side tool-call parser name for this model\n(``--tool-call-parser``, paired with ``--enable-auto-tool-choice``).\n\nEngine-specific platform knob, so it lives in runtime beside the\n``vllm_spec_*`` fields rather than in ``tooling`` (which stays model\ntruth). This explicit field is the ONLY source: one family string can\nspan tool-call generations with different wire formats, so there is no\nfamily fallback, and an unset field launches the server without tool\nsupport (tool requests are rejected loudly). Names follow vLLM's\nparser registry (hermes, llama3_json, mistral, pythonic, deepseek_v3,\nopenai, ...); pin only pod-validated names.",
+          "title": "Vllm Tool Call Parser"
+        }
+      },
+      "title": "RuntimeCapabilityCardConfig",
+      "type": "object"
+    },
+    "ToolCallFormat": {
+      "description": "Tool-call output formats emitted by model families.",
+      "enum": [
+        "generic",
+        "gemma4",
+        "gpt_oss",
+        "dsml",
+        "atem"
+      ],
+      "title": "ToolCallFormat",
+      "type": "string"
+    },
+    "ToolingCardConfig": {
+      "additionalProperties": false,
+      "description": "Optional tool-calling behavior declarations for a model card.",
+      "properties": {
+        "builtin_tools": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/BuiltinToolType"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Builtin tools Skulk advertises to this model (e.g. ``web_search``,\n``open_url``, ``extract_page``).",
+          "title": "Builtin Tools"
+        },
+        "supports_tool_calling": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Whether the model supports function/tool calling.",
+          "title": "Supports Tool Calling"
+        },
+        "tool_call_format": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ToolCallFormat"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The wire format the model emits tool calls in (``generic``, ``gemma4``,\n``gpt_oss``, ``dsml``), selecting the output parser."
+        }
+      },
+      "title": "ToolingCardConfig",
+      "type": "object"
+    },
+    "VideoCardConfig": {
+      "additionalProperties": false,
+      "description": "Declarative audio-video generation contract for a model card.\n\nThe section states model truth: which modes exist, the duration and frame\ngrid the model was trained on, canvas rules, audio output, reference\nbounds, sampling defaults, and pinned companion artifacts. Engines map\nthese facts onto their own mechanisms; nothing here names an engine.",
+      "properties": {
+        "aspect_ratios": {
+          "default": [],
+          "description": "Advertised aspect ratios as ``W:H`` strings; empty means unconstrained.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Aspect Ratios",
+          "type": "array"
+        },
+        "audio_channels": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Channel count of generated audio.",
+          "title": "Audio Channels"
+        },
+        "audio_conditioning": {
+          "default": false,
+          "description": "Whether the complete selected audio VAE can encode frozen source-audio context.",
+          "title": "Audio Conditioning",
+          "type": "boolean"
+        },
+        "audio_output": {
+          "default": false,
+          "description": "Whether generated video carries a synchronized audio track.",
+          "title": "Audio Output",
+          "type": "boolean"
+        },
+        "audio_sample_rate": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Sample rate of generated audio in hertz.",
+          "title": "Audio Sample Rate"
+        },
+        "audio_shift": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Trained audio sigma shift, when the sampler exposes one.",
+          "title": "Audio Shift"
+        },
+        "canvas_multiple": {
+          "default": 1,
+          "description": "Width and height must be multiples of this many pixels.",
+          "exclusiveMinimum": 0,
+          "title": "Canvas Multiple",
+          "type": "integer"
+        },
+        "companions": {
+          "default": [],
+          "description": "Pinned adapters, patches, embeddings, and graph templates.",
+          "items": {
+            "$ref": "#/$defs/VideoCompanionConfig"
+          },
+          "title": "Companions",
+          "type": "array"
+        },
+        "default_short_edge": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Trained short-edge resolution used when a request gives no size.",
+          "title": "Default Short Edge"
+        },
+        "default_steps": {
+          "default": 20,
+          "description": "Sampling steps used when a request and its companions do not decide.",
+          "exclusiveMinimum": 0,
+          "title": "Default Steps",
+          "type": "integer"
+        },
+        "editing": {
+          "default": [],
+          "description": "Source-video operations provided by the selected transformer and encoder/decoder components.",
+          "items": {
+            "enum": [
+              "retake",
+              "extend"
+            ],
+            "type": "string"
+          },
+          "title": "Editing",
+          "type": "array"
+        },
+        "fps": {
+          "default": 24,
+          "description": "Output frame rate.",
+          "exclusiveMinimum": 0,
+          "title": "Fps",
+          "type": "integer"
+        },
+        "frame_grid_multiple": {
+          "default": 1,
+          "description": "Frame counts must satisfy ``count % frame_grid_multiple == frame_grid_offset``.",
+          "exclusiveMinimum": 0,
+          "title": "Frame Grid Multiple",
+          "type": "integer"
+        },
+        "frame_grid_offset": {
+          "default": 0,
+          "description": "Residue a valid frame count leaves modulo ``frame_grid_multiple``.",
+          "title": "Frame Grid Offset",
+          "type": "integer"
+        },
+        "generated_keyframes": {
+          "default": false,
+          "description": "Whether the selected transformer was trained with generated keyframe tokens.",
+          "title": "Generated Keyframes",
+          "type": "boolean"
+        },
+        "max_pixels": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Largest width times height the model serves at native quality.",
+          "title": "Max Pixels"
+        },
+        "max_seconds": {
+          "default": 15,
+          "description": "Longest output duration the model supports.",
+          "exclusiveMinimum": 0,
+          "title": "Max Seconds",
+          "type": "integer"
+        },
+        "min_seconds": {
+          "default": 4,
+          "description": "Shortest output duration the model supports.",
+          "exclusiveMinimum": 0,
+          "title": "Min Seconds",
+          "type": "integer"
+        },
+        "modes": {
+          "description": "Generation modes this artifact serves; each implies a ``ModelTask``.",
+          "items": {
+            "$ref": "#/$defs/VideoMode"
+          },
+          "title": "Modes",
+          "type": "array"
+        },
+        "prompt_relay": {
+          "default": false,
+          "description": "Whether local scene prompts can be temporally gated alongside the global prompt.",
+          "title": "Prompt Relay",
+          "type": "boolean"
+        },
+        "reference_limits": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VideoReferenceLimits"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Reference bounds; required when ``ref2va`` is among the modes."
+        },
+        "transformer_variant": {
+          "anyOf": [
+            {
+              "enum": [
+                "distilled",
+                "dev"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Selected transformer's training variant, when the family distinguishes\ndistilled and guided checkpoints. It does not select an execution engine.",
+          "title": "Transformer Variant"
+        },
+        "video_shift": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Trained video sigma shift, when the sampler exposes one.",
+          "title": "Video Shift"
+        }
+      },
+      "required": [
+        "modes"
+      ],
+      "title": "VideoCardConfig",
+      "type": "object"
+    },
+    "VideoCompanionConfig": {
+      "additionalProperties": false,
+      "description": "One pinned companion artifact used alongside the base video weights.",
+      "properties": {
+        "audio_shift": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Audio sigma shift the companion expects, when it differs from the card.",
+          "title": "Audio Shift"
+        },
+        "kind": {
+          "$ref": "#/$defs/VideoCompanionKind",
+          "description": "What the companion is; selects how an engine applies it."
+        },
+        "license": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The license its hosting repository declares, as a lowercase SPDX-style\nidentifier (``mit``, ``apache-2.0``), shown to the operator beside the\ncard's own license; companions in the card's repository fall under that.",
+          "title": "License"
+        },
+        "modes": {
+          "default": [],
+          "description": "Generation modes the companion applies to; empty means every mode.",
+          "items": {
+            "$ref": "#/$defs/VideoMode"
+          },
+          "title": "Modes",
+          "type": "array"
+        },
+        "name": {
+          "description": "Stable companion identifier callers and engines refer to.",
+          "title": "Name",
+          "type": "string"
+        },
+        "path": {
+          "description": "Canonical repository-relative POSIX path of the companion file.",
+          "title": "Path",
+          "type": "string"
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Repository hosting the companion; ``None`` means the card's artifact\nrepository, whose ``source_revision`` then also pins this file.",
+          "title": "Repo"
+        },
+        "revision": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{40}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Immutable commit of ``repo``; required whenever ``repo`` is external.",
+          "title": "Revision"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VideoPreprocessorRole"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "For preprocessor companions, what the weights do; required for them\nand refused on every other kind."
+        },
+        "size_bytes": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Exact upstream byte size at the pinned revision when known.",
+          "title": "Size Bytes"
+        },
+        "steps": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "For distillation adapters, the sampling step count they were trained for.",
+          "title": "Steps"
+        },
+        "strength": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Default application strength when the engine supports one.",
+          "title": "Strength"
+        },
+        "video_shift": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Video sigma shift the companion expects, when it differs from the card.",
+          "title": "Video Shift"
+        }
+      },
+      "required": [
+        "kind",
+        "name",
+        "path"
+      ],
+      "title": "VideoCompanionConfig",
+      "type": "object"
+    },
+    "VideoCompanionKind": {
+      "description": "Kinds of separately downloadable video companion artifacts.",
+      "enum": [
+        "lora",
+        "model_patch",
+        "embedding",
+        "graph_template",
+        "preprocessor",
+        "latent_upscaler",
+        "duration_head",
+        "video_decoder"
+      ],
+      "title": "VideoCompanionKind",
+      "type": "string"
+    },
+    "VideoMode": {
+      "description": "Generation modes an audio-video model card can declare.",
+      "enum": [
+        "t2va",
+        "fl2va",
+        "ref2va"
+      ],
+      "title": "VideoMode",
+      "type": "string"
+    },
+    "VideoPreprocessorRole": {
+      "description": "What a preprocessor companion's weights do in deriving a guide video.",
+      "enum": [
+        "pose_estimator",
+        "person_detector",
+        "depth_estimator"
+      ],
+      "title": "VideoPreprocessorRole",
+      "type": "string"
+    },
+    "VideoReferenceLimits": {
+      "additionalProperties": false,
+      "description": "Bounds on the reference material a reference-to-video mode accepts.",
+      "properties": {
+        "clip_max_seconds": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum duration of one reference video or audio clip.",
+          "title": "Clip Max Seconds"
+        },
+        "clip_min_seconds": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Minimum duration of one reference video or audio clip.",
+          "title": "Clip Min Seconds"
+        },
+        "max_audio_clips": {
+          "default": 0,
+          "description": "Maximum reference audio clips per request.",
+          "title": "Max Audio Clips",
+          "type": "integer"
+        },
+        "max_files": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum files across every reference type; ``None`` means the sum.",
+          "title": "Max Files"
+        },
+        "max_images": {
+          "default": 0,
+          "description": "Maximum reference images per request.",
+          "title": "Max Images",
+          "type": "integer"
+        },
+        "max_videos": {
+          "default": 0,
+          "description": "Maximum reference video clips per request.",
+          "title": "Max Videos",
+          "type": "integer"
+        },
+        "total_clip_seconds": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum combined duration of reference clips of one type.",
+          "title": "Total Clip Seconds"
+        }
+      },
+      "title": "VideoReferenceLimits",
+      "type": "object"
+    },
+    "VisionCardConfig": {
+      "additionalProperties": false,
+      "description": "Vision configuration attached to a model card for VLM support.\n\nPopulated from the ``[vision]`` section of a TOML model card or\nauto-detected from ``config.json`` during card creation.",
+      "properties": {
+        "boi_token_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Begin-of-image token id, for families that bracket image spans.",
+          "title": "Boi Token Id"
+        },
+        "eoi_token_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "End-of-image token id, for families that bracket image spans.",
+          "title": "Eoi Token Id"
+        },
+        "image_token": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The literal image placeholder string, when distinct from ``image_token_id``.",
+          "title": "Image Token"
+        },
+        "image_token_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Token id the model uses as the image placeholder in the prompt. Required by\nthe MLX vision path (which splices image embeddings at this token); ``None``\nis allowed for a llama.cpp-only vision GGUF, whose chat handler inserts image\nfeatures itself and never reads this. MLX cards always set it (from\n``config.json``).",
+          "title": "Image Token Id"
+        },
+        "model_type": {
+          "default": "",
+          "description": "Vision model-type tag (from ``config.json``'s ``vision_config``), selecting\nthe image processor (MLX) or chat handler (llama.cpp). Empty when a bare GGUF\nrepo only signals vision via its ``mmproj`` projector; the llama.cpp runner\nthen falls back to its general multimodal handler.",
+          "title": "Model Type",
+          "type": "string"
+        },
+        "processor_repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Repo providing the image processor/preprocessor config, if not the main repo.",
+          "title": "Processor Repo"
+        },
+        "processor_revision": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{40}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Immutable commit for ``processor_repo``. Signed registry cards require\nthis whenever a separate processor repository can supply executable code.",
+          "title": "Processor Revision"
+        },
+        "projector_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Exact repository-relative GGUF projector selected for served vision.\n\nThe projector is pinned by the owning card's immutable ``source_revision``.\nLegacy GGUF vision cards may omit this field and continue to use the\nin-process llama.cpp compatibility path.",
+          "title": "Projector File"
+        },
+        "projector_size": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Exact byte size of ``projector_file`` at ``source_revision``.",
+          "title": "Projector Size"
+        },
+        "weights_repo": {
+          "default": "",
+          "description": "Repo holding the vision-tower weights when separate from the LM; empty if\nbundled with the main weights.",
+          "title": "Weights Repo",
+          "type": "string"
+        },
+        "weights_revision": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{40}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Immutable commit for a separate ``weights_repo``.",
+          "title": "Weights Revision"
+        }
+      },
+      "title": "VisionCardConfig",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The persisted, declarative metadata Skulk holds for one model.\n\nThis is the **model-card interface**: the single source of truth for how a\nmodel is sized, sharded, placed, and run. It is created once (from a\nHuggingFace repo or hand-authored), broadcast cluster-wide, and read by the\nplanner (placement), the downloader (sizing + which files to fetch), and the\nworker runner (engine + behavior). As a ``CamelCaseModel`` it is camelCase on\nthe wire and strict (``extra=\"forbid\"``), so every node in a cluster must run\nthe same Skulk version (a stale node rejects newer fields).\n\nTwo layers live here: the *card* (this declarative metadata) and the\nnormalized *resolved capability profile* derived from it plus family defaults\n(see ``capabilities.py`` and ``website/docs/model-capabilities.md``). The\noptional ``reasoning`` / ``modalities`` / ``tooling`` / ``runtime`` /\n``vision`` / ``placement`` sub-configs refine that resolution; when absent,\nconservative family defaults apply.",
+  "properties": {
+    "artifact_bundle": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArtifactBundleConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Exact signed file selection and engine working directory for a v2 card.\n\nLegacy cards omit this field and preserve repository-wide tensor downloads."
+    },
+    "attention_head_dim": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Published attention head width; absent cards retain the 128-element estimate.",
+      "title": "Attention Head Dim"
+    },
+    "audio": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AudioCardConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Optional speech-serving configuration (TTS/STT kind, audio formats,\nstreaming/realtime support, voices, reference audio, translation, sample\nrates); ``None`` for non-speech models."
+    },
+    "base_model": {
+      "default": "",
+      "description": "The upstream base model id when this is a quant/finetune of another; empty\nif not applicable.",
+      "title": "Base Model",
+      "type": "string"
+    },
+    "capabilities": {
+      "default": [],
+      "description": "Free-form capability tags carried for compatibility/auxiliary use; the\nstructured ``reasoning``/``modalities``/``tooling`` configs are authoritative\nfor capability resolution.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Capabilities",
+      "type": "array"
+    },
+    "components": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/ComponentInfo"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "For multi-component models (e.g. a diffusion stack), the per-component\nweight layout. ``None`` for a single-weights model.",
+      "title": "Components"
+    },
+    "context_length": {
+      "default": 0,
+      "description": "The model's advertised maximum context length in tokens (``0`` if unknown).\nThe admission ceiling is the smaller of this and what fits in memory.",
+      "title": "Context Length",
+      "type": "integer"
+    },
+    "family": {
+      "default": "",
+      "description": "Model family token (e.g. ``qwen3``, ``gemma4``) used to pick family-specific\ndefaults during capability resolution. Empty when not classified.",
+      "title": "Family",
+      "type": "string"
+    },
+    "generator_revision": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Revision of the machine card generator that produced this card\n(:data:`CARD_GENERATOR_REVISION` at generation time), persisted in the card\nfile. ``None`` means hand-authored (or generated before revisions existed):\nsuch a card keeps full override precedence over a signed or installed card\nfor the same id. A stamped card older than the current generator is\nsuperseded by that card at load time, since a generated card is a cache of Hugging\nFace metadata plus generator logic, not operator intent.",
+      "title": "Generator Revision"
+    },
+    "gguf_cache_geometry": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/GgufCacheGeometry"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Artifact-derived attention and recurrent cache dimensions for GGUF admission.\n\nThis is intrinsic model metadata. Slot count, speculation and runtime buffer\noverhead are separate engine inputs. An absent value means unknown, never\nzero recurrent cost. Registry geometry is an explicit projection of the\nseparately signed header target retained in ``registry_gguf_metadata``."
+    },
+    "gguf_file": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "For GGUF (llama.cpp) models: the repo-relative path of the weights file the\nrunner loads (the selected quant's first shard). Resolved once at card creation\n(preferring a quant over BF16) so the download fetches only that quant and the\nrunner loads deterministically, instead of each layer re-globbing/guessing.\n``None`` for non-GGUF (safetensors/MLX) cards.",
+      "title": "Gguf File"
+    },
+    "hidden_size": {
+      "description": "Backbone hidden width; SDXL reports maximum UNet module output channels.\nText models use their hidden dimension in memory/cache estimates.",
+      "exclusiveMinimum": 0,
+      "title": "Hidden Size",
+      "type": "integer"
+    },
+    "image": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ImageCardConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Immutable image components, canvas, references, and checkpoint sampling truth."
+    },
+    "license": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LicenseCardConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Optional operator-facing license facts surfaced by the catalog and\nuser interfaces; never enforced by download or placement."
+    },
+    "min_skulk_version": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Oldest Skulk release that can serve this card, as a PEP 440 release\nsuch as ``\"2.0.3\"``; ``None`` for any build that can read the card. A card\nnames it when it depends on engine or runner behavior that release added.\nA build below the floor skips the card wherever it loads (registry,\ninstalled record, custom file), and a build older than this field skips\nit as vocabulary it does not know. A floor only: a card never stops\nworking on a newer Skulk. Pre-releases and development builds of a release\ncount as that release (see :func:`card_requires_newer_skulk`).",
+      "title": "Min Skulk Version"
+    },
+    "modalities": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ModalitiesCardConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Optional extra-modality flags (audio input, native multimodal); ``None``\nfalls back to family defaults."
+    },
+    "model_id": {
+      "description": "The selectable artifact alias. Historically this was always the upstream\nHugging Face repository id; registry cards may use a distinct alias so two\nexact files or quants from one repository remain separate artifacts.",
+      "title": "Model Id",
+      "type": "string"
+    },
+    "music": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MusicCardConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Text-to-music family, lyric requirement, and qualified target-duration bounds."
+    },
+    "n_layers": {
+      "description": "Backbone transformer layers, or explicit SDXL UNet module count. Text\nmodels use it for pipeline sharding and KV sizing; an image module count\ndoes not establish image sharding or text-cache geometry.",
+      "exclusiveMinimum": 0,
+      "title": "N Layers",
+      "type": "integer"
+    },
+    "num_key_value_heads": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "KV-head count for grouped-query attention, used in KV-cache sizing. ``None``\nwhen unknown/not applicable.",
+      "title": "Num Key Value Heads"
+    },
+    "placement": {
+      "$ref": "#/$defs/PlacementCardConfig",
+      "default": {
+        "backend_preference": [],
+        "compatible_backends": [
+          "mlx"
+        ],
+        "max_context_tokens": null,
+        "max_pipeline_split_layer": null,
+        "min_vram_gib": null
+      },
+      "description": "Where the model is allowed to run and which backend is preferred: the\n``compatible_backends`` hard filter and ``backend_preference`` soft score the\nplanner uses to route the model to suitable nodes."
+    },
+    "quantization": {
+      "default": "",
+      "description": "Human quantization label (e.g. ``4bit``, ``Q4_K_M``); informational.",
+      "title": "Quantization",
+      "type": "string"
+    },
+    "reasoning": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ReasoningCardConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Optional reasoning/thinking configuration (toggle, budget, format, default\neffort); ``None`` falls back to family defaults."
+    },
+    "runtime": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RuntimeCapabilityCardConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Optional runtime-behavior configuration (prompt renderer, output parser,\nMTP/speculative-decoding sidecar, MLX knobs); ``None`` falls back to defaults."
+    },
+    "source_repository": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Upstream Hugging Face repository that owns the artifact bytes. ``None``\nmeans it is identical to ``model_id`` for legacy and locally generated cards.",
+      "title": "Source Repository"
+    },
+    "source_revision": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{40}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Immutable Hugging Face commit for this card's model artifacts.\n\n``None`` preserves the historical behavior of resolving the repository's\nmutable ``main`` branch. Curated or operator-authored cards should set this\nto a full commit hash when selecting the exact artifact, so an\nupstream file replacement cannot silently change what the store and workers\nexecute.",
+      "title": "Source Revision"
+    },
+    "storage_size": {
+      "$ref": "#/$defs/Memory",
+      "description": "On-disk size of the weights this card loads (for a GGUF card, just the\nselected quant's shard group, not every quant the repo hosts). The planner\nuses this for memory-fit and placement-width decisions."
+    },
+    "supports_tensor": {
+      "description": "Whether the model may be served with tensor parallelism (``Sharding.Tensor``).\nGGUF/llama.cpp cards set this ``False`` (single-node engine).",
+      "title": "Supports Tensor",
+      "type": "boolean"
+    },
+    "tasks": {
+      "description": "The task types this model serves (``TextGeneration``, ``TextEmbedding``,\n``TextToImage``, ``ImageToImage``, ``TextToSpeech``, ``SpeechToText``,\n``SpeechTranslation``, ``TextToMusic``, ``TextToVideo``, ``ImageToVideo``,\n``ReferenceToVideo``); selects which runner handles it.",
+      "items": {
+        "$ref": "#/$defs/ModelTask"
+      },
+      "title": "Tasks",
+      "type": "array"
+    },
+    "tooling": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ToolingCardConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Optional tool-calling configuration (support, call format, builtin tools);\n``None`` falls back to family defaults."
+    },
+    "trust_remote_code": {
+      "default": true,
+      "description": "Passed to the model loader: whether to execute the repo's custom Python.\nDefaults ``True`` to match upstream loaders; set ``False`` to refuse it.",
+      "title": "Trust Remote Code",
+      "type": "boolean"
+    },
+    "uses_cfg": {
+      "default": false,
+      "description": "Whether the model uses classifier-free guidance (relevant to some image /\ndiffusion models).",
+      "title": "Uses Cfg",
+      "type": "boolean"
+    },
+    "video": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/VideoCardConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Optional audio-video generation contract (modes, duration and frame\ngrid, canvas rules, audio output, reference bounds, sampling defaults,\npinned companions); ``None`` for models that do not generate video."
+    },
+    "vision": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/VisionCardConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Optional vision (image-input) configuration; ``None`` for text-only models."
+    }
+  },
+  "required": [
+    "model_id",
+    "storage_size",
+    "n_layers",
+    "hidden_size",
+    "supports_tensor",
+    "tasks"
+  ],
+  "title": "SkulkModelCardBodyV1",
+  "type": "object"
+}

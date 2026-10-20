@@ -12,8 +12,11 @@ from pathlib import Path
 
 from pydantic import JsonValue
 
+from .assurance import RetainedCard, inspect_member_evidence
+from .cards import create_card, identity_json, load_card
 from .models import MAX_METADATA_BYTES, Catalog, PreservationError, Recipe
 from .operations import OperationCancelled, OperationControl, Progress, failure_code
+from .registry_proof import VersionFloor, create_registry_proof, verify_registry_proof
 from .seed import SeedServer
 from .signing import (
     CATALOG_TYPE,
@@ -61,6 +64,20 @@ class Arguments(argparse.Namespace):
     max_upload_bytes: int
     operation_id: str | None = None
     progress: bool = False
+    body: Path
+    card: Path
+    alias: str | None = None
+    card_id: str
+    proof: Path | None = None
+    root: Path | None = None
+    root_chain: list[Path]
+    timestamp: Path
+    snapshot: Path
+    targets: Path
+    target: Path
+    target_path: str
+    historical: bool = False
+    minimum_versions: Path | None = None
 
 
 def read_input(path: Path) -> bytes:
@@ -113,6 +130,40 @@ def argument_parser() -> argparse.ArgumentParser:
     """Expose effect-specific commands with no implicit public serving behavior."""
     parser = argparse.ArgumentParser(prog="model-preserve")
     commands = parser.add_subparsers(dest="command", required=True)
+    for name in ("card-create", "card-verify", "card-retain"):
+        card = commands.add_parser(name, help="use the open public model-card format")
+        if name == "card-create":
+            card.add_argument("--body", type=Path, required=True)
+            card.add_argument("--alias")
+        else:
+            card.add_argument("--card", type=Path, required=True)
+        if name != "card-verify":
+            card.add_argument("--output", type=Path, required=True)
+        if name == "card-retain":
+            card.add_argument("--proof", type=Path)
+            card.add_argument("--root", type=Path)
+            card.add_argument("--historical", action="store_true")
+    for name in ("proof-create", "proof-verify"):
+        proof = commands.add_parser(name, help="verify exact offline registry evidence")
+        proof.add_argument("--root", type=Path, required=True)
+        proof.add_argument("--card-id", required=True)
+        proof.add_argument("--historical", action="store_true")
+        proof.add_argument("--minimum-versions", type=Path)
+        if name == "proof-verify":
+            proof.add_argument("--proof", type=Path, required=True)
+        else:
+            for option in ("timestamp", "snapshot", "targets", "target", "output"):
+                proof.add_argument("--" + option, type=Path, required=True)
+            proof.add_argument("--target-path", required=True)
+            proof.add_argument("--root-chain", type=Path, action="append", default=[])
+    evidence = commands.add_parser(
+        "inspect-evidence", help="verify bundle bytes and report retained card evidence"
+    )
+    _trust_options(evidence)
+    evidence.add_argument("--store", type=Path, required=True)
+    evidence.add_argument("--root", type=Path)
+    evidence.add_argument("--historical", action="store_true")
+    evidence.add_argument("--minimum-versions", type=Path)
     keys = commands.add_parser(
         "keygen", help="create a private signing key and public trust snapshot"
     )
@@ -182,7 +233,14 @@ def argument_parser() -> argparse.ArgumentParser:
             catalog.add_argument("--max-bytes", type=int, default=20 * 1024**3)
             catalog.add_argument("--allow-private", action="store_true")
             catalog.add_argument("--allow-http", action="store_true")
-    for name in ("pack", "verify", "fetch", "restore", "fetch-catalog"):
+    for name in (
+        "pack",
+        "verify",
+        "fetch",
+        "restore",
+        "fetch-catalog",
+        "inspect-evidence",
+    ):
         commands.choices[name].add_argument(
             "--progress", action="store_true", help="JSON progress on stderr"
         )
@@ -209,10 +267,90 @@ def argument_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _card_commands(arguments: Arguments) -> dict[str, JsonValue]:
+    if arguments.command == "card-create":
+        body = strict_json(read_input(arguments.body))
+        if not isinstance(body, dict):
+            raise PreservationError("card body must be an object")
+        card = create_card(body, alias=arguments.alias)
+        with arguments.output.open("xb") as stream:
+            stream.write(identity_json(card.model_dump(mode="json")))
+        return {"card_id": card.card_id, "publication": "not-established"}
+    card = load_card(read_input(arguments.card))
+    if arguments.command == "card-verify":
+        return {"card_id": card.card_id, "publication": "not-established"}
+    proof = None
+    if arguments.proof is not None:
+        if arguments.root is None:
+            raise PreservationError("retaining a registry proof needs an enrolled root")
+        data = read_input(arguments.proof)
+        verify_registry_proof(
+            data,
+            read_input(arguments.root),
+            card.card_id,
+            mode="historical" if arguments.historical else "fresh",
+        )
+        from .registry_proof import RegistryProof
+
+        proof = RegistryProof.model_validate_json(identity_json(strict_json(data)))
+    retained = RetainedCard(
+        schema_version="foxlight.retained-card.v1", envelope=card, registry_proof=proof
+    )
+    encoded = encode_record(retained)
+    if len(encoded) > MAX_METADATA_BYTES:
+        raise PreservationError("retained card exceeds metadata limit")
+    with arguments.output.open("xb") as stream:
+        stream.write(encoded)
+    return {"card_id": card.card_id, "retained_proof": proof is not None}
+
+
+def _proof_commands(arguments: Arguments) -> dict[str, JsonValue]:
+    if arguments.root is None:
+        raise PreservationError("registry proof verification needs an enrolled root")
+    root = read_input(arguments.root)
+    if arguments.command == "proof-create":
+        proof = create_registry_proof(
+            trusted_root=root,
+            timestamp=read_input(arguments.timestamp),
+            snapshot=read_input(arguments.snapshot),
+            targets=read_input(arguments.targets),
+            target_path=arguments.target_path,
+            target=read_input(arguments.target),
+            root_chain=tuple(read_input(path) for path in arguments.root_chain),
+        )
+        data = encode_record(proof)
+    else:
+        if arguments.proof is None:
+            raise PreservationError("registry proof input required")
+        data = read_input(arguments.proof)
+    floors = (
+        VersionFloor.model_validate_json(
+            identity_json(strict_json(read_input(arguments.minimum_versions)))
+        )
+        if arguments.minimum_versions is not None
+        else None
+    )
+    verified = verify_registry_proof(
+        data,
+        root,
+        arguments.card_id,
+        mode="historical" if arguments.historical else "fresh",
+        minimum_versions=floors,
+    )
+    if arguments.command == "proof-create":
+        with arguments.output.open("xb") as stream:
+            stream.write(data)
+    return verified.report.model_dump(mode="json")
+
+
 def run(
     arguments: Arguments, *, control: OperationControl | None = None
 ) -> dict[str, JsonValue]:
     """Execute exactly the selected operation and return a bounded safe receipt."""
+    if arguments.command.startswith("card-"):
+        return _card_commands(arguments)
+    if arguments.command.startswith("proof-"):
+        return _proof_commands(arguments)
     if arguments.command == "keygen":
         if arguments.trust_out.exists():
             raise PreservationError("trust output already exists")
@@ -260,6 +398,34 @@ def run(
             output.write(encoded)
         return {"catalog": digest(encode_record(catalog))}
     trust = load_trust(read_input(arguments.trust))
+    if arguments.command == "inspect-evidence":
+        if not isinstance(arguments.manifest, str):
+            raise PreservationError("one exact manifest identity required")
+        manifest = verify_store(
+            arguments.store, arguments.manifest, trust, control=control
+        )
+        root = read_input(arguments.root) if arguments.root is not None else None
+        floors = (
+            VersionFloor.model_validate_json(
+                identity_json(strict_json(read_input(arguments.minimum_versions)))
+            )
+            if arguments.minimum_versions is not None
+            else None
+        )
+        return {
+            "manifest": arguments.manifest,
+            "verified_bytes": manifest.total_bytes,
+            "attestation": manifest.attestation,
+            "members": [
+                inspect_member_evidence(
+                    member,
+                    trusted_root=root,
+                    mode="historical" if arguments.historical else "fresh",
+                    minimum_versions=floors,
+                ).model_dump(mode="json")
+                for member in manifest.members
+            ],
+        }
     if arguments.command in {"catalog-verify", "fetch-catalog"}:
         catalog = verify_catalog(read_input(arguments.index), trust, arguments.catalog)
         if arguments.command == "catalog-verify":
@@ -424,6 +590,7 @@ def main() -> int:
         "plan-pack",
         "plan-fetch",
         "plan-restore",
+        "inspect-evidence",
     }
     previous = signal.getsignal(signal.SIGINT)
     if controlled:

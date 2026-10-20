@@ -122,3 +122,14 @@ reading and retains conservative charges across restarts. Without an operation
 ID, the existing per-invocation actual-byte policy applies. All required file
 hashes still verify before final publication. See [worker controls](jobs.md) for
 accounting exclusions, cancellation/commit semantics and host responsibilities.
+
+## Optional retained public cards (0.3.0)
+
+The existing `retained_card` object can carry the typed
+`foxlight.retained-card.v1` profile: an existing public model-card envelope and
+an optional `foxlight.registry-proof.v1` archive. This does not change the bundle
+v1 signing domain, identity, paths or owner-capture attestation. The receiver
+must independently verify registry evidence; preserving arbitrary metadata or
+serializing a verification label never grants registry authority. See
+[cards and provenance](cards-and-provenance.md) for exact encoding, trust and
+historical-recovery semantics.

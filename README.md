@@ -35,6 +35,7 @@ wheels through an authenticated software channel.
 | Keep a store healthy and recover from failures | [Operations](docs/operations.md) |
 | Host a copy for others | [Mirror guide](docs/mirrors.md) |
 | Retain independent trust and offline recovery material | [Trust and recovery](docs/trust-and-recovery.md) |
+| Publish an open model card or retain registry evidence | [Public cards and offline provenance](docs/cards-and-provenance.md) |
 
 ## Download, verify, restore
 

@@ -1,0 +1,323 @@
+{
+  "$defs": {
+    "AlternateLocation": {
+      "additionalProperties": false,
+      "description": "A complete alternate path mapping, not a new artifact authority.",
+      "properties": {
+        "paths": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100000,
+          "minItems": 1,
+          "title": "Paths",
+          "type": "array"
+        },
+        "root": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Root"
+        }
+      },
+      "required": [
+        "paths"
+      ],
+      "title": "AlternateLocation",
+      "type": "object"
+    },
+    "Artifact": {
+      "additionalProperties": false,
+      "description": "Pinned origin and selected artifact; locations are not provenance grants.",
+      "properties": {
+        "bundle": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ArtifactBundle"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "format": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Format",
+          "type": "string"
+        },
+        "quantization": {
+          "default": "",
+          "maxLength": 200,
+          "title": "Quantization",
+          "type": "string"
+        },
+        "repository": {
+          "maxLength": 512,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._+@-]*$",
+          "title": "Repository",
+          "type": "string"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "selected_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Selected File"
+        }
+      },
+      "required": [
+        "repository",
+        "revision",
+        "format"
+      ],
+      "title": "Artifact",
+      "type": "object"
+    },
+    "ArtifactBundle": {
+      "additionalProperties": false,
+      "description": "Existing content-derived selected-file identity with optional hash evidence.",
+      "properties": {
+        "alternate_locations": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/AlternateLocation"
+          },
+          "maxItems": 64,
+          "title": "Alternate Locations",
+          "type": "array"
+        },
+        "bundle_id": {
+          "pattern": "^bundle_[a-z2-7]{52}$",
+          "title": "Bundle Id",
+          "type": "string"
+        },
+        "download_size": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "title": "Download Size",
+          "type": "integer"
+        },
+        "files": {
+          "items": {
+            "$ref": "#/$defs/ArtifactFile"
+          },
+          "maxItems": 100000,
+          "minItems": 1,
+          "title": "Files",
+          "type": "array"
+        },
+        "root": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Root"
+        }
+      },
+      "required": [
+        "bundle_id",
+        "files",
+        "download_size"
+      ],
+      "title": "ArtifactBundle",
+      "type": "object"
+    },
+    "ArtifactFile": {
+      "additionalProperties": false,
+      "description": "One declared repository file; a missing hash is an explicit evidence gap.",
+      "properties": {
+        "object_id": {
+          "anyOf": [
+            {
+              "pattern": "^(sha256:[0-9a-f]{64}|git-sha1:[0-9a-f]{40})$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Object Id"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "size_bytes": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "size_bytes"
+      ],
+      "title": "ArtifactFile",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "ModelCardEnvelope": {
+      "additionalProperties": false,
+      "description": "Existing v1/v2 envelope, usable without enrolling a registry publisher.",
+      "properties": {
+        "alias": {
+          "maxLength": 512,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._+@-]*$",
+          "title": "Alias",
+          "type": "string"
+        },
+        "artifact": {
+          "$ref": "#/$defs/Artifact"
+        },
+        "card": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Card",
+          "type": "object"
+        },
+        "card_id": {
+          "pattern": "^card_[a-z2-7]{52}$",
+          "title": "Card Id",
+          "type": "string"
+        },
+        "model_ref": {
+          "maxLength": 512,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._+@-]*$",
+          "title": "Model Ref",
+          "type": "string"
+        },
+        "schema_version": {
+          "enum": [
+            1,
+            2
+          ],
+          "title": "Schema Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "card_id",
+        "alias",
+        "model_ref",
+        "artifact",
+        "card"
+      ],
+      "title": "ModelCardEnvelope",
+      "type": "object"
+    },
+    "RegistryProof": {
+      "additionalProperties": false,
+      "description": "Exact signed bytes plus a fingerprint, never an enrolled trust root.",
+      "properties": {
+        "anchor_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Anchor Sha256",
+          "type": "string"
+        },
+        "root_chain": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 32,
+          "title": "Root Chain",
+          "type": "array"
+        },
+        "schema_version": {
+          "const": "foxlight.registry-proof.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "snapshot": {
+          "title": "Snapshot",
+          "type": "string"
+        },
+        "target": {
+          "title": "Target",
+          "type": "string"
+        },
+        "target_path": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Target Path",
+          "type": "string"
+        },
+        "targets": {
+          "title": "Targets",
+          "type": "string"
+        },
+        "timestamp": {
+          "title": "Timestamp",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "anchor_sha256",
+        "timestamp",
+        "snapshot",
+        "targets",
+        "target_path",
+        "target"
+      ],
+      "title": "RegistryProof",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Optional typed profile inside the existing manifest retained_card field.",
+  "properties": {
+    "envelope": {
+      "$ref": "#/$defs/ModelCardEnvelope"
+    },
+    "registry_proof": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RegistryProof"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "schema_version": {
+      "const": "foxlight.retained-card.v1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "envelope"
+  ],
+  "title": "RetainedCard",
+  "type": "object"
+}
