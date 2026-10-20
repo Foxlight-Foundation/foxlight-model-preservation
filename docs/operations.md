@@ -77,8 +77,8 @@ correctly signed manifests from another implementation. Pack rehashes and reuses
 valid existing objects before checking capacity for a new copy. Missing/corrupt
 objects still require space for the full temporary replacement plus the 16 MiB
 reserve. Publication still requires metadata space and can fail without it; no
-disk capacity is promised by deduplication alone. These fixes are not a replacement
-v0.1.0 release artifact; use a reviewed source revision until a later release.
+disk capacity is promised by deduplication alone. Version 0.2.0 includes these fixes; v0.1.0 release assets remain unchanged.
+See [worker controls](jobs.md) for planning, cancellation and retained allowances.
 
 See the [protocol](protocol.md) for the full limits and
 [trust and recovery](trust-and-recovery.md) for offline material and key handling.

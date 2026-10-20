@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import getpass
 import json
+import signal
 import ssl
 import sys
 from pathlib import Path
@@ -12,6 +13,7 @@ from pathlib import Path
 from pydantic import JsonValue
 
 from .models import MAX_METADATA_BYTES, Catalog, PreservationError, Recipe
+from .operations import OperationCancelled, OperationControl, Progress, failure_code
 from .seed import SeedServer
 from .signing import (
     CATALOG_TYPE,
@@ -25,8 +27,8 @@ from .signing import (
     strict_json,
     verify_catalog,
 )
-from .storage import pack, restore, verify_store
-from .transfer import TransferPolicy, fetch
+from .storage import pack, plan_pack, plan_restore, restore, verify_store
+from .transfer import TransferPolicy, fetch, plan_fetch
 
 
 class Arguments(argparse.Namespace):
@@ -57,6 +59,8 @@ class Arguments(argparse.Namespace):
     port: int
     public: bool
     max_upload_bytes: int
+    operation_id: str | None = None
+    progress: bool = False
 
 
 def read_input(path: Path) -> bytes:
@@ -178,10 +182,36 @@ def argument_parser() -> argparse.ArgumentParser:
             catalog.add_argument("--max-bytes", type=int, default=20 * 1024**3)
             catalog.add_argument("--allow-private", action="store_true")
             catalog.add_argument("--allow-http", action="store_true")
+    for name in ("pack", "verify", "fetch", "restore", "fetch-catalog"):
+        commands.choices[name].add_argument(
+            "--progress", action="store_true", help="JSON progress on stderr"
+        )
+    for name in ("fetch", "fetch-catalog"):
+        commands.choices[name].add_argument(
+            "--operation-id", help="retain this request's transfer allowance"
+        )
+    for name in ("plan-pack", "plan-fetch", "plan-restore"):
+        planning = commands.add_parser(name, help="read-only content and space plan")
+        planning.add_argument("--progress", action="store_true")
+        planning.add_argument("--store", type=Path, required=True)
+        if name == "plan-pack":
+            planning.add_argument("--recipe", type=Path, required=True)
+            planning.add_argument("--member", action="append", required=True)
+        else:
+            _trust_options(planning)
+            if name == "plan-restore":
+                planning.add_argument("--output", type=Path, required=True)
+            else:
+                planning.add_argument("--mirror", action="append", required=True)
+                planning.add_argument("--max-bytes", type=int, default=20 * 1024**3)
+                planning.add_argument("--allow-private", action="store_true")
+                planning.add_argument("--allow-http", action="store_true")
     return parser
 
 
-def run(arguments: Arguments) -> dict[str, JsonValue]:
+def run(
+    arguments: Arguments, *, control: OperationControl | None = None
+) -> dict[str, JsonValue]:
     """Execute exactly the selected operation and return a bounded safe receipt."""
     if arguments.command == "keygen":
         if arguments.trust_out.exists():
@@ -193,7 +223,7 @@ def run(arguments: Arguments) -> dict[str, JsonValue]:
             "key_ids": [key.key_id for key in trust.keys],
             "trust_as_of": trust.as_of,
         }
-    if arguments.command == "pack":
+    if arguments.command in {"pack", "plan-pack"}:
         recipe = Recipe.model_validate_json(
             canonical_bytes(strict_json(read_input(arguments.recipe)))
         )
@@ -205,11 +235,15 @@ def run(arguments: Arguments) -> dict[str, JsonValue]:
                     "member inputs must be unique NAME=DIRECTORY pairs"
                 )
             sources[name] = Path(path)
+        if arguments.command == "plan-pack":
+            plan = plan_pack(recipe, sources, arguments.store, control=control)
+            return {"plan_id": plan.plan_id, **plan.model_dump(mode="json")}
         identity = pack(
             recipe,
             sources,
             arguments.store,
             (load_key(arguments.key, _password(arguments)),),
+            control=control,
         )
         return {"manifest": identity, "attestation": "owner-capture"}
     if arguments.command == "catalog-sign":
@@ -255,6 +289,8 @@ def run(arguments: Arguments) -> dict[str, JsonValue]:
                 allow_private=arguments.allow_private,
                 allow_http=arguments.allow_http,
             ),
+            control=control,
+            operation_id=arguments.operation_id,
         )
         return {
             "manifest": selected.manifest,
@@ -266,10 +302,39 @@ def run(arguments: Arguments) -> dict[str, JsonValue]:
 
     if arguments.command != "seed" and not isinstance(arguments.manifest, str):
         raise PreservationError("one exact manifest identity required")
+    if arguments.command == "plan-fetch":
+        if not isinstance(arguments.manifest, str):
+            raise PreservationError("one exact manifest identity required")
+        plan = plan_fetch(
+            arguments.manifest,
+            trust,
+            tuple(arguments.mirror),
+            arguments.store,
+            TransferPolicy(
+                max_bytes=arguments.max_bytes,
+                allow_private=arguments.allow_private,
+                allow_http=arguments.allow_http,
+            ),
+            control=control,
+        )
+        return {"plan_id": plan.plan_id, **plan.model_dump(mode="json")}
+    if arguments.command == "plan-restore":
+        if not isinstance(arguments.manifest, str):
+            raise PreservationError("one exact manifest identity required")
+        plan = plan_restore(
+            arguments.store,
+            arguments.manifest,
+            trust,
+            arguments.output,
+            control=control,
+        )
+        return {"plan_id": plan.plan_id, **plan.model_dump(mode="json")}
     if arguments.command == "verify":
         if not isinstance(arguments.manifest, str):
             raise PreservationError("one exact manifest identity required")
-        manifest = verify_store(arguments.store, arguments.manifest, trust)
+        manifest = verify_store(
+            arguments.store, arguments.manifest, trust, control=control
+        )
     elif arguments.command == "fetch":
         if not isinstance(arguments.manifest, str):
             raise PreservationError("one exact manifest identity required")
@@ -283,11 +348,19 @@ def run(arguments: Arguments) -> dict[str, JsonValue]:
                 allow_private=arguments.allow_private,
                 allow_http=arguments.allow_http,
             ),
+            control=control,
+            operation_id=arguments.operation_id,
         )
     elif arguments.command == "restore":
         if not isinstance(arguments.manifest, str):
             raise PreservationError("one exact manifest identity required")
-        manifest = restore(arguments.store, arguments.manifest, trust, arguments.output)
+        manifest = restore(
+            arguments.store,
+            arguments.manifest,
+            trust,
+            arguments.output,
+            control=control,
+        )
     elif arguments.command == "seed":
         if not isinstance(arguments.manifest, list):
             raise PreservationError("explicit bundle list required")
@@ -336,11 +409,36 @@ def run(arguments: Arguments) -> dict[str, JsonValue]:
 
 def main() -> int:
     """Return actionable failure without a traceback or leaking key material."""
+    arguments = argument_parser().parse_args(namespace=Arguments())
+
+    def report(progress: Progress) -> None:
+        print(progress.model_dump_json(), file=sys.stderr, flush=True)
+
+    control = OperationControl(report if arguments.progress else None)
+    controlled = arguments.command in {
+        "pack",
+        "verify",
+        "fetch",
+        "restore",
+        "fetch-catalog",
+        "plan-pack",
+        "plan-fetch",
+        "plan-restore",
+    }
+    previous = signal.getsignal(signal.SIGINT)
+    if controlled:
+        signal.signal(signal.SIGINT, lambda _number, _frame: control.cancel())
     try:
-        receipt = run(argument_parser().parse_args(namespace=Arguments()))
+        receipt = run(arguments, control=control)
     except (OSError, ValueError) as error:
-        print(json.dumps({"error": str(error)}), file=sys.stderr)
-        return 1
+        print(
+            json.dumps({"error": str(error), "code": failure_code(error)}),
+            file=sys.stderr,
+        )
+        return 130 if isinstance(error, OperationCancelled) else 1
+    finally:
+        if controlled:
+            signal.signal(signal.SIGINT, previous)
     print(json.dumps(receipt, sort_keys=True))
     return 0
 

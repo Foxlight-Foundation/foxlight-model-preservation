@@ -1,0 +1,42 @@
+{
+  "additionalProperties": false,
+  "description": "Conservative object-byte charges; this is not proof of job completion.",
+  "properties": {
+    "charged_bytes": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "title": "Charged Bytes",
+      "type": "integer"
+    },
+    "max_bytes": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "title": "Max Bytes",
+      "type": "integer"
+    },
+    "operation_id": {
+      "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+      "title": "Operation Id",
+      "type": "string"
+    },
+    "request_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Request Digest",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "foxlight.model-preservation.transfer.v1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "operation_id",
+    "request_digest",
+    "max_bytes",
+    "charged_bytes"
+  ],
+  "title": "TransferReceipt",
+  "type": "object"
+}

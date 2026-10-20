@@ -1,7 +1,7 @@
 # Use the standalone Python library
 
 The CLI and library use the same implementation. No Skulk import, GPU library,
-hub account or service is required. This reference describes the v0.1.0 entry
+hub account or service is required. This reference describes the 0.2.0 entry
 points; pin the package revision/version in an integration and test its actual
 contracts. It is not a promise that every helper is a stable extension interface.
 
@@ -77,9 +77,10 @@ overhead have separate limits or are excluded as described in the protocol.
 
 These entry points are synchronous and perform potentially long disk/network
 work. Run them in a bounded worker or isolated process, not in an event loop,
-HTTP handler's execution path or short RPC invocation. The current library does
-not expose a structured progress callback, cooperative cancellation token,
-durable job database or read-only planning operation. A successful return is the
+HTTP handler's execution path or short RPC invocation. The host owns its
+background service and automatic resumption. Version 0.2.0 adds
+read-only planning, structured progress, cooperative cancellation and optional
+persistent transfer allowances; see [worker controls](jobs.md). A successful return is the
 completion receipt; a caller cannot infer successful completion from a process
 starting or from a partial object appearing.
 

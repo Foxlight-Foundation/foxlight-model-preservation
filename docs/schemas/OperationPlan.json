@@ -1,0 +1,74 @@
+{
+  "additionalProperties": false,
+  "description": "Read-only observations requiring execution-time revalidation and authority.",
+  "properties": {
+    "additional_bytes": {
+      "minimum": 0,
+      "title": "Additional Bytes",
+      "type": "integer"
+    },
+    "logical_bytes": {
+      "minimum": 0,
+      "title": "Logical Bytes",
+      "type": "integer"
+    },
+    "manifest_id": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Manifest Id",
+      "type": "string"
+    },
+    "metadata_bytes": {
+      "minimum": 0,
+      "title": "Metadata Bytes",
+      "type": "integer"
+    },
+    "operation": {
+      "enum": [
+        "pack",
+        "restore",
+        "fetch"
+      ],
+      "title": "Operation",
+      "type": "string"
+    },
+    "partial_bytes": {
+      "minimum": 0,
+      "title": "Partial Bytes",
+      "type": "integer"
+    },
+    "request_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Request Digest",
+      "type": "string"
+    },
+    "reserve_bytes": {
+      "minimum": 0,
+      "title": "Reserve Bytes",
+      "type": "integer"
+    },
+    "reused_bytes": {
+      "minimum": 0,
+      "title": "Reused Bytes",
+      "type": "integer"
+    },
+    "unique_bytes": {
+      "minimum": 0,
+      "title": "Unique Bytes",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "operation",
+    "manifest_id",
+    "request_digest",
+    "logical_bytes",
+    "unique_bytes",
+    "reused_bytes",
+    "partial_bytes",
+    "additional_bytes",
+    "metadata_bytes",
+    "reserve_bytes"
+  ],
+  "title": "OperationPlan",
+  "type": "object"
+}
