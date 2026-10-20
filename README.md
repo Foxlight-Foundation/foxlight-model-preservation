@@ -117,3 +117,12 @@ Read the [protocol](docs/protocol.md), [trust and recovery guide](docs/trust-and
 [security reporting process](SECURITY.md), and [contribution guide](CONTRIBUTING.md).
 The [public conformance vector](examples/conformance/v1.json) contains synthetic
 files and public verification material; its private signing key was discarded.
+
+## Skulk Library capability
+
+The separate [Library capability source](capability/README.md) connects Guided
+setup, Library and Activity to Skulk Core's durable preservation jobs. Its first
+host adapter supports private Preserve and Check on the model-store-owning host.
+It remains a capability preview with SDK distribution prerequisites; public
+hosting controls and live-store recovery are still being connected. The portable
+core and its public mirror tools remain independent of this capability.
