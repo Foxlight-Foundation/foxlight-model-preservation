@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import base64
 from datetime import datetime
-from typing import Literal, final
+from typing import Literal, Self, final
 
 from pydantic import Field, model_validator
 
-from .cards import CardId, ModelCardEnvelope, identity_json
-from .models import ManifestMember, PreservationError, Record
+from .cards import CardId, ModelCardEnvelope, identity_json, load_card
+from .models import MAX_METADATA_BYTES, ManifestMember, PreservationError, Record
 from .registry_proof import (
     ProofMode,
     ProofReport,
@@ -16,7 +17,7 @@ from .registry_proof import (
     VersionFloor,
     verify_registry_proof,
 )
-from .signing import encode_record, strict_json
+from .signing import decode_base64, encode_record, strict_json
 
 
 @final
@@ -24,8 +25,19 @@ class RetainedCard(Record):
     """Optional typed profile inside the existing manifest retained_card field."""
 
     schema_version: Literal["foxlight.retained-card.v1"]
-    envelope: ModelCardEnvelope
+    card_base64: str = Field(min_length=1, max_length=MAX_METADATA_BYTES * 2)
     registry_proof: RegistryProof | None = None
+
+    @model_validator(mode="after")
+    def validate_card(self) -> Self:
+        """Check the card without rewriting its distinct identity encoding."""
+        load_card(decode_base64(self.card_base64))
+        return self
+
+    @property
+    def envelope(self) -> ModelCardEnvelope:
+        """Parse the retained exact bytes, independently of bundle RFC 8785."""
+        return load_card(decode_base64(self.card_base64))
 
 
 @final
@@ -51,6 +63,25 @@ class MemberEvidence(Record):
 def load_retained_card(data: bytes) -> RetainedCard:
     """Read bounded card/proof data, without implicitly trusting its signing keys."""
     return RetainedCard.model_validate_json(identity_json(strict_json(data)))
+
+
+def retain_card(
+    card: ModelCardEnvelope, *, registry_proof: RegistryProof | None = None
+) -> RetainedCard:
+    """Retain exact card encoding across RFC 8785 bundle serialization.
+
+    A nested JSON object would lose the registry identity's distinction between
+    integers and whole-number floats. Base64 also preserves the original card
+    evidence independently of a capture's canonicalization domain. This packages
+    evidence; it does not independently enroll or verify the proof's root.
+    """
+    return RetainedCard(
+        schema_version="foxlight.retained-card.v1",
+        card_base64=base64.b64encode(
+            identity_json(card.model_dump(mode="json"))
+        ).decode("ascii"),
+        registry_proof=registry_proof,
+    )
 
 
 def inspect_member_evidence(

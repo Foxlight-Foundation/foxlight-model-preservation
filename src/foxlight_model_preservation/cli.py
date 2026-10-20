@@ -12,7 +12,7 @@ from pathlib import Path
 
 from pydantic import JsonValue
 
-from .assurance import RetainedCard, inspect_member_evidence
+from .assurance import inspect_member_evidence, retain_card
 from .cards import create_card, identity_json, load_card
 from .models import MAX_METADATA_BYTES, Catalog, PreservationError, Recipe
 from .operations import OperationCancelled, OperationControl, Progress, failure_code
@@ -293,9 +293,7 @@ def _card_commands(arguments: Arguments) -> dict[str, JsonValue]:
         from .registry_proof import RegistryProof
 
         proof = RegistryProof.model_validate_json(identity_json(strict_json(data)))
-    retained = RetainedCard(
-        schema_version="foxlight.retained-card.v1", envelope=card, registry_proof=proof
-    )
+    retained = retain_card(card, registry_proof=proof)
     encoded = encode_record(retained)
     if len(encoded) > MAX_METADATA_BYTES:
         raise PreservationError("retained card exceeds metadata limit")

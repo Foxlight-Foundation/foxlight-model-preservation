@@ -324,7 +324,7 @@ def test_packaged_card_schema_is_present():
 
 def selected_member(*, object_id="sha256:" + "b" * 64, registry=False, sha256="b" * 64):
     """Retain an exact card whose only synthetic object has optional hash evidence."""
-    from foxlight_model_preservation.assurance import RetainedCard
+    from foxlight_model_preservation.assurance import retain_card
     from foxlight_model_preservation.models import ManifestMember
 
     file = ArtifactFile(path="model.bin", size_bytes=20, object_id=object_id)
@@ -340,9 +340,8 @@ def selected_member(*, object_id="sha256:" + "b" * 64, registry=False, sha256="b
     repository.path = f"v1/cards/{card.card_id}.json"
     repository.target = identity_json(card.model_dump(mode="json"))
     repository.refresh()
-    retained = RetainedCard(
-        schema_version="foxlight.retained-card.v1",
-        envelope=card,
+    retained = retain_card(
+        card,
         registry_proof=repository.proof() if registry else None,
     )
     member = ManifestMember.model_validate_json(
@@ -477,7 +476,9 @@ def test_cli_card_proof_and_typed_retention(tmp_path):
     )
     assert retained_ok.returncode == 0, retained_ok.stderr
     assert (
-        json.loads(retained.read_bytes())["envelope"]["card_id"]
+        json.loads(base64.b64decode(json.loads(retained.read_bytes())["card_base64"]))[
+            "card_id"
+        ]
         == repository.card.card_id
     )
 
@@ -597,3 +598,38 @@ def test_public_card_proof_conformance_vector():
     )
     assert verified.card == load_card(identity_json(vector["card"]))
     assert verified.report.target_sha256 == vector["target_sha256"]
+
+
+def test_retention_preserves_card_number_encoding_across_bundle_domain():
+    from foxlight_model_preservation.assurance import load_retained_card, retain_card
+    from foxlight_model_preservation.signing import canonical_bytes
+
+    selected = body()
+    selected["image"] = {
+        "family": "sdxl",
+        "default_steps": 1,
+        "default_guidance": 1.0,
+        "components": [
+            {
+                "role": "model",
+                "repository": "example/synthetic",
+                "revision": "a" * 40,
+                "entry_file": "model.bin",
+                "files": [
+                    {
+                        "path": "model.bin",
+                        "size_bytes": 20,
+                        "object_id": "sha256:" + "b" * 64,
+                    }
+                ],
+            }
+        ],
+    }
+    card = create_card(selected)
+    # An ordinary nested object would silently normalize 1.0 to 1 in RFC 8785,
+    # breaking the original registry-domain identity after capture/restore.
+    with pytest.raises(ValueError, match="identity"):
+        load_card(canonical_bytes(card.model_dump(mode="json")))
+    retained = load_retained_card(encode_record(retain_card(card)))
+    assert retained.envelope.card_id == card.card_id
+    assert type(retained.envelope.card["image"]["default_guidance"]) is float

@@ -127,7 +127,9 @@ such a proof.
 
 Put the object from `retained-card.json` in the recipe member's `retained_card`.
 The owner signature then retains the exact public card and any registry proof
-as part of the capture. This is an optional typed profile
+as part of the capture. `card_base64` retains the card's exact identity encoding:
+embedding a plain card object would let RFC 8785 change whole-number floats
+such as `1.0` to `1`, breaking a registry-domain card identity. This is an optional typed profile
 ([`RetainedCard.json`](schemas/RetainedCard.json)); older captures with arbitrary
 retained metadata still verify and restore under the unchanged bundle v1 format.
 They cannot use typed evidence inspection until an appropriate new capture is
@@ -169,6 +171,7 @@ model while a runtime keeps registry assurance visibly distinct.
 `registry_proof.create_registry_proof` packages exact retained bytes;
 `verify_registry_proof` returns a `VerifiedCard` and `ProofReport` after checking
 them against the caller's independent root, exact ID, mode and floors.
+`assurance.retain_card` creates the encoding-preserving profile;
 `assurance.inspect_member_evidence` binds a manifest member to its typed retained
 card/proof and reports file coverage. That helper checks metadata; unlike the
 CLI's `inspect-evidence`, it does not read stored object bytes. Call
