@@ -1,0 +1,32 @@
+{
+  "additionalProperties": false,
+  "description": "Optional receiver-retained rollback floors, including historical recovery.",
+  "properties": {
+    "root": {
+      "default": 1,
+      "minimum": 1,
+      "title": "Root",
+      "type": "integer"
+    },
+    "snapshot": {
+      "default": 1,
+      "minimum": 1,
+      "title": "Snapshot",
+      "type": "integer"
+    },
+    "targets": {
+      "default": 1,
+      "minimum": 1,
+      "title": "Targets",
+      "type": "integer"
+    },
+    "timestamp": {
+      "default": 1,
+      "minimum": 1,
+      "title": "Timestamp",
+      "type": "integer"
+    }
+  },
+  "title": "VersionFloor",
+  "type": "object"
+}

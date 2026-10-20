@@ -28,5 +28,22 @@ jobs:
         run: |
           python -m venv /tmp/preservation-wheel
           /tmp/preservation-wheel/bin/pip install dist/*.whl
+          cp examples/conformance/card-v1.json /tmp/preservation-card-vector.json
           cd /tmp
           /tmp/preservation-wheel/bin/model-preserve --help
+          /tmp/preservation-wheel/bin/python - <<'PY'
+          import base64
+          import json
+          from datetime import datetime
+          from pathlib import Path
+          from foxlight_model_preservation.cards import identity_json
+          from foxlight_model_preservation.registry_proof import verify_registry_proof
+          vector = json.loads(Path('preservation-card-vector.json').read_bytes())
+          result = verify_registry_proof(
+              identity_json(vector['proof']),
+              base64.b64decode(vector['enrolled_root_base64']),
+              vector['expected_card_id'],
+              reference_time=datetime.fromisoformat(vector['reference_time']),
+          )
+          assert result.report.target_sha256 == vector['target_sha256']
+          PY

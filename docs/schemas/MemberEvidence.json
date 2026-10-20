@@ -1,0 +1,182 @@
+{
+  "$defs": {
+    "ProofReport": {
+      "additionalProperties": false,
+      "description": "Card publication evidence, separate from file integrity and qualification.",
+      "properties": {
+        "anchor_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Anchor Sha256",
+          "type": "string"
+        },
+        "card_id": {
+          "pattern": "^card_[a-z2-7]{52}$",
+          "title": "Card Id",
+          "type": "string"
+        },
+        "checked_at": {
+          "title": "Checked At",
+          "type": "string"
+        },
+        "expired_roles": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Expired Roles",
+          "type": "array"
+        },
+        "mode": {
+          "enum": [
+            "fresh",
+            "historical"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "provenance": {
+          "anyOf": [
+            {
+              "enum": [
+                "foxlight",
+                "agent",
+                "community"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Provenance"
+        },
+        "revocation_scope": {
+          "const": "supplied-root-chain-only",
+          "default": "supplied-root-chain-only",
+          "title": "Revocation Scope",
+          "type": "string"
+        },
+        "target_path": {
+          "title": "Target Path",
+          "type": "string"
+        },
+        "target_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Target Sha256",
+          "type": "string"
+        },
+        "versions": {
+          "$ref": "#/$defs/VersionFloor"
+        }
+      },
+      "required": [
+        "card_id",
+        "mode",
+        "anchor_sha256",
+        "target_path",
+        "target_sha256",
+        "versions",
+        "expired_roles",
+        "provenance",
+        "checked_at"
+      ],
+      "title": "ProofReport",
+      "type": "object"
+    },
+    "VersionFloor": {
+      "additionalProperties": false,
+      "description": "Optional receiver-retained rollback floors, including historical recovery.",
+      "properties": {
+        "root": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Root",
+          "type": "integer"
+        },
+        "snapshot": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Snapshot",
+          "type": "integer"
+        },
+        "targets": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Targets",
+          "type": "integer"
+        },
+        "timestamp": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Timestamp",
+          "type": "integer"
+        }
+      },
+      "title": "VersionFloor",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Metadata assurance only; callers must also verify the actual stored bytes.",
+  "properties": {
+    "card_id": {
+      "pattern": "^card_[a-z2-7]{52}$",
+      "title": "Card Id",
+      "type": "string"
+    },
+    "file_coverage": {
+      "enum": [
+        "complete-sha256",
+        "partial-or-missing"
+      ],
+      "title": "File Coverage",
+      "type": "string"
+    },
+    "member_id": {
+      "title": "Member Id",
+      "type": "string"
+    },
+    "proof": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ProofReport"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "publication": {
+      "enum": [
+        "owner-only",
+        "registry-fresh",
+        "registry-historical"
+      ],
+      "title": "Publication",
+      "type": "string"
+    },
+    "qualification": {
+      "const": "not-assessed",
+      "default": "not-assessed",
+      "title": "Qualification",
+      "type": "string"
+    },
+    "unbound_paths": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 100000,
+      "title": "Unbound Paths",
+      "type": "array"
+    }
+  },
+  "required": [
+    "member_id",
+    "card_id",
+    "publication",
+    "file_coverage",
+    "unbound_paths",
+    "proof"
+  ],
+  "title": "MemberEvidence",
+  "type": "object"
+}

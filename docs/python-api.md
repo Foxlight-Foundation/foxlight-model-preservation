@@ -1,7 +1,7 @@
 # Use the standalone Python library
 
 The CLI and library use the same implementation. No Skulk import, GPU library,
-hub account or service is required. This reference describes the 0.2.0 entry
+hub account or service is required. This reference describes the 0.3.0 entry
 points; pin the package revision/version in an integration and test its actual
 contracts. It is not a promise that every helper is a stable extension interface.
 
@@ -92,6 +92,11 @@ can reuse valid objects and retained partials when explicitly called again.
 This is not automatic job resumption.
 
 ## Integrating an inference runtime
+
+Version 0.3.0 adds public cards, bounded offline registry proofs and separate
+per-member publication/file-evidence reports. See [cards and provenance](cards-and-provenance.md)
+for the typed retained profile, receiver trust, historical verification and
+the distinction between metadata checks and actual byte verification.
 
 A verified preservation manifest establishes an owner capture and exact bytes.
 An application must still validate its original model-card/provenance evidence,

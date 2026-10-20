@@ -1,5 +1,20 @@
 # Changes
 
+## 0.3.0
+
+- Publish the open model-card envelope/body profile and content-identity reader
+  without a Skulk runtime dependency. Any publisher can create and retain cards.
+- Add bounded offline TUF proofs for exact card publication, independent root
+  enrollment, consecutive threshold-verified rotations and receiver rollback floors.
+- Keep fresh and explicitly historical verification separate. Historical recovery
+  does not discover later revocations or turn expired metadata into a fresh update.
+- Add typed retained cards and per-member publication/file-evidence reports.
+  Missing signed SHA-256 evidence stays visible; owner hashes never acquire
+  registry authority. Contradictory evidence fails without silent downgrade.
+- Add standalone card/proof commands and byte-verifying evidence inspection.
+  Runtime installation, repository-code permission and qualification remain
+  separate; this release does not yet install models into Skulk.
+
 ## 0.2.0
 
 - Add read-only pack, fetch and restore plans with separate logical, unique,

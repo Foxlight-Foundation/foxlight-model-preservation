@@ -1,0 +1,58 @@
+{
+  "additionalProperties": false,
+  "description": "Exact signed bytes plus a fingerprint, never an enrolled trust root.",
+  "properties": {
+    "anchor_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Anchor Sha256",
+      "type": "string"
+    },
+    "root_chain": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 32,
+      "title": "Root Chain",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "foxlight.registry-proof.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "snapshot": {
+      "title": "Snapshot",
+      "type": "string"
+    },
+    "target": {
+      "title": "Target",
+      "type": "string"
+    },
+    "target_path": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Target Path",
+      "type": "string"
+    },
+    "targets": {
+      "title": "Targets",
+      "type": "string"
+    },
+    "timestamp": {
+      "title": "Timestamp",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "anchor_sha256",
+    "timestamp",
+    "snapshot",
+    "targets",
+    "target_path",
+    "target"
+  ],
+  "title": "RegistryProof",
+  "type": "object"
+}

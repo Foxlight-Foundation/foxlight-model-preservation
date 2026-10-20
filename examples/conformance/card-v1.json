@@ -1,0 +1,45 @@
+{
+  "card": {
+    "alias": "example/synthetic",
+    "artifact": {
+      "bundle": null,
+      "format": "mlx",
+      "quantization": "",
+      "repository": "example/synthetic",
+      "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "selected_file": null
+    },
+    "card": {
+      "hidden_size": 16,
+      "model_id": "example/synthetic",
+      "n_layers": 1,
+      "source_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "storage_size": {
+        "in_bytes": 20
+      },
+      "supports_tensor": false,
+      "tasks": [
+        "TextGeneration"
+      ],
+      "trust_remote_code": false
+    },
+    "card_id": "card_qbi7vfjafh7qeamccfd4vvpdc5p7znh226mmivjoeblhzjfcy4sa",
+    "model_ref": "example/synthetic",
+    "schema_version": 1
+  },
+  "description": "Synthetic public card and offline TUF proof; signing key discarded. Enroll the root separately from the proof in a real receiver.",
+  "enrolled_root_base64": "eyJzaWduYXR1cmVzIjpbeyJrZXlpZCI6IjQ4MDdlYmNmMzJhNzU1ZjMxODZlODM2YmQ3ODZhMDdkZjk1NDQ1YjUzNzVkOGExZDNkNmVmNjJmMGM0NzMzOTkiLCJzaWciOiI4MTA4MTY2NjYwNDA4NmM3MzEwOThiOGI4MzlhZjBmNzA0YzIxMTU0YWE5YjZlMDczMTEzZGI0YjFhZmIzN2Q0YzBiMjVlNTk3YjU2OGMwNmQ2YjdjNWJlMWY3ZjZmMDY3M2NmOTMyNjJiYjZkYWNkOWExNGVhNWQ3NjNkMjMwOSJ9XSwic2lnbmVkIjp7Il90eXBlIjoicm9vdCIsImNvbnNpc3RlbnRfc25hcHNob3QiOnRydWUsImV4cGlyZXMiOiIyMDI2LTExLTE4VDAwOjAwOjAwWiIsImtleXMiOnsiNDgwN2ViY2YzMmE3NTVmMzE4NmU4MzZiZDc4NmEwN2RmOTU0NDViNTM3NWQ4YTFkM2Q2ZWY2MmYwYzQ3MzM5OSI6eyJrZXl0eXBlIjoiZWQyNTUxOSIsImtleXZhbCI6eyJwdWJsaWMiOiIyMzljNWM0NDZkMWE1MjkwOGY5NDA4MjNkYmM3YTc2N2RhMDFiNDI4ZDFjNDM2ZDJiZTUwYjJjOTU5MWExN2UxIn0sInNjaGVtZSI6ImVkMjU1MTkifX0sInJvbGVzIjp7InJvb3QiOnsia2V5aWRzIjpbIjQ4MDdlYmNmMzJhNzU1ZjMxODZlODM2YmQ3ODZhMDdkZjk1NDQ1YjUzNzVkOGExZDNkNmVmNjJmMGM0NzMzOTkiXSwidGhyZXNob2xkIjoxfSwic25hcHNob3QiOnsia2V5aWRzIjpbIjQ4MDdlYmNmMzJhNzU1ZjMxODZlODM2YmQ3ODZhMDdkZjk1NDQ1YjUzNzVkOGExZDNkNmVmNjJmMGM0NzMzOTkiXSwidGhyZXNob2xkIjoxfSwidGFyZ2V0cyI6eyJrZXlpZHMiOlsiNDgwN2ViY2YzMmE3NTVmMzE4NmU4MzZiZDc4NmEwN2RmOTU0NDViNTM3NWQ4YTFkM2Q2ZWY2MmYwYzQ3MzM5OSJdLCJ0aHJlc2hvbGQiOjF9LCJ0aW1lc3RhbXAiOnsia2V5aWRzIjpbIjQ4MDdlYmNmMzJhNzU1ZjMxODZlODM2YmQ3ODZhMDdkZjk1NDQ1YjUzNzVkOGExZDNkNmVmNjJmMGM0NzMzOTkiXSwidGhyZXNob2xkIjoxfX0sInNwZWNfdmVyc2lvbiI6IjEuMC4zMSIsInZlcnNpb24iOjF9fQ==",
+  "expected_card_id": "card_qbi7vfjafh7qeamccfd4vvpdc5p7znh226mmivjoeblhzjfcy4sa",
+  "proof": {
+    "anchor_sha256": "78f90a0f9ca49026d8e082cc17e91ca38472b1c2a036a4c8b24d72247a6835db",
+    "root_chain": [],
+    "schema_version": "foxlight.registry-proof.v1",
+    "snapshot": "eyJzaWduYXR1cmVzIjpbeyJrZXlpZCI6IjQ4MDdlYmNmMzJhNzU1ZjMxODZlODM2YmQ3ODZhMDdkZjk1NDQ1YjUzNzVkOGExZDNkNmVmNjJmMGM0NzMzOTkiLCJzaWciOiI4YzEzNTVmNGU2MzE1Nzc0ZTRjODVmZTBjYmYxNzBlYjVjODQ0MGU0MmRlN2QxNGU2YzdmNzc4ODRlNTNkN2Q3YzI1MWZlZTM5MmQ4ZjhhMWJmN2ExZTkwMzBlNGZlMzYyNWU0MWQ4MzU4ZTE0N2UxNTA3M2Q0ZDA0MGU5Y2YwZiJ9XSwic2lnbmVkIjp7Il90eXBlIjoic25hcHNob3QiLCJleHBpcmVzIjoiMjAyNi0xMC0yMFQwMDowMDowMFoiLCJtZXRhIjp7InRhcmdldHMuanNvbiI6eyJoYXNoZXMiOnsic2hhMjU2IjoiMWQ5YzFjZDA4ODI1NTY1MDMyZTkzYjBiMzMzZWJiMjIyNzkxZDMzNWM0N2IwM2E0ZmY4MWMwMTIwMmU0NGQxMCJ9LCJsZW5ndGgiOjUxNiwidmVyc2lvbiI6NH19LCJzcGVjX3ZlcnNpb24iOiIxLjAuMzEiLCJ2ZXJzaW9uIjozfX0=",
+    "target": "eyJhbGlhcyI6ImV4YW1wbGUvc3ludGhldGljIiwiYXJ0aWZhY3QiOnsiYnVuZGxlIjpudWxsLCJmb3JtYXQiOiJtbHgiLCJxdWFudGl6YXRpb24iOiIiLCJyZXBvc2l0b3J5IjoiZXhhbXBsZS9zeW50aGV0aWMiLCJyZXZpc2lvbiI6ImFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWEiLCJzZWxlY3RlZF9maWxlIjpudWxsfSwiY2FyZCI6eyJoaWRkZW5fc2l6ZSI6MTYsIm1vZGVsX2lkIjoiZXhhbXBsZS9zeW50aGV0aWMiLCJuX2xheWVycyI6MSwic291cmNlX3JldmlzaW9uIjoiYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYSIsInN0b3JhZ2Vfc2l6ZSI6eyJpbl9ieXRlcyI6MjB9LCJzdXBwb3J0c190ZW5zb3IiOmZhbHNlLCJ0YXNrcyI6WyJUZXh0R2VuZXJhdGlvbiJdLCJ0cnVzdF9yZW1vdGVfY29kZSI6ZmFsc2V9LCJjYXJkX2lkIjoiY2FyZF9xYmk3dmZqYWZoN3FlYW1jY2ZkNHZ2cGRjNXA3em5oMjI2bW1pdmpvZWJsaHpqZmN5NHNhIiwibW9kZWxfcmVmIjoiZXhhbXBsZS9zeW50aGV0aWMiLCJzY2hlbWFfdmVyc2lvbiI6MX0=",
+    "target_path": "v1/cards/card_qbi7vfjafh7qeamccfd4vvpdc5p7znh226mmivjoeblhzjfcy4sa.json",
+    "targets": "eyJzaWduYXR1cmVzIjpbeyJrZXlpZCI6IjQ4MDdlYmNmMzJhNzU1ZjMxODZlODM2YmQ3ODZhMDdkZjk1NDQ1YjUzNzVkOGExZDNkNmVmNjJmMGM0NzMzOTkiLCJzaWciOiIyYTQ0MWI2ZTlkODlmMWUzN2I5NDEzYTc2NTAyNDIzMjFmNGE2Y2E4MzE3NDM2MDY3ZDk5ZmM1YzExYmVlZjU1YzI1NmUxZWFlYzdhMGFmNzU5NWYwODdmYjgyNTYwZTZiMDU0NGU2NTZiYWU2Mjg3NDUxNGZmOTlmMDM0YTgwZSJ9XSwic2lnbmVkIjp7Il90eXBlIjoidGFyZ2V0cyIsImV4cGlyZXMiOiIyMDI2LTEwLTIwVDAwOjAwOjAwWiIsInNwZWNfdmVyc2lvbiI6IjEuMC4zMSIsInRhcmdldHMiOnsidjEvY2FyZHMvY2FyZF9xYmk3dmZqYWZoN3FlYW1jY2ZkNHZ2cGRjNXA3em5oMjI2bW1pdmpvZWJsaHpqZmN5NHNhLmpzb24iOnsiaGFzaGVzIjp7InNoYTI1NiI6IjdjNzNhMjJkMjg0NzM2ZGZiZTlmODM4NWNmYWE4YTI2Zjk3YmEwZTJmYTg3YTBlZTRiZjBlNDYyNGI5ZTEzODcifSwibGVuZ3RoIjo1NTd9fSwidmVyc2lvbiI6NH19",
+    "timestamp": "eyJzaWduYXR1cmVzIjpbeyJrZXlpZCI6IjQ4MDdlYmNmMzJhNzU1ZjMxODZlODM2YmQ3ODZhMDdkZjk1NDQ1YjUzNzVkOGExZDNkNmVmNjJmMGM0NzMzOTkiLCJzaWciOiIxYTk5YWFkNWY3NTFhZDMxZTdlOTIwZTJjODQ4YTE1YzdjY2UyOWQzNGRhNTRhZTE3ZWFmZDA2MjAwMGUwZGFkOTYzZmJmNGU4ZmRjZDc1OGY5ZDM4ZGEwZmM4ZWJkNjYxNmE5NWIzNTViMzc0MDdkNjlhN2UzYzJjYWFmNWYwOCJ9XSwic2lnbmVkIjp7Il90eXBlIjoidGltZXN0YW1wIiwiZXhwaXJlcyI6IjIwMjYtMTAtMjBUMDA6MDA6MDBaIiwibWV0YSI6eyJzbmFwc2hvdC5qc29uIjp7Imhhc2hlcyI6eyJzaGEyNTYiOiJjODM3NWMwN2YyN2RlNzliOTNiMTYyNDUxMGM1Mzk2MzQzYmY1YzMxZGFiZDYxMWVjODk3YTBhODM2MzNhMDhkIn0sImxlbmd0aCI6NDY3LCJ2ZXJzaW9uIjozfX0sInNwZWNfdmVyc2lvbiI6IjEuMC4zMSIsInZlcnNpb24iOjJ9fQ=="
+  },
+  "reference_time": "2026-10-19T00:00:00Z",
+  "target_sha256": "7c73a22d284736dfbe9f8385cfaa8a26f97ba0e2fa87a0ee4bf0e4624b9e1387"
+}
