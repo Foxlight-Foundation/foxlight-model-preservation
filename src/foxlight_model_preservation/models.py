@@ -33,6 +33,7 @@ def canonical_path(value: str) -> str:
     path = PurePosixPath(value)
     if (
         not value
+        or not path.parts
         or len(value) > 2048
         or len(path.parts) > 64
         or path.is_absolute()

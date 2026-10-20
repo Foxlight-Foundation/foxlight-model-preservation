@@ -227,6 +227,10 @@ def _copy_object(
         return
     except (FileNotFoundError, PreservationError):
         pass
+    # Verified content needs no copy; missing or corrupt content needs a full
+    # temporary replacement while any old object remains in place.
+    if shutil.disk_usage(target).free < file.size + 16 * CHUNK_SIZE:
+        raise PreservationError("destination has insufficient free space")
     pending = ".pending/" + uuid.uuid4().hex
     with (
         open_file(source, source_path) as origin,
@@ -273,13 +277,6 @@ def pack(
                     ):
                         raise PreservationError(
                             "source does not match its expected hash"
-                        )
-                    if (
-                        shutil.disk_usage(destination).free
-                        < identity.size + 16 * CHUNK_SIZE
-                    ):
-                        raise PreservationError(
-                            "destination has insufficient free space"
                         )
                     _copy_object(source, selected.path, target, identity)
                     identities.append(identity)

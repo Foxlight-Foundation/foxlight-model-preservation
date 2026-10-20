@@ -31,7 +31,7 @@ which workload, engine and environment actually ran, if inference was exercised.
 | No authenticated manifest | Check the exact ID and independently enrolled signer. Try another permitted source; do not enroll the failing source's key automatically. |
 | Hash or length mismatch | Keep other verified stores intact. Check the affected store/source. Fetch into a dedicated destination from a permitted intact supplier and verify again. |
 | Interrupted fetch | Run the same exact request again. Valid objects are reused, partial objects can resume, and corrupt prefixes are discarded. |
-| Insufficient space | Add space or choose another destination. No automatic deletion or paid expansion occurs. The first version has a conservative repeated-object preflight edge, noted below. |
+| Insufficient space | Add space or choose another destination. No automatic deletion or paid expansion occurs. Current source reuses verified objects before checking capacity for new copies; the v0.1.0 release edge is noted below. |
 | Another writer owns the destination | Let the active writer finish or stop that operation through its owner. Do not delete locks or kill unrelated processes. |
 | Restore output exists | Choose a new output directory. Restore never merges into or overwrites an existing model tree. |
 | NAS path unavailable | Verify the actual mounted volume before operating. The core does not enroll volume sentinels or detect every unmounted-share alias. |
@@ -63,15 +63,22 @@ Stopping sharing cannot recall copies already delivered. Independent operators
 can preserve the public format without Foxlight enrollment. Source availability,
 verified bytes, independent custody and successful inference are separate facts.
 
-## Known v0.1.0 edges
+## v0.1.0 release edges and current-source fixes
 
 [Issue #2](https://github.com/Foxlight-Foundation/foxlight-model-preservation/issues/2)
-tracks two cases: another trusted signer can produce a dot-only file path that
+records two cases in the v0.1.0 release: another trusted signer can produce a dot-only file path that
 passes hash-addressed receiving but fails restoration; current pack cannot emit
 it. Pack can also refuse a nearly full destination before reusing an already
 verified duplicate object. Neither accepts changed content or overwrites an
-existing capture. They remain implementation follow-ups, not reasons to weaken
-verification or clear unrelated data.
+existing capture.
+
+Current source rejects dot-only paths during recipe/manifest validation, including
+correctly signed manifests from another implementation. Pack rehashes and reuses
+valid existing objects before checking capacity for a new copy. Missing/corrupt
+objects still require space for the full temporary replacement plus the 16 MiB
+reserve. Publication still requires metadata space and can fail without it; no
+disk capacity is promised by deduplication alone. These fixes are not a replacement
+v0.1.0 release artifact; use a reviewed source revision until a later release.
 
 See the [protocol](protocol.md) for the full limits and
 [trust and recovery](trust-and-recovery.md) for offline material and key handling.
