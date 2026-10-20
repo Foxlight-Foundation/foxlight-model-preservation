@@ -6,3 +6,6 @@ __pycache__/
 dist/
 *.egg-info/
 .DS_Store
+
+# Disposable data from the documented synthetic walkthrough
+preservation-demo/

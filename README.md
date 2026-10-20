@@ -24,6 +24,17 @@ model-preserve --help
 For offline recovery, retain the verifier and its platform-compatible dependency
 wheels through an authenticated software channel.
 
+## Learn the system
+
+| I want to… | Guide |
+| --- | --- |
+| Try a complete example without downloading a model | [Synthetic walkthrough](docs/quickstart.md) |
+| Understand identity, signatures, files and mirrors | [How it works](docs/how-it-works.md) |
+| Embed the current library in an application | [Python API and runtime boundary](docs/python-api.md) |
+| Keep a store healthy and recover from failures | [Operations](docs/operations.md) |
+| Host a copy for others | [Mirror guide](docs/mirrors.md) |
+| Retain independent trust and offline recovery material | [Trust and recovery](docs/trust-and-recovery.md) |
+
 ## Download, verify, restore
 
 First obtain a trusted public-key profile and exact manifest ID through an
