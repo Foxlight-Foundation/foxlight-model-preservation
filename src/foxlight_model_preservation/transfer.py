@@ -11,11 +11,13 @@ import ssl
 import time
 from collections.abc import Generator
 from contextlib import contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import BinaryIO
 from urllib.parse import urlsplit
 
+from . import __version__
+from .ledger import TransferBudget, receipt_path
 from .models import (
     MAX_METADATA_BYTES,
     FileIdentity,
@@ -23,7 +25,14 @@ from .models import (
     PreservationError,
     TrustProfile,
 )
-from .signing import verify_manifest
+from .operations import (
+    BudgetExceeded,
+    DeadlineExceeded,
+    OperationControl,
+    OperationError,
+    OperationPlan,
+)
+from .signing import canonical_bytes, digest, verify_manifest
 from .storage import (
     CHUNK_SIZE,
     atomic_bytes,
@@ -31,6 +40,7 @@ from .storage import (
     file_identity,
     manifest_path,
     object_path,
+    observe_objects,
     open_file,
     parent_directory,
     read_metadata,
@@ -62,19 +72,6 @@ class TransferPolicy:
 
 
 DEFAULT_POLICY = TransferPolicy()
-
-
-@dataclass
-class Budget:
-    """Count actual object bytes across retries, rather than just final output."""
-
-    remaining: int
-
-    def consume(self, count: int) -> None:
-        """Reject cumulative transfer beyond the explicitly selected limit."""
-        if count > self.remaining:
-            raise PreservationError("cumulative transfer budget exceeded")
-        self.remaining -= count
 
 
 class PinnedConnection(http.client.HTTPConnection):
@@ -141,7 +138,10 @@ def response(
         policy,
         tls=parsed.scheme == "https",
     )
-    headers = {"Accept-Encoding": "identity", "User-Agent": "model-preserve/0.1"}
+    headers = {
+        "Accept-Encoding": "identity",
+        "User-Agent": "model-preserve/" + __version__,
+    }
     if offset:
         headers["Range"] = f"bytes={offset}-"
     path = parsed.path.rstrip("/") + "/" + relative
@@ -166,13 +166,18 @@ def _is_remote(source: str) -> bool:
 def _remaining_policy(policy: TransferPolicy, deadline: float) -> TransferPolicy:
     remaining = deadline - time.monotonic()
     if remaining <= 0:
-        raise PreservationError("transfer deadline exceeded")
+        raise DeadlineExceeded("transfer deadline exceeded")
     return replace(policy, timeout=min(policy.timeout, remaining))
 
 
 def _metadata(
-    source: str, relative: str, policy: TransferPolicy, deadline: float
+    source: str,
+    relative: str,
+    policy: TransferPolicy,
+    deadline: float,
+    control: OperationControl,
 ) -> bytes:
+    control.checkpoint()
     policy = _remaining_policy(policy, deadline)
     if not _is_remote(source):
         with directory(Path(source)) as root:
@@ -187,6 +192,7 @@ def _metadata(
             if not chunk:
                 break
             data += chunk
+            control.checkpoint()
     if len(data) > MAX_METADATA_BYTES:
         raise PreservationError("metadata exceeds size limit")
     return data
@@ -197,28 +203,35 @@ def _bounded_copy(
     output: BinaryIO,
     count: int,
     deadline: float,
-    budget: Budget,
+    budget: TransferBudget,
+    control: OperationControl,
 ) -> None:
     remaining = count
     while remaining:
         if time.monotonic() > deadline:
-            raise PreservationError("transfer deadline exceeded")
+            raise DeadlineExceeded("transfer deadline exceeded")
+        control.checkpoint()
         if budget.remaining <= 0:
-            raise PreservationError("cumulative transfer budget exceeded")
+            raise BudgetExceeded("cumulative transfer budget exceeded")
         amount = min(65536, remaining, budget.remaining)
-        chunk = (
-            origin.read1(amount)
-            if isinstance(origin, http.client.HTTPResponse)
-            else origin.read(amount)
-        )
+        budget.reserve(amount)
+        try:
+            chunk = (
+                origin.read1(amount)
+                if isinstance(origin, http.client.HTTPResponse)
+                else origin.read(amount)
+            )
+        except BaseException:
+            budget.abandon()
+            raise
         if not chunk:
             raise PreservationError("mirror ended before the expected file length")
         budget.consume(len(chunk))
+        control.advance(received=len(chunk))
         output.write(chunk)
         remaining -= len(chunk)
-    if origin.read(1):
-        budget.consume(1)
-        raise PreservationError("mirror exceeded the expected file length")
+    # HTTP framing was checked against the exact signed size; filesystem input
+    # has its full length checked separately. No unbudgeted overrun probe.
 
 
 def _download(
@@ -227,17 +240,19 @@ def _download(
     target: int,
     policy: TransferPolicy,
     deadline: float,
-    budget: Budget,
+    budget: TransferBudget,
+    control: OperationControl,
 ) -> None:
+    control.checkpoint()
     policy = _remaining_policy(policy, deadline)
     pending = ".partial/" + file.sha256
     with open_file(target, pending, write=True) as output:
         output.seek(0, os.SEEK_END)
         offset = output.tell()
         if offset == file.size:
-            observed = file_identity(target, pending, file.size)
+            observed = file_identity(target, pending, file.size, control=control)
             if observed.sha256 == file.sha256:
-                _publish_partial(target, pending, file)
+                _publish_partial(target, pending, file, control)
                 return
         if offset >= file.size:
             output.seek(0)
@@ -253,7 +268,13 @@ def _download(
                         "mirror object length differs from signed size"
                     )
                 origin.seek(offset)
-                _bounded_copy(origin, output, file.size - offset, deadline, budget)
+                _bounded_copy(
+                    origin, output, file.size - offset, deadline, budget, control
+                )
+                if os.fstat(origin.fileno()).st_size != file.size:
+                    raise PreservationError(
+                        "mirror object changed length during transfer"
+                    )
         else:
             with response(
                 source, object_path(file.sha256), policy, offset=offset
@@ -277,18 +298,24 @@ def _download(
                     raise PreservationError(
                         "mirror returned an inconsistent content length"
                     )
-                _bounded_copy(received, output, file.size - offset, deadline, budget)
+                _bounded_copy(
+                    received, output, file.size - offset, deadline, budget, control
+                )
         output.flush()
         os.fsync(output.fileno())
-    observed = file_identity(target, pending)
+    control.phase("checking")
+    observed = file_identity(target, pending, control=control)
     if (observed.size, observed.sha256) != (file.size, file.sha256):
         with open_file(target, pending, write=True) as output:
             output.truncate(0)
         raise PreservationError("mirror object hash differs from signed identity")
-    _publish_partial(target, pending, file)
+    _publish_partial(target, pending, file, control)
 
 
-def _publish_partial(target: int, pending: str, file: FileIdentity) -> None:
+def _publish_partial(
+    target: int, pending: str, file: FileIdentity, control: OperationControl
+) -> None:
+    control.checkpoint()
     with parent_directory(target, pending) as (pending_parent, pending_name):
         with parent_directory(target, object_path(file.sha256), create=True) as (
             parent,
@@ -296,7 +323,61 @@ def _publish_partial(target: int, pending: str, file: FileIdentity) -> None:
         ):
             os.replace(pending_name, name, src_dir_fd=pending_parent, dst_dir_fd=parent)
             os.fsync(parent)
-    verify_object(target, file)
+    verify_object(target, file, control=control)
+
+
+def request_digest(
+    manifest_id: str,
+    trust: TrustProfile,
+    sources: tuple[str, ...],
+    destination: Path,
+    policy: TransferPolicy,
+) -> str:
+    """Bind exact content, trust, source order, destination and policy without leaks."""
+    return digest(
+        canonical_bytes(
+            {
+                "manifest": manifest_id,
+                "trust": trust.model_dump(mode="json"),
+                "sources": list(sources),
+                "destination": str(destination.resolve()),
+                "policy": asdict(policy),
+            }
+        )
+    )
+
+
+def _load_manifest(
+    manifest_id: str,
+    trust: TrustProfile,
+    sources: tuple[str, ...],
+    policy: TransferPolicy,
+    deadline: float,
+    control: OperationControl,
+) -> tuple[Manifest, bytes]:
+    policy.validate()
+    if not sources or len(sources) > policy.max_sources:
+        raise PreservationError("supply a bounded nonempty mirror list")
+    relative = manifest_path(manifest_id)
+    control.phase("inventory")
+    failures: list[str] = []
+    for index, source in enumerate(sources):
+        try:
+            envelope = _metadata(source, relative, policy, deadline, control)
+            manifest = verify_manifest(envelope, trust, manifest_id)
+            if sum(file.size for file in unique_objects(manifest)) > policy.max_bytes:
+                raise BudgetExceeded(
+                    "signed bundle exceeds the selected transfer budget"
+                )
+            control.checkpoint()
+            return manifest, envelope
+        except OperationError:
+            raise
+        except (OSError, ValueError, http.client.HTTPException) as error:
+            failures.append(f"source {index + 1}: {type(error).__name__}")
+    raise PreservationError(
+        "no authenticated manifest available; " + "; ".join(failures)
+    )
 
 
 def fetch(
@@ -305,62 +386,126 @@ def fetch(
     sources: tuple[str, ...],
     destination: Path,
     policy: TransferPolicy = DEFAULT_POLICY,
+    *,
+    control: OperationControl | None = None,
+    operation_id: str | None = None,
 ) -> Manifest:
-    """Fetch an exact trusted bundle; publish only after full verification."""
-    policy.validate()
-    if not sources or len(sources) > policy.max_sources:
-        raise PreservationError("supply a bounded nonempty mirror list")
-    relative = manifest_path(manifest_id)
-    deadline = time.monotonic() + policy.deadline_seconds
-    manifest: Manifest | None = None
-    budget = Budget(policy.max_bytes)
-    envelope = b""
-    failures: list[str] = []
-    for index, source in enumerate(sources):
-        try:
-            envelope = _metadata(source, relative, policy, deadline)
-            manifest = verify_manifest(envelope, trust, manifest_id)
-            break
-        except (OSError, ValueError, http.client.HTTPException) as error:
-            failures.append(f"source {index + 1}: {type(error).__name__}")
-    if manifest is None:
-        raise PreservationError(
-            "no authenticated manifest available; " + "; ".join(failures)
+    """Receive exact trusted content with optional control and persistent allowance.
+
+    Reuse the same operation_id and immutable inputs after interruption. Local
+    charges persist before object reads; a new ID is a new authorized allowance.
+    No operation_id retains the original per-invocation accounting behavior.
+    """
+    with (control or OperationControl()).operation("fetch") as active:
+        policy.validate()
+        if operation_id is not None:
+            receipt_path(operation_id)
+        deadline = time.monotonic() + policy.deadline_seconds
+        active.limit_deadline(deadline)
+        manifest, envelope = _load_manifest(
+            manifest_id, trust, sources, policy, deadline, active
         )
-    files = unique_objects(manifest)
-    if sum(file.size for file in files) > policy.max_bytes:
-        raise PreservationError("signed bundle exceeds the selected transfer budget")
-    with directory(destination, create=True) as target, writer_lock(target):
-        missing: list[FileIdentity] = []
-        for file in files:
-            try:
-                verify_object(target, file)
-            except (FileNotFoundError, PreservationError):
-                missing.append(file)
-        if (
-            shutil.disk_usage(destination).free
-            < sum(file.size for file in missing) + 16 * CHUNK_SIZE
-        ):
-            raise PreservationError("destination has insufficient free space")
-        for file in missing:
-            complete = False
-            for source in sources:
-                # A resumed prefix may have come from a corrupt peer: allow one
-                # clean retry of the next supplier before rejecting that supplier.
-                for _attempt in range(2):
-                    if time.monotonic() > deadline:
-                        raise PreservationError("transfer deadline exceeded")
-                    try:
-                        _download(source, file, target, policy, deadline, budget)
-                        complete = True
+        files = unique_objects(manifest)
+        active.checkpoint()
+        with directory(destination, create=True) as target, writer_lock(target):
+            pinned = os.fstat(target)
+            binding = digest(
+                canonical_bytes(
+                    {
+                        "request": request_digest(
+                            manifest_id, trust, sources, destination, policy
+                        ),
+                        "device": str(pinned.st_dev),
+                        "inode": str(pinned.st_ino),
+                    }
+                )
+            )
+            budget = TransferBudget(
+                policy.max_bytes,
+                root=target,
+                operation_id=operation_id,
+                request_digest=binding,
+            )
+            missing, _reused, partial = observe_objects(
+                target, files, active, include_partials=True
+            )
+            additional = sum(file.size for file in missing) - partial
+            if (
+                missing
+                and shutil.disk_usage(target).free < additional + 16 * CHUNK_SIZE
+            ):
+                raise PreservationError("destination has insufficient free space")
+            for file in missing:
+                complete = False
+                for source in sources:
+                    # A corrupt resumed prefix permits one clean retry from
+                    # this supplier. Cancellation/deadlines/budgets never retry.
+                    for _attempt in range(2):
+                        active.phase("downloading")
+                        try:
+                            _download(
+                                source, file, target, policy, deadline, budget, active
+                            )
+                            complete = True
+                            break
+                        except OperationError:
+                            raise
+                        except (OSError, ValueError, http.client.HTTPException):
+                            continue
+                    if complete:
                         break
-                    except (OSError, ValueError, http.client.HTTPException):
-                        continue
-                if complete:
-                    break
-            if not complete:
-                raise PreservationError("no mirror supplied a complete verified object")
-        for file in files:
-            verify_object(target, file)
-        atomic_bytes(target, relative, envelope)
-    return manifest
+                if not complete:
+                    raise PreservationError(
+                        "no mirror supplied a complete verified object"
+                    )
+            active.phase("checking")
+            for file in files:
+                verify_object(target, file, control=active)
+            active.phase("publishing")
+            atomic_bytes(target, manifest_path(manifest_id), envelope)
+            active.mark_committed()
+        return manifest
+
+
+def plan_fetch(
+    manifest_id: str,
+    trust: TrustProfile,
+    sources: tuple[str, ...],
+    destination: Path,
+    policy: TransferPolicy = DEFAULT_POLICY,
+    *,
+    control: OperationControl | None = None,
+) -> OperationPlan:
+    """Authenticate metadata and observe space without fetching weights or writing.
+
+    Remote sources require bounded metadata requests. Partial bytes are only
+    potential space reuse; their integrity is not established by this plan.
+    """
+    with (control or OperationControl()).operation("plan_fetch") as active:
+        deadline = time.monotonic() + policy.deadline_seconds
+        active.limit_deadline(deadline)
+        manifest, envelope = _load_manifest(
+            manifest_id, trust, sources, policy, deadline, active
+        )
+        files = unique_objects(manifest)
+        reused = partial = 0
+        if destination.exists() or destination.is_symlink():
+            with directory(destination) as root:
+                _missing, reused, partial = observe_objects(
+                    root, files, active, include_partials=True
+                )
+        unique = sum(file.size for file in files)
+        return OperationPlan(
+            operation="fetch",
+            manifest_id=manifest_id,
+            request_digest=request_digest(
+                manifest_id, trust, sources, destination, policy
+            ),
+            logical_bytes=manifest.total_bytes,
+            unique_bytes=unique,
+            reused_bytes=reused,
+            partial_bytes=partial,
+            additional_bytes=unique - reused - partial,
+            metadata_bytes=len(envelope),
+            reserve_bytes=16 * CHUNK_SIZE,
+        )

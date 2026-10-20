@@ -1,0 +1,95 @@
+{
+  "additionalProperties": false,
+  "description": "One bounded snapshot; byte counters are cumulative work, not percentages.",
+  "properties": {
+    "bytes_copied": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Bytes Copied",
+      "type": "integer"
+    },
+    "bytes_hashed": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Bytes Hashed",
+      "type": "integer"
+    },
+    "bytes_received": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Bytes Received",
+      "type": "integer"
+    },
+    "bytes_reused": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Bytes Reused",
+      "type": "integer"
+    },
+    "committed": {
+      "default": false,
+      "title": "Committed",
+      "type": "boolean"
+    },
+    "error_code": {
+      "anyOf": [
+        {
+          "enum": [
+            "cancelled",
+            "budget_exceeded",
+            "deadline_exceeded",
+            "request_changed",
+            "invalid_or_unsafe",
+            "storage_error",
+            "operation_failed"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Error Code"
+    },
+    "observer_failed": {
+      "default": false,
+      "title": "Observer Failed",
+      "type": "boolean"
+    },
+    "operation": {
+      "enum": [
+        "pack",
+        "verify",
+        "restore",
+        "fetch",
+        "plan_pack",
+        "plan_restore",
+        "plan_fetch"
+      ],
+      "title": "Operation",
+      "type": "string"
+    },
+    "stage": {
+      "enum": [
+        "starting",
+        "inventory",
+        "checking",
+        "copying",
+        "downloading",
+        "publishing",
+        "complete",
+        "cancelled",
+        "failed"
+      ],
+      "title": "Stage",
+      "type": "string"
+    }
+  },
+  "required": [
+    "operation",
+    "stage"
+  ],
+  "title": "Progress",
+  "type": "object"
+}

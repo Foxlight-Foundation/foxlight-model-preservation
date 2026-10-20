@@ -25,7 +25,14 @@ from .models import (
     TrustProfile,
     canonical_path,
 )
-from .signing import digest, encode_record, sign_manifest, verify_manifest
+from .operations import OperationControl, OperationError, OperationPlan, RequestChanged
+from .signing import (
+    canonical_bytes,
+    digest,
+    encode_record,
+    sign_manifest,
+    verify_manifest,
+)
 
 CHUNK_SIZE = 1024 * 1024
 
@@ -157,9 +164,15 @@ def read_metadata(root: int, path: str) -> bytes:
 
 
 def file_identity(
-    root: int, path: str, expected_size: int | None = None
+    root: int,
+    path: str,
+    expected_size: int | None = None,
+    *,
+    control: OperationControl | None = None,
 ) -> FileIdentity:
     """Hash a stable source snapshot and reject mutation during the read."""
+    if control is not None:
+        control.checkpoint()
     with open_file(root, path) as stream:
         before = os.fstat(stream.fileno())
         if expected_size is not None and before.st_size != expected_size:
@@ -169,6 +182,8 @@ def file_identity(
         while chunk := stream.read(min(CHUNK_SIZE, before.st_size + 1 - size)):
             hasher.update(chunk)
             size += len(chunk)
+            if control is not None:
+                control.advance(hashed=len(chunk))
         after = os.fstat(stream.fileno())
     if (
         before.st_dev,
@@ -187,9 +202,11 @@ def file_identity(
     return FileIdentity(path=path, size=size, sha256=hasher.hexdigest())
 
 
-def verify_object(root: int, file: FileIdentity) -> None:
+def verify_object(
+    root: int, file: FileIdentity, *, control: OperationControl | None = None
+) -> None:
     """Verify actual bytes, including length, before a complete-generation claim."""
-    observed = file_identity(root, object_path(file.sha256), file.size)
+    observed = file_identity(root, object_path(file.sha256), file.size, control=control)
     if observed.size != file.size or observed.sha256 != file.sha256:
         raise PreservationError("stored object failed integrity verification")
 
@@ -206,25 +223,166 @@ def unique_objects(manifest: Manifest) -> tuple[FileIdentity, ...]:
     return tuple(files.values())
 
 
-def copy_exact(origin: BinaryIO, output: BinaryIO, count: int) -> None:
+def observe_objects(
+    root: int,
+    files: tuple[FileIdentity, ...],
+    control: OperationControl,
+    *,
+    include_partials: bool = False,
+) -> tuple[tuple[FileIdentity, ...], int, int]:
+    """Read missing objects, verified reuse bytes and unverified partial bytes.
+
+    The caller pins the root. This observation creates no files or locks and
+    cannot reserve capacity or prove that a partial prefix is correct.
+    """
+    control.phase("checking")
+    missing: list[FileIdentity] = []
+    reused = 0
+    partial = 0
+    for file in files:
+        try:
+            verify_object(root, file, control=control)
+        except OperationError:
+            raise
+        except (FileNotFoundError, PreservationError):
+            missing.append(file)
+            if include_partials:
+                try:
+                    with open_file(root, ".partial/" + file.sha256) as stream:
+                        partial += min(os.fstat(stream.fileno()).st_size, file.size)
+                except FileNotFoundError:
+                    pass
+        else:
+            reused += file.size
+            control.advance(reused=file.size)
+    return tuple(missing), reused, partial
+
+
+def plan_pack(
+    recipe: Recipe,
+    sources: dict[str, Path],
+    destination: Path,
+    *,
+    control: OperationControl | None = None,
+) -> OperationPlan:
+    """Hash sources and observe reuse without signing or writing a store."""
+    with (control or OperationControl()).operation("plan_pack") as active:
+        for source in sources.values():
+            if destination.resolve().is_relative_to(source.resolve()):
+                raise PreservationError(
+                    "destination must not be inside a captured source"
+                )
+        manifest = _capture_manifest(recipe, sources, active)
+        files = unique_objects(manifest)
+        reused = 0
+        if destination.exists() or destination.is_symlink():
+            with directory(destination) as root:
+                _missing, reused, _partial = observe_objects(root, files, active)
+        identity = digest(encode_record(manifest))
+        request = digest(
+            canonical_bytes(
+                {
+                    "operation": "pack",
+                    "manifest": identity,
+                    "sources": {
+                        name: str(path.resolve()) for name, path in sources.items()
+                    },
+                    "destination": str(destination.resolve()),
+                }
+            )
+        )
+        unique = sum(file.size for file in files)
+        return OperationPlan(
+            operation="pack",
+            manifest_id=identity,
+            request_digest=request,
+            logical_bytes=manifest.total_bytes,
+            unique_bytes=unique,
+            reused_bytes=reused,
+            partial_bytes=0,
+            additional_bytes=unique - reused,
+            metadata_bytes=len(encode_record(manifest)),
+            reserve_bytes=16 * CHUNK_SIZE,
+        )
+
+
+def plan_restore(
+    store: Path,
+    manifest_id: str,
+    trust: TrustProfile,
+    destination: Path,
+    *,
+    control: OperationControl | None = None,
+) -> OperationPlan:
+    """Verify a source and report copy space without creating an output tree."""
+    with (control or OperationControl()).operation("plan_restore") as active:
+        if destination.exists() or destination.is_symlink():
+            raise PreservationError("restore destination already exists")
+        manifest = _verify_store(store, manifest_id, trust, active)
+        with directory(store) as root:
+            metadata = read_metadata(root, manifest_path(manifest_id))
+        request = digest(
+            canonical_bytes(
+                {
+                    "operation": "restore",
+                    "manifest": manifest_id,
+                    "trust": trust.model_dump(mode="json"),
+                    "source": str(store.resolve()),
+                    "destination": str(destination.resolve()),
+                }
+            )
+        )
+        return OperationPlan(
+            operation="restore",
+            manifest_id=manifest_id,
+            request_digest=request,
+            logical_bytes=manifest.total_bytes,
+            unique_bytes=sum(file.size for file in unique_objects(manifest)),
+            reused_bytes=0,
+            partial_bytes=0,
+            additional_bytes=manifest.total_bytes,
+            metadata_bytes=len(metadata),
+            reserve_bytes=16 * CHUNK_SIZE,
+        )
+
+
+def copy_exact(
+    origin: BinaryIO,
+    output: BinaryIO,
+    count: int,
+    *,
+    control: OperationControl | None = None,
+) -> None:
     """Copy exactly the declared size, rejecting truncated or growing files."""
     remaining = count
+    if control is not None:
+        control.checkpoint()
     while remaining:
         chunk = origin.read(min(CHUNK_SIZE, remaining))
         if not chunk:
             raise PreservationError("source ended before the declared length")
         output.write(chunk)
         remaining -= len(chunk)
+        if control is not None:
+            control.advance(copied=len(chunk))
     if origin.read(1):
         raise PreservationError("source exceeds the declared length")
 
 
 def _copy_object(
-    source: int, source_path: str, target: int, file: FileIdentity
+    source: int,
+    source_path: str,
+    target: int,
+    file: FileIdentity,
+    control: OperationControl,
 ) -> None:
+    control.phase("checking")
     try:
-        verify_object(target, file)
+        verify_object(target, file, control=control)
+        control.advance(reused=file.size)
         return
+    except OperationError:
+        raise
     except (FileNotFoundError, PreservationError):
         pass
     # Verified content needs no copy; missing or corrupt content needs a full
@@ -232,24 +390,35 @@ def _copy_object(
     if shutil.disk_usage(target).free < file.size + 16 * CHUNK_SIZE:
         raise PreservationError("destination has insufficient free space")
     pending = ".pending/" + uuid.uuid4().hex
-    with (
-        open_file(source, source_path) as origin,
-        open_file(target, pending, write=True) as output,
-    ):
-        copy_exact(origin, output, file.size)
-        output.flush()
-        os.fsync(output.fileno())
-    observed = file_identity(target, pending)
-    if (observed.size, observed.sha256) != (file.size, file.sha256):
-        raise PreservationError("source changed between inventory and copy")
-    with parent_directory(target, pending) as (pending_parent, pending_name):
-        with parent_directory(target, object_path(file.sha256), create=True) as (
-            parent,
-            name,
+    control.phase("copying")
+    try:
+        with (
+            open_file(source, source_path) as origin,
+            open_file(target, pending, write=True) as output,
         ):
-            os.replace(pending_name, name, src_dir_fd=pending_parent, dst_dir_fd=parent)
-            os.fsync(parent)
-    verify_object(target, file)
+            copy_exact(origin, output, file.size, control=control)
+        control.phase("checking")
+        observed = file_identity(target, pending, control=control)
+        if (observed.size, observed.sha256) != (file.size, file.sha256):
+            raise PreservationError("source changed between inventory and copy")
+        with parent_directory(target, pending) as (pending_parent, pending_name):
+            with parent_directory(target, object_path(file.sha256), create=True) as (
+                parent,
+                name,
+            ):
+                control.checkpoint()
+                os.replace(
+                    pending_name, name, src_dir_fd=pending_parent, dst_dir_fd=parent
+                )
+                os.fsync(parent)
+        verify_object(target, file, control=control)
+    finally:
+        with parent_directory(target, pending) as (parent, name):
+            try:
+                os.unlink(name, dir_fd=parent)
+                os.fsync(parent)
+            except FileNotFoundError:
+                pass
 
 
 def pack(
@@ -257,64 +426,115 @@ def pack(
     sources: dict[str, Path],
     destination: Path,
     keys: tuple[Ed25519PrivateKey, ...],
+    *,
+    control: OperationControl | None = None,
+    expected_manifest_id: str | None = None,
 ) -> str:
     """Capture selected complete members and publish the signed manifest last."""
-    if set(sources) != {member.member_id for member in recipe.members}:
-        raise PreservationError("provide exactly one directory per member")
-    for source in sources.values():
-        if destination.resolve().is_relative_to(source.resolve()):
-            raise PreservationError("destination must not be inside a captured source")
-    members: list[ManifestMember] = []
-    with directory(destination, create=True) as target, writer_lock(target):
-        for member in recipe.members:
-            identities: list[FileIdentity] = []
-            with directory(sources[member.member_id]) as source:
-                for selected in member.files:
-                    identity = file_identity(source, selected.path)
-                    if (
-                        selected.expected_sha256 is not None
-                        and identity.sha256 != selected.expected_sha256
-                    ):
-                        raise PreservationError(
-                            "source does not match its expected hash"
-                        )
-                    _copy_object(source, selected.path, target, identity)
-                    identities.append(identity)
-            metadata = member.model_dump(exclude={"files"})
-            members.append(ManifestMember(**metadata, files=tuple(identities)))
-        metadata = recipe.model_dump(exclude={"members"})
-        manifest = Manifest(**metadata, members=tuple(members))
+    with (control or OperationControl()).operation("pack") as active:
+        manifest = _capture_manifest(recipe, sources, active)
+        manifest_id = digest(encode_record(manifest))
+        if expected_manifest_id is not None and expected_manifest_id != manifest_id:
+            raise RequestChanged("source differs from the planned manifest")
+        for source in sources.values():
+            if destination.resolve().is_relative_to(source.resolve()):
+                raise PreservationError(
+                    "destination must not be inside a captured source"
+                )
         envelope = encode_record(sign_manifest(manifest, keys))
         if len(envelope) > MAX_METADATA_BYTES:
             raise PreservationError("signed envelope exceeds metadata size limit")
-        manifest_id = digest(encode_record(manifest))
-        for file in unique_objects(manifest):
-            verify_object(target, file)
-        atomic_bytes(target, manifest_path(manifest_id), envelope)
-    return manifest_id
+        active.checkpoint()
+        with directory(destination, create=True) as target, writer_lock(target):
+            for member in manifest.members:
+                with directory(sources[member.member_id]) as source:
+                    for file in member.files:
+                        _copy_object(source, file.path, target, file, active)
+            active.phase("checking")
+            for file in unique_objects(manifest):
+                verify_object(target, file, control=active)
+            active.phase("publishing")
+            atomic_bytes(target, manifest_path(manifest_id), envelope)
+            active.mark_committed()
+        return manifest_id
 
 
-def verify_store(destination: Path, manifest_id: str, trust: TrustProfile) -> Manifest:
+def _capture_manifest(
+    recipe: Recipe, sources: dict[str, Path], control: OperationControl
+) -> Manifest:
+    control.phase("inventory")
+    if set(sources) != {member.member_id for member in recipe.members}:
+        raise PreservationError("provide exactly one directory per member")
+    members: list[ManifestMember] = []
+    for member in recipe.members:
+        identities: list[FileIdentity] = []
+        with directory(sources[member.member_id]) as source:
+            for selected in member.files:
+                identity = file_identity(source, selected.path, control=control)
+                if (
+                    selected.expected_sha256 is not None
+                    and identity.sha256 != selected.expected_sha256
+                ):
+                    raise PreservationError("source does not match its expected hash")
+                identities.append(identity)
+        metadata = member.model_dump(exclude={"files"})
+        members.append(ManifestMember(**metadata, files=tuple(identities)))
+    metadata = recipe.model_dump(exclude={"members"})
+    return Manifest(**metadata, members=tuple(members))
+
+
+def verify_store(
+    destination: Path,
+    manifest_id: str,
+    trust: TrustProfile,
+    *,
+    control: OperationControl | None = None,
+) -> Manifest:
     """Verify the selected signed generation and every actual required object."""
+    with (control or OperationControl()).operation("verify") as active:
+        return _verify_store(destination, manifest_id, trust, active)
+
+
+def _verify_store(
+    destination: Path, manifest_id: str, trust: TrustProfile, control: OperationControl
+) -> Manifest:
+    control.phase("checking")
     with directory(destination) as root:
         manifest = verify_manifest(
             read_metadata(root, manifest_path(manifest_id)), trust, manifest_id
         )
         for file in unique_objects(manifest):
-            verify_object(root, file)
+            verify_object(root, file, control=control)
     return manifest
 
 
 def restore(
-    store: Path, manifest_id: str, trust: TrustProfile, destination: Path
+    store: Path,
+    manifest_id: str,
+    trust: TrustProfile,
+    destination: Path,
+    *,
+    control: OperationControl | None = None,
 ) -> Manifest:
     """Materialize a verified member layout into a new directory; never overwrite."""
+    with (control or OperationControl()).operation("restore") as active:
+        return _restore(store, manifest_id, trust, destination, active)
+
+
+def _restore(
+    store: Path,
+    manifest_id: str,
+    trust: TrustProfile,
+    destination: Path,
+    control: OperationControl,
+) -> Manifest:
     if destination.exists() or destination.is_symlink():
         raise PreservationError("restore destination already exists")
     parent = destination.parent
-    parent.mkdir(parents=True, exist_ok=True)
     pending = parent / (".restore-" + uuid.uuid4().hex)
-    manifest = verify_store(store, manifest_id, trust)
+    manifest = _verify_store(store, manifest_id, trust, control)
+    control.phase("copying")
+    parent.mkdir(parents=True, exist_ok=True)
     pending.mkdir(mode=0o700)
     try:
         with directory(store) as source, directory(pending) as target:
@@ -325,10 +545,10 @@ def restore(
                         open_file(source, object_path(file.sha256)) as origin,
                         open_file(target, relative, write=True) as output,
                     ):
-                        copy_exact(origin, output, file.size)
+                        copy_exact(origin, output, file.size, control=control)
                         output.flush()
                         os.fsync(output.fileno())
-                    copied = file_identity(target, relative)
+                    copied = file_identity(target, relative, control=control)
                     if (copied.size, copied.sha256) != (file.size, file.sha256):
                         raise PreservationError("restored file failed verification")
             atomic_bytes(
@@ -338,6 +558,7 @@ def restore(
             )
         # Reserve the name exclusively, then atomically replace our empty
         # reservation with the complete tree. Readers never see a partial tree.
+        control.phase("publishing")
         with directory(parent) as parent_descriptor:
             os.mkdir(destination.name, mode=0o700, dir_fd=parent_descriptor)
             reservation = os.stat(destination.name, dir_fd=parent_descriptor)
@@ -349,6 +570,7 @@ def restore(
                     dst_dir_fd=parent_descriptor,
                 )
                 os.fsync(parent_descriptor)
+                control.mark_committed()
             except BaseException:
                 current = os.stat(destination.name, dir_fd=parent_descriptor)
                 if (current.st_dev, current.st_ino) == (

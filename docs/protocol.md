@@ -111,3 +111,14 @@ no upload, discovery, directory-listing, administration or proxy endpoints. It
 keeps no request-history log. It does not reload new bundles automatically.
 Public binding additionally requires every member's audience to be `public`.
 An ordinary read-only static HTTPS server is the preferred durable hosting path.
+
+## Optional local worker controls (0.2.0)
+
+Read-only plans, bounded progress/cancellation and per-operation transfer receipts
+are library/client controls; they do not change v1 signed bundle payloads, IDs or
+public transport paths. `.operations/` is trusted local accounting and is never
+served by the reference seed. A named transfer reserves object-byte credit before
+reading and retains conservative charges across restarts. Without an operation
+ID, the existing per-invocation actual-byte policy applies. All required file
+hashes still verify before final publication. See [worker controls](jobs.md) for
+accounting exclusions, cancellation/commit semantics and host responsibilities.

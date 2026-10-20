@@ -31,6 +31,7 @@ wheels through an authenticated software channel.
 | Try a complete example without downloading a model | [Synthetic walkthrough](docs/quickstart.md) |
 | Understand identity, signatures, files and mirrors | [How it works](docs/how-it-works.md) |
 | Embed the current library in an application | [Python API and runtime boundary](docs/python-api.md) |
+| Plan, observe, cancel or resume bounded worker operations | [Worker controls](docs/jobs.md) |
 | Keep a store healthy and recover from failures | [Operations](docs/operations.md) |
 | Host a copy for others | [Mirror guide](docs/mirrors.md) |
 | Retain independent trust and offline recovery material | [Trust and recovery](docs/trust-and-recovery.md) |
