@@ -148,3 +148,34 @@ and verification remain unchanged. The torrent's transfer identity is distinct
 from the signed preservation identity. Verification of the expected manifest and
 all actual SHA-256 file bytes remains mandatory. See [public sharing](public-sharing.md)
 for privacy, stop/limit semantics and external-client receiving instructions.
+
+## Self-contained recovery kits (v1)
+
+A `.foxkit` file transports one complete existing signed manifest without changing
+its identity. It does not enroll a publisher or confer registry/code authority.
+The byte format is deliberately sequential: ASCII `FOXLIGHT-RECOVERY-KIT`, NUL,
+byte `01`, CR LF; two unsigned 64-bit big-endian lengths (public TrustProfile JSON,
+DSSE envelope JSON); those exact metadata byte strings; then each unique object
+in ascending lowercase SHA-256 order. Object sizes come exclusively from the
+verified manifest. Both metadata lengths are limited to 8 MiB. The exact total
+file length must match; extra/missing bytes, bad signatures, unknown schemas,
+conflicting sizes and any bad object hash refuse import. There are no embedded
+paths, compression, links, extraction extensions or executable hooks.
+
+The public trust snapshot is **candidate trust**. `kit-inspect` verifies only
+bounded metadata and reports fingerprints; it does not check weights or establish
+publisher identity. Import requires independently enrolled trust and the expected
+manifest ID, or deliberate `--accept-kit-key` for an explicitly selected local
+kit. An attacker replacing a kit and its keys can create a different self-signed
+capture. Keep a separate fingerprint/manifest record when feasible. Original
+registry proof, when present, is independently checked against the receiver's
+registry root by the evidence tools; capture-key acceptance cannot create it.
+
+Export reads only the selected manifest and its exact unique objects, hashes
+while copying, and publishes a new file without replacement. It never selects
+private signing keys, other generations or unselected archive files. Existing
+signed private evidence remains evidence, not receiver authorization. Import
+hashes the complete stream into private staging, flushes objects/envelope/public
+trust, then publishes a new portable store atomically. A failed import publishes
+no store. Save the completed kit outside the original Core/archive's failure
+domain. The kit is not encrypted; use encrypted storage for confidentiality.

@@ -126,3 +126,28 @@ host adapter supports private Preserve and Check on the model-store-owning host.
 It remains a capability preview with SDK distribution prerequisites; public
 hosting controls and live-store recovery are still being connected. The portable
 core and its public mirror tools remain independent of this capability.
+
+### Recover after losing the original host
+
+Save a self-contained kit to storage separate from the original host:
+
+```sh
+model-preserve kit-export MANIFEST_SHA256 --store archive --trust owner-trust.json --output model.foxkit
+model-preserve kit-inspect --kit model.foxkit
+```
+
+The kit includes the complete signed model/companion closure and public capture
+keys. Keep its manifest ID and key fingerprints separately when possible. It
+contains no private signing key and needs no registry connection to import:
+
+```sh
+model-preserve kit-import --kit model.foxkit --expected-manifest-id MANIFEST_SHA256 --trust owner-trust.json --output recovered-archive
+model-preserve verify MANIFEST_SHA256 --store recovered-archive --trust recovered-archive/kit-trust.json
+```
+
+If the independently retained trust file is also lost, review `kit-inspect` and
+use `--accept-kit-key` instead of `--trust` only for a kit you deliberately choose
+to trust. Self-signature checks cannot identify its original owner. The imported
+store works with the ordinary `restore`, evidence inspection and receiving tools.
+Metadata inspection alone does not verify weights. See [the format and trust
+contract](docs/protocol.md#self-contained-recovery-kits-v1).
