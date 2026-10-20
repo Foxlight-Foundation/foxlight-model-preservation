@@ -56,8 +56,9 @@ caller before passing bytes in. Never accept a remote request's arbitrary local
 path as authority to read a host file.
 
 `TransferPolicy` defaults: 20 GiB object cap, 30-second socket timeout,
-3,600-second between-read deadline, at most 16 sources, HTTPS only and non-global
-addresses blocked. A filesystem source is an explicit selected folder. Deliberate
+3,600-second overall fetch deadline checked between reads/attempts, at most 16
+sources, HTTPS only and non-global addresses blocked. Progress does not reset
+that deadline. A filesystem source is an explicit selected folder. Deliberate
 LAN/HTTP policies are separate flags; `allow_private` does not disable TLS checks.
 DNS resolution and local filesystem stalls are not interruptible by the deadline.
 The declared unique-object total must fit the cap even if some objects are cached;
