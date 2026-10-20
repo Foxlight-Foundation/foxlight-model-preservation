@@ -179,6 +179,31 @@ def test_publication_requires_complete_terms_and_original_notices(
             plan_publication(private.store, private.identity, private.trust, choice)
 
 
+def test_an_unused_capture_trust_key_is_not_a_public_publisher(
+    capture: Capture, tmp_path: Path
+) -> None:
+    private = private_capture(capture, tmp_path)
+    unused_capture_key = Ed25519PrivateKey.generate()
+    trust = private.trust.model_copy(
+        update={
+            "keys": (*private.trust.keys, public_record(unused_capture_key)),
+        }
+    )
+    request = request_for(private)
+    planned = plan_publication(private.store, private.identity, trust, request)
+    with pytest.raises(PreservationError, match="separate publishing identity"):
+        publish_public(
+            private.store,
+            private.identity,
+            trust,
+            request,
+            tmp_path / "public",
+            (unused_capture_key,),
+            expected_manifest_id=digest(encode_record(planned)),
+        )
+    assert not (tmp_path / "public").exists()
+
+
 def test_unknown_retained_metadata_is_not_silently_published(capture: Capture) -> None:
     # The original fixture's legacy verification label is not a public-card profile.
     with pytest.raises(ValueError):

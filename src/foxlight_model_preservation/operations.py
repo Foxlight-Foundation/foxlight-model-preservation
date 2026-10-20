@@ -15,7 +15,14 @@ from .models import Digest, PreservationError, Record
 from .signing import digest, encode_record
 
 Operation = Literal[
-    "pack", "verify", "restore", "fetch", "plan_pack", "plan_restore", "plan_fetch"
+    "pack",
+    "verify",
+    "restore",
+    "fetch",
+    "plan_pack",
+    "plan_restore",
+    "plan_fetch",
+    "seed",
 ]
 Stage = Literal[
     "starting",
@@ -24,6 +31,7 @@ Stage = Literal[
     "copying",
     "downloading",
     "publishing",
+    "sharing",
     "complete",
     "cancelled",
     "failed",

@@ -265,10 +265,11 @@ class TorrentSeeder:
             raise PreservationError(
                 "non-loopback torrent binding needs explicit public participation"
             )
-        with active.operation("verify"):
-            manifest = _public_manifest(
-                export_root / expected.manifest_id, expected.manifest_id, trust, active
-            )
+        # The caller owns any generic progress scope for the complete sharing
+        # lifetime. Do not emit a terminal verification event before listening.
+        manifest = _public_manifest(
+            export_root / expected.manifest_id, expected.manifest_id, trust, active
+        )
         with directory(export_root) as root:
             metadata = read_metadata(root, expected.manifest_id + ".torrent")
         if digest(metadata) != expected.metainfo_sha256:

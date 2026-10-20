@@ -352,6 +352,7 @@ def test_torrent_cli_exports_then_stops_its_owned_listener(
         str(trust_file),
         "--duration",
         "1",
+        "--progress",
     )
     assert seeded.returncode == 0, seeded.stderr
     lines = [json.loads(line) for line in seeded.stdout.splitlines()]
@@ -359,3 +360,28 @@ def test_torrent_cli_exports_then_stops_its_owned_listener(
     assert not lines[0]["payload_threshold_is_hard_cap"]
     assert lines[-1]["stopped"]
     assert lines[-1]["reason"] == "duration"
+    progress = [json.loads(line) for line in seeded.stderr.splitlines()]
+    assert all(event["operation"] == "seed" for event in progress)
+    assert progress[-1]["stage"] == "complete"
+    assert sum(event["stage"] == "complete" for event in progress) == 1
+    assert any(event["stage"] == "sharing" for event in progress)
+
+    # A refusal after hashing must not have emitted successful job completion.
+    metadata = exported / (capture.identity + ".torrent")
+    metadata.write_bytes(metadata.read_bytes() + b"changed")
+    refused = command(
+        "torrent-seed",
+        capture.identity,
+        "--store",
+        str(exported),
+        "--trust",
+        str(trust_file),
+        "--duration",
+        "1",
+        "--progress",
+    )
+    assert refused.returncode == 1
+    events = [json.loads(line) for line in refused.stderr.splitlines()]
+    observed = [event for event in events if "stage" in event]
+    assert observed[-1]["stage"] == "failed"
+    assert all(event["stage"] != "complete" for event in observed)

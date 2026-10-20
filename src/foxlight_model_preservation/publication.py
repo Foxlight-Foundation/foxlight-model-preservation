@@ -239,7 +239,9 @@ def _publish_public(
         envelope = Envelope.model_validate_json(
             read_metadata(origin, manifest_path(source_id))
         )
-        source_keys = {item.keyid for item in envelope.signatures}
+        source_keys = {item.keyid for item in envelope.signatures} | {
+            key.key_id for key in trust.keys
+        }
     if not keys or any(public_record(key).key_id in source_keys for key in keys):
         raise PreservationError(
             "public publication requires a separate publishing identity"

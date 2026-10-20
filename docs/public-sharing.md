@@ -131,6 +131,10 @@ mapping before opening its session. A monitor enforces lifetime and observed
 payload thresholds even when nobody polls status. Ctrl-C stops this owned session
 and retains the export. It closes its listeners without signalling other clients
 or deleting data. Confirm the terminal result before reporting sharing stopped.
+`--progress` reports one `seed` operation through checking, sharing and its final
+stopped outcome; successful verification alone is not job completion. Library
+callers emitting generic progress own a `control.operation("seed")` scope around
+the complete session lifetime and close the seeder in `finally` before it exits.
 
 Upload rate and connection count are native limits. **The payload byte threshold
 is not a hard quota**: in-flight/native buffered traffic can overshoot before

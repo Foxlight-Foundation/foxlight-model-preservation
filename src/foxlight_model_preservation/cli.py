@@ -659,6 +659,15 @@ def _sharing_commands(
             control=control,
         )
         return result.model_dump(mode="json")
+    with control.operation("seed") as active:
+        return _seed_session(arguments, trust, active)
+
+
+def _seed_session(
+    arguments: Arguments, trust: TrustProfile, control: OperationControl
+) -> dict[str, JsonValue]:
+    if not isinstance(arguments.manifest, str):
+        raise PreservationError("one exact manifest identity required")
     expected = TorrentExport.model_validate_json(
         read_input(arguments.store / "torrent.json")
     )
@@ -676,6 +685,7 @@ def _sharing_commands(
     control.checkpoint()
     seeder = TorrentSeeder(arguments.store, expected, trust, policy, control=control)
     try:
+        control.phase("sharing")
         print(
             json.dumps(
                 {
