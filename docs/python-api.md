@@ -18,8 +18,11 @@ contracts. It is not a promise that every helper is a stable extension interface
 | `signing.verify_catalog` | Envelope bytes, catalog trust, expected catalog ID | Validated catalog. No network request or trust enrollment. |
 | `seed.SeedServer` | Bind address, store, exact selected bundle IDs, trust and serving limits | Explicit read-only server. Construction verifies all selected objects before listening. |
 
-Models are strict Pydantic records; use `model_validate_json` for JSON inputs.
-Tuples are required where the in-memory API declares tuples. Use the published
+Models are strict Pydantic records. For direct model validation, first read input
+with a size bound, then apply `signing.strict_json` and `signing.canonical_bytes`
+before `model_validate_json`. Direct Pydantic model parsing alone does not apply
+the byte limit or duplicate-key guard. Tuples are required where the in-memory
+API declares tuples. Use the published
 [schemas](schemas) and executable conformance tests together: custom graph/path
 invariants are not fully expressible in a JSON schema alone.
 
@@ -28,12 +31,15 @@ invariants are not fully expressible in a JSON schema alone.
 ```python
 from pathlib import Path
 
+from foxlight_model_preservation.models import MAX_METADATA_BYTES
 from foxlight_model_preservation.signing import load_trust
 from foxlight_model_preservation.storage import restore, verify_store
 from foxlight_model_preservation.transfer import TransferPolicy, fetch
 
 # This file and ID must have been independently authenticated by the caller.
-trust = load_trust(Path("bundle-trust.json").read_bytes())
+with Path("bundle-trust.json").open("rb") as source:
+    trust_bytes = source.read(MAX_METADATA_BYTES + 1)
+trust = load_trust(trust_bytes)  # Rejects an oversized input before parsing.
 expected_id = "replace-with-the-exact-64-character-manifest-id"
 store = Path("preserved")
 
@@ -50,9 +56,11 @@ print(manifest.name, manifest.total_bytes)
 ```
 
 Validate/bound configuration files before reading them in an application; the
-CLI's `read_input` caps input files at 8 MiB. The library parser also rejects
-metadata beyond that limit, but cannot undo an oversized allocation made by a
-caller before passing bytes in. Never accept a remote request's arbitrary local
+CLI's `read_input` caps input files at 8 MiB. `strict_json` and signing entry
+points that call it (such as `load_trust`) also reject bytes beyond that limit.
+Direct `Recipe.model_validate_json` / `Catalog.model_validate_json` calls do not
+enforce it or reject duplicate object keys. No parser can undo an oversized
+allocation the caller already made before passing bytes in. Never accept a remote request's arbitrary local
 path as authority to read a host file.
 
 `TransferPolicy` defaults: 20 GiB object cap, 30-second socket timeout,
