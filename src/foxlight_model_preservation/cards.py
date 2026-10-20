@@ -37,6 +37,10 @@ ObjectId = Annotated[
 ]
 
 
+def _optional_path(value: str | None) -> str | None:
+    return canonical_path(value) if value is not None else None
+
+
 def identity_json(value: JsonValue) -> bytes:
     """Encode the existing registry identity format, distinct from bundle RFC 8785.
 
@@ -74,11 +78,7 @@ class AlternateLocation(Record):
     root: str | None = None
     paths: tuple[str, ...] = Field(min_length=1, max_length=MAX_FILES)
 
-    @field_validator("root")
-    @classmethod
-    def safe_root(cls, value: str | None) -> str | None:
-        """Constrain optional loader roots to portable relative paths."""
-        return canonical_path(value) if value is not None else None
+    _root = field_validator("root")(_optional_path)
 
     @field_validator("paths")
     @classmethod
@@ -102,7 +102,7 @@ class ArtifactBundle(Record):
     alternate_locations: tuple[AlternateLocation, ...] = Field(
         default=(), max_length=64
     )
-    _root = field_validator("root")(AlternateLocation.safe_root)
+    _root = field_validator("root")(_optional_path)
 
     @model_validator(mode="after")
     def consistent_identity(self) -> Self:
@@ -152,7 +152,7 @@ class Artifact(Record):
     format: str = Field(min_length=1, max_length=100)
     quantization: str = Field(default="", max_length=200)
     bundle: ArtifactBundle | None = None
-    _selected = field_validator("selected_file")(AlternateLocation.safe_root)
+    _selected = field_validator("selected_file")(_optional_path)
 
 
 @lru_cache(maxsize=1)
