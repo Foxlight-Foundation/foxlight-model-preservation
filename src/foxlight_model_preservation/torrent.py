@@ -28,7 +28,7 @@ from .operations import (
     OperationControl,
     RequestChanged,
 )
-from .signing import digest, encode_record
+from .signing import digest, encode_record, verify_manifest
 from .storage import (
     CHUNK_SIZE,
     atomic_bytes,
@@ -174,6 +174,9 @@ def _export_torrent(
     engine = torrent_engine()
     with directory(store) as origin:
         envelope = read_metadata(origin, manifest_path(manifest_id))
+    # This exact read enters the export. A source writer or corrupt filesystem
+    # can replace its envelope after the earlier complete-store verification.
+    verify_manifest(envelope, trust, manifest_id)
     parent = destination.parent.resolve(strict=True)
     with directory(parent) as parent_fd:
         parent_identity = os.fstat(parent_fd)

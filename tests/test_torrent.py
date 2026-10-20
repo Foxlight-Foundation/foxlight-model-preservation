@@ -291,6 +291,25 @@ def test_export_is_repeatable_and_does_not_copy_local_receipts(
         )
 
 
+def test_envelope_changed_after_authentication_cannot_publish_an_export(
+    capture: Capture, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import foxlight_model_preservation.torrent as torrent
+
+    original = torrent.read_metadata
+
+    def replace_envelope(root: int, path: str) -> bytes:
+        (capture.store / path).write_bytes(b"{}")
+        return original(root, path)
+
+    monkeypatch.setattr(torrent, "read_metadata", replace_envelope)
+    with pytest.raises(ValueError):
+        export_torrent(
+            capture.store, capture.identity, capture.trust, tmp_path / "export"
+        )
+    assert not (tmp_path / "export").exists()
+
+
 def test_web_seed_credentials_and_non_https_default_are_refused(
     capture: Capture, tmp_path: Path
 ) -> None:
