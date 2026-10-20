@@ -1,0 +1,2 @@
+# Preserve verbatim upstream notices, including their original whitespace.
+capability/src/foxlight_preservation_library/static/THIRD_PARTY_NOTICES.txt -whitespace

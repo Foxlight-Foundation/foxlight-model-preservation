@@ -1,0 +1,24 @@
+name: Library interface
+on:
+  push:
+    paths: ['capability/**', '.github/workflows/library-ui.yml']
+  pull_request:
+    paths: ['capability/**', '.github/workflows/library-ui.yml']
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: capability/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: capability/web/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm test

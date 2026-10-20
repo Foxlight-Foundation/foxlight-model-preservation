@@ -1,0 +1,2 @@
+import { defineConfig, devices } from '@playwright/test';
+export default defineConfig({testDir:'./tests', fullyParallel:true, use:{baseURL:'http://127.0.0.1:4178'}, webServer:{command:'npm run build && npm exec vite -- preview --host 127.0.0.1 --port 4178',url:'http://127.0.0.1:4178',reuseExistingServer:false}, projects:[{name:'desktop',use:{...devices['Desktop Chrome'],channel:process.env.PW_CHROME_CHANNEL}},{name:'mobile',use:{...devices['Pixel 7'],channel:process.env.PW_CHROME_CHANNEL}}]});
