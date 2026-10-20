@@ -83,12 +83,28 @@ class CoreClient:
             raise CoreRefused("host_unavailable") from error
 
     async def library(self, call: LibraryCall) -> HostReport:
-        """Read a page or explicitly enroll storage; neither action starts a job."""
-        return HostReport(
-            report=await self.request("POST", "setup/device", {})
+        """Read this owner's activity or enroll storage; neither starts a job."""
+        report = (
+            await self.request("POST", "setup/device", {})
             if call.action == "setup_device"
             else await self.request("GET", f"library?offset={call.offset}")
         )
+        jobs = report.get("jobs")
+        if not isinstance(jobs, list):
+            raise CoreRefused("invalid_host_page")
+        report["jobs"] = [
+            job
+            for job in jobs
+            if isinstance(job, dict) and job.get("owner_id") == self.owner_id
+        ]
+        return HostReport(report=report)
+
+    async def cancel_job(self, job_id: str) -> dict[str, JsonValue]:
+        """Check the immutable owner binding before forwarding a stop effect."""
+        job = await self.request("GET", "jobs/" + job_id)
+        if job.get("owner_id") != self.owner_id:
+            raise CoreRefused("job_owner_changed")
+        return await self.request("POST", "jobs/" + job_id + "/cancel", {})
 
     def _job_id(self, operation_id: str) -> str:
         return hashlib.sha256(
@@ -221,10 +237,10 @@ class CoreClient:
         if call.operation_id is None:
             raise CoreRefused("operation_id_required")
         job_id = self._job_id(call.operation_id)
-        job = await self.request(
-            "POST" if call.op == "cancel" else "GET",
-            "jobs/" + job_id + ("/cancel" if call.op == "cancel" else ""),
-            {} if call.op == "cancel" else None,
+        job = (
+            await self.cancel_job(job_id)
+            if call.op == "cancel"
+            else await self.request("GET", "jobs/" + job_id)
         )
         if job.get("owner_id") != self.owner_id:
             raise CoreRefused("job_owner_changed")

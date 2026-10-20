@@ -116,3 +116,47 @@ async def test_http_timeout_is_safe_and_never_retries_submission() -> None:
         assert calls == 1
     finally:
         await client.close()
+
+
+async def test_ui_activity_and_stop_are_bound_to_the_capability_owner() -> None:
+    import asyncio
+
+    from skulk_capability_sdk.contracts import Startup
+
+    from foxlight_preservation_library.contracts import LibraryCall
+    from foxlight_preservation_library.server import LibraryServer
+
+    owned = {"job_id": "a" * 64, "owner_id": "owner", "state": "running"}
+    foreign = {"job_id": "b" * 64, "owner_id": "another", "state": "running"}
+    effects: list[str] = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("library") or path.endswith("setup/device"):
+            return httpx.Response(200, json={"jobs": [owned, foreign]})
+        job = foreign if foreign["job_id"] in path else owned
+        if request.method == "POST":
+            effects.append(path)
+        return httpx.Response(200, json=job)
+
+    client = CoreClient(Settings(), "owner", transport=httpx.MockTransport(answer))
+    startup = Startup(
+        socket="/tmp/unused-test-socket",
+        token="f" * 64,
+        node_id="test",
+        host_id="host",
+        transport_id="transport",
+        manifest=build_manifest(executable="/bin/known", executable_sha256="a" * 64),
+    )
+    screen = LibraryServer(startup, client, asyncio.get_running_loop())
+    try:
+        for call in (LibraryCall(), LibraryCall(action="setup_device")):
+            report = await client.library(call)
+            assert report.report["jobs"] == [owned]
+        with pytest.raises(CoreRefused, match="job_owner_changed"):
+            await screen.dispatch("cancel", {"job_id": foreign["job_id"]})
+        assert effects == []
+        assert await screen.dispatch("cancel", {"job_id": owned["job_id"]}) == owned
+        assert effects == ["/preservation/jobs/" + owned["job_id"] + "/cancel"]
+    finally:
+        await client.close()

@@ -132,7 +132,7 @@ class LibraryServer:
                 or any(c not in "0123456789abcdef" for c in job_id)
             ):
                 raise CoreRefused("invalid_job_identity")
-            return await self.client.request("POST", "jobs/" + job_id + "/cancel", {})
+            return await self.client.cancel_job(job_id)
         if action.startswith("library"):
             parsed = urlsplit(action)
             if parsed.path != "library" or (
