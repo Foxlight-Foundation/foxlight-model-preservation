@@ -633,3 +633,42 @@ def test_retention_preserves_card_number_encoding_across_bundle_domain():
     retained = load_retained_card(encode_record(retain_card(card)))
     assert retained.envelope.card_id == card.card_id
     assert type(retained.envelope.card["image"]["default_guidance"]) is float
+
+
+def test_v2_selected_file_must_belong_to_exact_bundle():
+    selected = body()
+    selected["gguf_file"] = "selected.gguf"
+    file = ArtifactFile(path="other.gguf", size_bytes=20)
+    selected["artifact_bundle"] = {
+        "bundle_id": bundle_identity((file,)),
+        "files": [file.model_dump(mode="json")],
+        "download_size": 20,
+    }
+    with pytest.raises(ValueError, match="absent from its bundle"):
+        create_card(selected)
+
+
+def test_v1_selected_file_must_be_captured_even_without_hash_evidence():
+    from foxlight_model_preservation.assurance import (
+        inspect_member_evidence,
+        retain_card,
+    )
+    from foxlight_model_preservation.models import ManifestMember
+
+    member, _repository = selected_member()
+    card = create_card({**body(), "gguf_file": "selected.gguf"})
+    raw = member.model_dump(mode="json")
+    raw.update(
+        {
+            "format": "gguf",
+            "artifact_identity": card.card_id,
+            "retained_card": retain_card(card).model_dump(mode="json"),
+        }
+    )
+    with pytest.raises(PreservationError, match="selected artifact file"):
+        inspect_member_evidence(ManifestMember.model_validate_json(identity_json(raw)))
+    raw["files"][0]["path"] = "selected.gguf"
+    report = inspect_member_evidence(
+        ManifestMember.model_validate_json(identity_json(raw))
+    )
+    assert report.file_coverage == "partial-or-missing"

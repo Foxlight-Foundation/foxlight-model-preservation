@@ -136,6 +136,8 @@ def inspect_member_evidence(
         raise PreservationError("capture selection differs from its retained card")
     declared = {file.path: file for file in bundle.files} if bundle else {}
     actual = {file.path: file for file in member.files}
+    if artifact.selected_file is not None and artifact.selected_file not in actual:
+        raise PreservationError("capture omits its card's selected artifact file")
     if not set(declared).issubset(actual):
         raise PreservationError("capture omits files selected by its retained card")
     unbound: list[str] = []

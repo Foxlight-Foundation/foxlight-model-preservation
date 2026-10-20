@@ -154,6 +154,17 @@ class Artifact(Record):
     bundle: ArtifactBundle | None = None
     _selected = field_validator("selected_file")(_optional_path)
 
+    @model_validator(mode="after")
+    def selected_file_is_in_bundle(self) -> Self:
+        """Require an exact selected file to belong to its declared v2 bundle."""
+        if (
+            self.bundle is not None
+            and self.selected_file is not None
+            and self.selected_file not in {file.path for file in self.bundle.files}
+        ):
+            raise PreservationError("selected artifact file is absent from its bundle")
+        return self
+
 
 @lru_cache(maxsize=1)
 def _body_validator() -> Validator:
