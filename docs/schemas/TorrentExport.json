@@ -1,0 +1,41 @@
+{
+  "additionalProperties": false,
+  "description": "Exact public export receipt; contains neither local paths nor private trust.",
+  "properties": {
+    "file_count": {
+      "maximum": 100001,
+      "minimum": 1,
+      "title": "File Count",
+      "type": "integer"
+    },
+    "manifest_id": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Manifest Id",
+      "type": "string"
+    },
+    "metainfo_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Metainfo Sha256",
+      "type": "string"
+    },
+    "payload_bytes": {
+      "minimum": 1,
+      "title": "Payload Bytes",
+      "type": "integer"
+    },
+    "public_peer_participation": {
+      "const": false,
+      "default": false,
+      "title": "Public Peer Participation",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "manifest_id",
+    "metainfo_sha256",
+    "file_count",
+    "payload_bytes"
+  ],
+  "title": "TorrentExport",
+  "type": "object"
+}

@@ -65,7 +65,8 @@
         "fetch",
         "plan_pack",
         "plan_restore",
-        "plan_fetch"
+        "plan_fetch",
+        "seed"
       ],
       "title": "Operation",
       "type": "string"
@@ -78,6 +79,7 @@
         "copying",
         "downloading",
         "publishing",
+        "sharing",
         "complete",
         "cancelled",
         "failed"

@@ -1,0 +1,53 @@
+{
+  "additionalProperties": false,
+  "description": "Explicit session limits; payload stop threshold permits in-flight overshoot.",
+  "properties": {
+    "listen_host": {
+      "default": "127.0.0.1",
+      "title": "Listen Host",
+      "type": "string"
+    },
+    "listen_port": {
+      "default": 0,
+      "maximum": 65535,
+      "minimum": 0,
+      "title": "Listen Port",
+      "type": "integer"
+    },
+    "max_connections": {
+      "default": 8,
+      "maximum": 64,
+      "minimum": 1,
+      "title": "Max Connections",
+      "type": "integer"
+    },
+    "max_seconds": {
+      "default": 3600,
+      "maximum": 86400,
+      "minimum": 1,
+      "title": "Max Seconds",
+      "type": "integer"
+    },
+    "public_swarm": {
+      "default": false,
+      "title": "Public Swarm",
+      "type": "boolean"
+    },
+    "stop_after_payload_bytes": {
+      "default": 1073741824,
+      "maximum": 9007199254740991,
+      "minimum": 1,
+      "title": "Stop After Payload Bytes",
+      "type": "integer"
+    },
+    "upload_rate_bytes": {
+      "default": 1048576,
+      "maximum": 104857600,
+      "minimum": 1024,
+      "title": "Upload Rate Bytes",
+      "type": "integer"
+    }
+  },
+  "title": "TorrentSeedPolicy",
+  "type": "object"
+}

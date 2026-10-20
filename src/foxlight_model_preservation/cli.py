@@ -8,14 +8,16 @@ import json
 import signal
 import ssl
 import sys
+import time
 from pathlib import Path
 
 from pydantic import JsonValue
 
 from .assurance import inspect_member_evidence, retain_card
 from .cards import create_card, identity_json, load_card
-from .models import MAX_METADATA_BYTES, Catalog, PreservationError, Recipe
+from .models import MAX_METADATA_BYTES, Catalog, PreservationError, Recipe, TrustProfile
 from .operations import OperationCancelled, OperationControl, Progress, failure_code
+from .publication import PublicationRequest, plan_publication, publish_public
 from .registry_proof import VersionFloor, create_registry_proof, verify_registry_proof
 from .seed import SeedServer
 from .signing import (
@@ -31,6 +33,7 @@ from .signing import (
     verify_catalog,
 )
 from .storage import pack, plan_pack, plan_restore, restore, verify_store
+from .torrent import TorrentExport, TorrentSeeder, TorrentSeedPolicy, export_torrent
 from .transfer import TransferPolicy, fetch, plan_fetch
 
 
@@ -78,6 +81,14 @@ class Arguments(argparse.Namespace):
     target_path: str
     historical: bool = False
     minimum_versions: Path | None = None
+    request: Path
+    expected_manifest_id: str
+    web_seed: list[str]
+    allow_local_http: bool
+    duration: int
+    upload_rate: int
+    connections: int
+    stop_after_payload_bytes: int
 
 
 def read_input(path: Path) -> bytes:
@@ -198,6 +209,37 @@ def argument_parser() -> argparse.ArgumentParser:
     _trust_options(materialize)
     materialize.add_argument("--store", type=Path, required=True)
     materialize.add_argument("--output", type=Path, required=True)
+    for name in ("plan-publication", "publish", "torrent-export", "torrent-seed"):
+        sharing = commands.add_parser(
+            name, help="explicit public publication or sharing"
+        )
+        _trust_options(sharing)
+        sharing.add_argument("--store", type=Path, required=True)
+        sharing.add_argument("--progress", action="store_true")
+        if name in {"plan-publication", "publish"}:
+            sharing.add_argument("--request", type=Path, required=True)
+        if name in {"publish", "torrent-export"}:
+            sharing.add_argument("--output", type=Path, required=True)
+        if name == "publish":
+            _key_options(sharing)
+            sharing.add_argument("--expected-manifest-id", required=True)
+        if name == "torrent-export":
+            sharing.add_argument("--web-seed", action="append", default=[])
+            sharing.add_argument("--allow-local-http", action="store_true")
+        if name == "torrent-seed":
+            sharing.add_argument(
+                "--public",
+                action="store_true",
+                help="explicitly join public DHT/peer discovery",
+            )
+            sharing.add_argument("--bind", default="127.0.0.1")
+            sharing.add_argument("--port", type=int, default=0)
+            sharing.add_argument("--duration", type=int, default=3600)
+            sharing.add_argument("--upload-rate", type=int, default=1024 * 1024)
+            sharing.add_argument("--connections", type=int, default=8)
+            sharing.add_argument(
+                "--stop-after-payload-bytes", type=int, default=1024**3
+            )
     seed = commands.add_parser(
         "seed", help="explicit bounded read-only serving of selected verified bundles"
     )
@@ -396,6 +438,13 @@ def run(
             output.write(encoded)
         return {"catalog": digest(encode_record(catalog))}
     trust = load_trust(read_input(arguments.trust))
+    if arguments.command in {
+        "plan-publication",
+        "publish",
+        "torrent-export",
+        "torrent-seed",
+    }:
+        return _sharing_commands(arguments, trust, control or OperationControl())
     if arguments.command == "inspect-evidence":
         if not isinstance(arguments.manifest, str):
             raise PreservationError("one exact manifest identity required")
@@ -571,6 +620,92 @@ def run(
     }
 
 
+def _sharing_commands(
+    arguments: Arguments, trust: TrustProfile, control: OperationControl
+) -> dict[str, JsonValue]:
+    if not isinstance(arguments.manifest, str):
+        raise PreservationError("one exact manifest identity required")
+    if arguments.command in {"plan-publication", "publish"}:
+        request = PublicationRequest.model_validate_json(
+            canonical_bytes(strict_json(read_input(arguments.request)))
+        )
+        if arguments.command == "plan-publication":
+            manifest = plan_publication(
+                arguments.store, arguments.manifest, trust, request, control=control
+            )
+            return {
+                "manifest_id": digest(encode_record(manifest)),
+                "public_manifest": manifest.model_dump(mode="json"),
+            }
+        identity = publish_public(
+            arguments.store,
+            arguments.manifest,
+            trust,
+            request,
+            arguments.output,
+            (load_key(arguments.key, _password(arguments)),),
+            expected_manifest_id=arguments.expected_manifest_id,
+            control=control,
+        )
+        return {"manifest": identity, "audience": "public", "serving": False}
+    if arguments.command == "torrent-export":
+        result = export_torrent(
+            arguments.store,
+            arguments.manifest,
+            trust,
+            arguments.output,
+            web_seeds=tuple(arguments.web_seed),
+            allow_local_http=arguments.allow_local_http,
+            control=control,
+        )
+        return result.model_dump(mode="json")
+    with control.operation("seed") as active:
+        return _seed_session(arguments, trust, active)
+
+
+def _seed_session(
+    arguments: Arguments, trust: TrustProfile, control: OperationControl
+) -> dict[str, JsonValue]:
+    if not isinstance(arguments.manifest, str):
+        raise PreservationError("one exact manifest identity required")
+    expected = TorrentExport.model_validate_json(
+        read_input(arguments.store / "torrent.json")
+    )
+    if expected.manifest_id != arguments.manifest:
+        raise PreservationError("export receipt differs from the selected manifest")
+    policy = TorrentSeedPolicy(
+        public_swarm=arguments.public,
+        listen_host=arguments.bind,
+        listen_port=arguments.port,
+        max_seconds=arguments.duration,
+        upload_rate_bytes=arguments.upload_rate,
+        max_connections=arguments.connections,
+        stop_after_payload_bytes=arguments.stop_after_payload_bytes,
+    )
+    control.checkpoint()
+    seeder = TorrentSeeder(arguments.store, expected, trust, policy, control=control)
+    try:
+        control.phase("sharing")
+        print(
+            json.dumps(
+                {
+                    "listening_port": seeder.port,
+                    "public_peer_participation": policy.public_swarm,
+                    "payload_threshold_is_hard_cap": False,
+                }
+            ),
+            flush=True,
+        )
+        while True:
+            control.checkpoint()
+            observation = seeder.observe()
+            if observation.stopped:
+                return observation.model_dump(mode="json")
+            time.sleep(0.1)
+    finally:
+        seeder.close()
+
+
 def main() -> int:
     """Return actionable failure without a traceback or leaking key material."""
     arguments = argument_parser().parse_args(namespace=Arguments())
@@ -589,6 +724,10 @@ def main() -> int:
         "plan-fetch",
         "plan-restore",
         "inspect-evidence",
+        "plan-publication",
+        "publish",
+        "torrent-export",
+        "torrent-seed",
     }
     previous = signal.getsignal(signal.SIGINT)
     if controlled:

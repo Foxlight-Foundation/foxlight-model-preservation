@@ -1,0 +1,95 @@
+{
+  "$defs": {
+    "PublicMemberTerms": {
+      "additionalProperties": false,
+      "description": "Explicit terms for a retained data member; never a license grant.",
+      "properties": {
+        "decision": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Decision",
+          "type": "string"
+        },
+        "license_id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "License Id",
+          "type": "string"
+        },
+        "member_id": {
+          "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+          "title": "Member Id",
+          "type": "string"
+        },
+        "notice_paths": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "title": "Notice Paths",
+          "type": "array"
+        },
+        "terms_reference": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "title": "Terms Reference",
+          "type": "string"
+        }
+      },
+      "required": [
+        "member_id",
+        "license_id",
+        "terms_reference",
+        "decision",
+        "notice_paths"
+      ],
+      "title": "PublicMemberTerms",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Public-facing metadata and terms the publisher deliberately selects.",
+  "properties": {
+    "members": {
+      "items": {
+        "$ref": "#/$defs/PublicMemberTerms"
+      },
+      "maxItems": 256,
+      "minItems": 1,
+      "title": "Members",
+      "type": "array"
+    },
+    "name": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "runtime_requirements": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Runtime Requirements",
+      "type": "array"
+    },
+    "workloads": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 100,
+      "minItems": 1,
+      "title": "Workloads",
+      "type": "array"
+    }
+  },
+  "required": [
+    "name",
+    "workloads",
+    "members"
+  ],
+  "title": "PublicationRequest",
+  "type": "object"
+}
