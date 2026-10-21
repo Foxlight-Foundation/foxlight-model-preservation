@@ -83,6 +83,7 @@ def test_seed_allowlist_range_and_budget(capture: Capture) -> None:
     manifest = verify_store(capture.store, capture.identity, capture.trust)
     file = manifest.members[0].files[0]
     with running_seed(capture, max_upload_bytes=10) as (server, _url):
+        assert server.reserved_upload_bytes == 0
         connection = http.client.HTTPConnection("127.0.0.1", server.server_port)
         connection.request(
             "GET", "/" + object_path(file.sha256), headers={"Range": "bytes=2-6"}
@@ -93,6 +94,7 @@ def test_seed_allowlist_range_and_budget(capture: Capture) -> None:
             result.read()
             == (capture.store / object_path(file.sha256)).read_bytes()[2:7]
         )
+        assert server.reserved_upload_bytes == 5
         for path, expected in (
             ("/../LICENSE", 404),
             ("/.write.lock", 404),
@@ -102,6 +104,20 @@ def test_seed_allowlist_range_and_budget(capture: Capture) -> None:
             result = connection.getresponse()
             assert result.status == expected
             result.read()
+            assert server.reserved_upload_bytes == 5
+        connection.request(
+            "GET", "/" + object_path(file.sha256), headers={"Range": "bytes=7-11"}
+        )
+        result = connection.getresponse()
+        assert result.status == 206 and len(result.read()) == 5
+        assert server.reserved_upload_bytes == 10
+        connection.request(
+            "GET", "/" + object_path(file.sha256), headers={"Range": "bytes=0-0"}
+        )
+        result = connection.getresponse()
+        assert result.status == 429
+        result.read()
+        assert server.reserved_upload_bytes == 10
         connection.close()
 
 

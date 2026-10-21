@@ -63,6 +63,7 @@ class SeedServer(http.server.ThreadingHTTPServer):
             for file in unique_objects(manifest):
                 self.allowed["/" + object_path(file.sha256)] = file.size
         self._remaining = max_upload_bytes
+        self._upload_limit = max_upload_bytes
         self._budget_lock = threading.Lock()
         self._slots = threading.BoundedSemaphore(concurrency)
         super().__init__(address, SeedHandler)
@@ -113,6 +114,18 @@ class SeedServer(http.server.ThreadingHTTPServer):
                 return False
             self._remaining -= count
             return True
+
+    @property
+    def reserved_upload_bytes(self) -> int:
+        """Return response-body allowance reserved by this serving session.
+
+        Reads are thread-safe and do not start serving or change the budget.
+        Interrupted responses retain their whole reservation, so this is a
+        conservative budget charge, not a count of bytes received by peers.
+        HTTP/TLS headers and transport overhead are excluded.
+        """
+        with self._budget_lock:
+            return self._upload_limit - self._remaining
 
 
 class SeedHandler(http.server.BaseHTTPRequestHandler):

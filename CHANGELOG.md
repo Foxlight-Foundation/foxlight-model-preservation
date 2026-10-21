@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.5.2
+
+- Expose read-only HTTP mirror response-budget reservations for host-owned
+  progress and stop controls. Charges remain conservative after interrupted
+  responses; this does not change wire formats, receiving or public consent.
+
 ## 0.5.1
 
 - Retain additive model-card properties and new string vocabulary names without
