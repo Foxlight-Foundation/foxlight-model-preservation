@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.5.3
+
+- Bind HTTP mirrors without the standard server's incidental reverse-DNS lookup.
+  Numeric loopback and public listeners no longer depend on reverse name service
+  during startup. Selected signed files, budgets and protocol paths are unchanged.
+
 ## 0.5.2
 
 - Expose read-only HTTP mirror response-budget reservations for host-owned
