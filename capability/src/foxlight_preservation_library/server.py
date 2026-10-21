@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import http.server
+import ipaddress
 import json
 import mimetypes
 import re
@@ -12,13 +13,14 @@ import secrets
 import socket
 import threading
 from importlib.resources import files
-from typing import cast
+from typing import TYPE_CHECKING, cast
 from urllib.parse import urlsplit
 
 import httpx
 from pydantic import JsonValue
-from skulk_capability_sdk.contracts import Startup
-from skulk_capability_sdk.serving import advertised_host, bind_hosts, peer_allowed
+
+if TYPE_CHECKING:
+    from skulk_capability_sdk.contracts import Startup
 
 from .client import CoreClient, CoreRefused
 from .contracts import LibraryCall
@@ -69,7 +71,10 @@ class LibraryServer:
     """Serve only SDK-authorized addresses; close does not cancel Core work."""
 
     def __init__(
-        self, startup: Startup, client: CoreClient, loop: asyncio.AbstractEventLoop
+        self,
+        startup: Startup | None,
+        client: CoreClient,
+        loop: asyncio.AbstractEventLoop,
     ) -> None:
         self.startup = startup
         self.client = client
@@ -79,11 +84,34 @@ class LibraryServer:
         self.threads: list[threading.Thread] = []
         self.static = files("foxlight_preservation_library").joinpath("static")
 
+    def _bind_hosts(self) -> tuple[str, ...]:
+        if self.startup is None:
+            return ("127.0.0.1",)
+        from skulk_capability_sdk.serving import bind_hosts
+
+        return bind_hosts(self.startup)
+
+    def advertised_host(self) -> str:
+        """Return the bound local host or the managed owner-authorized host."""
+        if self.startup is None:
+            return "127.0.0.1"
+        from skulk_capability_sdk.serving import advertised_host
+
+        return advertised_host(self.startup)
+
+    def peer_allowed(self, address: str) -> bool:
+        """Limit the public launcher to loopback and preserve managed peer policy."""
+        if self.startup is None:
+            return ipaddress.ip_address(address).is_loopback
+        from skulk_capability_sdk.serving import peer_allowed
+
+        return peer_allowed(address)
+
     def start(self) -> None:
         """Start local screen listeners without any model/mirror/swarm listener."""
         port = 0
         try:
-            for host in bind_hosts(self.startup):
+            for host in self._bind_hosts():
                 server = _Server((host, port), self)
                 port = server.server_port
                 self.servers.append(server)
@@ -97,7 +125,7 @@ class LibraryServer:
     @property
     def url(self) -> str:
         """Report the volatile SDK screen URL; never embed Core credentials."""
-        return f"http://{advertised_host(self.startup)}:{self.servers[0].server_port}{self.prefix}"
+        return f"http://{self.advertised_host()}:{self.servers[0].server_port}{self.prefix}"
 
     def close(self) -> None:
         """Stop this child's UI listeners only; durable Core jobs are retained."""
@@ -170,6 +198,18 @@ class LibraryServer:
                 "GET" if action == "upload-status" else "DELETE",
                 "kit-uploads/" + upload_id,
             )
+        if action == "reclaim":
+            job_id = body.get("job_id")
+            if (
+                set(body) != {"job_id"}
+                or not isinstance(job_id, str)
+                or re.fullmatch(r"[0-9a-f]{64}", job_id) is None
+            ):
+                raise CoreRefused("invalid_job_identity")
+            job = await self.client.request("GET", "jobs/" + job_id)
+            if job.get("owner_id") != self.client.owner_id:
+                raise CoreRefused("job_owner_changed")
+            return await self.client.request("POST", "jobs/" + job_id + "/reclaim", {})
         if action == "retry-plan":
             job_id = body.get("job_id")
             if (
@@ -243,10 +283,10 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         allowed = {
             f"127.0.0.1:{server.server_port}",
             f"localhost:{server.server_port}",
-            f"{advertised_host(app.startup)}:{server.server_port}",
+            f"{app.advertised_host()}:{server.server_port}",
         }
         if (
-            not peer_allowed(self.client_address[0])
+            not app.peer_allowed(self.client_address[0])
             or host not in allowed
             or not self.path.startswith(app.prefix)
         ):
@@ -320,6 +360,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                     "api/upload-status",
                     "api/upload-remove",
                     "api/retry-plan",
+                    "api/reclaim",
                 }
             ):
                 raise ValueError("invalid control")

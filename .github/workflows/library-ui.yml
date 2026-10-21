@@ -22,3 +22,25 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm test
+
+  public-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install uv==0.12.23
+      - run: uv build --project capability --out-dir dist-library
+      - name: Install only the public wheel and exercise its local screen
+        run: |
+          python -m venv /tmp/library-public
+          /tmp/library-public/bin/pip install dist-library/*.whl pytest pytest-asyncio
+          cd /tmp
+          /tmp/library-public/bin/python -c "import importlib.util; assert importlib.util.find_spec('skulk_capability_sdk') is None; assert importlib.util.find_spec('skulk') is None"
+          /tmp/library-public/bin/foxlight-preservation-library --help
+          /tmp/library-public/bin/python -m pytest "$GITHUB_WORKSPACE/capability/tests/test_standalone.py" -q
+      - uses: actions/upload-artifact@v4
+        with:
+          name: preservation-library-public
+          path: dist-library/*

@@ -118,14 +118,17 @@ Read the [protocol](docs/protocol.md), [trust and recovery guide](docs/trust-and
 The [public conformance vector](examples/conformance/v1.json) contains synthetic
 files and public verification material; its private signing key was discarded.
 
-## Skulk Library capability
+## Skulk Library
 
-The separate [Library capability source](capability/README.md) connects Guided
-setup, Library and Activity to Skulk Core's durable preservation jobs. Its first
-host adapter supports private Preserve and Check on the model-store-owning host.
-It remains a capability preview with SDK distribution prerequisites; public
-hosting controls and live-store recovery are still being connected. The portable
-core and its public mirror tools remain independent of this capability.
+The separate [Library application](capability/README.md) connects Guided setup,
+Library and Activity to Skulk Core's durable preservation jobs. It preserves and
+checks complete supported model closures, saves portable recovery kits, restores
+them through the live store owner, and explicitly clears unused interrupted
+restore files before fresh review. The public local launcher installs with public
+dependencies and includes its interface. A compatible local Core is required.
+The optional managed capability adapter retains its separately supplied SDK.
+Public hosting controls remain integration work; standalone public mirror and
+BitTorrent tools are available independently.
 
 ### Recover after losing the original host
 

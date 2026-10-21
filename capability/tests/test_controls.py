@@ -6,6 +6,8 @@ import json
 
 import httpx
 import pytest
+
+pytest.importorskip("skulk_capability_sdk", reason="optional managed adapter")
 from skulk_capability_sdk.operations import (
     OperationCall,
     OperationPlan,

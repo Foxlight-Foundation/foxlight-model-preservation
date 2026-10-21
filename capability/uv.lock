@@ -79,11 +79,15 @@ wheels = [
 
 [[package]]
 name = "foxlight-preservation-library"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
     { name = "pydantic" },
+]
+
+[package.optional-dependencies]
+managed = [
     { name = "skulk-capability-sdk" },
 ]
 
@@ -101,8 +105,9 @@ dev = [
 requires-dist = [
     { name = "httpx", specifier = ">=0.28,<1" },
     { name = "pydantic", specifier = ">=2.12,<3" },
-    { name = "skulk-capability-sdk", git = "https://github.com/Foxlight-Foundation/skulk-capability-nodes.git?subdirectory=sdk-public&rev=b9dc2e9d0fb7a8466f5ffbb52efebfa6b2f8e259" },
+    { name = "skulk-capability-sdk", marker = "extra == 'managed'", git = "https://github.com/Foxlight-Foundation/skulk-capability-nodes.git?subdirectory=sdk-public&rev=b9dc2e9d0fb7a8466f5ffbb52efebfa6b2f8e259" },
 ]
+provides-extras = ["managed"]
 
 [package.metadata.requires-dev]
 dev = [
