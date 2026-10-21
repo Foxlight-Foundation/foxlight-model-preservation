@@ -51,19 +51,34 @@ class CoreClient:
         await self.http.aclose()
 
     async def request(
-        self, method: str, path: str, body: dict[str, JsonValue] | None = None
+        self,
+        method: str,
+        path: str,
+        body: dict[str, JsonValue] | None = None,
+        *,
+        content: bytes | None = None,
     ) -> dict[str, JsonValue]:
         """Read a bounded safe control response; never transfer artifact bytes."""
         try:
             async with self.http.stream(
-                method, "/preservation/" + path, json=body
+                method,
+                "/preservation/" + path,
+                json=body,
+                content=content,
+                headers={"Content-Type": "application/octet-stream"}
+                if content is not None
+                else None,
             ) as response:
                 data = bytearray()
                 async for chunk in response.aiter_bytes():
                     data.extend(chunk)
                     if len(data) > 65536:
                         raise CoreRefused("host_response_too_large")
-                if response.status_code not in {200, 202}:
+                if response.status_code == 404 and path.startswith(
+                    ("kit-uploads", "kits/")
+                ):
+                    raise CoreRefused("core_upgrade_required")
+                if response.status_code not in {200, 202, 204}:
                     try:
                         detail = json.loads(data).get("detail")
                     except (ValueError, AttributeError):
@@ -75,6 +90,8 @@ class CoreClient:
                     ):
                         raise CoreRefused(detail)
                     raise CoreRefused("host_unavailable_or_refused")
+                if response.status_code == 204:
+                    return {}
                 value: JsonValue = json.loads(data)
                 if not isinstance(value, dict):
                     raise CoreRefused("invalid_host_response")
@@ -84,11 +101,9 @@ class CoreClient:
 
     async def library(self, call: LibraryCall) -> HostReport:
         """Read this owner's activity or enroll storage; neither starts a job."""
-        report = (
-            await self.request("POST", "setup/device", {})
-            if call.action == "setup_device"
-            else await self.request("GET", f"library?offset={call.offset}")
-        )
+        if call.action == "setup_device":
+            return HostReport(report=await self.request("POST", "setup/device", {}))
+        report = await self.request("GET", f"library?offset={call.offset}")
         jobs = report.get("jobs")
         if not isinstance(jobs, list):
             raise CoreRefused("invalid_host_page")
@@ -114,8 +129,17 @@ class CoreClient:
     def _input(self, plan: dict[str, JsonValue]) -> dict[str, JsonValue]:
         value = {
             field: plan.get(field)
-            for field in ("kind", "location_id", "model_id", "generation_id", "copy_id")
+            for field in (
+                "kind",
+                "location_id",
+                "model_id",
+                "generation_id",
+                "copy_id",
+                "upload_id",
+                "historical",
+            )
         }
+        value["historical"] = plan.get("historical", False)
         value["plan_digest"] = plan["plan_id"]
         return cast(
             dict[str, JsonValue],
@@ -125,6 +149,13 @@ class CoreClient:
     async def _status(self, job: dict[str, JsonValue]) -> OperationStatus:
         plan = await self.request("GET", "plans/" + cast(str, job["plan_id"]))
         bound_input = self._input(plan)
+        for permission in (
+            "accept_owner_capture",
+            "allow_repository_code",
+            "restore_deleted",
+        ):
+            if job.get(permission):
+                bound_input[permission] = job[permission]
         state = job.get("state")
         if state not in {
             "queued",
@@ -148,7 +179,7 @@ class CoreClient:
             "stale": time.time() - cast(int, job["updated_at"]) > 120
             and state in {"queued", "running", "cancelling"},
             "input_digest": input_digest(
-                self.owner_id + "/foxlight.preservation.copy@0.1.0", bound_input
+                self.owner_id + "/foxlight.preservation.copy@0.2.0", bound_input
             ),
             "input": bound_input,
             "backend_reference": job["job_id"],
@@ -165,7 +196,14 @@ class CoreClient:
                 value = cast(
                     dict[str, JsonValue],
                     selection.model_dump(
-                        mode="json", exclude={"plan_digest"}, exclude_none=True
+                        mode="json",
+                        exclude={
+                            "plan_digest",
+                            "accept_owner_capture",
+                            "allow_repository_code",
+                            "restore_deleted",
+                        },
+                        exclude_none=True,
                     ),
                 )
                 plan = await self.request("POST", "plans", value)
@@ -175,7 +213,16 @@ class CoreClient:
                     summary=(
                         f"{selection.kind.capitalize()} {plan['model_id']} "
                         f"with {plan['member_count']} required members "
-                        f"({plan['size_bytes']} bytes)."
+                        f"({plan['size_bytes']} bytes). "
+                        f"Publication: {plan.get('publication') or 'not assessed'}. "
+                        "Capture acceptance required: "
+                        f"{bool(plan.get('requires_owner_acceptance'))}; "
+                        "repository code permission required: "
+                        f"{bool(plan.get('requires_code_permission'))}. "
+                        "Removed aliases needing confirmation: "
+                        f"{plan.get('deleted_aliases', [])}. "
+                        "Capture keys: "
+                        f"{json.dumps(plan.get('publisher_key_ids', []))}."
                     ),
                     expires_at=cast(int, plan["expires_at"]),
                     input=cast(
@@ -187,13 +234,16 @@ class CoreClient:
                 raise CoreRefused("reviewed_plan_and_operation_id_required")
             retained = await self.request("GET", "plans/" + selection.plan_digest)
             if any(
-                retained.get(field) != getattr(selection, field)
+                retained.get(field, False if field == "historical" else None)
+                != getattr(selection, field)
                 for field in (
                     "kind",
                     "location_id",
                     "model_id",
                     "generation_id",
                     "copy_id",
+                    "upload_id",
+                    "historical",
                 )
             ):
                 raise CoreRefused("reviewed_selection_changed")
@@ -205,6 +255,21 @@ class CoreClient:
                         "plan_id": selection.plan_digest,
                         "operation_id": call.operation_id,
                         "owner_id": self.owner_id,
+                        **(
+                            {"accept_owner_capture": True}
+                            if selection.accept_owner_capture
+                            else {}
+                        ),
+                        **(
+                            {"allow_repository_code": True}
+                            if selection.allow_repository_code
+                            else {}
+                        ),
+                        **(
+                            {"restore_deleted": True}
+                            if selection.restore_deleted
+                            else {}
+                        ),
                     },
                 )
             )

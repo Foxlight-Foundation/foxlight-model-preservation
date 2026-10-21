@@ -132,7 +132,9 @@ async def test_ui_activity_and_stop_are_bound_to_the_capability_owner() -> None:
 
     def answer(request: httpx.Request) -> httpx.Response:
         path = request.url.path
-        if path.endswith("library") or path.endswith("setup/device"):
+        if path.endswith("setup/device"):
+            return httpx.Response(200, json={"location_id": "device"})
+        if path.endswith("library"):
             return httpx.Response(200, json={"jobs": [owned, foreign]})
         job = foreign if foreign["job_id"] in path else owned
         if request.method == "POST":
@@ -150,13 +152,39 @@ async def test_ui_activity_and_stop_are_bound_to_the_capability_owner() -> None:
     )
     screen = LibraryServer(startup, client, asyncio.get_running_loop())
     try:
-        for call in (LibraryCall(), LibraryCall(action="setup_device")):
-            report = await client.library(call)
-            assert report.report["jobs"] == [owned]
+        report = await client.library(LibraryCall())
+        assert report.report["jobs"] == [owned]
+        enrollment = await client.library(LibraryCall(action="setup_device"))
+        assert enrollment.report["location_id"] == "device"
         with pytest.raises(CoreRefused, match="job_owner_changed"):
             await screen.dispatch("cancel", {"job_id": foreign["job_id"]})
         assert effects == []
         assert await screen.dispatch("cancel", {"job_id": owned["job_id"]}) == owned
         assert effects == ["/preservation/jobs/" + owned["job_id"] + "/cancel"]
+    finally:
+        await client.close()
+
+
+async def test_guided_setup_returns_enrollment_without_page_job_filter() -> None:
+    from foxlight_preservation_library.contracts import LibraryCall
+
+    enrolled = {
+        "location_id": "device",
+        "label": "This device",
+        "purpose": "private",
+        "reachable": True,
+        "publisher_key_id": "test-public-fingerprint",
+    }
+    client = CoreClient(
+        Settings(),
+        "owner",
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json=enrolled)
+        ),
+    )
+    try:
+        assert (
+            await client.library(LibraryCall(action="setup_device"))
+        ).report == enrolled
     finally:
         await client.close()

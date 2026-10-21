@@ -50,3 +50,77 @@ test('lost submission response retains the exact operation identity across reloa
   expect(starts).toHaveLength(2);
   expect(starts[0].operation_id).toBe(starts[1].operation_id);
 });
+
+const recoveryPlan={plan_id:'a'.repeat(64),kind:'recover',model_id:'example/recovered',location_id:'kit',size_bytes:20,members:['example/recovered','example/assistant'],member_count:2,expires_at:9999999999,upload_id:'1'.repeat(32),publisher_key_ids:['ed25519:'+'a'.repeat(64)],requires_owner_acceptance:true,requires_code_permission:true,publication:'registry-historical',file_coverage:'partial-or-missing'};
+
+test('fresh Core file restore requires separate capture and code consent',async({page})=>{
+  let restored=false;
+  await page.route('**/api/library?offset=*',route=>route.fulfill({json:{locations:[],models:restored?[{...models[0],model_id:recoveryPlan.model_id}]:[],copies:[],jobs:restored?[{...jobs[0],kind:'recover',copy_id:null}]:[],uploads:[],next_offset:null}}));
+  await page.route('**/api/upload-create',route=>route.fulfill({json:{upload_id:'1'.repeat(32),size_bytes:20,offset:0,complete:false}}));
+  await page.route('**/api/upload/*',route=>route.fulfill({json:{upload_id:'1'.repeat(32),size_bytes:20,offset:20,complete:true}}));
+  await page.route('**/api/plan',route=>route.fulfill({json:recoveryPlan}));
+  let started:unknown;
+  await page.route('**/api/start',route=>{started=route.request().postDataJSON();restored=true;return route.fulfill({json:{...jobs[0],kind:'recover'}})});
+  await page.goto('/');
+  await page.getByRole('button',{name:'Restore from recovery kit',exact:true}).click();
+  await page.getByLabel('Recovery kit file').setInputFiles({name:'saved.foxkit',mimeType:'application/octet-stream',buffer:Buffer.alloc(20,1)});
+  await expect(page.getByRole('heading',{name:'Recover this model'})).toBeVisible();
+  const restore=page.getByRole('button',{name:'Restore model',exact:true});
+  await expect(restore).toBeDisabled();
+  await page.getByLabel('I trust this exact recovery copy').check();
+  await expect(restore).toBeDisabled();
+  await page.getByLabel('Separately, I allow').check();
+  await expect(restore).toBeEnabled();
+  await restore.click();
+  await expect(page.getByRole('heading',{name:'Activity',exact:true})).toBeVisible();
+  await expect(page.getByText('Model and companions restored',{exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Your copies',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Your models, kept close.'})).toBeVisible();
+  expect(started).toMatchObject({plan_id:recoveryPlan.plan_id,accept_owner_capture:true,allow_repository_code:true});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
+});
+
+test('reselecting the same file resumes a retained transfer after page loss',async({page})=>{
+  const upload={upload_id:'1'.repeat(32),size_bytes:20,offset:5,complete:false};
+  await page.route('**/api/library?offset=*',route=>route.fulfill({json:{locations:[],models:[],copies:[],jobs:[],uploads:[upload],next_offset:null}}));
+  await page.route('**/api/upload-status',route=>route.fulfill({json:upload}));
+  const offsets:string[]=[];
+  await page.route('**/api/upload/*',route=>{const offset=new URL(route.request().url()).searchParams.get('offset')!;offsets.push(offset);return route.fulfill({json:{...upload,offset:offset==='0'?5:20,complete:offset!=='0'}})});
+  await page.route('**/api/plan',route=>route.fulfill({json:{...recoveryPlan,requires_code_permission:false}}));
+  await page.goto('/');
+  await page.getByRole('button',{name:'Restore from recovery kit',exact:true}).click();
+  await page.getByLabel('Recovery kit file').setInputFiles({name:'saved.foxkit',mimeType:'application/octet-stream',buffer:Buffer.alloc(20,1)});
+  await expect(page.getByRole('heading',{name:'Recover this model'})).toBeVisible();
+  expect(offsets).toEqual(['0','5']);
+});
+
+test('completed kit download binds its actual job and stays off until clicked',async({page})=>{
+  const job={...jobs[1],kind:'kit_export',copy_id:null};
+  await page.route('**/api/library?offset=*',route=>route.fulfill({json:{locations:[location],models,copies,jobs:[job],uploads:[],next_offset:null}}));
+  await page.goto('/');await page.getByRole('button',{name:'Activity',exact:true}).click();
+  await expect(page.getByRole('link',{name:'Download recovery kit'})).toHaveAttribute('href',new RegExp(`/api/download/${job.job_id}$`));
+});
+
+
+test('first launch keeps Guided setup even when models are already installed',async({page})=>{
+  await page.route('**/api/library?offset=*',route=>route.fulfill({json:{locations:[],models,copies:[],jobs:[],uploads:[],next_offset:null}}));
+  await page.goto('/');
+  await expect(page.getByRole('button',{name:'Use this device',exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Restore from recovery kit',exact:true})).toBeVisible();
+});
+
+
+test('removed models need an exact additional restore confirmation',async({page})=>{
+  await mock(page);
+  await page.route('**/api/plan',route=>route.fulfill({json:{...recoveryPlan,location_id:'device',requires_code_permission:false,deleted_aliases:['example/recovered']}}));
+  await page.goto('/');
+  await page.getByRole('button',{name:'Restore from recovery kit',exact:true}).click();
+  // Use the upload path to reach the real shared review control.
+  await page.route('**/api/upload-create',route=>route.fulfill({json:{upload_id:'1'.repeat(32),size_bytes:20,offset:0,complete:false}}));
+  await page.route('**/api/upload/*',route=>route.fulfill({json:{upload_id:'1'.repeat(32),size_bytes:20,offset:20,complete:true}}));
+  await page.getByLabel('Recovery kit file').setInputFiles({name:'saved.foxkit',mimeType:'application/octet-stream',buffer:Buffer.alloc(20,1)});
+  await page.getByLabel('I trust this exact recovery copy').check();
+  await expect(page.getByRole('button',{name:'Restore model',exact:true})).toBeDisabled();
+  await page.getByLabel('I want to restore these deliberately removed models').check();
+  await expect(page.getByRole('button',{name:'Restore model',exact:true})).toBeEnabled();
+});
