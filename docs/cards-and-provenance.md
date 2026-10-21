@@ -25,9 +25,20 @@ structural body profile derived from public Skulk commit
 runtime and capability fields. Local projections (`is_custom`,
 `qualification_only`, `registry_*`) are excluded. It is packaged with the
 verifier, so schema validation requires no network lookup or Skulk import.
-This validates structure; an actual runtime must still validate cross-field
-semantics, companion revisions and supported vocabulary. Unknown fields fail
-closed. A future incompatible body profile needs an explicit versioned change.
+The preservation reader uses the additive
+[`PreservedModelCardBodyV1.json`](schemas/PreservedModelCardBodyV1.json) profile,
+derived from that frozen writer schema. New descriptive properties at any depth
+and new string vocabulary names are retained without interpretation. Known field
+types and constraints still validate. Receiver-only `registry_*`, `is_custom` and
+`qualification_only` properties remain prohibited. Nothing is silently discarded
+or rewritten, and all retained values participate in the existing card identity.
+
+An actual runtime must still validate cross-field semantics, companion revisions
+and supported vocabulary. Retention is not runtime admission. Selected artifact
+bundles/files, the card envelope and schema versions remain closed; incompatible
+changes to their interpreted semantics require an explicit versioned change.
+Existing cards and captures keep their identities. Earlier reader releases may
+reject newer metadata until updated to this additive reader contract.
 
 Card and selected-bundle IDs retain the existing registry encoding: SHA-256 of
 sorted, compact UTF-8 JSON (`ensure_ascii=False`, `allow_nan=False`), encoded as
