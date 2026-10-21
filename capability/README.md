@@ -36,23 +36,61 @@ Library's Sharing page explains this boundary and starts no listener or swarm.
 Tor/I2P remain under evaluation. Ordinary public mirrors and BitTorrent expose
 network addresses to the serving operator/other peers; neither is anonymous.
 
-## Build and access
+## Install and open Library
 
-Requires Python 3.13 and Node.js for the web build. The authoring SDK is pinned to
-`b9dc2e9d0fb7a8466f5ffbb52efebfa6b2f8e259`, version 0.5.0. Its upstream source is
-currently access-controlled; the public portable preservation core has no such
-dependency. This capability's source and local qualification do not establish a
-public self-service installation path or a capability-store release.
+Library has a public local launcher and an optional managed capability adapter.
+The local launcher requires Python 3.13 or later and a compatible running Skulk
+Core on the same model-store host. Its wheel includes the interface; Node.js,
+Skulk's Python package and the managed SDK are not installation dependencies.
+
+```sh
+uv tool install https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.3.0/foxlight_preservation_library-0.3.0-py3-none-any.whl
+foxlight-preservation-library
+```
+
+The launcher checks the local Core and opens a private browser link. For another
+local Core port use `--core-url http://127.0.0.1:PORT`; `--no-browser` prints the
+link without opening it. It only listens on loopback. Treat the ticket-scoped
+link as private. Closing the launcher stops its screen, while accepted jobs stay
+with Core. Reopening uses the same local workflow identity. It does not enable
+an archive, start a restore, host a mirror or join a swarm on launch.
+
+A Core build with the preservation/recovery APIs is required; an older stable
+installation may need an update. This package does not update Core, configure a
+Model Store or install an inference engine. The launcher and managed capability
+use the same Library/Guided interface and canonical Core job journal.
+
+Source installation is also available with `python -m pip install ./capability`
+from this repository. The default wheel has only public `httpx` and `pydantic`
+dependencies. The optional `managed` extra uses the separately supplied SDK; the
+public launcher never loads it.
+
+## Clear unused restore files
+
+Activity offers **Clear unused restore files** for a stopped restore. It asks
+Core to authenticate that job's known files and remove only unindexed temporary
+work. Indexed models and saved kits are retained. Cleanup is explicit and safe
+to repeat after an interruption. Then choose **Review again**, inspect the new
+plan and confirm the current permissions; cleanup never starts recovery or
+copies a prior consent. Missing/corrupt indexes and changed filesystem identities
+refuse deletion rather than guessing. This control requires Core's reclaim API.
+
+## Build and managed access
+
+The interface build needs Node.js. The optional managed authoring SDK is pinned
+to `b9dc2e9d0fb7a8466f5ffbb52efebfa6b2f8e259`, version 0.5.0. Its source remains
+access-controlled. That limits managed builds and capability-store delivery;
+it does not limit installing the public local launcher.
 
 ```sh
 cd capability
 npm ci --prefix web
 npm run build --prefix web
-uv sync --frozen
-uv run ruff check
-uv run ruff format --check
-uv run basedpyright
-uv run pytest
+uv sync --frozen --extra managed
+uv run --extra managed ruff check
+uv run --extra managed ruff format --check
+uv run --extra managed basedpyright
+uv run --extra managed pytest
 uv build
 ```
 
@@ -68,8 +106,8 @@ currently needs the Core recovery-kit/upload/live-store restoration APIs rather 
 released installation. The first supported operator runs this on the configured model-store-owning
 host, with Skulk's `/preservation` API available. The ordinary setting defaults
 to `http://127.0.0.1:52415`; only explicit loopback Core authorities are allowed.
-The SDK owner launches the child from protected inherited startup data. Direct
-execution without that startup is not a supported installation shortcut.
+The SDK owner launches the child from protected inherited startup data. The managed child requires that startup; the public local launcher has its own
+loopback lifecycle and does not simulate an SDK owner.
 
 ## Control and privacy
 
@@ -84,3 +122,12 @@ with a volatile ticket-scoped path, same-origin JSON controls, no-store response
 no-referrer policy and a restrictive content policy. It loads no analytics,
 external fonts or supplier resources. Opaque handles are not an OS sandbox:
 same-user processes and the trusted fabric retain their existing authority.
+
+## Library 0.3.0
+
+- Public local launcher and default wheel installation no longer require the
+  managed SDK or Skulk's Python environment. Core continues to own storage/jobs.
+- Activity explicitly clears known unused stopped-restore files through Core's
+  operator-gated reclaim API; fresh review and consent remain separate.
+- Public-package CI installs the built wheel without SDK/Core packages and tests
+  actual loopback HTTP controls. Managed adapter coverage remains separate.

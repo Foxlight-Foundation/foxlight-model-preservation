@@ -6,19 +6,14 @@ import asyncio
 import hashlib
 import json
 import time
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import httpx
 from pydantic import JsonValue
-from skulk_capability_sdk.contracts import Contract
-from skulk_capability_sdk.operations import (
-    OperationCall,
-    OperationLog,
-    OperationPage,
-    OperationPlan,
-    OperationStatus,
-    input_digest,
-)
+
+if TYPE_CHECKING:
+    from skulk_capability_sdk.contracts import Contract
+    from skulk_capability_sdk.operations import OperationCall, OperationStatus
 
 from .contracts import CopyInput, HostReport, LibraryCall, Settings
 
@@ -74,8 +69,9 @@ class CoreClient:
                     data.extend(chunk)
                     if len(data) > 65536:
                         raise CoreRefused("host_response_too_large")
-                if response.status_code == 404 and path.startswith(
-                    ("kit-uploads", "kits/")
+                if response.status_code == 404 and (
+                    path.startswith(("kit-uploads", "kits/"))
+                    or path.endswith("/reclaim")
                 ):
                     raise CoreRefused("core_upgrade_required")
                 if response.status_code not in {200, 202, 204}:
@@ -147,6 +143,8 @@ class CoreClient:
         )
 
     async def _status(self, job: dict[str, JsonValue]) -> OperationStatus:
+        from skulk_capability_sdk.operations import OperationStatus, input_digest
+
         plan = await self.request("GET", "plans/" + cast(str, job["plan_id"]))
         bound_input = self._input(plan)
         for permission in (
@@ -190,6 +188,12 @@ class CoreClient:
 
     async def operation(self, call: OperationCall) -> Contract:
         """Use SDK plan/start/status/list/cancel/log without a second job runner."""
+        from skulk_capability_sdk.operations import (
+            OperationLog,
+            OperationPage,
+            OperationPlan,
+        )
+
         if call.op in {"plan", "start"}:
             selection = CopyInput.model_validate(call.input)
             if call.op == "plan":

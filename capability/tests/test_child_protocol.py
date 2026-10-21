@@ -7,6 +7,10 @@ import sys
 import tempfile
 from pathlib import Path
 
+import pytest
+
+pytest.importorskip("skulk_capability_sdk", reason="optional managed adapter")
+
 from skulk_capability_sdk.contracts import Health, Hello, Shutdown, Startup, canonical
 from skulk_capability_sdk.wire import read_message, write_message
 

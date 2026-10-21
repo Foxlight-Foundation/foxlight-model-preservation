@@ -124,3 +124,25 @@ test('removed models need an exact additional restore confirmation',async({page}
   await page.getByLabel('I want to restore these deliberately removed models').check();
   await expect(page.getByRole('button',{name:'Restore model',exact:true})).toBeEnabled();
 });
+
+for (const state of ['interrupted','failed','cancelled']) {
+test(`clearing ${state} restore files is explicit and separate from fresh review`,async({page})=>{
+  const stopped={...jobs[0],kind:'recover',state,copy_id:null};
+  await page.route('**/api/library?offset=*',route=>route.fulfill({json:{locations:[location],models:[],copies:[],jobs:[stopped],next_offset:null}}));
+  let cleanups=0, reviews=0, starts=0;
+  await page.route('**/api/reclaim',async route=>{cleanups++;expect(route.request().postDataJSON()).toEqual({job_id:stopped.job_id});await route.fulfill({json:{indexed_generation_retained:false}});});
+  await page.route('**/api/retry-plan',route=>{reviews++;return route.fulfill({json:recoveryPlan});});
+  await page.route('**/api/start',route=>{starts++;return route.fulfill({json:stopped});});
+  await page.goto('/');
+  await page.getByRole('button',{name:'Activity',exact:true}).click();
+  expect(cleanups).toBe(0);
+  await page.getByRole('button',{name:'Clear unused restore files',exact:true}).click();
+  await expect(page.getByRole('status')).toContainText('Unused recovery files cleared');
+  expect(cleanups).toBe(1);expect(reviews).toBe(0);expect(starts).toBe(0);
+  await page.getByRole('button',{name:'Review again',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Recover this model'})).toBeVisible();
+  expect(reviews).toBe(1);expect(starts).toBe(0);
+  await expect(page.getByRole('checkbox').first()).not.toBeChecked();
+});
+
+}

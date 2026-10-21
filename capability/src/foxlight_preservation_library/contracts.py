@@ -2,20 +2,20 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 from urllib.parse import urlsplit
 
-from pydantic import Field, JsonValue, field_validator
-from skulk_capability_sdk.contracts import (
-    Bounds,
-    Contract,
-    Descriptor,
-    Manifest,
-    OperationBounds,
-    StewardExposure,
-    Surface,
-)
-from skulk_capability_sdk.operations import operation_descriptor
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
+
+if TYPE_CHECKING:
+    from skulk_capability_sdk.contracts import Manifest
+
+
+class Contract(BaseModel):
+    """Strict public UI values independent of the optional managed SDK."""
+
+    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
+
 
 INVENTORY_ID = "foxlight.preservation.library"
 COPY_ID = "foxlight.preservation.copy"
@@ -96,6 +96,16 @@ class CopyResult(Contract):
 
 def build_manifest(*, executable: str, executable_sha256: str) -> Manifest:
     """Declare the separately packaged UI and governed durable-copy contract."""
+    from skulk_capability_sdk.contracts import (
+        Bounds,
+        Descriptor,
+        Manifest,
+        OperationBounds,
+        StewardExposure,
+        Surface,
+    )
+    from skulk_capability_sdk.operations import operation_descriptor
+
     descriptor = operation_descriptor(
         id=COPY_ID,
         version="0.2.0",
@@ -111,7 +121,7 @@ def build_manifest(*, executable: str, executable_sha256: str) -> Manifest:
     return Manifest(
         bundle_id="foxlight.model-preservation",
         skulk_requires=">=2.0.3,<3",
-        bundle_version="0.2.0",
+        bundle_version="0.3.0",
         executable=executable,
         executable_sha256=executable_sha256,
         arguments=(),

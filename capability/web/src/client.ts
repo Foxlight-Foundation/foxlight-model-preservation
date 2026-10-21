@@ -21,7 +21,10 @@ export function bytes(value:number):string {return value < 1024 ? `${value} B` :
 /** Stable codes are translated here; raw exceptions never become product copy. */
 export function errorText(code:string):string {
   const labels:Record<string,string> = {
-    core_upgrade_required:'This Core build does not include recovery kits. Update Core on the model-store host, then reopen Model Preservation.',
+    recovery_index_unreadable:'The model index is unavailable or damaged. Your files were kept. Repair the index before clearing unused restore files.',
+    recovery_job_not_stopped:'This restore is still active. Stop it and wait for confirmation before clearing temporary files.',
+    recovery_cleanup_identity_changed:'These temporary files changed. They were kept for inspection.',
+    core_upgrade_required:'This Core build does not include this preservation operation. Update Core on the model-store host, then reopen Model Preservation.',
     operation_not_available_in_this_host_version:'This operation requires an updated Core build on the model-store host.',
     existing_model_conflict:'An existing model uses one of these names. Your installation is kept. Restore on an empty Core or resolve the conflict first.',
     removed_model_conflict:'A model in this kit was deliberately removed on this Core. Restore on a fresh Core or explicitly reintroduce it through the installation workflow.',
