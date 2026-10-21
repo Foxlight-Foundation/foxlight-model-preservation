@@ -166,8 +166,37 @@ class Artifact(Record):
         return self
 
 
-@lru_cache(maxsize=1)
-def _body_validator() -> Validator:
+def _open_metadata_schema(value: JsonValue) -> None:
+    if isinstance(value, list):
+        for item in value:
+            _open_metadata_schema(item)
+    elif isinstance(value, dict):
+        if value.get("additionalProperties") is False:
+            value["additionalProperties"] = True
+        # Vocabularies describe runtime behavior; preservation retains future
+        # names without claiming to implement them. Their JSON type still holds.
+        if value.get("type") == "string":
+            value.pop("enum", None)
+        for name, item in value.items():
+            if name == "$defs" and isinstance(item, dict):
+                for definition, schema in item.items():
+                    # Selected files participate in the envelope's interpreted
+                    # artifact contract, rather than opaque descriptive metadata.
+                    if definition not in {"ArtifactBundleConfig", "ArtifactBundleFile"}:
+                        _open_metadata_schema(schema)
+            else:
+                _open_metadata_schema(item)
+
+
+def card_body_schema() -> dict[str, JsonValue]:
+    """Return the extensible preservation reader schema, independent of Skulk.
+
+    Known fields retain their structural constraints. Additive metadata and
+    string vocabulary names are retained, not interpreted or runtime-qualified.
+    The selected-artifact schema stays closed. The frozen original writer
+    profile remains packaged unchanged, and existing card identities are stable.
+    Each call returns a fresh schema that callers may inspect independently.
+    """
     source = files("foxlight_model_preservation").joinpath(
         "resources", "skulk_model_card_v1.json"
     )
@@ -176,14 +205,33 @@ def _body_validator() -> Validator:
     schema = cast(JsonValue, json.loads(source.read_bytes()))
     if not isinstance(schema, dict):
         raise PreservationError("packaged card schema is invalid")
-    return Draft202012Validator(schema)
+    _open_metadata_schema(schema)
+    schema["title"] = "PreservedModelCardBodyV1"
+    schema["$comment"] = (
+        "Extensible preservation reader derived from the frozen Skulk body v1 "
+        "writer profile. Unknown metadata is retained and identity-bound, not "
+        "interpreted. Selected artifacts and envelope versions remain strict."
+    )
+    # Receiver-only projections can never become publisher assertions merely
+    # because the descriptive body now accepts additive properties.
+    schema["propertyNames"] = {
+        "not": {"pattern": "^(registry_|is_custom$|qualification_only$)"}
+    }
+    return schema
+
+
+@lru_cache(maxsize=1)
+def _body_validator() -> Validator:
+    return Draft202012Validator(card_body_schema())
 
 
 def validate_card_body(body: dict[str, JsonValue]) -> None:
-    """Validate the published structural body schema without a Skulk import.
+    """Validate known structure while retaining additive opaque card metadata.
 
     This does not qualify an engine, resolve runtime semantic dependencies or
-    accept registry/operator projections as authority.
+    accept registry/operator projections as authority. Unknown body properties
+    and string vocabulary names are preserved; artifact/envelope contracts are
+    still closed and versioned independently.
     """
     try:
         _body_validator().validate(body)

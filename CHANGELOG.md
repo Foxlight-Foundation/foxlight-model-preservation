@@ -1,5 +1,11 @@
 # Changes
 
+## Unreleased
+
+- Retain additive model-card properties and new string vocabulary names without
+  changing existing card identities. Keep known structural validation and closed,
+  versioned artifact/manifest contracts; runtime admission remains separate.
+
 ## 0.4.0
 
 - Add reviewed public-only publication under a separate signing identity, retaining

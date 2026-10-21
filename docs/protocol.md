@@ -2,8 +2,10 @@
 
 This is the implemented v1 contract. The Python models in
 `src/foxlight_model_preservation/models.py` and the published JSON schemas define
-accepted fields. Unknown fields and versions fail closed. A future incompatible
-format requires a new schema version and signing domain.
+accepted fields. Unknown manifest/envelope fields and versions fail closed.
+Retained descriptive model-card bodies have an extensible reader contract,
+described below; this does not extend the interpreted manifest or artifact format.
+A future incompatible format requires a new schema version and signing domain.
 
 A preservation set describes **one declared workload closure**. Every member has
 an exact origin repository and 40-hex revision, an artifact identity, a role,
@@ -133,6 +135,30 @@ must independently verify registry evidence; preserving arbitrary metadata or
 serializing a verification label never grants registry authority. See
 [cards and provenance](cards-and-provenance.md) for exact encoding, trust and
 historical-recovery semantics.
+
+## Additive card metadata
+
+The preservation card reader accepts new descriptive properties, including nested
+properties and string vocabulary names. It retains their exact JSON values in the
+card identity and retained base64 payload. It does not discard unknown properties,
+fill in new defaults, migrate old identities, or interpret new runtime behavior.
+Known fields retain their structural constraints. Receiver-only `registry_*`,
+`is_custom` and `qualification_only` projections remain prohibited.
+
+The frozen original writer schema remains available. The published
+[preservation reader schema](schemas/PreservedModelCardBodyV1.json) documents this
+additive contract. Existing cards and signed captures keep their identities and
+continue to verify. Readers released before this additive contract can still
+reject newer cards; consumers must update once to obtain this reader behavior.
+
+Selected artifact envelopes, bundle/file selection, signed manifests, trust
+records and schema versions remain closed. Changing their interpreted semantics
+requires an explicitly supported format version. A new descriptive property
+cannot amend the manifest's file graph. Completeness and file-evidence coverage
+are relative to the explicit selection, never inferred from unfamiliar metadata.
+Preserving and restoring a newer card does not establish that an older inference
+runtime can install or execute it. That runtime must validate its own supported
+semantics and dependencies before use.
 
 ## Public publication and optional BitTorrent adapter
 
