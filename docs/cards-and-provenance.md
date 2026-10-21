@@ -37,8 +37,9 @@ An actual runtime must still validate cross-field semantics, companion revisions
 and supported vocabulary. Retention is not runtime admission. Selected artifact
 bundles/files, the card envelope and schema versions remain closed; incompatible
 changes to their interpreted semantics require an explicit versioned change.
-Existing cards and captures keep their identities. Earlier reader releases may
-reject newer metadata until updated to this additive reader contract.
+Existing cards and captures keep their identities. Library `0.5.1` introduces this
+additive reader contract; consumers using `0.5.0` or earlier need one upgrade to
+retain future descriptive metadata. Previously released readers are unchanged.
 
 Card and selected-bundle IDs retain the existing registry encoding: SHA-256 of
 sorted, compact UTF-8 JSON (`ensure_ascii=False`, `allow_nan=False`), encoded as
