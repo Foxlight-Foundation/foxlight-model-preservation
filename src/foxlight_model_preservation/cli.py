@@ -15,6 +15,7 @@ from pydantic import JsonValue
 
 from .assurance import inspect_member_evidence, retain_card
 from .cards import create_card, identity_json, load_card
+from .kits import export_kit, import_kit, inspect_kit
 from .models import MAX_METADATA_BYTES, Catalog, PreservationError, Recipe, TrustProfile
 from .operations import OperationCancelled, OperationControl, Progress, failure_code
 from .publication import PublicationRequest, plan_publication, publish_public
@@ -40,6 +41,8 @@ from .transfer import TransferPolicy, fetch, plan_fetch
 class Arguments(argparse.Namespace):
     """Typed parser output; each command uses only its declared arguments."""
 
+    kit: Path
+    accept_kit_key: bool = False
     bundle_trust: Path | None = None
     index: Path
     catalog: str
@@ -175,6 +178,19 @@ def argument_parser() -> argparse.ArgumentParser:
     evidence.add_argument("--root", type=Path)
     evidence.add_argument("--historical", action="store_true")
     evidence.add_argument("--minimum-versions", type=Path)
+    for name in ("kit-export", "kit-inspect", "kit-import"):
+        kit = commands.add_parser(name, help="portable self-contained recovery kits")
+        if name == "kit-export":
+            _trust_options(kit)
+            kit.add_argument("--store", type=Path, required=True)
+            kit.add_argument("--output", type=Path, required=True)
+        else:
+            kit.add_argument("--kit", type=Path, required=True)
+            if name == "kit-import":
+                kit.add_argument("--expected-manifest-id", required=True)
+                kit.add_argument("--trust", dest="bundle_trust", type=Path)
+                kit.add_argument("--accept-kit-key", action="store_true")
+                kit.add_argument("--output", type=Path, required=True)
     keys = commands.add_parser(
         "keygen", help="create a private signing key and public trust snapshot"
     )
@@ -387,6 +403,41 @@ def run(
     arguments: Arguments, *, control: OperationControl | None = None
 ) -> dict[str, JsonValue]:
     """Execute exactly the selected operation and return a bounded safe receipt."""
+    if arguments.command.startswith("kit-"):
+        if arguments.command == "kit-export":
+            if not isinstance(arguments.manifest, str):
+                raise PreservationError("one exact manifest required")
+            info = export_kit(
+                arguments.store,
+                arguments.manifest,
+                load_trust(read_input(arguments.trust)),
+                arguments.output,
+                control=control,
+            )
+        elif arguments.command == "kit-import":
+            info = import_kit(
+                arguments.kit,
+                arguments.output,
+                expected_manifest_id=arguments.expected_manifest_id,
+                trust=load_trust(read_input(arguments.bundle_trust))
+                if arguments.bundle_trust is not None
+                else None,
+                accept_kit_key=arguments.accept_kit_key,
+                control=control,
+            )
+        else:
+            info = inspect_kit(arguments.kit)
+        return {
+            "manifest_id": info.manifest_id,
+            "key_ids": [key.key_id for key in info.trust.keys],
+            "member_count": len(info.manifest.members),
+            "logical_bytes": info.manifest.total_bytes,
+            "kit_bytes": info.kit_bytes,
+            "verification": "metadata_only"
+            if arguments.command == "kit-inspect"
+            else "complete",
+            "key_authority": "capture_only",
+        }
     if arguments.command.startswith("card-"):
         return _card_commands(arguments)
     if arguments.command.startswith("proof-"):

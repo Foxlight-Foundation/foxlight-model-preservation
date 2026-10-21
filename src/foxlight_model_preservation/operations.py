@@ -23,6 +23,8 @@ Operation = Literal[
     "plan_restore",
     "plan_fetch",
     "seed",
+    "kit_export",
+    "kit_import",
 ]
 Stage = Literal[
     "starting",
