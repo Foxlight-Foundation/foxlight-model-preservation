@@ -2,9 +2,9 @@
 export interface Location {location_id:string; label:string; purpose:'private'|'public'; reachable:boolean; free_bytes:number|null; publisher_key_id:string}
 export interface Model {model_id:string; generation_id:string; size_bytes:number; verification:string}
 export interface Copy {copy_id:string; model_id:string; location_id:string; manifest_id:string; audience:'private'|'public'; size_bytes:number; checked_at:number; member_count:number}
-export interface Job {job_id:string; operation_id:string; plan_id:string; kind:string; model_id:string; state:string; stage:string; created_at:number; bytes_copied:number; bytes_hashed:number; expected_manifest_id:string|null; copy_id:string|null; error_code:string|null}
-export interface Page {locations:Location[]; models:Model[]; copies:Copy[]; jobs:Job[]; next_offset:number|null}
-export interface Plan {plan_id:string; kind:'preserve'|'check'; model_id:string; location_id:string; size_bytes:number; members:string[]; member_count:number; expires_at:number}
+export interface Job {job_id:string; operation_id:string; plan_id:string; kind:string; model_id:string; state:string; stage:string; created_at:number; bytes_copied:number; bytes_hashed:number; expected_manifest_id:string|null; copy_id:string|null; error_code:string|null; location_id?:string|null}
+export interface Page {locations:Location[]; models:Model[]; copies:Copy[]; jobs:Job[]; uploads?:Upload[]; next_offset:number|null}
+export interface Plan {plan_id:string; kind:'preserve'|'check'|'kit_export'|'recover'; model_id:string; location_id:string; size_bytes:number; members:string[]; member_count:number; expires_at:number; upload_id?:string|null; historical?:boolean; existing_companions?:string[]; deleted_aliases?:string[]; publisher_key_ids?:string[]; requires_owner_acceptance?:boolean; requires_code_permission?:boolean; publication?:string|null; file_coverage?:string|null}
 
 /** Same-origin ticket-scoped controls; no supplier or analytics requests. */
 export async function api<T>(action:string, body?:unknown):Promise<T> {
@@ -21,6 +21,15 @@ export function bytes(value:number):string {return value < 1024 ? `${value} B` :
 /** Stable codes are translated here; raw exceptions never become product copy. */
 export function errorText(code:string):string {
   const labels:Record<string,string> = {
+    core_upgrade_required:'This Core build does not include recovery kits. Update Core on the model-store host, then reopen Model Preservation.',
+    operation_not_available_in_this_host_version:'This operation requires an updated Core build on the model-store host.',
+    existing_model_conflict:'An existing model uses one of these names. Your installation is kept. Restore on an empty Core or resolve the conflict first.',
+    removed_model_conflict:'A model in this kit was deliberately removed on this Core. Restore on a fresh Core or explicitly reintroduce it through the installation workflow.',
+    unsupported_model_card:'This reader cannot interpret the card. Keep the kit and use a compatible Skulk version. Standalone tools can still recover its captured files.',
+    remove_unused_kit_uploads:'Remove an unused kit transfer to free an upload slot.',
+    kit_upload_in_use:'A recovery job still needs this transfer. Stop or finish that job before removing it.',
+    kit_transfer_refused:'Select the same file to resume, or remove an unused transfer and start again.',
+    explicit_recovery_retry_required:'Review a new restore or kit export plan. Checking the source archive cannot establish that recovery finished.',
     insufficient_space:'There is not enough free space for the private snapshot and archive. Free storage on the Core host and the selected archive, then review a new plan.',
     host_restart_before_publication:'Skulk restarted before this job could publish. Review a new plan to try again.',
     uncertain_history_needs_reconciliation:'Several interrupted jobs need review. Check their outcomes in Activity before preserving more models.',
@@ -37,3 +46,11 @@ export function errorText(code:string):string {
     host_unavailable:'Skulk could not be reached. Your submitted jobs remain owned by Core; refresh to check their state.',
   }; return labels[code] ?? `The operation could not continue (${code.replaceAll('_',' ')}).`;
 }
+
+export interface Upload {upload_id:string; size_bytes:number; offset:number; complete:boolean}
+
+/** Transfer a bounded binary slice outside control JSON. */
+export async function uploadChunk(id:string,offset:number,content:Blob):Promise<Upload>{const reply=await fetch(new URL(`api/upload/${id}?offset=${offset}`,new URL('.',location.href)),{method:'PUT',cache:'no-store',headers:{'Content-Type':'application/octet-stream','X-Preservation-Action':'operator'},body:content});const value=await reply.json();if(!reply.ok)throw new Error(typeof value.error==='string'?value.error:'kit_transfer_refused');return value as Upload;}
+
+/** Stream a native browser download without allocating a weight-sized JS blob. */
+export function kitDownload(job:Job):string{return new URL(`api/download/${job.job_id}`,new URL('.',location.href)).href;}

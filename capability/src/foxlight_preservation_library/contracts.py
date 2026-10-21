@@ -71,11 +71,16 @@ class HostReport(Contract):
 class CopyInput(Contract):
     """Plan by exact selection; start uses the returned immutable plan digest."""
 
-    kind: Literal["preserve", "check"]
+    kind: Literal["preserve", "check", "kit_export", "recover"]
     location_id: str = Field(min_length=1, max_length=128)
     model_id: str | None = Field(default=None, max_length=512)
     generation_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     copy_id: str | None = Field(default=None, max_length=128)
+    upload_id: str | None = Field(default=None, max_length=128)
+    historical: bool = False
+    accept_owner_capture: bool = False
+    allow_repository_code: bool = False
+    restore_deleted: bool = False
     plan_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
@@ -83,15 +88,18 @@ class CopyResult(Contract):
     """Exact completed retained copy, never an inferred runtime qualification."""
 
     manifest_id: str = Field(pattern=r"^[0-9a-f]{64}$")
-    copy_id: str = Field(min_length=1, max_length=128)
+    copy_id: str | None = Field(default=None, min_length=1, max_length=128)
+    restored: bool = False
+    kit_ready: bool = False
+    member_count: int | None = Field(default=None, ge=1)
 
 
 def build_manifest(*, executable: str, executable_sha256: str) -> Manifest:
     """Declare the separately packaged UI and governed durable-copy contract."""
     descriptor = operation_descriptor(
         id=COPY_ID,
-        version="0.1.0",
-        title="Preserve or check a model",
+        version="0.2.0",
+        title="Preserve, recover or check a model",
         description=(
             "Review an exact plan, start a Core-owned job, observe retained "
             "status or request cancellation. Page and child restart do not "
@@ -103,7 +111,7 @@ def build_manifest(*, executable: str, executable_sha256: str) -> Manifest:
     return Manifest(
         bundle_id="foxlight.model-preservation",
         skulk_requires=">=2.0.3,<3",
-        bundle_version="0.1.0",
+        bundle_version="0.2.0",
         executable=executable,
         executable_sha256=executable_sha256,
         arguments=(),

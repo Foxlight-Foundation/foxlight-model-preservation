@@ -5,20 +5,33 @@ everyday use, and Activity through Skulk Core's durable preservation host. It
 uses the capability authoring SDK and local HTTP. It includes no Skulk imports,
 private owner code, signing keys, verifier, artifact transfer or byte worker.
 
-The current connected effects are **Use this device**, **Preserve**, **Check**,
-**Check outcome** and **Stop job**. Preserve reviews the complete supported
-installed companion selection. Core retains exact plans, request identities,
-copy receipts and jobs across page/child restarts. Closing this capability stops
-its UI listeners while Core keeps its jobs. Core restart interrupts uncertain
-work for an explicit outcome check. The existing native recovery tools handle
-fresh-home recovery; this capability does not yet import into a running store.
+Version 0.2 connects **Use this device**, **Preserve**, **Check**, **Check outcome**,
+**Save recovery kit**, **Download recovery kit**, **Restore** and **Stop job**.
+Preserve and restore review the complete supported companion selection. From a
+preserved copy, create and download a `.foxkit` to storage separate from Core.
+On a fresh Core, **Restore from recovery kit** works before archive setup. Choose
+the file, review model, companions, capture fingerprints and provenance limits,
+then confirm. Original Core storage, private signing keys and registry access are
+not prerequisites for restoring an owner capture. Original registry evidence is
+retained when available; a kit does not manufacture it.
+
+Uploads use bounded 4 MiB chunks. Reselect the same file to resume a flushed
+transfer after page, capability or Core restart. Completed jobs expose a native
+download; the browser does not buffer whole kits in JavaScript. Core retains plans,
+operation identities and jobs across page/child restarts. Closing this capability
+stops its UI listeners while Core keeps submitted jobs. A Core restart interrupts
+uncertain work for explicit review and retry; it never replays byte work.
+
+Recovery requires separate capture acceptance and repository-code permission when
+applicable. Deliberately removed models need a separate confirmation, bound to
+the reviewed deletion records. Matching owned companions can join the new complete
+generation after verification. A different existing primary capture is protected.
+Cards and original signed evidence survive format evolution; an older runtime
+may need an upgrade to interpret a newer card without changing the saved kit.
 
 Public publication and opt-in BitTorrent sharing are implemented in the parent
 standalone package. Hosting from Library, additional enrolled NAS/remote storage
-adapters, followed catalogs, exportable verification kits and recovery controls remain
-integration work. Full cluster-loss recovery through Library requires those
-verification-kit and recovery steps; current private Preserve/Check uses the
-trust material retained by Core.
+adapters and followed catalogs remain integration work.
 Library's Sharing page explains this boundary and starts no listener or swarm.
 Tor/I2P remain under evaluation. Ordinary public mirrors and BitTorrent expose
 network addresses to the serving operator/other peers; neither is anonymous.
@@ -51,7 +64,7 @@ The archive carries this capability and its web assets only. The private SDK
 owner and authoring SDK remain separately supplied dependency wheels.
 
 The manifest requires Skulk 2.0.3 or later in the same major version; the preview
-currently needs the Core preservation-host component rather than an older
+currently needs the Core recovery-kit/upload/live-store restoration APIs rather than an older
 released installation. The first supported operator runs this on the configured model-store-owning
 host, with Skulk's `/preservation` API available. The ordinary setting defaults
 to `http://127.0.0.1:52415`; only explicit loopback Core authorities are allowed.

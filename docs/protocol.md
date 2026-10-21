@@ -208,3 +208,17 @@ and verify the existing destination before retrying to a new destination. The
 brief exclusive empty-directory reservation has no signed manifest and cannot be
 admitted as a complete generation by the verifier. Save the completed kit outside the original Core/archive's failure
 domain. The kit is not encrypted; use encrypted storage for confidentiality.
+
+### Card evolution and retained evidence
+
+Kit verification/import and generic file restoration do not deserialize retained
+cards through today's runtime ModelCard. The signed manifest's retained evidence
+remains intact, including an unfamiliar future evidence profile. Card byte strings
+are retained as base64 so JSON numeric representations and signatures are not
+rewritten by the container's RFC 8785 encoding. A runtime projection is separate:
+a reader may preserve and verify a kit whose card or required operation it cannot
+yet interpret. This does not authorize executing an unknown card. Use a compatible
+reader/adapter for runtime admission. Public `card-create`/`card-verify` describe
+their packaged structural profile, while container validity is independent of
+that profile. Existing envelope/card versions and original identities remain
+unchanged by kit import.

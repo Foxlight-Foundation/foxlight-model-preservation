@@ -7,6 +7,7 @@ import concurrent.futures
 import http.server
 import json
 import mimetypes
+import re
 import secrets
 import socket
 import threading
@@ -14,6 +15,7 @@ from importlib.resources import files
 from typing import cast
 from urllib.parse import urlsplit
 
+import httpx
 from pydantic import JsonValue
 from skulk_capability_sdk.contracts import Startup
 from skulk_capability_sdk.serving import advertised_host, bind_hosts, peer_allowed
@@ -118,7 +120,26 @@ class LibraryServer:
         if action == "plan":
             return await self.client.request("POST", "plans", body)
         if action == "start":
-            if set(body) != {"plan_id", "operation_id"}:
+            if (
+                not {"plan_id", "operation_id"}.issubset(body)
+                or set(body)
+                - {
+                    "plan_id",
+                    "operation_id",
+                    "accept_owner_capture",
+                    "allow_repository_code",
+                    "restore_deleted",
+                }
+                or any(
+                    type(body[key]) is not bool
+                    for key in (
+                        "accept_owner_capture",
+                        "allow_repository_code",
+                        "restore_deleted",
+                    )
+                    if key in body
+                )
+            ):
                 raise CoreRefused("invalid_submission")
             return await self.client.request(
                 "POST", "jobs", {**body, "owner_id": self.client.owner_id}
@@ -133,6 +154,53 @@ class LibraryServer:
             ):
                 raise CoreRefused("invalid_job_identity")
             return await self.client.cancel_job(job_id)
+        if action == "upload-create":
+            if set(body) != {"size_bytes"}:
+                raise CoreRefused("invalid_upload")
+            return await self.client.request("POST", "kit-uploads", body)
+        if action in {"upload-status", "upload-remove"}:
+            upload_id = body.get("upload_id")
+            if (
+                set(body) != {"upload_id"}
+                or not isinstance(upload_id, str)
+                or re.fullmatch(r"[0-9a-f]{32}", upload_id) is None
+            ):
+                raise CoreRefused("invalid_upload")
+            return await self.client.request(
+                "GET" if action == "upload-status" else "DELETE",
+                "kit-uploads/" + upload_id,
+            )
+        if action == "retry-plan":
+            job_id = body.get("job_id")
+            if (
+                set(body) != {"job_id"}
+                or not isinstance(job_id, str)
+                or re.fullmatch(r"[0-9a-f]{64}", job_id) is None
+            ):
+                raise CoreRefused("invalid_job_identity")
+            job = await self.client.request("GET", "jobs/" + job_id)
+            if job.get("owner_id") != self.client.owner_id:
+                raise CoreRefused("job_owner_changed")
+            previous = await self.client.request(
+                "GET", "plans/" + cast(str, job["plan_id"])
+            )
+            return await self.client.request(
+                "POST",
+                "plans",
+                {
+                    key: previous[key]
+                    for key in (
+                        "kind",
+                        "location_id",
+                        "model_id",
+                        "generation_id",
+                        "copy_id",
+                        "upload_id",
+                        "historical",
+                    )
+                    if previous.get(key) is not None
+                },
+            )
         if action.startswith("library"):
             parsed = urlsplit(action)
             if parsed.path != "library" or (
@@ -195,6 +263,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         if selected is None:
             return
         app, relative = selected
+        if re.fullmatch(r"api/download/[0-9a-f]{64}", relative):
+            self._download(app, relative.rsplit("/", 1)[1])
+            return
         if relative.startswith("api/library"):
             self._control(app, relative.removeprefix("api/"), {})
             return
@@ -239,7 +310,17 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 self.headers.get("X-Preservation-Action") != "operator"
                 or self.headers.get_content_type() != "application/json"
                 or not 0 < length <= 65536
-                or relative not in {"api/setup", "api/plan", "api/start", "api/cancel"}
+                or relative
+                not in {
+                    "api/setup",
+                    "api/plan",
+                    "api/start",
+                    "api/cancel",
+                    "api/upload-create",
+                    "api/upload-status",
+                    "api/upload-remove",
+                    "api/retry-plan",
+                }
             ):
                 raise ValueError("invalid control")
             body: JsonValue = json.loads(self.rfile.read(length))
@@ -249,6 +330,124 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             self._reply(400, b'{"error":"invalid_control"}')
             return
         self._control(app, relative.removeprefix("api/"), body)
+
+    def do_PUT(self) -> None:
+        """Proxy one bounded binary chunk separately from SDK/control JSON."""
+        selected = self._app()
+        if selected is None:
+            return
+        app, relative = selected
+        future: concurrent.futures.Future[dict[str, JsonValue]] | None = None
+        match = re.fullmatch(
+            r"api/upload/([0-9a-f]{32})\?offset=([0-9]{1,13})", relative
+        )
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if (
+                match is None
+                or self.headers.get("X-Preservation-Action") != "operator"
+                or self.headers.get_content_type() != "application/octet-stream"
+                or not 0 < length <= 4 * 1024 * 1024
+            ):
+                raise ValueError("invalid kit chunk")
+            content = self.rfile.read(length)
+            if len(content) != length:
+                raise ValueError("truncated chunk")
+            future = asyncio.run_coroutine_threadsafe(
+                app.client.request(
+                    "PUT",
+                    "kit-uploads/" + match[1] + "?offset=" + match[2],
+                    content=content,
+                ),
+                app.loop,
+            )
+            result = future.result(timeout=12)
+            self._reply(200, json.dumps(result).encode())
+        except concurrent.futures.TimeoutError:
+            if future is not None:
+                _ = future.cancel()
+            self._reply(503, b'{"error":"host_unavailable"}')
+        except (ValueError, OSError):
+            self._reply(409, b'{"error":"kit_transfer_refused"}')
+
+    def _download(self, app: LibraryServer, job_id: str) -> None:
+        """Stream a completed own-job kit without buffering it in the UI child."""
+        started = False
+        try:
+            future = asyncio.run_coroutine_threadsafe(
+                app.client.request("GET", "jobs/" + job_id), app.loop
+            )
+            job = future.result(timeout=12)
+            if (
+                job.get("owner_id") != app.client.owner_id
+                or job.get("kind") != "kit_export"
+                or job.get("state") != "succeeded"
+            ):
+                raise CoreRefused("kit_not_ready")
+            headers = {"Accept-Encoding": "identity"}
+            byte_range = self.headers.get("Range")
+            if byte_range is not None:
+                if re.fullmatch(r"bytes=[0-9]{0,13}-[0-9]{0,13}", byte_range) is None:
+                    raise CoreRefused("invalid_range")
+                headers["Range"] = byte_range
+            with (
+                httpx.Client(
+                    base_url=app.client.http.base_url,
+                    trust_env=False,
+                    follow_redirects=False,
+                    timeout=30,
+                ) as transfer,
+                transfer.stream(
+                    "GET", "/preservation/kits/" + job_id, headers=headers
+                ) as response,
+            ):
+                if response.status_code not in {200, 206} or response.headers.get(
+                    "Content-Encoding"
+                ) not in {None, "identity"}:
+                    raise CoreRefused("kit_download_refused")
+                length = int(response.headers.get("Content-Length", "0"))
+                if not 0 < length <= 8 * 1024**4:
+                    raise CoreRefused("invalid_kit_length")
+                self.send_response(response.status_code)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Length", str(length))
+                self.send_header(
+                    "Content-Disposition",
+                    'attachment; filename="recovery-' + job_id + '.foxkit"',
+                )
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Referrer-Policy", "no-referrer")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                if response.status_code == 206:
+                    content_range = response.headers.get("Content-Range", "")
+                    if (
+                        re.fullmatch(
+                            r"bytes [0-9]{1,13}-[0-9]{1,13}/[0-9]{1,13}", content_range
+                        )
+                        is None
+                    ):
+                        raise CoreRefused("invalid_range")
+                    self.send_header("Content-Range", content_range)
+                self.end_headers()
+                started = True
+                sent = 0
+                for chunk in response.iter_raw(chunk_size=1024 * 1024):
+                    sent += len(chunk)
+                    if sent > length:
+                        raise CoreRefused("kit_length_changed")
+                    self.wfile.write(chunk)
+                if sent != length:
+                    self.close_connection = True
+        except (
+            CoreRefused,
+            ValueError,
+            OSError,
+            httpx.HTTPError,
+            concurrent.futures.TimeoutError,
+        ):
+            if not started:
+                self._reply(409, b'{"error":"kit_download_refused"}')
+            self.close_connection = True
 
     def _control(
         self, app: LibraryServer, action: str, body: dict[str, JsonValue]

@@ -114,3 +114,32 @@ def test_supported_urlsafe_envelope_round_trip(
         kit, tmp_path / "urlsafe", expected_manifest_id=identity, trust=capture.trust
     )
     verify_store(tmp_path / "urlsafe", identity, capture.trust)
+
+
+def test_future_card_evidence_survives_without_runtime_projection(
+    capture: Capture, tmp_path: Path
+) -> None:
+    """Container validity does not depend on today's model-card vocabulary."""
+    import base64
+
+    from foxlight_model_preservation.storage import pack, restore
+
+    original = b'{"future_property":{"nested":[null,1.0]},"contract_version":99}'
+    retained = {
+        "schema_version": "future-card-evidence.v99",
+        "card_base64": base64.b64encode(original).decode(),
+    }
+    member = capture.recipe.members[0].model_copy(update={"retained_card": retained})
+    recipe = capture.recipe.model_copy(
+        update={"members": (member, *capture.recipe.members[1:])}
+    )
+    store = tmp_path / "future-source"
+    identity = pack(recipe, capture.sources, store, (capture.key,))
+    kit = tmp_path / "future.foxkit"
+    export_kit(store, identity, capture.trust, kit)
+    shutil.rmtree(store)
+    imported = tmp_path / "future-import"
+    import_kit(kit, imported, expected_manifest_id=identity, trust=capture.trust)
+    result = restore(imported, identity, capture.trust, tmp_path / "future-files")
+    assert result.members[0].retained_card == retained
+    assert base64.b64decode(result.members[0].retained_card["card_base64"]) == original
