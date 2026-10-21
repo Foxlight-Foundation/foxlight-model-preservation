@@ -87,3 +87,30 @@ def test_refuse_wrong_identity_symlinks_and_cancel(
             control=control,
         )
     assert not (tmp_path / "cancel").exists()
+
+
+def test_supported_urlsafe_envelope_round_trip(
+    capture: Capture, tmp_path: Path
+) -> None:
+    import base64
+    import json
+
+    from foxlight_model_preservation.signing import digest, encode_record, sign_manifest
+    from foxlight_model_preservation.storage import manifest_path
+
+    manifest = verify_store(capture.store, capture.identity, capture.trust)
+    manifest = manifest.model_copy(update={"name": "🦊🦊🦊"})
+    payload = encode_record(manifest)
+    identity = digest(payload)
+    envelope = sign_manifest(manifest, (capture.key,))
+    value = envelope.model_dump(mode="json")
+    value["payload"] = base64.urlsafe_b64encode(payload).decode()
+    assert "-" in value["payload"] or "_" in value["payload"]
+    (capture.store / manifest_path(identity)).write_text(json.dumps(value))
+    kit = tmp_path / "urlsafe.foxkit"
+    export_kit(capture.store, identity, capture.trust, kit)
+    assert inspect_kit(kit).manifest_id == identity
+    import_kit(
+        kit, tmp_path / "urlsafe", expected_manifest_id=identity, trust=capture.trust
+    )
+    verify_store(tmp_path / "urlsafe", identity, capture.trust)

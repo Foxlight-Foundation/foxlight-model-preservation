@@ -7,7 +7,6 @@ The original signed manifest controls every object length and content identity.
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import os
 import shutil
@@ -30,6 +29,7 @@ from .operations import OperationControl
 from .signing import (
     Envelope,
     canonical_bytes,
+    decode_base64,
     encode_record,
     load_trust,
     strict_json,
@@ -92,9 +92,7 @@ def _header(stream: BinaryIO) -> tuple[KitInspection, bytes]:
     # Recover the identity only from the authenticated DSSE payload, then run
     # normal signature/schema/closure checks against that exact identity.
     signed = Envelope.model_validate_json(canonical_bytes(strict_json(envelope)))
-    identity = hashlib.sha256(
-        base64.b64decode(signed.payload, validate=True)
-    ).hexdigest()
+    identity = hashlib.sha256(decode_base64(signed.payload)).hexdigest()
     manifest = verify_manifest(envelope, trust, identity)
     expected = (
         len(MAGIC)

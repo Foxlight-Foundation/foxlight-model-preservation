@@ -176,6 +176,9 @@ while copying, and publishes a new file without replacement. It never selects
 private signing keys, other generations or unselected archive files. Existing
 signed private evidence remains evidence, not receiver authorization. Import
 hashes the complete stream into private staging, flushes objects/envelope/public
-trust, then publishes a new portable store atomically. A failed import publishes
-no store. Save the completed kit outside the original Core/archive's failure
+trust, then publishes a new portable store atomically. A failure before publication exposes no store. A directory-flush failure
+after publication can leave a complete store with uncertain durability; inspect
+and verify the existing destination before retrying to a new destination. The
+brief exclusive empty-directory reservation has no signed manifest and cannot be
+admitted as a complete generation by the verifier. Save the completed kit outside the original Core/archive's failure
 domain. The kit is not encrypted; use encrypted storage for confidentiality.
