@@ -2,10 +2,10 @@
 
 This separately packaged capability provides Guided first setup, Library for
 everyday use, and Activity through Skulk Core's durable preservation host. It
-uses the capability authoring SDK and local HTTP. It includes no Skulk imports,
+uses local HTTP; its optional managed adapter uses the capability authoring SDK. It includes no Skulk imports,
 private owner code, signing keys, verifier, artifact transfer or byte worker.
 
-Version 0.2 connects **Use this device**, **Preserve**, **Check**, **Check outcome**,
+Version 0.4 connects **Use this device**, **Preserve**, **Check**, **Check outcome**,
 **Save recovery kit**, **Download recovery kit**, **Restore** and **Stop job**.
 Preserve and restore review the complete supported companion selection. From a
 preserved copy, create and download a `.foxkit` to storage separate from Core.
@@ -29,10 +29,37 @@ generation after verification. A different existing primary capture is protected
 Cards and original signed evidence survive format evolution; an older runtime
 may need an upgrade to interpret a newer card without changing the saved kit.
 
-Public publication and opt-in BitTorrent sharing are implemented in the parent
-standalone package. Hosting from Library, additional enrolled NAS/remote storage
-adapters and followed catalogs remain integration work.
-Library's Sharing page explains this boundary and starts no listener or swarm.
+Sharing now imports an existing signed **public** `.foxkit` into a separate
+immutable copy, retaining unknown card metadata without model admission. Review
+its exact manifest identity and candidate public fingerprints, then explicitly
+accept the copy. Importing starts no listener or swarm. Private kits are refused;
+creating a new public publication remains a separate review through the parent
+standalone tools. It requires original terms review and a separate public key.
+
+For a public copy, choose **Set up HTTP mirror** or **Set up BitTorrent**. Review
+network access (default: only this device), port, duration up to 24 hours and upload
+allowance. BitTorrent also has an upload-speed limit. Confirm the separate sharing
+choice to start. Core verifies all bytes before serving. You can close Library;
+Core retains the session. **Stop sharing** waits for the owned worker to stop and
+keeps the verified public copy. Core restart ends sessions and never replays them.
+
+HTTP counts full reserved response bytes, including interrupted responses, and
+has no speed cap. BitTorrent reports observed payload; its stop threshold can
+overshoot in flight. Network overhead is excluded. Status retains reviewed limits
+and aggregate counters without peer addresses or request history. Download standard
+`.torrent` metadata and the copy's public verification keys to share with recipients;
+downloading these files does not itself join a swarm. Recipients must authenticate
+fingerprints independently and select the exact manifest ID.
+
+Network mode binds all IPv4 interfaces. Arrange firewall/routing, DNS and TLS
+separately; a supplied mirror address is a hint, not verified reachability. Core
+builds without the compatible native BitTorrent adapter retain HTTP. Additional
+NAS/remote adapters, followed catalogs, one-step recipient invitations and
+unattended continuous hosting remain separate enhancements. An unclean Core exit
+can leave model-sized temporary torrent exports in Core-owned work storage. Clean
+stop removes the temporary export, but this preview has no restart reclamation
+control for abandoned sharing work. Preserve the verified public copy and use
+operator storage maintenance rather than deleting unknown files while Core runs.
 Tor/I2P remain under evaluation. Ordinary public mirrors and BitTorrent expose
 network addresses to the serving operator/other peers; neither is anonymous.
 
@@ -44,13 +71,13 @@ Core on the same model-store host. Its wheel includes the interface; Node.js,
 Skulk's Python package and the managed SDK are not installation dependencies.
 
 ```sh
-uv tool install https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.3.0/foxlight_preservation_library-0.3.0-py3-none-any.whl
+uv tool install https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.4.0/foxlight_preservation_library-0.4.0-py3-none-any.whl
 foxlight-preservation-library
 ```
 
 The launcher checks the local Core and opens a private browser link. For another
 local Core port use `--core-url http://127.0.0.1:PORT`; `--no-browser` prints the
-link without opening it. It only listens on loopback. Treat the ticket-scoped
+link without opening it. It only listens on loopback and does not perform reverse DNS to start the local screen. Treat the ticket-scoped
 link as private. Closing the launcher stops its screen, while accepted jobs stay
 with Core. Reopening uses the same local workflow identity. It does not enable
 an archive, start a restore, host a mirror or join a swarm on launch.
@@ -123,7 +150,7 @@ no-referrer policy and a restrictive content policy. It loads no analytics,
 external fonts or supplier resources. Opaque handles are not an OS sandbox:
 same-user processes and the trusted fabric retain their existing authority.
 
-## Library 0.3.0
+## Earlier Library 0.3.0 delivery
 
 - Public local launcher and default wheel installation no longer require the
   managed SDK or Skulk's Python environment. Core continues to own storage/jobs.
@@ -131,3 +158,13 @@ same-user processes and the trusted fabric retain their existing authority.
   operator-gated reclaim API; fresh review and consent remain separate.
 - Public-package CI installs the built wheel without SDK/Core packages and tests
   actual loopback HTTP controls. Managed adapter coverage remains separate.
+
+## Sharing capability scope
+
+The Library screen is the explicit human sharing surface. Public sharing jobs use
+an owner identity separate from the existing governed `foxlight.preservation.copy`
+operation, whose version 0.2 input/result contract is unchanged. SDK callers do
+not acquire a new network-serving operation implicitly. A future agent-facing
+sharing descriptor needs its own permission and immutable review contract.
+Public-copy import uses the portable signed card as opaque data; actual loading
+continues through Core's existing recovery and model-trust checks.

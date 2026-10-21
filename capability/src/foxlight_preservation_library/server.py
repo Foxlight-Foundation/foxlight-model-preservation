@@ -11,6 +11,7 @@ import mimetypes
 import re
 import secrets
 import socket
+import socketserver
 import threading
 from importlib.resources import files
 from typing import TYPE_CHECKING, cast
@@ -23,7 +24,7 @@ if TYPE_CHECKING:
     from skulk_capability_sdk.contracts import Startup
 
 from .client import CoreClient, CoreRefused
-from .contracts import LibraryCall
+from .contracts import LibraryCall, SharingInput
 
 
 class _Server(http.server.ThreadingHTTPServer):
@@ -35,6 +36,16 @@ class _Server(http.server.ThreadingHTTPServer):
         if ":" in address[0]:
             self.address_family = socket.AF_INET6
         super().__init__(address, _Handler)
+
+    def server_bind(self) -> None:
+        """Bind the authorized address without an incidental reverse lookup.
+
+        Called during construction; returns None after recording the numeric
+        listener and actual port. Host/Origin and peer checks remain unchanged.
+        """
+        socketserver.TCPServer.server_bind(self)
+        self.server_name = str(self.server_address[0])
+        self.server_port = int(self.server_address[1])
 
     def process_request(
         self,
@@ -147,6 +158,11 @@ class LibraryServer:
             ).report
         if action == "plan":
             return await self.client.request("POST", "plans", body)
+        if action == "sharing-plan":
+            selected = SharingInput.model_validate(body)
+            return await self.client.request(
+                "POST", "plans", selected.model_dump(mode="json")
+            )
         if action == "start":
             if (
                 not {"plan_id", "operation_id"}.issubset(body)
@@ -157,6 +173,7 @@ class LibraryServer:
                     "accept_owner_capture",
                     "allow_repository_code",
                     "restore_deleted",
+                    "public_participation",
                 }
                 or any(
                     type(body[key]) is not bool
@@ -164,13 +181,27 @@ class LibraryServer:
                         "accept_owner_capture",
                         "allow_repository_code",
                         "restore_deleted",
+                        "public_participation",
                     )
                     if key in body
                 )
             ):
                 raise CoreRefused("invalid_submission")
+            plan_id = body.get("plan_id")
+            if (
+                not isinstance(plan_id, str)
+                or re.fullmatch(r"[0-9a-f]{64}", plan_id) is None
+            ):
+                raise CoreRefused("invalid_submission")
+            selected_plan = await self.client.request("GET", "plans/" + plan_id)
+            owner = (
+                self.client.sharing_owner_id
+                if selected_plan.get("kind")
+                in {"mirror_import", "http_share", "torrent_share"}
+                else self.client.owner_id
+            )
             return await self.client.request(
-                "POST", "jobs", {**body, "owner_id": self.client.owner_id}
+                "POST", "jobs", {**body, "owner_id": owner}
             )
         if action == "cancel":
             job_id = body.get("job_id")
@@ -303,6 +334,12 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         if selected is None:
             return
         app, relative = selected
+        if re.fullmatch(r"api/trust/[0-9a-f]{64}", relative):
+            self._trust(app, relative.rsplit("/", 1)[1])
+            return
+        if re.fullmatch(r"api/torrent/[0-9a-f]{64}", relative):
+            self._download(app, relative.rsplit("/", 1)[1], torrent=True)
+            return
         if re.fullmatch(r"api/download/[0-9a-f]{64}", relative):
             self._download(app, relative.rsplit("/", 1)[1])
             return
@@ -354,6 +391,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 not in {
                     "api/setup",
                     "api/plan",
+                    "api/sharing-plan",
                     "api/start",
                     "api/cancel",
                     "api/upload-create",
@@ -411,7 +449,21 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         except (ValueError, OSError):
             self._reply(409, b'{"error":"kit_transfer_refused"}')
 
-    def _download(self, app: LibraryServer, job_id: str) -> None:
+    def _trust(self, app: LibraryServer, copy_id: str) -> None:
+        """Download only public verification material; never a private key."""
+        try:
+            future = asyncio.run_coroutine_threadsafe(
+                app.client.request("GET", "public-copies/" + copy_id + "/trust"),
+                app.loop,
+            )
+            encoded = json.dumps(future.result(timeout=12)).encode()
+            self._reply(200, encoded, "application/json")
+        except (CoreRefused, ValueError, OSError, concurrent.futures.TimeoutError):
+            self._reply(409, b'{"error":"public_copy_unavailable"}')
+
+    def _download(
+        self, app: LibraryServer, job_id: str, *, torrent: bool = False
+    ) -> None:
         """Stream a completed own-job kit without buffering it in the UI child."""
         started = False
         try:
@@ -420,9 +472,10 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             )
             job = future.result(timeout=12)
             if (
-                job.get("owner_id") != app.client.owner_id
-                or job.get("kind") != "kit_export"
-                or job.get("state") != "succeeded"
+                job.get("owner_id")
+                not in {app.client.owner_id, app.client.sharing_owner_id}
+                or job.get("kind") != ("torrent_share" if torrent else "kit_export")
+                or (not torrent and job.get("state") != "succeeded")
             ):
                 raise CoreRefused("kit_not_ready")
             headers = {"Accept-Encoding": "identity"}
@@ -439,7 +492,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                     timeout=30,
                 ) as transfer,
                 transfer.stream(
-                    "GET", "/preservation/kits/" + job_id, headers=headers
+                    "GET",
+                    "/preservation/" + ("torrents/" if torrent else "kits/") + job_id,
+                    headers=headers,
                 ) as response,
             ):
                 if response.status_code not in {200, 206} or response.headers.get(
@@ -447,14 +502,22 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 ) not in {None, "identity"}:
                     raise CoreRefused("kit_download_refused")
                 length = int(response.headers.get("Content-Length", "0"))
-                if not 0 < length <= 8 * 1024**4:
+                if not 0 < length <= (8 * 1024**2 if torrent else 8 * 1024**4):
                     raise CoreRefused("invalid_kit_length")
                 self.send_response(response.status_code)
-                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header(
+                    "Content-Type",
+                    "application/x-bittorrent"
+                    if torrent
+                    else "application/octet-stream",
+                )
                 self.send_header("Content-Length", str(length))
                 self.send_header(
                     "Content-Disposition",
-                    'attachment; filename="recovery-' + job_id + '.foxkit"',
+                    'attachment; filename="'
+                    + ("model-" if torrent else "recovery-")
+                    + job_id
+                    + ('.torrent"' if torrent else '.foxkit"'),
                 )
                 self.send_header("Cache-Control", "no-store")
                 self.send_header("Referrer-Policy", "no-referrer")

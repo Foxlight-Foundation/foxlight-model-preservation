@@ -84,6 +84,21 @@ class CopyInput(Contract):
     plan_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
+class SharingInput(Contract):
+    """Public data-only selections; no runtime permissions or host paths."""
+
+    kind: Literal["mirror_import", "http_share", "torrent_share"]
+    location_id: str = Field(min_length=1, max_length=128)
+    copy_id: str | None = Field(default=None, max_length=128)
+    upload_id: str | None = Field(default=None, max_length=128)
+    public_network: bool = False
+    listen_port: int = Field(default=0, ge=0, le=65535)
+    duration_seconds: int = Field(default=3600, ge=1, le=86400)
+    upload_rate_bytes: int = Field(default=1048576, ge=1024, le=104857600)
+    upload_limit_bytes: int = Field(default=1073741824, ge=1, le=2**53 - 1)
+    advertised_url: str | None = Field(default=None, max_length=2048)
+
+
 class CopyResult(Contract):
     """Exact completed retained copy, never an inferred runtime qualification."""
 
@@ -121,7 +136,7 @@ def build_manifest(*, executable: str, executable_sha256: str) -> Manifest:
     return Manifest(
         bundle_id="foxlight.model-preservation",
         skulk_requires=">=2.0.3,<3",
-        bundle_version="0.3.0",
+        bundle_version="0.4.0",
         executable=executable,
         executable_sha256=executable_sha256,
         arguments=(),

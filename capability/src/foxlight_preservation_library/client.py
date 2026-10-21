@@ -33,6 +33,11 @@ class CoreClient:
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self.owner_id = owner_id
+        # Keep public sessions outside the existing governed copy operation's
+        # immutable input/result contract while retaining one Library inventory.
+        self.sharing_owner_id = hashlib.sha256(
+            (owner_id + "\x00sharing").encode()
+        ).hexdigest()
         self.http = httpx.AsyncClient(
             base_url=settings.skulk_api_url,
             timeout=10,
@@ -106,14 +111,15 @@ class CoreClient:
         report["jobs"] = [
             job
             for job in jobs
-            if isinstance(job, dict) and job.get("owner_id") == self.owner_id
+            if isinstance(job, dict)
+            and job.get("owner_id") in {self.owner_id, self.sharing_owner_id}
         ]
         return HostReport(report=report)
 
     async def cancel_job(self, job_id: str) -> dict[str, JsonValue]:
         """Check the immutable owner binding before forwarding a stop effect."""
         job = await self.request("GET", "jobs/" + job_id)
-        if job.get("owner_id") != self.owner_id:
+        if job.get("owner_id") not in {self.owner_id, self.sharing_owner_id}:
             raise CoreRefused("job_owner_changed")
         return await self.request("POST", "jobs/" + job_id + "/cancel", {})
 

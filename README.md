@@ -127,8 +127,10 @@ them through the live store owner, and explicitly clears unused interrupted
 restore files before fresh review. The public local launcher installs with public
 dependencies and includes its interface. A compatible local Core is required.
 The optional managed capability adapter retains its separately supplied SDK.
-Public hosting controls remain integration work; standalone public mirror and
-BitTorrent tools are available independently.
+Library 0.4 adds signed public-bundle import and separately reviewed, bounded
+HTTP/BitTorrent sessions, with explicit stop and public-key/torrent downloads.
+It requires the corresponding Core sharing APIs. Standalone mirror/BitTorrent
+tools remain independently usable; public reachability and custody are operator-owned.
 
 ### Recover after losing the original host
 
