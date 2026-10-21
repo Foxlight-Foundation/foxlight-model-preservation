@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.5.1
+
 - Retain additive model-card properties and new string vocabulary names without
   changing existing card identities. Keep known structural validation and closed,
   versioned artifact/manifest contracts; runtime admission remains separate.
