@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Library 0.4 preview connects public-only signed bundle import, explicit bounded
+  HTTP mirrors and opt-in BitTorrent to Core-owned jobs. It retains unknown card
+  metadata without model admission, offers metainfo/public-key downloads and
+  keeps the existing governed copy operation contract unchanged. Public serving
+  requires an updated Core; private-to-public publication remains a separate review.
+
 ## 0.5.3
 
 - Bind HTTP mirrors without the standard server's incidental reverse-DNS lookup.

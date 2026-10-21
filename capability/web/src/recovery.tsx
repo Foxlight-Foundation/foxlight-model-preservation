@@ -2,7 +2,7 @@ import {useEffect,useRef,useState} from 'react';
 import {api,bytes,errorText,uploadChunk,type Plan,type Upload} from './client';
 
 /** Explicit file selection; Core's flushed ingress survives all UI lifetimes. */
-export function UploadKit({uploads,onReview,onBack,onChange}:{uploads:Upload[];onReview:(plan:Plan)=>void;onBack:()=>void;onChange:()=>Promise<void>}) {
+export function UploadKit({uploads,onReview,onBack,onChange,publicImport=false}:{publicImport?:boolean;uploads:Upload[];onReview:(plan:Plan)=>void;onBack:()=>void;onChange:()=>Promise<void>}) {
   const [busy,setBusy]=useState(false),[progress,setProgress]=useState<Upload|null>(null),[error,setError]=useState('');
   const stop=useRef(false);
   useEffect(()=>()=>{stop.current=true;},[]);
@@ -19,14 +19,14 @@ export function UploadKit({uploads,onReview,onBack,onChange}:{uploads:Upload[];o
       setProgress(current);
       while(current.offset<file.size&&!stop.current){current=await uploadChunk(current.upload_id,current.offset,file.slice(current.offset,Math.min(file.size,current.offset+4*1024**2)));setProgress(current);}
       await onChange();if(stop.current)return;
-      onReview(await api<Plan>('plan',{kind:'recover',location_id:'kit',upload_id:current.upload_id,historical:true}));
+      onReview(await api<Plan>(publicImport?'sharing-plan':'plan',publicImport?{kind:'mirror_import',location_id:'public-kit',upload_id:current.upload_id}:{kind:'recover',location_id:'kit',upload_id:current.upload_id,historical:true}));
     }catch(err){setError(err instanceof Error?err.message:'kit_transfer_refused');}finally{setBusy(false);}
   }
   async function remove(item:Upload){try{await api('upload-remove',{upload_id:item.upload_id});if(progress?.upload_id===item.upload_id)setProgress(null);await onChange();}catch(err){setError(err instanceof Error?err.message:'kit_transfer_refused');}}
-  return <section className="mp-flow" aria-label="Restore from recovery kit">
-    <button className="mp-button mp-quiet" onClick={()=>{stop.current=true;onBack();}}>← Back to Library</button><span className="mp-kicker">Recover your models</span><h2>Restore from a recovery kit</h2>
-    <p className="mp-muted">Choose a kit from your backup drive, NAS or downloaded files. The original Core and registry do not need to be available.</p>
-    <div className="mp-summary"><h3>One file. The complete model.</h3><p>Skulk checks the signed model, required companions and retained provenance before making them available. Review the contents and permissions next.</p><label className="mp-button mp-primary mp-file"><span>{busy?'Transferring…':'Choose recovery kit'}</span><input aria-label="Recovery kit file" type="file" accept=".foxkit,application/octet-stream" disabled={busy} onChange={event=>{const file=event.target.files?.[0];if(file)void choose(file);event.target.value='';}}/></label></div>
+  return <section className="mp-flow" aria-label={publicImport?'Import a public bundle':'Restore from recovery kit'}>
+    <button className="mp-button mp-quiet" onClick={()=>{stop.current=true;onBack();}}>← Back to Library</button><span className="mp-kicker">{publicImport?'Keep a community copy':'Recover your models'}</span><h2>{publicImport?'Import a public bundle':'Restore from a recovery kit'}</h2>
+    <p className="mp-muted">{publicImport?'Choose a signed public .foxkit. Every member must already declare a public audience. Importing preserves the original signatures and starts no sharing.':'Choose a kit from your backup drive, NAS or downloaded files. The original Core and registry do not need to be available.'}</p>
+    <div className="mp-summary"><h3>One file. The complete model.</h3><p>{publicImport?'Core verifies every captured byte into a separate public copy. Cards remain unchanged, including metadata this version cannot load. This does not install or trust the model for inference.':'Skulk checks the signed model, required companions and retained provenance before making them available. Review the contents and permissions next.'}</p><label className="mp-button mp-primary mp-file"><span>{busy?'Transferring…':publicImport?'Choose public bundle':'Choose recovery kit'}</span><input aria-label={publicImport?'Public bundle file':'Recovery kit file'} type="file" accept=".foxkit,application/octet-stream" disabled={busy} onChange={event=>{const file=event.target.files?.[0];if(file)void choose(file);event.target.value='';}}/></label></div>
     {progress&&<div role="status"><p>{bytes(progress.offset)} of {bytes(progress.size_bytes)} transferred{!busy&&!progress.complete?' · Paused. Choose the same file to continue.':''}</p><progress max={progress.size_bytes} value={progress.offset} aria-label="Kit transfer progress"/>{busy&&<button className="mp-button" onClick={()=>{stop.current=true;}}>Pause transfer</button>}</div>}
     {error&&<p role="alert" className="mp-notice mp-error">{errorText(error)} Completed transfer bytes are kept.</p>}
     {uploads.length>0&&<details><summary>Retained kit transfers · {uploads.length}</summary><p className="mp-muted mp-small">Select the same file to resume. Remove unused transfers after recovery to free storage.</p>{uploads.map(item=><div className="mp-line" key={item.upload_id}><span>{bytes(item.offset)} / {bytes(item.size_bytes)} · {item.complete?'Transferred':'Incomplete'}</span><button className="mp-button mp-quiet" disabled={busy} onClick={()=>void remove(item)}>Remove transfer</button></div>)}</details>}
