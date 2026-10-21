@@ -125,8 +125,9 @@ test('removed models need an exact additional restore confirmation',async({page}
   await expect(page.getByRole('button',{name:'Restore model',exact:true})).toBeEnabled();
 });
 
-test('clearing unused restore files is explicit and separate from fresh review',async({page})=>{
-  const stopped={...jobs[0],kind:'recover',state:'interrupted',copy_id:null};
+for (const state of ['interrupted','failed','cancelled']) {
+test(`clearing ${state} restore files is explicit and separate from fresh review`,async({page})=>{
+  const stopped={...jobs[0],kind:'recover',state,copy_id:null};
   await page.route('**/api/library?offset=*',route=>route.fulfill({json:{locations:[location],models:[],copies:[],jobs:[stopped],next_offset:null}}));
   let cleanups=0, reviews=0, starts=0;
   await page.route('**/api/reclaim',async route=>{cleanups++;expect(route.request().postDataJSON()).toEqual({job_id:stopped.job_id});await route.fulfill({json:{indexed_generation_retained:false}});});
@@ -143,3 +144,5 @@ test('clearing unused restore files is explicit and separate from fresh review',
   expect(reviews).toBe(1);expect(starts).toBe(0);
   await expect(page.getByRole('checkbox').first()).not.toBeChecked();
 });
+
+}
