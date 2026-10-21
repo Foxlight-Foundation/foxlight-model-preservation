@@ -1,7 +1,7 @@
 # Use the standalone Python library
 
 The CLI and library use the same implementation. No Skulk import, GPU library,
-hub account or service is required. This reference describes the 0.3.0 entry
+hub account or service is required. This reference describes the 0.5.2 entry
 points; pin the package revision/version in an integration and test its actual
 contracts. It is not a promise that every helper is a stable extension interface.
 
@@ -17,6 +17,7 @@ contracts. It is not a promise that every helper is a stable extension interface
 | `storage.restore` | Store, expected ID, trust, new output path | Validated `Manifest` and a fresh member layout. Existing outputs are refused. |
 | `signing.verify_catalog` | Envelope bytes, catalog trust, expected catalog ID | Validated catalog. No network request or trust enrollment. |
 | `seed.SeedServer` | Bind address, store, exact selected bundle IDs, trust and serving limits | Explicit read-only server. Construction verifies all selected objects before listening. |
+| `seed.SeedServer.reserved_upload_bytes` | No arguments | Thread-safe read of the session's reserved response-body allowance. Interrupted responses retain their full charge; this is not measured peer delivery and excludes HTTP/TLS overhead. Reading starts no server or transfer. |
 
 Models are strict Pydantic records. For direct model validation, first read input
 with a size bound, then apply `signing.strict_json` and `signing.canonical_bytes`
