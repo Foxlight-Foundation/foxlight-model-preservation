@@ -116,3 +116,8 @@ There is no registry of required approved mirror hosts: an explicitly permitted
 supplier must return the same independently trusted identity and bytes. Transport
 and discovery policy belongs to the caller; this core never silently switches
 from a private transport to public peering.
+
+HTTP mirror construction binds numeric addresses without a reverse-DNS lookup.
+`server_name` records the numeric bound address; it is not an advertised public
+name or a reachability claim. An explicitly configured hostname may still require
+resolution to bind. This does not provide a protected transport or anonymity.

@@ -6,6 +6,7 @@ import http.server
 import os
 import re
 import socket
+import socketserver
 import ssl
 import threading
 from pathlib import Path
@@ -67,6 +68,19 @@ class SeedServer(http.server.ThreadingHTTPServer):
         self._budget_lock = threading.Lock()
         self._slots = threading.BoundedSemaphore(concurrency)
         super().__init__(address, SeedHandler)
+
+    def server_bind(self) -> None:
+        """Bind the requested address without an incidental reverse-DNS lookup.
+
+        Called by server construction with no arguments. Returns None after the
+        socket is bound and its numeric address/actual port are recorded. A
+        numeric listener works without DNS; an explicitly supplied hostname may
+        still need resolution for the bind itself. No advertised public hostname
+        or reachability is inferred from the local address.
+        """
+        socketserver.TCPServer.server_bind(self)
+        self.server_name = str(self.server_address[0])
+        self.server_port = int(self.server_address[1])
 
     def process_request(
         self,

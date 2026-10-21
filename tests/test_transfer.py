@@ -358,3 +358,38 @@ def test_https_certificate_validation(capture: Capture, tmp_path: Path, monkeypa
             TransferPolicy(allow_private=True),
         )
         verify_store(target, capture.identity, capture.trust)
+
+
+@pytest.mark.parametrize(
+    "bind_host",
+    ["127.0.0.1", "0.0.0.0"],  # noqa: S104 - explicit public synthetic fixture.
+)
+def test_numeric_bind_never_needs_reverse_dns(
+    capture: Capture, monkeypatch: pytest.MonkeyPatch, bind_host: str
+) -> None:
+    import socket
+
+    def forbidden_lookup(name: str = "") -> str:
+        pytest.fail("a numeric mirror listener must not call reverse DNS")
+
+    monkeypatch.setattr(socket, "getfqdn", forbidden_lookup)
+    server = SeedServer(
+        (bind_host, 0), capture.store, (capture.identity,), capture.trust, public=True
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        connection = http.client.HTTPConnection(
+            "127.0.0.1", server.server_port, timeout=3
+        )
+        try:
+            connection.request("GET", "/" + manifest_path(capture.identity))
+            reply = connection.getresponse()
+            assert reply.status == 200 and reply.read()
+            assert server.server_name == bind_host
+        finally:
+            connection.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
