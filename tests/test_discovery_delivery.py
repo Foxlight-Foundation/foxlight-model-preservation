@@ -26,7 +26,10 @@ from foxlight_model_preservation.discovery import (
     source_identity,
 )
 from foxlight_model_preservation.discovery_cli import DiscoveryArguments, run_command
-from foxlight_model_preservation.discovery_models import DiscoveryCatalogTarget
+from foxlight_model_preservation.discovery_models import (
+    DiscoveryCacheBundle,
+    DiscoveryCatalogTarget,
+)
 from foxlight_model_preservation.discovery_publish import (
     DiscoverySigningKeys,
     publish_catalog,
@@ -36,12 +39,20 @@ from foxlight_model_preservation.operations import OperationCancelled, Operation
 from foxlight_model_preservation.signing import encode_record
 
 
-def test_publication_with_independent_role_keys_and_no_listener(tmp_path, capture):
+@pytest.mark.parametrize("consistent_snapshot", [True, False])
+def test_publication_with_independent_role_keys_and_no_listener(
+    tmp_path, capture, consistent_snapshot
+):
     keys = {
         role: Ed25519PrivateKey.generate()
         for role in ("root", "timestamp", "snapshot", "targets")
     }
-    root = Metadata(Root(expires=datetime.now(UTC) + timedelta(days=30)))
+    root = Metadata(
+        Root(
+            expires=datetime.now(UTC) + timedelta(days=30),
+            consistent_snapshot=consistent_snapshot,
+        )
+    )
     for role, key in keys.items():
         root.signed.add_key(CryptoSigner(key).public_key, role)
     root.sign(CryptoSigner(keys["root"]))
@@ -510,3 +521,76 @@ def test_future_private_cache_version_is_preserved_not_reset(tmp_path, capture):
     with pytest.raises(PreservationError, match="cache version"):
         follow(cache, bootstrap, allow_local=True)
     assert state_file.read_bytes() == before
+
+
+def test_large_authenticated_cache_round_trips_above_ordinary_metadata_bound(
+    tmp_path, capture
+):
+    publisher = Publisher(tmp_path / "publisher", capture)
+    cache = tmp_path / "initial"
+    source = follow(cache, publisher.bootstrap(), allow_local=True)
+    refresh_source(cache, source.source_id)
+    bundle = DiscoveryCacheBundle.model_validate_json(
+        export_source(cache, source.source_id)
+    )
+    roots = []
+    for version in range(2, 102):
+        metadata = Publisher.make_root(version, publisher.tuf_key)
+        metadata.signed.unrecognized_fields["padding"] = "p" * 63000
+        metadata.sign(publisher.tuf_key)
+        data = metadata.to_bytes()
+        assert len(data) <= 64 * 1024
+        roots.append(base64.b64encode(data).decode())
+    bundle = bundle.model_copy(update={"roots": tuple(roots)})
+    data = encode_record(bundle)
+    assert 8 * 1024 * 1024 < len(data) < 32 * 1024 * 1024
+    large = tmp_path / "large-cache"
+    followed = follow_source(large, data, bootstrap_identity(bundle.bootstrap))
+    assert followed.root_version == 101
+    assert list_sources(large)[0].freshness == "superseded-root"
+    assert search_sources(large, "first")
+    exported = export_source(large, source.source_id)
+    follow_source(
+        tmp_path / "another-consumer", exported, bootstrap_identity(bundle.bootstrap)
+    )
+    assert search_sources(tmp_path / "another-consumer", "writing")
+
+
+def test_truncated_chunked_metadata_fails_over_without_cli_traceback(tmp_path, capture):
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    publisher = Publisher(tmp_path / "publisher", capture)
+    with mirror(publisher.path) as (healthy, healthy_requests):
+
+        class Truncated(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Transfer-Encoding", "chunked")
+                self.end_headers()
+                self.wfile.write(b"100\r\npartial")
+                self.wfile.flush()
+                self.close_connection = True
+
+            def log_message(self, *args):
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Truncated)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            bootstrap = publisher.bootstrap(
+                f"http://127.0.0.1:{server.server_port}", healthy
+            )
+            cache = tmp_path / "cache"
+            source = follow(cache, bootstrap, allow_private=True, allow_http=True)
+            result = command(
+                "source-refresh", "--cache", str(cache), "--source", source.source_id
+            )
+            assert result.returncode == 0, result.stderr
+            assert "Traceback" not in result.stderr and healthy_requests
+            assert search_sources(cache, "first")
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join()

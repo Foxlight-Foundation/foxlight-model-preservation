@@ -167,5 +167,7 @@ def publish_catalog(
         _immutable(destination, f"metadata/{version}.snapshot.json", snapshot_bytes)
         atomic_bytes(destination, "metadata/targets.json", targets_bytes)
         atomic_bytes(destination, "metadata/snapshot.json", snapshot_bytes)
+        if not root.consistent_snapshot:
+            atomic_bytes(destination, "targets/catalog.json", catalog)
         atomic_bytes(destination, "metadata/timestamp.json", timestamp_bytes)
     return profile.catalog_id

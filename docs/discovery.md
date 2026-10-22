@@ -231,6 +231,7 @@ metadata/N.targets.json
 metadata/snapshot.json               # also supplied for non-consistent repositories
 metadata/targets.json
 targets/CATALOG_FILE_SHA256.catalog.json
+targets/catalog.json                 # also supplied if consistent_snapshot is false
 ```
 
 Source bootstrap version is `foxlight.discovery-source.v1`. The signed TUF

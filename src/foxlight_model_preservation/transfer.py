@@ -84,6 +84,10 @@ class MirrorHTTPError(PreservationError):
         )
 
 
+class MirrorProtocolError(PreservationError):
+    """An invalid or truncated HTTP response; callers may try another supplier."""
+
+
 class PinnedConnection(http.client.HTTPConnection):
     """Connect to a validated resolved address, preserving TLS hostname checks."""
 
@@ -163,6 +167,8 @@ def response(
         if received.getheader("Content-Encoding", "identity") != "identity":
             raise PreservationError("encoded mirror responses are not supported")
         yield received
+    except http.client.HTTPException as error:
+        raise MirrorProtocolError("mirror HTTP response framing failed") from error
     finally:
         connection.close()
 

@@ -55,12 +55,26 @@ from .discovery_models import (
     SourceState,
     SourceStatus,
 )
-from .models import Catalog, CatalogEntry, Manifest, PreservationError, TrustProfile
+from .models import (
+    MAX_METADATA_BYTES,
+    Catalog,
+    CatalogEntry,
+    Manifest,
+    PreservationError,
+    TrustProfile,
+)
 from .operations import OperationControl, OperationError
 from .signing import canonical_bytes, decode_base64, digest, encode_record, strict_json
 from .signing import verify_catalog as verify_signed_catalog
 from .storage import atomic_bytes, directory, open_file, writer_lock
-from .transfer import DEFAULT_POLICY, MirrorHTTPError, TransferPolicy, fetch, response
+from .transfer import (
+    DEFAULT_POLICY,
+    MirrorHTTPError,
+    MirrorProtocolError,
+    TransferPolicy,
+    fetch,
+    response,
+)
 
 T = TypeVar("T", Root, Timestamp, Snapshot, Targets)
 ROLES = ("timestamp", "snapshot", "targets")
@@ -85,8 +99,8 @@ class DiscoveryControl(Protocol):
         ...
 
 
-def _json(data: bytes) -> JsonValue:
-    value = strict_json(data)
+def _json(data: bytes, *, maximum_bytes: int = MAX_METADATA_BYTES) -> JsonValue:
+    value = strict_json(data, maximum_bytes=maximum_bytes)
     pending = [(value, 0)]
     nodes = 0
     while pending:
@@ -152,7 +166,7 @@ def read_source_document(data: bytes) -> SourceBootstrap | DiscoveryCacheBundle:
 def _read_source_document(data: bytes) -> SourceBootstrap | DiscoveryCacheBundle:
     if len(data) > MAX_STATE_BYTES:
         raise PreservationError("source document exceeds its size bound")
-    value = _json(data)
+    value = _json(data, maximum_bytes=MAX_STATE_BYTES)
     if (
         isinstance(value, dict)
         and value.get("schema_version") == "foxlight.discovery-cache.v1"
@@ -216,7 +230,7 @@ def _read(root: int, source_id: str) -> SourceState:
         raw = stream.read(MAX_STATE_BYTES + 1)
     if len(raw) > MAX_STATE_BYTES:
         raise PreservationError("source state exceeds the cache bound")
-    value = _json(raw)
+    value = _json(raw, maximum_bytes=MAX_STATE_BYTES)
     if (
         not isinstance(value, dict)
         or value.get("schema_version") != "foxlight.discovery-state.v1"
@@ -638,6 +652,8 @@ class _Fetcher(FetcherInterface):
                 raise DownloadHTTPError(
                     "metadata HTTP request failed", error.status_code
                 ) from error
+            except MirrorProtocolError as error:
+                raise DownloadError("metadata HTTP response framing failed") from error
         if len(data) > cap or self.budget.bytes_left < 0:
             raise PreservationError("discovery metadata exceeds its byte bound")
         _json(bytes(data))
