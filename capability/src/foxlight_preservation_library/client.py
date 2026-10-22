@@ -76,7 +76,17 @@ class CoreClient:
                         raise CoreRefused("host_response_too_large")
                 if response.status_code == 404 and (
                     path.startswith(("kit-uploads", "kits/"))
-                    or path.endswith(("/reclaim", "/temporary-files", "/reclaim-work"))
+                    or path.endswith(
+                        (
+                            "/reclaim",
+                            "/temporary-files",
+                            "/reclaim-work",
+                            "/publication",
+                            "/invitation",
+                            "/resume",
+                            "setup/publisher",
+                        )
+                    )
                 ):
                     raise CoreRefused("core_upgrade_required")
                 if response.status_code not in {200, 202, 204}:
@@ -115,6 +125,31 @@ class CoreClient:
             and job.get("owner_id") in {self.owner_id, self.sharing_owner_id}
         ]
         return HostReport(report=report)
+
+    async def metadata(
+        self, method: str, path: str, body: dict[str, JsonValue] | None = None
+    ) -> bytes:
+        """Read at most 8 MiB of public metadata outside the control plane.
+
+        Only the server's fixed invitation/manifest routes call this. It never
+        accepts an arbitrary URL, transfers weights or exposes private keys.
+        """
+        try:
+            async with self.http.stream(
+                method, "/preservation/" + path, json=body
+            ) as response:
+                if response.status_code == 404:
+                    raise CoreRefused("core_upgrade_required")
+                if response.status_code != 200:
+                    raise CoreRefused("public_metadata_refused")
+                data = bytearray()
+                async for chunk in response.aiter_bytes():
+                    data.extend(chunk)
+                    if len(data) > 8 * 1024**2:
+                        raise CoreRefused("public_metadata_too_large")
+                return bytes(data)
+        except httpx.HTTPError as error:
+            raise CoreRefused("host_unavailable") from error
 
     async def cancel_job(self, job_id: str) -> dict[str, JsonValue]:
         """Check the immutable owner binding before forwarding a stop effect."""

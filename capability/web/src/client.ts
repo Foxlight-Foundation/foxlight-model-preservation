@@ -3,8 +3,8 @@ export interface Location {location_id:string; label:string; purpose:'private'|'
 export interface Model {model_id:string; generation_id:string; size_bytes:number; verification:string}
 export interface Copy {copy_id:string; model_id:string; location_id:string; manifest_id:string; audience:'private'|'public'; size_bytes:number; checked_at:number; member_count:number; publisher_key_ids?:string[]}
 export interface Job {job_id:string; operation_id:string; plan_id:string; kind:string; model_id:string; state:string; stage:string; created_at:number; bytes_copied:number; bytes_hashed:number; expected_manifest_id:string|null; copy_id:string|null; error_code:string|null; location_id?:string|null; sharing_policy?:{public_network:boolean;duration_seconds:number;upload_limit_bytes:number;upload_rate_bytes:number;advertised_url:string|null}|null; sharing?:{ready:boolean;listen_port:number;charged_bytes:number;accounting:string;connected_peers:number;metainfo_sha256?:string|null}|null}
-export interface Page {locations:Location[]; models:Model[]; copies:Copy[]; jobs:Job[]; uploads?:Upload[]; public_copies?:Copy[]; bittorrent_available?:boolean; temporary_work_jobs?:string[]; next_offset:number|null}
-export interface Plan {plan_id:string; kind:'preserve'|'check'|'kit_export'|'recover'|'mirror_import'|'http_share'|'torrent_share'; model_id:string; location_id:string; size_bytes:number; members:string[]; member_count:number; expires_at:number; upload_id?:string|null; historical?:boolean; existing_companions?:string[]; deleted_aliases?:string[]; publisher_key_ids?:string[]; requires_owner_acceptance?:boolean; requires_code_permission?:boolean; publication?:string|null; file_coverage?:string|null;manifest_id?:string|null;sharing?:{public_network:boolean;listen_port:number;duration_seconds:number;upload_rate_bytes:number;upload_limit_bytes:number;advertised_url:string|null}|null}
+export interface Page {locations:Location[]; models:Model[]; copies:Copy[]; jobs:Job[]; uploads?:Upload[]; public_copies?:Copy[]; publishing?:Location|null; bittorrent_available?:boolean; temporary_work_jobs?:string[]; next_offset:number|null}
+export interface Plan {plan_id:string; kind:'preserve'|'check'|'kit_export'|'recover'|'mirror_import'|'http_share'|'torrent_share'|'publish'|'receive'; receiving?:ReceivingPolicy|null; resume_job_id?:string|null; model_id:string; location_id:string; size_bytes:number; members:string[]; member_count:number; expires_at:number; upload_id?:string|null; historical?:boolean; existing_companions?:string[]; deleted_aliases?:string[]; publisher_key_ids?:string[]; requires_owner_acceptance?:boolean; requires_code_permission?:boolean; publication?:string|null; file_coverage?:string|null;manifest_id?:string|null;sharing?:{public_network:boolean;listen_port:number;duration_seconds:number;upload_rate_bytes:number;upload_limit_bytes:number;advertised_url:string|null}|null}
 
 /** Same-origin ticket-scoped controls; no supplier or analytics requests. */
 export async function api<T>(action:string, body?:unknown):Promise<T> {
@@ -21,6 +21,14 @@ export function bytes(value:number):string {return value < 1024 ? `${value} B` :
 /** Stable codes are translated here; raw exceptions never become product copy. */
 export function errorText(code:string):string {
   const labels:Record<string,string> = {
+    public_metadata_too_large:'Choose an invitation up to 8 MB. For larger metadata, use the complete recovery kit instead.',
+    public_metadata_refused:'The invitation or proposed public metadata could not be exported. Check the exact public copy and use credential-free HTTP(S) mirror addresses.',
+    publisher_signing_key_unavailable:'The public signing key is unavailable. Your saved copies remain intact; reconnect its original protected custody before creating a new publication.',
+    receiving_allowance_too_small:'Increase the download allowance to cover the complete signed model and companions, then review again.',
+    receive_resume_inputs_fixed:'A resume keeps the original trust, sources and download allowance. Start a separately reviewed download to change them.',
+    receive_work_unavailable:'This job no longer has its original partial files. Keep any completed copy, or review a new download with a new allowance.',
+    deadline_exceeded:'This attempt reached its time limit. Review a resume in Activity to continue with the original remaining allowance.',
+    public_destination_changed:'The public storage directory changed. Your files were kept. Reconnect the original storage before continuing.',
     temporary_job_not_stopped:'This job is still active or finishing. Wait for it to stop before clearing temporary files.',
     temporary_work_identity_changed:'These working files have changed. They were kept for inspection.',
     unsafe_temporary_directory:'These working files could not be safely identified. They were kept for inspection.',
@@ -59,7 +67,34 @@ export function errorText(code:string):string {
   }; return labels[code] ?? `The operation could not continue (${code.replaceAll('_',' ')}).`;
 }
 
-export interface Upload {upload_id:string; size_bytes:number; offset:number; complete:boolean}
+export interface Upload {upload_id:string; size_bytes:number; offset:number; complete:boolean; purpose?:'kit'|'invitation'|'publication'}
+
+export interface PublicationMember {member_id:string;role:string;repository:string;revision:string;format:string;size_bytes:number;file_count:number;license_id:string;terms_reference:string;notice_paths:string[]}
+export interface PublicationSource {copy_id:string;manifest_id:string;name:string;workloads:string[];runtime_requirements:string[];members:PublicationMember[]}
+export interface InvitationPreview {manifest_id:string;name:string;size_bytes:number;member_count:number;members:string[];publisher_key_ids:string[];threshold:number;mirrors:string[]}
+export interface ReceivingPolicy {mirrors:string[];max_bytes:number;deadline_seconds:number;allow_http:boolean;allow_private:boolean}
+
+/** Metadata is bounded separately from weights and ordinary control JSON. */
+export async function uploadMetadata(content:Blob,purpose:'invitation'|'publication'):Promise<Upload> {
+  if(content.size===0||content.size>8*1024**2)throw new Error('public_metadata_too_large');
+  let upload=await api<Upload>('upload-create',{size_bytes:content.size,purpose});
+  while(upload.offset<content.size)upload=await uploadChunk(upload.upload_id,upload.offset,content.slice(upload.offset,upload.offset+4*1024**2));
+  return upload;
+}
+
+/** Download public metadata, never a private control link or model-sized Blob. */
+export async function saveInvitation(copy:Copy,mirrors:string[]):Promise<void> {
+  const reply=await fetch(new URL(`api/invitation/${copy.copy_id}`,new URL('.',location.href)),{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','X-Preservation-Action':'operator'},body:JSON.stringify({mirrors})});
+  if(!reply.ok)throw new Error('public_metadata_refused');
+  const data=await reply.blob();
+  if(data.size>8*1024**2)throw new Error('public_metadata_too_large');
+  const url=URL.createObjectURL(data),anchor=document.createElement('a');anchor.href=url;anchor.download=`${copy.manifest_id}.invitation.json`;anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+
+export function manifestDownload(plan:Plan):string{return new URL(`api/manifest/${plan.plan_id}`,new URL('.',location.href)).href;}
+
+/** Finite defaults include room for metadata and retries, scaled to the copy. */
+export function transferAllowance(size:number):number{return Math.min(Number.MAX_SAFE_INTEGER,Math.max(16*1024**2,size*3+8*1024**2));}
 
 /** Transfer a bounded binary slice outside control JSON. */
 export async function uploadChunk(id:string,offset:number,content:Blob):Promise<Upload>{const reply=await fetch(new URL(`api/upload/${id}?offset=${offset}`,new URL('.',location.href)),{method:'PUT',cache:'no-store',headers:{'Content-Type':'application/octet-stream','X-Preservation-Action':'operator'},body:content});const value=await reply.json();if(!reply.ok)throw new Error(typeof value.error==='string'?value.error:'kit_transfer_refused');return value as Upload;}

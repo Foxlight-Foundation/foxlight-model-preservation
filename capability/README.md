@@ -5,7 +5,8 @@ everyday use, and Activity through Skulk Core's durable preservation host. It
 uses local HTTP; its optional managed adapter uses the capability authoring SDK. It includes no Skulk imports,
 private owner code, signing keys, verifier, artifact transfer or byte worker.
 
-Version 0.4 connects **Use this device**, **Preserve**, **Check**, **Check outcome**,
+Version 0.5 adds reviewed **Publish**, **Share with someone**, **Receive shared model**
+and **Review download resume** to the existing controls. Version 0.4 connected **Use this device**, **Preserve**, **Check**, **Check outcome**,
 **Save recovery kit**, **Download recovery kit**, **Restore** and **Stop job**.
 Preserve and restore review the complete supported companion selection. From a
 preserved copy, create and download a `.foxkit` to storage separate from Core.
@@ -37,12 +38,20 @@ Sharing now imports an existing signed **public** `.foxkit` into a separate
 immutable copy, retaining unknown card metadata without model admission. Review
 its exact manifest identity and candidate public fingerprints, then explicitly
 accept the copy. Importing starts no listener or swarm. Private kits are refused;
-creating a new public publication remains a separate review through the parent
-standalone tools. It requires original terms review and a separate public key.
+create a separate public publication with **Publish** beside any saved private
+copy in **Your copies**, even after its original installation is gone. Review
+every member’s license, terms reference, redistribution decision and required
+notices. Missing notice text can be supplied explicitly as publisher-supplied
+text; it never replaces an original notice or grants rights. **Set up publishing**
+creates a separate protected publishing identity. Inspect the exact proposed
+public manifest and confirm before Core checks bytes and signs the public copy.
+This does not start hosting or grant registry authority.
 
 For a public copy, choose **Set up HTTP mirror** or **Set up BitTorrent**. Review
 network access (default: only this device), port, duration up to 24 hours and upload
-allowance. BitTorrent also has an upload-speed limit. Confirm the separate sharing
+allowance. The suggested finite allowance scales with the selected copy
+(three copies plus metadata/retry room; at least 16 MiB), with a 24-hour session
+suggestion. It resets when choosing a different copy. BitTorrent also has an upload-speed limit. Confirm the separate sharing
 choice to start. Core verifies all bytes before serving. You can close Library;
 Core retains the session. **Stop sharing** waits for the owned worker to stop and
 keeps the verified public copy. Core restart ends sessions and never replays them.
@@ -58,8 +67,8 @@ fingerprints independently and select the exact manifest ID.
 Network mode binds all IPv4 interfaces. Arrange firewall/routing, DNS and TLS
 separately; a supplied mirror address is a hint, not verified reachability. Core
 builds without the compatible native BitTorrent adapter retain HTTP. Additional
-NAS/remote adapters, followed catalogs, one-step recipient invitations and
-unattended continuous hosting remain separate enhancements. An unclean Core exit
+NAS/remote adapters, followed catalogs and unattended continuous hosting
+remain separate enhancements. An unclean Core exit
 can leave model-sized temporary torrent exports in Core-owned work storage.
 Activity lists known stopped jobs with **Review temporary files**. Inspect the
 logical regular-file size (a lower bound when inspection reaches its limit),
@@ -73,6 +82,57 @@ sharing or imports models. This control requires Core's temporary-files APIs.
 Tor/I2P remain under evaluation. Ordinary public mirrors and BitTorrent expose
 network addresses to the serving operator/other peers; neither is anonymous.
 
+## Send and receive a model
+
+For a kept public copy, **Share with someone** offers two paths:
+
+- **Prepare recovery kit for recipient**: save the complete `.foxkit`, then send
+  it or put it on storage your recipient can access. No live mirror is needed.
+- **Download invitation file**: supply one or more reachable HTTP(S) mirror base
+  addresses hosting this exact complete bundle. Download the small original-signed
+  metadata file, attach it to a message and use the supplied recipient text.
+  The message contains the exact bundle identity and candidate public fingerprints,
+  never the private Library control link. Addresses are unverified hints; exporting
+  an invitation does not open a listener, arrange TLS or establish reachability.
+
+The recipient opens **Sharing → Receive shared model** and chooses the invitation.
+Core inspects the signed identity, all members, declared size, candidate keys,
+threshold and mirror hints offline before any DNS or download. Authenticate the
+identity, fingerprints and threshold independently; a file and its bundled keys
+can be replaced together. Explicitly confirm the independently authenticated bundle identity and signature
+threshold, and select only fingerprints you independently checked. Fingerprint
+confirmation alone does not enable download review. Selecting a different
+invitation resets these confirmations.
+Review finite object-byte allowance and per-attempt deadline; plaintext HTTP and
+local/private network destinations each need a separate opt-in. Confirm the exact
+copy and policy to download. Core retains model files, companions, provenance and
+public verification keys. It does not install, execute repository code or seed.
+Choose **Save recovery kit** or **Restore** afterward; loading trust and code
+permissions remain separate. Unknown future cards remain preserved even when
+this runtime cannot interpret them.
+
+Closing Library leaves Core’s accepted download running. A Core restart stops it
+and never automatically replays it. For a stopped receive with retained working
+files, **Activity → Review download resume** uses the original invitation even
+if its upload was removed. A fresh reviewed action resumes the same job, partial
+files and cumulative object-byte allowance. Earlier charges stay deducted;
+resume never quietly refills the budget or changes sources/trust/policy. If work
+was explicitly cleared, review a new download instead. A complete local stage
+can finish after all mirrors disappear by checking every retained object offline.
+
+Public copies can export kits and restore before private archive setup. A kit is
+not encrypted. Public signatures protect captured integrity and do not establish
+registry authority, grant redistribution rights or provide anonymity. Direct
+mirrors see Core’s network address; public BitTorrent exposes peer participation.
+
+These controls require Core’s publishing, invitation and receive-resume APIs
+(delivered in Skulk PR #1280); version numbers alone do not establish their
+availability. Older Core builds keep the earlier controls and show an upgrade
+message. A hard process exit in the narrow final-directory reservation window
+can leave an empty, unregistered destination: retries refuse it and retain the
+verified stage/original copy for operator inspection. Temporary-work cleanup does
+not delete final destinations or claim to repair that reservation.
+
 ## Install and open Library
 
 Library has a public local launcher and an optional managed capability adapter.
@@ -81,7 +141,7 @@ Core on the same model-store host. Its wheel includes the interface; Node.js,
 Skulk's Python package and the managed SDK are not installation dependencies.
 
 ```sh
-uv tool install https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.4.1/foxlight_preservation_library-0.4.1-py3-none-any.whl
+uv tool install https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.5.0/foxlight_preservation_library-0.5.0-py3-none-any.whl
 foxlight-preservation-library
 ```
 
