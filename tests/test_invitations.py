@@ -262,10 +262,27 @@ def test_cli_handoff_inspection_and_explicit_acceptance(
             "--allow-private",
             "--operation-id",
             "cli-recipient",
+            "--save-trust",
+            str(tmp_path / "accepted-trust.json"),
         )
         assert result["manifest"] == capture.identity and result["admitted"] is False
         assert result["serving"] is False
-    assert verify_store(tmp_path / "received", capture.identity, capture.trust)
+    from foxlight_model_preservation.signing import load_trust
+
+    retained = load_trust((tmp_path / "accepted-trust.json").read_bytes())
+    assert verify_store(tmp_path / "received", capture.identity, retained)
+    kit = tmp_path / "recipient.foxkit"
+    call(
+        "kit-export",
+        capture.identity,
+        "--store",
+        str(tmp_path / "received"),
+        "--trust",
+        str(tmp_path / "accepted-trust.json"),
+        "--output",
+        str(kit),
+    )
+    assert kit.is_file()
 
 
 def test_future_card_fields_remain_in_original_signed_payload(
@@ -317,3 +334,40 @@ def test_first_contact_respects_threshold_and_independent_revocation(
     revoked = trust.model_copy(update={"revoked_keys": (first_id,)})
     with pytest.raises(PreservationError):
         authenticate_invitation(selected, revoked)
+
+
+def test_cli_never_replaces_a_different_retained_trust_choice(
+    capture: Capture,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    handoff = tmp_path / "selected.invitation.json"
+    handoff.write_bytes(encode_record(invitation(capture)))
+    output = tmp_path / "previous-trust.json"
+    output.write_bytes(encode_record(capture.trust))
+    original = output.read_bytes()
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        pytest.fail("conflicting saved policy attempted DNS")
+
+    monkeypatch.setattr(socket, "getaddrinfo", forbidden)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "model-preserve",
+            "fetch-invitation",
+            str(handoff),
+            "--accept-key",
+            capture.trust.keys[0].key_id,
+            "--save-trust",
+            str(output),
+            "--store",
+            str(tmp_path / "received"),
+        ],
+    )
+    assert main() == 1
+    assert "saved trust differs" in capsys.readouterr().err
+    assert output.read_bytes() == original
+    assert not (tmp_path / "received").exists()

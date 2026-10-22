@@ -59,6 +59,7 @@ class Arguments(argparse.Namespace):
     trust: Path | None = None
     invitation: Path
     accept_key: list[str]
+    save_trust: Path | None = None
     deadline_seconds: float
     passphrase_file: Path | None = None
     unencrypted: bool = False
@@ -259,6 +260,9 @@ def argument_parser() -> argparse.ArgumentParser:
         help="explicit first-contact fingerprint acceptance for this copy only",
     )
     receiving.add_argument("--store", type=Path, required=True)
+    receiving.add_argument(
+        "--save-trust", type=Path, help="retain the selected public policy for recovery"
+    )
     receiving.add_argument("--max-bytes", type=int, default=20 * 1024**3)
     receiving.add_argument("--deadline-seconds", type=float, default=3600)
     receiving.add_argument("--allow-private", action="store_true")
@@ -771,6 +775,17 @@ def _invitation_commands(
         if arguments.trust is not None
         else accept_invitation_keys(invitation, tuple(arguments.accept_key))
     )
+    if arguments.save_trust is not None:
+        # Explicit local output only. Refuse a different retained policy before
+        # networking; repeating the same accepted choice is safe after a crash.
+        try:
+            with arguments.save_trust.open("xb") as output:
+                output.write(encode_record(trust))
+        except FileExistsError:
+            if load_trust(read_input(arguments.save_trust)) != trust:
+                raise PreservationError(
+                    "saved trust differs from the selected policy"
+                ) from None
     received = fetch_invitation(
         invitation,
         trust,

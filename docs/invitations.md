@@ -56,7 +56,7 @@ instead of supplying `--trust`:
 ```sh
 model-preserve fetch-invitation model.invitation.json \
   --accept-key ed25519:REPLACE_WITH_AUTHENTICATED_FINGERPRINT \
-  --store ./received --operation-id receive-model
+  --store ./received --operation-id receive-model --save-trust accepted-trust.json
 ```
 
 Repeat `--accept-key` for a threshold publication. Authenticate the intended
@@ -67,6 +67,11 @@ verification. The default object allowance is 20 GiB; choose a sufficient finite
 allowance for the model and possible retries. Reuse the same operation ID, store,
 trust and transfer policy after interruption to retain the cumulative allowance.
 Changing those inputs under the same ID refuses rather than resetting its budget.
+
+`--save-trust` retains the selected public policy for later verification and
+recovery-kit export. It writes no private key. An existing identical policy is
+reused on retry; a different one refuses before networking. This is a local file
+you explicitly retain, without enrolling its keys globally or as registry keys.
 
 The downloader authenticates the included manifest before contacting a mirror,
 then authenticates the fetched manifest before requesting weights. Every actual
