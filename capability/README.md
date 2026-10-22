@@ -99,7 +99,10 @@ The recipient opens **Sharing → Receive shared model** and chooses the invitat
 Core inspects the signed identity, all members, declared size, candidate keys,
 threshold and mirror hints offline before any DNS or download. Authenticate the
 identity, fingerprints and threshold independently; a file and its bundled keys
-can be replaced together. Select only fingerprints you independently checked.
+can be replaced together. Explicitly confirm the independently authenticated bundle identity and signature
+threshold, and select only fingerprints you independently checked. Fingerprint
+confirmation alone does not enable download review. Selecting a different
+invitation resets these confirmations.
 Review finite object-byte allowance and per-attempt deadline; plaintext HTTP and
 local/private network destinations each need a separate opt-in. Confirm the exact
 copy and policy to download. Core retains model files, companions, provenance and
