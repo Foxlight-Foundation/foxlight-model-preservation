@@ -109,7 +109,7 @@ covers GGUF, MLX and a required vision projector with central endpoints unavaila
 All drill endpoints are locally controlled; inference is a separate check.
 
 This is an initial public reference implementation. External independent custody,
-P2P discovery, Skulk installation/UI integration, a public hosted weight archive,
+P2P discovery, stable/frozen Core distribution, a public hosted weight archive,
 and censorship/privacy qualification are not included. Direct HTTPS mirrors see
 the client's IP and requested files. This release makes no anonymity or
 censorship-resistance claim.
@@ -128,10 +128,14 @@ them through the live store owner, and explicitly clears unused interrupted
 restore files before fresh review. The public local launcher installs with public
 dependencies and includes its interface. A compatible local Core is required.
 The optional managed capability adapter retains its separately supplied SDK.
-Library 0.4 adds signed public-bundle import and separately reviewed, bounded
-HTTP/BitTorrent sessions, with explicit stop and public-key/torrent downloads.
-It requires the corresponding Core sharing APIs. Standalone mirror/BitTorrent
-tools remain independently usable; public reachability and custody are operator-owned.
+Library 0.6 adds reviewed local or mounted NAS/remote storage, durable defaults,
+and a [compatible isolated Core preview](capability/preview.md). Run the installed
+launcher with `--check` to inspect the actual owner API before use. Publishing
+and receiving retain separately reviewed, bounded HTTP/BitTorrent sessions with
+explicit stop and public-key/torrent downloads. The source-based Core preview
+builds native dependencies and is separate from stable/frozen distribution.
+Standalone mirror/BitTorrent tools remain independently usable; public
+reachability and custody are operator-owned.
 
 ### Recover after losing the original host
 

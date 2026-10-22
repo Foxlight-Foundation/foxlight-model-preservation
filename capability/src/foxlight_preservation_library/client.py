@@ -75,7 +75,9 @@ class CoreClient:
                     if len(data) > 65536:
                         raise CoreRefused("host_response_too_large")
                 if response.status_code == 404 and (
-                    path.startswith(("kit-uploads", "kits/"))
+                    path.startswith(
+                        ("kit-uploads", "kits/", "setup/folder", "setup/default")
+                    )
                     or path.endswith(
                         (
                             "/reclaim",

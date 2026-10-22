@@ -97,3 +97,6 @@ body{margin:0;background:#f5f7f7;padding:24px;color:#203036}#preservation-concep
 
 .mp-flow > .mp-kicker {display:block;margin-top:14px}
 a.mp-button:not(.mp-primary) {color:inherit;text-decoration:none}
+
+.mp-storage .mp-flow > label {display:grid;gap:8px;margin:14px 0}
+.mp-storage .mp-line strong {overflow-wrap:anywhere;min-width:0}
