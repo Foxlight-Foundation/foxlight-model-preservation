@@ -1,0 +1,436 @@
+{
+  "$defs": {
+    "FileIdentity": {
+      "additionalProperties": false,
+      "description": "Exact file bytes inside a member namespace.",
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "size": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Size",
+          "type": "integer"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "size",
+        "sha256"
+      ],
+      "title": "FileIdentity",
+      "type": "object"
+    },
+    "Intake": {
+      "additionalProperties": false,
+      "description": "Operator declaration retained per member; it is not a grant of rights.",
+      "properties": {
+        "audience": {
+          "enum": [
+            "private",
+            "public",
+            "restricted"
+          ],
+          "title": "Audience",
+          "type": "string"
+        },
+        "license_id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "License Id",
+          "type": "string"
+        },
+        "terms_reference": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "title": "Terms Reference",
+          "type": "string"
+        },
+        "decision": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Decision",
+          "type": "string"
+        },
+        "notice_paths": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "title": "Notice Paths",
+          "type": "array"
+        }
+      },
+      "required": [
+        "audience",
+        "license_id",
+        "terms_reference",
+        "decision",
+        "notice_paths"
+      ],
+      "title": "Intake",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "PMFDocument": {
+      "additionalProperties": false,
+      "description": "Exact source bytes stored as an object; metadata does not grant authority.",
+      "properties": {
+        "document_id": {
+          "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+          "title": "Document Id",
+          "type": "string"
+        },
+        "member_id": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Member Id"
+        },
+        "role": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Role",
+          "type": "string"
+        },
+        "media_type": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Media Type",
+          "type": "string"
+        },
+        "schema_version": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Schema Version"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size": {
+          "maximum": 8388608,
+          "minimum": 0,
+          "title": "Size",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "document_id",
+        "role",
+        "media_type",
+        "sha256",
+        "size"
+      ],
+      "title": "PMFDocument",
+      "type": "object"
+    },
+    "PMFMember": {
+      "additionalProperties": false,
+      "description": "One artifact and its required companions, without runtime-specific data.",
+      "properties": {
+        "member_id": {
+          "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+          "title": "Member Id",
+          "type": "string"
+        },
+        "role": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Role",
+          "type": "string"
+        },
+        "format": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Format",
+          "type": "string"
+        },
+        "origin": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PMFOrigin"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "artifact_identity": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Artifact Identity"
+        },
+        "loader_root": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Loader Root"
+        },
+        "dependencies": {
+          "default": [],
+          "items": {
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+            "type": "string"
+          },
+          "maxItems": 256,
+          "title": "Dependencies",
+          "type": "array"
+        },
+        "files": {
+          "items": {
+            "$ref": "#/$defs/FileIdentity"
+          },
+          "maxItems": 100000,
+          "minItems": 1,
+          "title": "Files",
+          "type": "array"
+        },
+        "intake": {
+          "$ref": "#/$defs/Intake"
+        }
+      },
+      "required": [
+        "member_id",
+        "role",
+        "format",
+        "files",
+        "intake"
+      ],
+      "title": "PMFMember",
+      "type": "object"
+    },
+    "PMFOrigin": {
+      "additionalProperties": false,
+      "description": "An optional source statement, never a requirement for a Git repository.",
+      "properties": {
+        "repository": {
+          "anyOf": [
+            {
+              "maxLength": 2048,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Repository"
+        },
+        "revision": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Revision"
+        },
+        "revision_scheme": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Revision Scheme"
+        }
+      },
+      "title": "PMFOrigin",
+      "type": "object"
+    },
+    "PMFProfile": {
+      "additionalProperties": false,
+      "description": "Versioned interpretation of source records; optional profiles stay opaque.",
+      "properties": {
+        "profile_id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Profile Id",
+          "type": "string"
+        },
+        "member_id": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Member Id"
+        },
+        "documents": {
+          "items": {
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+            "type": "string"
+          },
+          "maxItems": 1024,
+          "minItems": 1,
+          "title": "Documents",
+          "type": "array"
+        },
+        "required": {
+          "default": false,
+          "title": "Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "profile_id",
+        "documents"
+      ],
+      "title": "PMFProfile",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Draft common archive contract, signed in its own explicit DSSE domain.",
+  "properties": {
+    "schema_version": {
+      "const": "pmf.manifest.v0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "root_member": {
+      "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+      "title": "Root Member",
+      "type": "string"
+    },
+    "members": {
+      "items": {
+        "$ref": "#/$defs/PMFMember"
+      },
+      "maxItems": 256,
+      "minItems": 1,
+      "title": "Members",
+      "type": "array"
+    },
+    "documents": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/PMFDocument"
+      },
+      "maxItems": 1024,
+      "title": "Documents",
+      "type": "array"
+    },
+    "profiles": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/PMFProfile"
+      },
+      "maxItems": 1024,
+      "title": "Profiles",
+      "type": "array"
+    },
+    "workloads": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Workloads",
+      "type": "array"
+    },
+    "runtime_requirements": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Runtime Requirements",
+      "type": "array"
+    },
+    "attestation": {
+      "const": "owner-capture",
+      "default": "owner-capture",
+      "title": "Attestation",
+      "type": "string"
+    },
+    "required_features": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Required Features",
+      "type": "array"
+    },
+    "annotations": {
+      "additionalProperties": {
+        "$ref": "#/$defs/JsonValue"
+      },
+      "title": "Annotations",
+      "type": "object"
+    }
+  },
+  "required": [
+    "schema_version",
+    "name",
+    "root_member",
+    "members"
+  ],
+  "title": "PMFManifest",
+  "type": "object"
+}

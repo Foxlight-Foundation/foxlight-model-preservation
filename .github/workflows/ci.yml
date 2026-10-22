@@ -33,6 +33,7 @@ jobs:
           python -m venv /tmp/preservation-wheel
           /tmp/preservation-wheel/bin/pip install dist/*.whl
           cp examples/conformance/card-v1.json /tmp/preservation-card-vector.json
+          cp examples/conformance/pmf-v0.1.json /tmp/preservation-pmf-vector.json
           cd /tmp
           /tmp/preservation-wheel/bin/model-preserve --help
           /tmp/preservation-wheel/bin/python - <<'PY'
@@ -40,7 +41,12 @@ jobs:
           import json
           from datetime import datetime
           from pathlib import Path
+          from importlib.resources import files
+          from tempfile import TemporaryDirectory
           from foxlight_model_preservation.cards import identity_json
+          from foxlight_model_preservation.models import TrustProfile
+          from foxlight_model_preservation.pmf import restore_pmf, verify_pmf
+          from foxlight_model_preservation.pmf_models import PMFManifest
           from foxlight_model_preservation.registry_proof import verify_registry_proof
           vector = json.loads(Path('preservation-card-vector.json').read_bytes())
           result = verify_registry_proof(
@@ -50,4 +56,25 @@ jobs:
               reference_time=datetime.fromisoformat(vector['reference_time']),
           )
           assert result.report.target_sha256 == vector['target_sha256']
+          pmf = json.loads(Path('preservation-pmf-vector.json').read_bytes())
+          schema = files('foxlight_model_preservation').joinpath(
+              'resources/pmf_manifest_v0_1.json'
+          )
+          assert json.loads(schema.read_bytes()) == PMFManifest.model_json_schema()
+          trust = TrustProfile.model_validate_json(json.dumps(pmf['trust']))
+          with TemporaryDirectory() as temporary:
+              root = Path(temporary)
+              store = root / 'store'
+              (store / 'manifests').mkdir(parents=True)
+              (store / 'objects/sha256').mkdir(parents=True)
+              (store / 'manifests' / (pmf['manifest_id'] + '.json')).write_bytes(
+                  base64.b64decode(pmf['envelope_base64'])
+              )
+              for identity, value in pmf['objects_base64'].items():
+                  (store / 'objects/sha256' / identity).write_bytes(base64.b64decode(value))
+              verified = verify_pmf(store, pmf['manifest_id'], trust)
+              assert restore_pmf(store, pmf['manifest_id'], trust, root / 'restored') == verified
+              assert (root / 'restored/documents/foreign-card').read_bytes() == base64.b64decode(
+                  pmf['objects_base64'][verified.documents[0].sha256]
+              )
           PY

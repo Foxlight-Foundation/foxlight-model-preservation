@@ -38,6 +38,7 @@ wheels through an authenticated software channel.
 | Create a public-only publication or opt in to BitTorrent seeding | [Public sharing](docs/public-sharing.md) |
 | Retain independent trust and offline recovery material | [Trust and recovery](docs/trust-and-recovery.md) |
 | Publish an open model card or retain registry evidence | [Public cards and offline provenance](docs/cards-and-provenance.md) |
+| Use draft PMF or round-trip an existing Skulk/preservation archive | [Portable Model Format](docs/portable-model-format.md) |
 
 ## Download, verify, restore
 

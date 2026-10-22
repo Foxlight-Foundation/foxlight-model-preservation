@@ -7,6 +7,11 @@ Retained descriptive model-card bodies have an extensible reader contract,
 described below; this does not extend the interpreted manifest or artifact format.
 A future incompatible format requires a new schema version and signing domain.
 
+[Portable Model Format draft 0.1](portable-model-format.md) is a separate,
+explicitly versioned meta-format with its own signing domain. The implemented
+bridge preserves this v1 contract, original envelope bytes and existing kits;
+it does not reinterpret released v1 payloads or require their migration.
+
 A preservation set describes **one declared workload closure**. Every member has
 an exact origin repository and 40-hex revision, an artifact identity, a role,
 format, optional loader root, retained original card, intake declaration, and
