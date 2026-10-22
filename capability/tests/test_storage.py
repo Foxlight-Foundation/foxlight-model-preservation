@@ -90,3 +90,32 @@ async def test_older_core_storage_routes_explain_upgrade(path: str) -> None:
             await client.request("POST", path, {})
     finally:
         await client.close()
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        ({"detail": "storage_unavailable"}, "storage_unavailable"),
+        (
+            {"error": {"message": "storage_unavailable", "type": "Conflict"}},
+            "storage_unavailable",
+        ),
+        (
+            {"error": {"message": "private path /operator/keys"}},
+            "host_unavailable_or_refused",
+        ),
+    ],
+)
+async def test_actual_core_and_legacy_error_envelopes_keep_only_bounded_codes(
+    body: dict[str, object], expected: str
+) -> None:
+    client = CoreClient(
+        Settings(),
+        "library-local",
+        transport=httpx.MockTransport(lambda _: httpx.Response(409, json=body)),
+    )
+    try:
+        with pytest.raises(CoreRefused, match=expected):
+            await client.request("POST", "plans", {})
+    finally:
+        await client.close()

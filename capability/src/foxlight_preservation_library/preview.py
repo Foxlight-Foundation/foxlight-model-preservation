@@ -78,6 +78,10 @@ def _receipt(root: Path) -> dict[str, str | int]:
     receipt = cast(dict[str, str | int], value)
     if (
         receipt.get("format") != 1
+        or any(
+            type(receipt.get(field)) is not int
+            for field in ("format", "device", "inode", "store_device", "store_inode")
+        )
         or receipt.get("core_revision") != CORE_REVISION
         or (receipt.get("device"), receipt.get("inode")) != (info.st_dev, info.st_ino)
         or not isinstance(receipt.get("namespace"), str)
@@ -86,6 +90,22 @@ def _receipt(root: Path) -> dict[str, str | int]:
         raise PreviewRefused(
             "This directory does not match this pinned preview. "
             "Keep its contents and select a new directory."
+        )
+    try:
+        store_info = (root / "model-store").lstat()
+    except OSError as error:
+        raise PreviewRefused(
+            "The preview's recorded Model Store is unavailable. "
+            "Reconnect the original store or choose a new preview. "
+            "It was not recreated."
+        ) from error
+    if not stat.S_ISDIR(store_info.st_mode) or (
+        receipt["store_device"],
+        receipt["store_inode"],
+    ) != (store_info.st_dev, store_info.st_ino):
+        raise PreviewRefused(
+            "The preview's recorded Model Store was replaced. "
+            "Keep its data and choose a new preview directory."
         )
     return receipt
 
@@ -172,6 +192,7 @@ def _environment(root: Path, receipt: dict[str, str | int]) -> dict[str, str]:
 
 
 def _validate_configuration(root: Path) -> None:
+    _receipt(root)
     for leaf in ("state", "model-store", "staging", "worker-models"):
         selected = root / leaf
         if selected.is_symlink() or (selected.exists() and not selected.is_dir()):
@@ -278,12 +299,16 @@ def setup(root: Path, *, resume: bool, with_dashboard: bool) -> None:
         if resume:
             raise PreviewRefused("No preview exists there. Run setup without --resume.")
         root.mkdir(mode=0o700)
+        (root / "model-store").mkdir(mode=0o700)
+        store_info = (root / "model-store").stat()
         info = root.stat()
         receipt = {
             "format": 1,
             "core_revision": CORE_REVISION,
             "device": info.st_dev,
             "inode": info.st_ino,
+            "store_device": store_info.st_dev,
+            "store_inode": store_info.st_ino,
             "namespace": secrets.token_hex(32),
         }
         _write(root / "preview.json", json.dumps(receipt, sort_keys=True) + "\n")

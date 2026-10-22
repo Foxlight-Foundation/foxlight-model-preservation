@@ -58,6 +58,8 @@ def test_bad_installer_checksum_runs_nothing_and_retains_isolated_configuration(
     with pytest.raises(preview.PreviewRefused, match="checksum"):
         preview.setup(root, resume=False, with_dashboard=False)
     assert not (root / "install-core.sh").exists()
+    assert (root / "model-store").is_dir()
+    assert (root / "model-store").stat().st_mode & 0o077 == 0
     config = (root / "core" / "skulk.yaml").read_text()
     assert str(root / "model-store") in config
     assert str(root / "staging") in config
@@ -85,6 +87,8 @@ def test_setup_refuses_a_running_preview_before_network_or_mutation(
 
     root = tmp_path / "preview"
     root.mkdir(mode=0o700)
+    (root / "model-store").mkdir(mode=0o700)
+    store_info = (root / "model-store").stat()
     info = root.stat()
     preview._write(
         root / "preview.json",
@@ -94,6 +98,8 @@ def test_setup_refuses_a_running_preview_before_network_or_mutation(
                 "core_revision": preview.CORE_REVISION,
                 "device": info.st_dev,
                 "inode": info.st_ino,
+                "store_device": store_info.st_dev,
+                "store_inode": store_info.st_ino,
                 "namespace": "a" * 64,
             }
         ),
@@ -129,6 +135,8 @@ def test_installer_keeps_full_private_log_and_only_profile_launch_commands(
 def managed_profile(root: Path) -> None:
     """Create a private setup receipt/configuration without running software."""
     root.mkdir(mode=0o700)
+    (root / "model-store").mkdir(mode=0o700)
+    store_info = (root / "model-store").stat()
     info = root.stat()
     preview._write(
         root / "preview.json",
@@ -138,6 +146,8 @@ def managed_profile(root: Path) -> None:
                 "core_revision": preview.CORE_REVISION,
                 "device": info.st_dev,
                 "inode": info.st_ino,
+                "store_device": store_info.st_dev,
+                "store_inode": store_info.st_ino,
                 "namespace": "a" * 64,
             }
         ),
@@ -249,13 +259,40 @@ def test_store_alias_cannot_redirect_an_unchanged_profile_configuration(
     other.mkdir()
     kept = other / "keep"
     kept.write_bytes(b"original-operator-data")
+    (root / "model-store").rename(root / "retained-store")
     (root / "model-store").symlink_to(other, target_is_directory=True)
 
     def forbidden(*args: object, **kwargs: object) -> None:
         pytest.fail("A redirected Model Store must not launch any child")
 
     monkeypatch.setattr(preview.subprocess, "run", forbidden)
-    with pytest.raises(preview.PreviewRefused, match="data path"):
+    with pytest.raises(preview.PreviewRefused, match="Model Store"):
         preview.launch(root, "core")
     assert kept.read_bytes() == b"original-operator-data"
     assert list(other.iterdir()) == [kept]
+
+
+@pytest.mark.parametrize("replaced", [False, True])
+def test_resume_never_recreates_or_adopts_a_missing_or_replaced_model_store(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, replaced: bool
+) -> None:
+    root = tmp_path / "preview"
+    managed_profile(root)
+    store = root / "model-store"
+    store.rename(root / "retained-store")
+    if replaced:
+        store.mkdir(mode=0o700)
+        (store / "existing").write_bytes(b"preserve-existing-data")
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        pytest.fail(
+            "A missing or replaced store must not start installer network calls"
+        )
+
+    monkeypatch.setattr(preview.httpx, "Client", forbidden)
+    with pytest.raises(preview.PreviewRefused, match="Model Store"):
+        preview.setup(root, resume=True, with_dashboard=False)
+    if replaced:
+        assert (store / "existing").read_bytes() == b"preserve-existing-data"
+    else:
+        assert not store.exists()

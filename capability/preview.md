@@ -26,6 +26,8 @@ foxlight-preservation-preview setup
 Setup uses a new private `~/foxlight-sovereign-preview` directory. Choose another
 existing parent with `--directory /local/disk/sovereign-preview`. It refuses an
 occupied directory unless you explicitly `--resume` that same matching preview.
+Initial setup creates the private Model Store and records its filesystem identity.
+A missing or replaced store is refused on resume and launch; it is not recreated.
 A resume can refresh its private Library tool installation; all Core and Library
 launches for that profile must be stopped first.
 It retains interrupted files for inspection and never adopts another existing
