@@ -1,0 +1,190 @@
+{
+  "$defs": {
+    "DiscoveryDescription": {
+      "additionalProperties": false,
+      "description": "Publisher discovery statements, bound to an exact manifest and entry.\n\nName/workloads follow PMF concepts. These optional display/search properties\nneither replace complete archived cards nor assert tested compatibility.",
+      "properties": {
+        "entry_id": {
+          "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+          "title": "Entry Id",
+          "type": "string"
+        },
+        "manifest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Manifest",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "summary": {
+          "default": "",
+          "maxLength": 2000,
+          "title": "Summary",
+          "type": "string"
+        },
+        "workloads": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 32,
+          "title": "Workloads",
+          "type": "array"
+        },
+        "formats": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 32,
+          "title": "Formats",
+          "type": "array"
+        },
+        "licenses": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 32,
+          "title": "Licenses",
+          "type": "array"
+        },
+        "candidate_bundle_trust": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TrustProfile"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "annotations": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Annotations",
+          "type": "object"
+        }
+      },
+      "required": [
+        "entry_id",
+        "manifest",
+        "name"
+      ],
+      "title": "DiscoveryDescription",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "TrustProfile": {
+      "additionalProperties": false,
+      "description": "Explicit historical trust snapshot, never automatically imported from a peer.",
+      "properties": {
+        "schema_version": {
+          "const": "foxlight.model-preservation.trust.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "keys": {
+          "items": {
+            "$ref": "#/$defs/TrustedKey"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "title": "Keys",
+          "type": "array"
+        },
+        "threshold": {
+          "maximum": 32,
+          "minimum": 1,
+          "title": "Threshold",
+          "type": "integer"
+        },
+        "revoked_keys": {
+          "default": [],
+          "items": {
+            "pattern": "^ed25519:[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "title": "Revoked Keys",
+          "type": "array"
+        },
+        "as_of": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "As Of",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "keys",
+        "threshold",
+        "as_of"
+      ],
+      "title": "TrustProfile",
+      "type": "object"
+    },
+    "TrustedKey": {
+      "additionalProperties": false,
+      "description": "One independently enrolled Ed25519 public key.",
+      "properties": {
+        "key_id": {
+          "pattern": "^ed25519:[0-9a-f]{64}$",
+          "title": "Key Id",
+          "type": "string"
+        },
+        "public_key": {
+          "maxLength": 100,
+          "minLength": 40,
+          "title": "Public Key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key_id",
+        "public_key"
+      ],
+      "title": "TrustedKey",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The TUF-signed custom profile for the unchanged signed catalog v1 target.",
+  "properties": {
+    "schema_version": {
+      "const": "foxlight.discovery-catalog.v1",
+      "default": "foxlight.discovery-catalog.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "catalog_id": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Catalog Id",
+      "type": "string"
+    },
+    "catalog_trust": {
+      "$ref": "#/$defs/TrustProfile"
+    },
+    "descriptions": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/DiscoveryDescription"
+      },
+      "maxItems": 1000,
+      "title": "Descriptions",
+      "type": "array"
+    }
+  },
+  "required": [
+    "catalog_id",
+    "catalog_trust"
+  ],
+  "title": "DiscoveryCatalogTarget",
+  "type": "object"
+}

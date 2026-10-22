@@ -74,6 +74,16 @@ class TransferPolicy:
 DEFAULT_POLICY = TransferPolicy()
 
 
+class MirrorHTTPError(PreservationError):
+    """Retain an HTTP status for callers implementing standard metadata protocols."""
+
+    def __init__(self, status_code: int):
+        self.status_code = status_code
+        super().__init__(
+            f"mirror returned HTTP {status_code}; redirects are not followed"
+        )
+
+
 class PinnedConnection(http.client.HTTPConnection):
     """Connect to a validated resolved address, preserving TLS hostname checks."""
 
@@ -149,9 +159,7 @@ def response(
         connection.request("GET", path, headers=headers)
         received = connection.getresponse()
         if received.status not in {200, 206}:
-            raise PreservationError(
-                f"mirror returned HTTP {received.status}; redirects are not followed"
-            )
+            raise MirrorHTTPError(received.status)
         if received.getheader("Content-Encoding", "identity") != "identity":
             raise PreservationError("encoded mirror responses are not supported")
         yield received

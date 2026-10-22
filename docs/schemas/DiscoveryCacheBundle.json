@@ -1,0 +1,90 @@
+{
+  "$defs": {
+    "SourceBootstrap": {
+      "additionalProperties": false,
+      "description": "An independently authenticated file, not endpoint-provided trust discovery.",
+      "properties": {
+        "schema_version": {
+          "const": "foxlight.discovery-source.v1",
+          "default": "foxlight.discovery-source.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "root": {
+          "maxLength": 131072,
+          "minLength": 1,
+          "title": "Root",
+          "type": "string"
+        },
+        "endpoints": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Endpoints",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "root",
+        "endpoints"
+      ],
+      "title": "SourceBootstrap",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Portable signed evidence without receiver policy or private error details.",
+  "properties": {
+    "schema_version": {
+      "const": "foxlight.discovery-cache.v1",
+      "default": "foxlight.discovery-cache.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "bootstrap": {
+      "$ref": "#/$defs/SourceBootstrap"
+    },
+    "roots": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 128,
+      "title": "Roots",
+      "type": "array"
+    },
+    "metadata": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Metadata",
+      "type": "object"
+    },
+    "accepted_root_version": {
+      "minimum": 1,
+      "title": "Accepted Root Version",
+      "type": "integer"
+    },
+    "catalog": {
+      "title": "Catalog",
+      "type": "string"
+    }
+  },
+  "required": [
+    "bootstrap",
+    "metadata",
+    "accepted_root_version",
+    "catalog"
+  ],
+  "title": "DiscoveryCacheBundle",
+  "type": "object"
+}

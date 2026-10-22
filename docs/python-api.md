@@ -135,3 +135,58 @@ HTTP mirror construction binds numeric addresses without a reverse-DNS lookup.
 `server_name` records the numeric bound address; it is not an advertised public
 name or a reachability claim. An explicitly configured hostname may still require
 resolution to bind. This does not provide a protected transport or anonymity.
+## Standalone source discovery API
+
+`foxlight_model_preservation.discovery` supplies `inspect_source`, `follow_source`,
+`list_sources`, `refresh_source`, `search_sources`, `select_entry`,
+`fetch_selection`, `export_source` and `remove_source`. These import no Skulk,
+Core, capability SDK or GPU runtime. Only `refresh_source` reads metadata
+endpoints; `fetch_selection` is the separately authorized model download.
+
+```python
+from pathlib import Path
+from foxlight_model_preservation.discovery import (
+    follow_source,
+    refresh_source,
+    search_sources,
+    fetch_selection,
+)
+from foxlight_model_preservation.signing import load_trust
+
+cache = Path("private-discovery-cache")
+source = follow_source(
+    cache,
+    Path("community-source.json").read_bytes(),
+    independently_authenticated_bootstrap_id,
+)
+refresh_source(cache, source.source_id)
+results = search_sources(cache, "offline writing")
+# Explicitly review a result, then provide independently selected model keys.
+fetch_selection(
+    cache,
+    source.source_id,
+    selected_entry_id,
+    selected_exact_manifest,
+    load_trust(Path("model-trust.json").read_bytes()),
+    Path("received"),
+)
+```
+
+Placeholders in this snippet are application inputs, not inferred trust.
+Following grants metadata authority only. Optional source-supplied model keys
+remain candidates; `fetch_selection` always needs its explicit `bundle_trust`.
+Private network, plaintext HTTP and local files need independent receive policy.
+Metadata source grants do not carry over to model downloads. The existing
+model verifier/restore and original card/provenance contracts remain authoritative.
+
+`refresh_source` accepts a caller-owned cancellation/progress fence. A stock
+`OperationControl` is suitable for one source; a batch must not let one source's
+commit consume the remaining batch's cancellation fence. Updates retain stock
+TUF verification state and the last accepted catalog transactionally. Offline
+export/import checks historical signed evidence and never labels an import as a
+successful fresh update. See [discovery](discovery.md) for limits and state meanings.
+
+`foxlight_model_preservation.discovery_publish.publish_catalog` takes public root
+metadata, a verified signed catalog, its `DiscoveryCatalogTarget` profile and
+explicit `DiscoverySigningKeys`. It writes a static TUF tree with timestamp last;
+it starts no listener and does not need the root private key for updates.

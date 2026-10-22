@@ -71,6 +71,13 @@ separate roles. `fetch-catalog` accepts a distinct `--bundle-trust` for model
 signers; absent that option, the explicitly supplied trust profile authorizes
 both domains. There is no compulsory Foxlight key, online catalog or account.
 
+The separate [followed-source profile](discovery.md) uses stock TUF top-level
+metadata to authenticate updates to a target named `catalog.json`. Its explicit
+source/catalog-target/cache versions leave this immutable catalog v1 unchanged.
+Discovery authority can list exact candidates and supplier hints; it cannot
+enroll model signers, change original cards or grant runtime execution. Search
+uses locally accepted metadata and never performs an implicit network refresh.
+
 Pack and fetch write content to private temporary files, check the actual
 length/hash, fsync, and replace within the selected store. A nonblocking kernel
 writer lock fences concurrent writers. The envelope is published last, after
