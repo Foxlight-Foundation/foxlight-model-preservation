@@ -17,6 +17,7 @@ import subprocess
 import sys
 from collections.abc import Generator
 from contextlib import contextmanager
+from importlib.metadata import distribution
 from pathlib import Path
 from typing import cast
 
@@ -24,15 +25,76 @@ import httpx
 import yaml
 
 # Updated only after the compatible Core candidate is integrated and verified.
-CORE_REVISION = "6c586e825efc95fa4fe03f6fe682427dc2e2e346"
+CORE_REVISION = "71821ef59b2c2a0d53d72e08f8fac04b87cf65ef"
 CORE_INSTALLER_SHA256 = (
     "24cc7d0c3e33cb562883050def7a9f64c0e3abfdf15820bf8b21e8cc02c951b3"
 )
-LIBRARY_WHEEL = "https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.6.0/foxlight_preservation_library-0.6.0-py3-none-any.whl"
+PUBLIC_REPOSITORY = (
+    "https://github.com/Foxlight-Foundation/foxlight-model-preservation.git"
+)
 
 
 class PreviewRefused(ValueError):
     """Actionable local setup refusal without deleting existing software or state."""
+
+
+def _library_source() -> str:
+    """Reinstall this installed Library cohort, never downgrade a source preview.
+
+    Public Git installs retain their immutable resolved commit via PEP 610.
+    Released wheel installs use their own versioned public artifact. Unknown
+    VCS origins/identities refuse rather than becoming arbitrary installer input.
+    """
+    installed = distribution("foxlight-preservation-library")
+    record = installed.read_text("direct_url.json")
+    if record is not None:
+        try:
+            metadata: object = json.loads(record)
+        except json.JSONDecodeError as error:
+            raise PreviewRefused(
+                "Library installation metadata is unreadable."
+            ) from error
+        match metadata:
+            case {
+                "url": str(url),
+                "subdirectory": "capability",
+                "vcs_info": {"vcs": "git", "commit_id": str(revision)},
+            }:
+                if (
+                    url
+                    not in {PUBLIC_REPOSITORY, PUBLIC_REPOSITORY.removesuffix(".git")}
+                    or re.fullmatch(r"[0-9a-f]{40}", revision) is None
+                ):
+                    raise PreviewRefused(
+                        "Install Library from its public repository at an immutable "
+                        "commit before preview setup."
+                    )
+                return (
+                    "git+"
+                    + PUBLIC_REPOSITORY
+                    + "@"
+                    + revision
+                    + "#subdirectory=capability"
+                )
+            case {"vcs_info": object()}:
+                raise PreviewRefused(
+                    "Library source identity is unsupported. "
+                    "Use the public source installation guide."
+                )
+            case _:
+                pass
+    release = installed.version
+    if re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", release) is None:
+        raise PreviewRefused(
+            "This Library build needs an immutable public source installation."
+        )
+    return (
+        "https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v"
+        + release
+        + "/foxlight_preservation_library-"
+        + release
+        + "-py3-none-any.whl"
+    )
 
 
 def _write(path: Path, content: str) -> None:
@@ -318,6 +380,7 @@ def setup(root: Path, *, resume: bool, with_dashboard: bool) -> None:
 
 def _setup(root: Path, receipt: dict[str, str | int], *, with_dashboard: bool) -> None:
     environment = _environment(root, receipt)
+    library_source = _library_source()
     core = root / "core"
     if core.is_symlink():
         raise PreviewRefused("The preview checkout is a symlink. No installer was run.")
@@ -409,7 +472,7 @@ def _setup(root: Path, receipt: dict[str, str | int], *, with_dashboard: bool) -
         )
     _validate_configuration(root)
     subprocess.run(
-        ["uv", "tool", "install", "--force", "--python", "3.13", LIBRARY_WHEEL],
+        ["uv", "tool", "install", "--force", "--python", "3.13", library_source],
         env=environment,
         check=True,
     )

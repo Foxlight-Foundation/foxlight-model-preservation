@@ -296,3 +296,80 @@ def test_resume_never_recreates_or_adopts_a_missing_or_replaced_model_store(
         assert (store / "existing").read_bytes() == b"preserve-existing-data"
     else:
         assert not store.exists()
+
+
+@pytest.mark.parametrize("suffix", [".git", ""])
+def test_public_git_preview_reinstalls_its_exact_library_commit(
+    monkeypatch: pytest.MonkeyPatch, suffix: str
+) -> None:
+    revision = "a" * 40
+
+    class Installed:
+        version = "0.7.0"
+
+        def read_text(self, name: str) -> str:
+            assert name == "direct_url.json"
+            return json.dumps(
+                {
+                    "url": preview.PUBLIC_REPOSITORY.removesuffix(".git") + suffix,
+                    "subdirectory": "capability",
+                    "vcs_info": {
+                        "vcs": "git",
+                        "commit_id": revision,
+                        "requested_revision": "main",
+                    },
+                }
+            )
+
+    monkeypatch.setattr(preview, "distribution", lambda _: Installed())
+    assert (
+        preview._library_source()
+        == "git+"
+        + preview.PUBLIC_REPOSITORY
+        + "@"
+        + revision
+        + "#subdirectory=capability"
+    )
+
+
+def test_wheel_preview_uses_its_current_release_not_an_older_library(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Installed:
+        version = "0.7.0"
+
+        def read_text(self, name: str) -> None:
+            return None
+
+    monkeypatch.setattr(preview, "distribution", lambda _: Installed())
+    assert preview._library_source().endswith(
+        "library-v0.7.0/foxlight_preservation_library-0.7.0-py3-none-any.whl"
+    )
+
+
+@pytest.mark.parametrize(
+    "url,revision,subdirectory",
+    [
+        ("https://unrecognized.invalid/library.git", "a" * 40, "capability"),
+        (preview.PUBLIC_REPOSITORY, "main", "capability"),
+        (preview.PUBLIC_REPOSITORY, "a" * 40, "other"),
+    ],
+)
+def test_preview_refuses_unknown_library_source_identity(
+    monkeypatch: pytest.MonkeyPatch, url: str, revision: str, subdirectory: str
+) -> None:
+    class Installed:
+        version = "0.7.0"
+
+        def read_text(self, name: str) -> str:
+            return json.dumps(
+                {
+                    "url": url,
+                    "subdirectory": subdirectory,
+                    "vcs_info": {"vcs": "git", "commit_id": revision},
+                }
+            )
+
+    monkeypatch.setattr(preview, "distribution", lambda _: Installed())
+    with pytest.raises(preview.PreviewRefused):
+        preview._library_source()

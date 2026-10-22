@@ -220,3 +220,24 @@ requires an already authenticated PMF and independently chosen original capture
 trust. It binds the complete common projection and every retained record to the
 exact original signed envelope. Runtime admission, registry verification and
 code permission remain responsibilities of the receiving application.
+
+### Library and Guided
+
+The [Library source interface](../capability/README.md#pmf-source-preview-library-07)
+and its [compatible Core preview](../capability/preview.md#pmf-capable-source-cohort)
+use PMF automatically for new Preserve jobs. Check, recovery-kit export and
+Restore recognize both PMF and legacy captures. No format selection or manual
+converter step is needed for the supported preservation/Skulk profile.
+
+Core verifies the original capture signatures with enrolled owner trust, then
+independently checks registry evidence, required companions, runtime support and
+repository-code consent. PMF conversion signatures grant none of those rights.
+A separately signed converter requires independently chosen original trust via
+the standalone reverse converter before legacy Core admission. Generic PMF and
+unknown optional records remain portable without Skulk, even when this Core
+cannot interpret them for execution.
+
+Public publication remains a separate reviewed/sanitized v1 output for existing
+mirrors, invitations and opt-in torrents. Direct public PMF transport requires
+an explicit adapter. PMF is still an experimental draft; no stable software
+release or external ecosystem conformance is implied by Library adoption.

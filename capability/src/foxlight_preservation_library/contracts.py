@@ -172,7 +172,7 @@ def build_manifest(*, executable: str, executable_sha256: str) -> Manifest:
     return Manifest(
         bundle_id="foxlight.model-preservation",
         skulk_requires=">=2.0.3,<3",
-        bundle_version="0.6.0",
+        bundle_version="0.7.0",
         executable=executable,
         executable_sha256=executable_sha256,
         arguments=(),

@@ -246,3 +246,26 @@ not acquire a new network-serving operation implicitly. A future agent-facing
 sharing descriptor needs its own permission and immutable review contract.
 Public-copy import uses the portable signed card as opaque data; actual loading
 continues through Core's existing recovery and model-trust checks.
+
+## PMF source preview (Library 0.7)
+
+New compatible Core plans preserve in Portable Model Format automatically. Check,
+Save recovery kit and Restore detect PMF or existing v1 copies without a format
+selector. The review names the format and retains the same exact-copy trust,
+registry evidence, companion and separate repository-code decisions. A PMF kit
+can also be imported/verified/restored with the standalone tools without Skulk.
+A generic PMF profile does not imply this Core can run it; its files remain
+recoverable with a compatible standalone reader.
+
+The PMF-capable Library source can be installed with public dependencies:
+
+```sh
+uv tool install --force --python 3.13 'git+https://github.com/Foxlight-Foundation/foxlight-model-preservation.git@main#subdirectory=capability'
+foxlight-preservation-library
+```
+
+A compatible Core is required on the model-store host. For a separate unconfigured
+installation use [the source preview setup](preview.md). Source setup reuses the
+exact resolved Library commit from the installed package; it does not replace
+this version with an older released wheel. The 0.7 software release has not been
+cut; the older 0.6 release link above retains its previous behavior.

@@ -162,3 +162,10 @@ to trust. Self-signature checks cannot identify its original owner. The imported
 store works with the ordinary `restore`, evidence inspection and receiving tools.
 Metadata inspection alone does not verify weights. See [the format and trust
 contract](docs/protocol.md#self-contained-recovery-kits-v1).
+
+Library's [0.7 source preview](capability/README.md#pmf-source-preview-library-07)
+uses PMF automatically for Preserve and Restore with a compatible pinned Core.
+Its self-contained PMF kits also work with the independent tools; Skulk is not
+required to recover the archived files/cards/provenance. Earlier kits retain
+their own identities and verification. Source integration is distinct from a
+published 0.7 Library release and direct PMF public transport adapters.
