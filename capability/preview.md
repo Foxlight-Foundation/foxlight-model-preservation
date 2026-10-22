@@ -12,7 +12,9 @@ release.
 On macOS or Linux, install `uv` and Git first. macOS also needs the Xcode Command
 Line Tools (`xcode-select --install`). The canonical Core installer handles its
 remaining prerequisites; initial native compilation can take several minutes
-and substantial disk space. Internet access is needed to obtain software. Model
+and substantial disk space. Leave room for build files, models and Core's
+10 GiB operating-system reserve for canonical model downloads. Internet access
+is needed to obtain software. Model
 recovery kits do not contain the runtime and its dependencies; retain those
 separately for offline recovery.
 
@@ -34,11 +36,12 @@ resuming setup refuses while that preview Core or Library is running, and only
 one preview Core can launch. Complete installer output stays in the private
 `installation.log`; the final commands use the isolated profile.
 
-Core source, state, Model Store, worker cache, environment and Library tools use
-separate paths beneath this preview. Its cluster namespace is separate from your
+Core source, state, Model Store, staging/search paths, worker cache, environment
+and Library tools use separate paths beneath this preview. Its cluster namespace is separate from your
 existing cluster. Setup does not start either runtime or migrate installed models
 and pairing. Your existing compatible Core can use Library directly; upgrading
 an existing operator installation remains its normal Core upgrade procedure.
+The preview does not search the normal shared staging directory for existing models.
 Do not point a second writer at a running Model Store.
 
 The current Core revision is pinned in
@@ -63,6 +66,10 @@ Then open Library in another terminal:
 ```
 
 Pass the same `--directory` to both commands if you chose a custom directory.
+To recover without a registry connection after software is installed, start Core
+with `SKULK_OFFLINE=true` before the same foreground Core command. Runtime
+software and dependencies must already be present.
+
 Core uses API port 53415 and Model Store port 13415; its libp2p port is assigned
 by the OS. A conflicting service is not replaced. Stop each foreground command
 with Ctrl+C. Closing Library does not stop jobs accepted by Core. Stopping Core

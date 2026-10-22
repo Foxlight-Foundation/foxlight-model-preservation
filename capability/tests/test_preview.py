@@ -55,7 +55,9 @@ def test_bad_installer_checksum_runs_nothing_and_retains_isolated_configuration(
     with pytest.raises(preview.PreviewRefused, match="checksum"):
         preview.setup(root, resume=False, with_dashboard=False)
     assert not (root / "install-core.sh").exists()
-    assert str(root / "model-store") in (root / "core" / "skulk.yaml").read_text()
+    config = (root / "core" / "skulk.yaml").read_text()
+    assert str(root / "model-store") in config
+    assert str(root / "staging") in config
     state = preview._receipt(root)
     monkeypatch.setenv("VIRTUAL_ENV", "/an-existing-environment")
     monkeypatch.setenv("UV_PROJECT_ENVIRONMENT", "/another-existing-environment")
@@ -63,7 +65,7 @@ def test_bad_installer_checksum_runs_nothing_and_retains_isolated_configuration(
     assert "VIRTUAL_ENV" not in environment
     assert environment["UV_PROJECT_ENVIRONMENT"] == str(root / "core" / ".venv")
     assert environment["SKULK_HOME"] == str(root / "state")
-    assert environment["SKULK_MODELS_PATH"] == ""
+    assert environment["SKULK_MODELS_PATH"] == str(root / "staging")
     assert environment["SKULK_LIBP2P_NAMESPACE"] == state["namespace"]
     assert root.stat().st_mode & 0o077 == 0
     assert (root / "preview.json").stat().st_mode & 0o077 == 0

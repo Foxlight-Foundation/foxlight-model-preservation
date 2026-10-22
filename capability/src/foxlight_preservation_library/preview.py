@@ -163,7 +163,7 @@ def _environment(root: Path, receipt: dict[str, str | int]) -> dict[str, str]:
         "UV_NO_DEV": "1",
         "UV_PROJECT_ENVIRONMENT": str(root / "core" / ".venv"),
         "UV_PROJECT": str(root / "core"),
-        "SKULK_MODELS_PATH": "",
+        "SKULK_MODELS_PATH": str(root / "staging"),
         "SKULK_BOOTSTRAP_PEERS": "",
         "UV_TOOL_DIR": str(root / "tools"),
         "UV_TOOL_BIN_DIR": str(root / "bin"),
@@ -267,6 +267,7 @@ def _setup(root: Path, receipt: dict[str, str | int], *, with_dashboard: bool) -
                         "store_port": 13415,
                         "store_http_host": "127.0.0.1",
                         "store_path": str(root / "model-store"),
+                        "staging": {"node_cache_path": str(root / "staging")},
                     }
                 },
                 indent=2,
