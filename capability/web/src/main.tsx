@@ -25,14 +25,15 @@ function App() {
   const [notice,setNotice] = useState('');
   const [offset,setOffset] = useState(0);
   const lastRead = useRef(0);
+  const navigation = useRef(0);
   const refresh = useCallback(async () => {
     const sequence = ++lastRead.current;
     try {const result = await api<Page>(`library?offset=${offset}`); if(sequence === lastRead.current) {setPage(result);setLoadError('');}}
     catch(err) {if(sequence === lastRead.current) setLoadError(err instanceof Error ? err.message : 'host_unavailable');}
   },[offset]);
   useEffect(() => {void refresh(); const timer=setInterval(() => void refresh(),2000); return () => {clearInterval(timer); lastRead.current++;};},[refresh]);
-  function navigate(next:Area) {setCleanup(null);setRestoreOpen(false);setPublicImport(false);setReview(null);setArea(next);sessionStorage.removeItem('preservation-review-v1');}
-  async function effect(action:()=>Promise<void>) {setBusy(true);setError('');try {await action();}catch(err){setError(err instanceof Error ? err.message : 'host_unavailable');}finally{setBusy(false);}}
+  function navigate(next:Area) {navigation.current++;setCleanup(null);setRestoreOpen(false);setPublicImport(false);setReview(null);setArea(next);sessionStorage.removeItem('preservation-review-v1');}
+  async function effect(action:()=>Promise<void>,isCurrent:()=>boolean=()=>true) {setBusy(true);setError('');try {await action();}catch(err){if(isCurrent())setError(err instanceof Error ? err.message : 'host_unavailable');}finally{setBusy(false);}}
   async function setup() {await effect(async()=>{await api('setup',{});await refresh();setNotice('This device is ready. Choose a model to preserve.');});}
   async function plan(kind:'preserve'|'check'|'kit_export'|'recover', selection:Model|Copy|Job) {
     await effect(async()=> {
@@ -49,7 +50,7 @@ function App() {
   function openReview(result:Plan) {const next={plan:result,operationId:crypto.randomUUID()};setReview(next);setRestoreOpen(false);setPublicImport(false);sessionStorage.setItem('preservation-review-v1',JSON.stringify(next));}
   async function retry(job:Job) {await effect(async()=>{openReview(await api<Plan>('retry-plan',{job_id:job.job_id}));});}
   async function reclaim(job:Job) {await effect(async()=>{const result=await api<{indexed_generation_retained:boolean}>('reclaim',{job_id:job.job_id});setNotice(result.indexed_generation_retained?'Temporary files checked. Your indexed models were kept. Review again to continue.':'Unused recovery files cleared. Review again to choose a fresh restore.');await refresh();});}
-  async function inspectWork(job:Job) {await effect(async()=>{const report=await api<TemporaryWork>('work-preview',{job_id:job.job_id});setCleanup({job,report});});}
+  async function inspectWork(job:Job) {const selected=++navigation.current;await effect(async()=>{const report=await api<TemporaryWork>('work-preview',{job_id:job.job_id});if(selected===navigation.current)setCleanup({job,report});},()=>selected===navigation.current);}
   async function clearWork() {if(!cleanup)return;const job=cleanup.job;await effect(async()=>{const result=await api<TemporaryWork>('reclaim-work',{job_id:job.job_id});setNotice(result.removed?'Temporary files cleared. Your kept copies and sharing metadata are intact.':'No temporary files remain for this job.');setCleanup(null);await refresh();});}
   async function cancel(job:Job) {await effect(async()=>{await api('cancel',{job_id:job.job_id});await refresh();});}
   const location=page?.locations[0];
@@ -57,7 +58,7 @@ function App() {
   const count=page?.jobs.filter(active).length??0;
   return <div id="preservation-concepts"><div className="mp-app">
     <header className="mp-top"><span className="mp-brand">skulk</span><span className="mp-crumb">Capabilities / Model Preservation</span></header>
-    <main className="mp-main"><div className="mp-heading"><div><span className="mp-kicker">Your models. Within reach.</span><h1>Model Preservation</h1></div><div className="mp-actions"><button className="mp-button" onClick={()=>{setCleanup(null);setPublicImport(false);setRestoreOpen(true);setReview(null);}}>Restore from recovery kit</button><button className="mp-button mp-quiet" onClick={()=>navigate('storage')}>Storage &amp; keys</button><button className="mp-button mp-quiet" onClick={()=>navigate('activity')}>Activity{count ? ` · ${count}`:''}</button></div></div>
+    <main className="mp-main"><div className="mp-heading"><div><span className="mp-kicker">Your models. Within reach.</span><h1>Model Preservation</h1></div><div className="mp-actions"><button className="mp-button" onClick={()=>{navigate('library');setRestoreOpen(true);}}>Restore from recovery kit</button><button className="mp-button mp-quiet" onClick={()=>navigate('storage')}>Storage &amp; keys</button><button className="mp-button mp-quiet" onClick={()=>navigate('activity')}>Activity{count ? ` · ${count}`:''}</button></div></div>
     <nav className="mp-tabs" aria-label="Preservation areas">{(['library','sharing'] as const).map(item=><button key={item} className="mp-tab" aria-current={area===item?'page':undefined} onClick={()=>navigate(item)}>{item==='library'?'Your copies':'Sharing'}</button>)}</nav>
     {(error||loadError) && <div className="mp-notice mp-error" role="alert">{errorText(error||loadError)} <button className="mp-button mp-quiet" onClick={()=>void refresh()}>Refresh</button></div>}
     {notice && <div className="mp-toast" role="status">{notice}</div>}

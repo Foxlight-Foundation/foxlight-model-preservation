@@ -15,6 +15,10 @@ then confirm. Original Core storage, private signing keys and registry access ar
 not prerequisites for restoring an owner capture. Original registry evidence is
 retained when available; a kit does not manufacture it.
 
+Library navigation closes import and cleanup reviews. Late previews and errors
+from a view you left are ignored. Flushed transfers remain available for explicit
+resume; accepted Core jobs keep running.
+
 Uploads use bounded 4 MiB chunks. Reselect the same file to resume a flushed
 transfer after page, capability or Core restart. Completed jobs expose a native
 download; the browser does not buffer whole kits in JavaScript. Core retains plans,
