@@ -23,7 +23,7 @@ from typing import cast
 import httpx
 
 # Updated only after the compatible Core candidate is integrated and verified.
-CORE_REVISION = "c9b0d910558d4cd6a8372b29b10c1d6930fbdfe5"
+CORE_REVISION = "6c586e825efc95fa4fe03f6fe682427dc2e2e346"
 CORE_INSTALLER_SHA256 = (
     "24cc7d0c3e33cb562883050def7a9f64c0e3abfdf15820bf8b21e8cc02c951b3"
 )
