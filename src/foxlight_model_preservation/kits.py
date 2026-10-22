@@ -18,14 +18,15 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import BinaryIO
 
+from .archives import ArchiveManifest, archive_objects, verify_archive_manifest
 from .models import (
     MAX_METADATA_BYTES,
-    Manifest,
     PreservationError,
     Record,
     TrustProfile,
 )
 from .operations import OperationControl
+from .pmf_models import PMFManifest
 from .signing import (
     Envelope,
     canonical_bytes,
@@ -33,7 +34,6 @@ from .signing import (
     encode_record,
     load_trust,
     strict_json,
-    verify_manifest,
 )
 from .storage import (
     CHUNK_SIZE,
@@ -43,10 +43,10 @@ from .storage import (
     object_path,
     open_file,
     read_metadata,
-    unique_objects,
 )
 
 MAGIC = b"FOXLIGHT-RECOVERY-KIT\x00\x01\r\n"
+PMF_MAGIC = b"FOXLIGHT-RECOVERY-KIT\x00\x02\r\n"
 
 
 class KitInspection(Record):
@@ -54,7 +54,7 @@ class KitInspection(Record):
 
     manifest_id: str
     trust: TrustProfile
-    manifest: Manifest
+    manifest: ArchiveManifest
     kit_bytes: int
 
 
@@ -73,7 +73,8 @@ def _input(path: Path) -> Generator[BinaryIO]:
 
 
 def _header(stream: BinaryIO) -> tuple[KitInspection, bytes]:
-    if stream.read(len(MAGIC)) != MAGIC:
+    magic = stream.read(len(MAGIC))
+    if magic not in {MAGIC, PMF_MAGIC}:
         raise PreservationError("unsupported recovery kit format")
     lengths = stream.read(16)
     if len(lengths) != 16:
@@ -93,13 +94,15 @@ def _header(stream: BinaryIO) -> tuple[KitInspection, bytes]:
     # normal signature/schema/closure checks against that exact identity.
     signed = Envelope.model_validate_json(canonical_bytes(strict_json(envelope)))
     identity = hashlib.sha256(decode_base64(signed.payload)).hexdigest()
-    manifest = verify_manifest(envelope, trust, identity)
+    manifest = verify_archive_manifest(envelope, trust, identity)
+    if (magic == PMF_MAGIC) != isinstance(manifest, PMFManifest):
+        raise PreservationError("kit version differs from its signed archive format")
     expected = (
         len(MAGIC)
         + 16
         + trust_length
         + envelope_length
-        + sum(file.size for file in unique_objects(manifest))
+        + sum(file.size for file in archive_objects(manifest))
     )
     if os.fstat(stream.fileno()).st_size != expected:
         raise PreservationError("kit length differs from the signed closure")
@@ -137,7 +140,8 @@ def export_kit(
         directory(destination.parent) as parent,
     ):
         envelope = read_metadata(source, manifest_path(manifest_id))
-        manifest = verify_manifest(envelope, trust, manifest_id)
+        manifest = verify_archive_manifest(envelope, trust, manifest_id)
+        magic = PMF_MAGIC if isinstance(manifest, PMFManifest) else MAGIC
         trust_bytes = encode_record(trust)
         if len(trust_bytes) > MAX_METADATA_BYTES:
             raise PreservationError("kit trust exceeds metadata limit")
@@ -146,7 +150,7 @@ def export_kit(
             + 16
             + len(trust_bytes)
             + len(envelope)
-            + sum(file.size for file in unique_objects(manifest))
+            + sum(file.size for file in archive_objects(manifest))
         )
         if shutil.disk_usage(parent).free < required + 16 * CHUNK_SIZE:
             raise PreservationError("insufficient space for recovery kit")
@@ -154,12 +158,12 @@ def export_kit(
         try:
             with open_file(parent, pending, write=True) as output:
                 output.write(
-                    MAGIC + struct.pack(">QQ", len(trust_bytes), len(envelope))
+                    magic + struct.pack(">QQ", len(trust_bytes), len(envelope))
                 )
                 output.write(trust_bytes)
                 output.write(envelope)
                 for file in sorted(
-                    unique_objects(manifest), key=lambda item: item.sha256
+                    archive_objects(manifest), key=lambda item: item.sha256
                 ):
                     with open_file(source, object_path(file.sha256)) as origin:
                         _copy(
@@ -245,10 +249,11 @@ def import_kit(
                     "independent trust or explicit kit-key acceptance required"
                 )
             trust = info.trust
-        _ = verify_manifest(envelope, trust, expected_manifest_id)
+        _ = verify_archive_manifest(envelope, trust, expected_manifest_id)
         if (
             shutil.disk_usage(parent).free
-            < sum(file.size for file in unique_objects(info.manifest)) + 16 * CHUNK_SIZE
+            < sum(file.size for file in archive_objects(info.manifest))
+            + 16 * CHUNK_SIZE
         ):
             raise PreservationError("insufficient space for recovery kit")
         pending = ".kit-import-" + uuid.uuid4().hex
@@ -256,7 +261,7 @@ def import_kit(
         try:
             with directory(destination.parent / pending) as target:
                 for file in sorted(
-                    unique_objects(info.manifest), key=lambda item: item.sha256
+                    archive_objects(info.manifest), key=lambda item: item.sha256
                 ):
                     with open_file(
                         target, object_path(file.sha256), write=True
@@ -280,3 +285,38 @@ def import_kit(
         finally:
             shutil.rmtree(destination.parent / pending, ignore_errors=True)
     return info
+
+
+def read_kit_document(
+    path: Path, document_id: str, *, trust: TrustProfile, expected_manifest_id: str
+) -> bytes:
+    """Read one authenticated bounded PMF record without reading model weights.
+
+    This metadata-only adapter helper seeks over signed object lengths. It
+    rechecks the selected identity and independent trust and hashes the record;
+    it does not establish that any skipped weight object is intact.
+    """
+    with _input(path) as stream:
+        info, envelope = _header(stream)
+        if info.manifest_id != expected_manifest_id:
+            raise PreservationError("selected kit manifest changed")
+        manifest = verify_archive_manifest(envelope, trust, expected_manifest_id)
+        if not isinstance(manifest, PMFManifest):
+            raise PreservationError("source documents require a PMF kit")
+        document = next(
+            (item for item in manifest.documents if item.document_id == document_id),
+            None,
+        )
+        if document is None:
+            raise PreservationError("PMF source document missing")
+        for file in sorted(archive_objects(manifest), key=lambda item: item.sha256):
+            if file.sha256 == document.sha256:
+                data = stream.read(document.size)
+                if (
+                    len(data) != document.size
+                    or hashlib.sha256(data).hexdigest() != document.sha256
+                ):
+                    raise PreservationError("PMF source document failed verification")
+                return data
+            stream.seek(file.size, os.SEEK_CUR)
+        raise PreservationError("PMF source document missing")
