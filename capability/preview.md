@@ -145,3 +145,31 @@ Core, private signing key or registry. Required companions and original
 provenance are retained. Card extensions remain captured bytes; upgrading the
 reader can add interpretation without rewriting the backup. Installation,
 repository-code consent and registry assurance remain separate from integrity.
+
+## PMF-capable source cohort
+
+The released 0.6 wheel above remains available. For automatic PMF preservation
+and recovery with the current source cohort, install Library from the public
+repository instead:
+
+```sh
+uv tool install --force --python 3.13 'git+https://github.com/Foxlight-Foundation/foxlight-model-preservation.git@main#subdirectory=capability'
+```
+
+Then use the same `setup`, `core` and `library` commands above with a **new**
+preview directory. The installer pins a reviewed PMF-capable Core revision and
+its exact installer checksum. Source setup reads the installed Library's resolved
+public Git commit and installs that same cohort in the preview; a later change
+to `main` cannot silently replace it during setup. Installations obtained from an official release URL reuse that exact URL.
+Local directory/wheel or index-only installs can use an existing Core, but
+preview setup refuses them before creating a new profile. Use the public Git
+command above for a reproducible source cohort. Unsupported identities never
+become arbitrary installer input.
+
+Preserve, Check, Save recovery kit and Restore use their normal reviewed jobs.
+PMF kits use explicit v2 framing; old v1 kits still work. Every captured model,
+companion and source record is hash-checked. Runtime profile support, registry
+proof and repository-code permission remain separate from capture-key trust.
+Neither installing nor launching joins a torrent swarm or starts a mirror.
+Library 0.7 source/installed-component acceptance is distinct from a published
+0.7 release, stable/frozen distribution or inference qualification.

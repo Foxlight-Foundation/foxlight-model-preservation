@@ -36,6 +36,17 @@ def test_occupied_directory_is_kept_without_network_or_execution(
 def test_bad_installer_checksum_runs_nothing_and_retains_isolated_configuration(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(
+        preview,
+        "_library_source",
+        lambda: (
+            "git+"
+            + preview.PUBLIC_REPOSITORY
+            + "@"
+            + "a" * 40
+            + "#subdirectory=capability"
+        ),
+    )
     root = tmp_path / "preview"
     original_client = httpx.Client
     monkeypatch.setattr(
@@ -211,6 +222,17 @@ def test_core_saved_yaml_can_retain_other_settings_inside_profile(
 def test_installer_configuration_rewrite_is_refused_before_success(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(
+        preview,
+        "_library_source",
+        lambda: (
+            "git+"
+            + preview.PUBLIC_REPOSITORY
+            + "@"
+            + "a" * 40
+            + "#subdirectory=capability"
+        ),
+    )
     root = tmp_path / "preview"
     managed_profile(root)
     script = b"# checksum-pinned fixture installer\n"
@@ -296,3 +318,110 @@ def test_resume_never_recreates_or_adopts_a_missing_or_replaced_model_store(
         assert (store / "existing").read_bytes() == b"preserve-existing-data"
     else:
         assert not store.exists()
+
+
+@pytest.mark.parametrize("suffix", [".git", ""])
+def test_public_git_preview_reinstalls_its_exact_library_commit(
+    monkeypatch: pytest.MonkeyPatch, suffix: str
+) -> None:
+    revision = "a" * 40
+
+    class Installed:
+        version = "0.7.0"
+
+        def read_text(self, name: str) -> str:
+            assert name == "direct_url.json"
+            return json.dumps(
+                {
+                    "url": preview.PUBLIC_REPOSITORY.removesuffix(".git") + suffix,
+                    "subdirectory": "capability",
+                    "vcs_info": {
+                        "vcs": "git",
+                        "commit_id": revision,
+                        "requested_revision": "main",
+                    },
+                }
+            )
+
+    monkeypatch.setattr(preview, "distribution", lambda _: Installed())
+    assert (
+        preview._library_source()
+        == "git+"
+        + preview.PUBLIC_REPOSITORY
+        + "@"
+        + revision
+        + "#subdirectory=capability"
+    )
+
+
+def test_official_wheel_preview_reuses_its_installed_release_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    url = "https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.6.0/foxlight_preservation_library-0.6.0-py3-none-any.whl"
+
+    class Installed:
+        version = "0.6.0"
+
+        def read_text(self, name: str) -> str:
+            return json.dumps({"url": url, "archive_info": {"hashes": {}}})
+
+    monkeypatch.setattr(preview, "distribution", lambda _: Installed())
+    assert preview._library_source() == url
+
+
+@pytest.mark.parametrize(
+    "url,revision,subdirectory",
+    [
+        ("https://unrecognized.invalid/library.git", "a" * 40, "capability"),
+        (preview.PUBLIC_REPOSITORY, "main", "capability"),
+        (preview.PUBLIC_REPOSITORY, "a" * 40, "other"),
+    ],
+)
+def test_preview_refuses_unknown_library_source_identity(
+    monkeypatch: pytest.MonkeyPatch, url: str, revision: str, subdirectory: str
+) -> None:
+    class Installed:
+        version = "0.7.0"
+
+        def read_text(self, name: str) -> str:
+            return json.dumps(
+                {
+                    "url": url,
+                    "subdirectory": subdirectory,
+                    "vcs_info": {"vcs": "git", "commit_id": revision},
+                }
+            )
+
+    monkeypatch.setattr(preview, "distribution", lambda _: Installed())
+    with pytest.raises(preview.PreviewRefused):
+        preview._library_source()
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        None,
+        {"url": "file:///local/capability", "dir_info": {"editable": True}},
+        {"url": "file:///local/library.whl", "archive_info": {"hashes": {}}},
+    ],
+)
+def test_unpublished_direct_or_index_install_refuses_before_new_profile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, metadata: object
+) -> None:
+    class Installed:
+        version = "0.7.0"
+
+        def read_text(self, name: str) -> str | None:
+            return None if metadata is None else json.dumps(metadata)
+
+    monkeypatch.setattr(preview, "distribution", lambda _: Installed())
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        pytest.fail("an unavailable Library cohort must not start installation")
+
+    monkeypatch.setattr(preview.httpx, "Client", forbidden)
+    monkeypatch.setattr(preview.subprocess, "run", forbidden)
+    root = tmp_path / "new-preview"
+    with pytest.raises(preview.PreviewRefused, match="immutable public Library"):
+        preview.setup(root, resume=False, with_dashboard=False)
+    assert not root.exists()

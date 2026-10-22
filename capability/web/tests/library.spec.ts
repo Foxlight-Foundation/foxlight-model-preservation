@@ -51,7 +51,7 @@ test('lost submission response retains the exact operation identity across reloa
   expect(starts[0].operation_id).toBe(starts[1].operation_id);
 });
 
-const recoveryPlan={plan_id:'a'.repeat(64),kind:'recover',model_id:'example/recovered',location_id:'kit',size_bytes:20,members:['example/recovered','example/assistant'],member_count:2,expires_at:9999999999,upload_id:'1'.repeat(32),publisher_key_ids:['ed25519:'+'a'.repeat(64)],requires_owner_acceptance:true,requires_code_permission:true,publication:'registry-historical',file_coverage:'partial-or-missing'};
+const recoveryPlan={archive_format:'pmf-v0.1',plan_id:'a'.repeat(64),kind:'recover',model_id:'example/recovered',location_id:'kit',size_bytes:20,members:['example/recovered','example/assistant'],member_count:2,expires_at:9999999999,upload_id:'1'.repeat(32),publisher_key_ids:['ed25519:'+'a'.repeat(64)],requires_owner_acceptance:true,requires_code_permission:true,publication:'registry-historical',file_coverage:'partial-or-missing'};
 
 test('fresh Core file restore requires separate capture and code consent',async({page})=>{
   let restored=false;
@@ -65,6 +65,8 @@ test('fresh Core file restore requires separate capture and code consent',async(
   await page.getByRole('button',{name:'Restore from recovery kit',exact:true}).click();
   await page.getByLabel('Recovery kit file').setInputFiles({name:'saved.foxkit',mimeType:'application/octet-stream',buffer:Buffer.alloc(20,1)});
   await expect(page.getByRole('heading',{name:'Recover this model'})).toBeVisible();
+  await expect(page.getByText('Portable Model Format (PMF)',{exact:true})).toBeVisible();
+  await expect(page.getByText('Standalone tools can recover these files without Skulk.',{exact:false})).toBeVisible();
   const restore=page.getByRole('button',{name:'Restore model',exact:true});
   await expect(restore).toBeDisabled();
   await page.getByLabel('I trust this exact recovery copy').check();
@@ -146,3 +148,18 @@ test(`clearing ${state} restore files is explicit and separate from fresh review
 });
 
 }
+
+for(const guided of [false,true])test(`PMF Preserve uses the same review after ${guided?'Guided setup':'Library selection'}`,async({page})=>{
+  let configured=!guided;
+  await page.route('**/api/library?offset=*',route=>route.fulfill({json:{locations:configured?[location]:[],models,copies:[],jobs:[],next_offset:null}}));
+  await page.route('**/api/setup',route=>{configured=true;return route.fulfill({json:location});});
+  let selected:unknown;
+  await page.route('**/api/plan',route=>{selected=route.request().postDataJSON();return route.fulfill({json:{...recoveryPlan,kind:'preserve',location_id:'device',model_id:models[0].model_id,requires_owner_acceptance:false,requires_code_permission:false}});});
+  await page.goto('/');
+  if(guided)await page.getByRole('button',{name:'Use this device',exact:true}).click();
+  await page.getByRole('button',{name:'Preserve',exact:true}).first().click();
+  await expect(page.getByText('Portable Model Format (PMF)',{exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Preserve model',exact:true})).toBeEnabled();
+  expect(selected).toEqual({kind:'preserve',location_id:'device',model_id:models[0].model_id,generation_id:models[0].generation_id});
+  await expect(page.getByRole('combobox',{name:/format/i})).toHaveCount(0);
+});
