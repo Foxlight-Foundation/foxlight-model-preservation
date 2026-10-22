@@ -252,6 +252,15 @@ without replacing its retained catalog.
 
 The static publisher can initialize a non-consistent TUF tree, but refuses its
 in-place updates before changing any committed file. Updates require consistent
-snapshots. Operators of other TUF layouts must use an atomic whole-generation
+snapshots in both the prior and proposed roots; rotating a non-consistent root
+to a consistent one also refuses in place. Operators of other TUF layouts must use an atomic whole-generation
 deployment through their own repository tooling, or publish a separately
 reviewed source. The default root example enables consistent snapshots.
+
+For in-place consistent-snapshot root rotations, both old and new roots must
+authenticate the committed and proposed online-role signatures. Stage overlapping
+online keys, publish using the existing keys, publish a generation using the new
+keys, and only then revoke the old keys in the next root. The helper refuses
+an incompatible transition before writing any generation. Root files still need
+both old-root endorsement and new-root self-signatures. Other rotation schemes
+require the operator's atomic whole-generation TUF deployment tooling.

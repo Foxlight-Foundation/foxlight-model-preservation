@@ -117,21 +117,26 @@ def test_publication_with_independent_role_keys_and_no_listener(
         changed = DiscoveryCatalogTarget.model_validate_json(
             json.dumps(fixture.targets.signed.targets["catalog.json"].custom)
         )
-        with pytest.raises(PreservationError, match="updates require consistent"):
-            publish_catalog(
-                public,
-                root.to_bytes(),
-                fixture.envelope,
-                changed,
-                role_keys,
-                version=2,
-                expires=expires,
-            )
-        assert {
-            str(path.relative_to(public)): path.read_bytes()
-            for path in public.rglob("*")
-            if path.is_file()
-        } == committed
+        successor = discovery.parse_discovery_role(root.to_bytes(), Root)
+        successor.signed.version = 2
+        successor.signed.consistent_snapshot = True
+        successor.sign(CryptoSigner(keys["root"]))
+        for update_root in (root.to_bytes(), successor.to_bytes()):
+            with pytest.raises(PreservationError, match="updates require consistent"):
+                publish_catalog(
+                    public,
+                    update_root,
+                    fixture.envelope,
+                    changed,
+                    role_keys,
+                    version=2,
+                    expires=expires,
+                )
+            assert {
+                str(path.relative_to(public)): path.read_bytes()
+                for path in public.rglob("*")
+                if path.is_file()
+            } == committed
         assert refresh_source(cache, source.source_id).freshness == "fresh"
 
 
@@ -666,3 +671,87 @@ def test_import_cannot_restore_retired_root_authority(
         follow_source(cache, encode_record(forged), bootstrap_identity(bootstrap))
     assert export_source(cache, source.source_id) == before
     assert not search_sources(cache, "forged")
+
+
+def test_static_root_rotation_keeps_committed_role_authority(
+    tmp_path, capture, monkeypatch
+):
+    """Stage overlapping online keys before revocation, preserving each generation."""
+    publisher = Publisher(tmp_path / "producer", capture)
+    profile = DiscoveryCatalogTarget.model_validate_json(
+        json.dumps(publisher.targets.signed.targets["catalog.json"].custom)
+    )
+    public = tmp_path / "static"
+    old_keys = DiscoverySigningKeys(*(publisher.tuf_crypto_key for _ in range(3)))
+    new_private = Ed25519PrivateKey.generate()
+    new_signer = CryptoSigner(new_private)
+    new_keys = DiscoverySigningKeys(*(new_private for _ in range(3)))
+    expires = datetime.now(UTC) + timedelta(days=1)
+
+    def publish(root, keys, version):
+        return publish_catalog(
+            public,
+            root.to_bytes(),
+            publisher.envelope,
+            profile,
+            keys,
+            version=version,
+            expires=expires,
+        )
+
+    def contents():
+        return {
+            str(path.relative_to(public)): path.read_bytes()
+            for path in public.rglob("*")
+            if path.is_file()
+        }
+
+    publish(publisher.root, old_keys, 1)
+    overlap = Metadata(Root(version=2, expires=expires))
+    overlap.signed.add_key(new_signer.public_key, "root")
+    for role in ("timestamp", "snapshot", "targets"):
+        overlap.signed.add_key(publisher.tuf_key.public_key, role)
+        overlap.signed.add_key(new_signer.public_key, role)
+    overlap.sign(new_signer)
+    overlap.sign(publisher.tuf_key, append=True)
+    before = contents()
+    # New role signatures must remain readable by clients on the old root.
+    with pytest.raises(RepositoryError):
+        publish(overlap, new_keys, 2)
+    assert contents() == before
+    from foxlight_model_preservation import discovery_publish
+
+    write = discovery_publish.atomic_bytes
+
+    def crash_before_timestamp(root, name, data):
+        if name == "metadata/timestamp.json":
+            raise OSError("synthetic publication interruption")
+        write(root, name, data)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(discovery_publish, "atomic_bytes", crash_before_timestamp)
+        with pytest.raises(OSError, match="synthetic"):
+            publish(overlap, old_keys, 2)
+    # The new root is already visible, but the committed old timestamp and
+    # versioned closure must still authenticate through a real cold updater.
+    interrupted_cache = tmp_path / "interrupted-consumer"
+    interrupted_source = follow(
+        interrupted_cache, publisher.bootstrap(str(public)), allow_local=True
+    )
+    interrupted_status = refresh_source(interrupted_cache, interrupted_source.source_id)
+    assert (
+        interrupted_status.root_version == 2 and interrupted_status.freshness == "fresh"
+    )
+    publish(overlap, old_keys, 2)
+    revoked = Publisher.make_root(3, new_signer)
+    before = contents()
+    # Conversely, the new root must still authenticate the committed old roles
+    # until the timestamp switch. Move current signatures before revoking a key.
+    with pytest.raises(RepositoryError):
+        publish(revoked, new_keys, 3)
+    assert contents() == before
+    publish(overlap, new_keys, 3)
+    publish(revoked, new_keys, 4)
+    bootstrap = publisher.bootstrap(str(public))
+    source = follow(tmp_path / "cache", bootstrap, allow_local=True)
+    assert refresh_source(tmp_path / "cache", source.source_id).root_version == 3

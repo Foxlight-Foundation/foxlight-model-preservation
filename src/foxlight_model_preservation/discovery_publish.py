@@ -135,19 +135,20 @@ def publish_catalog(
                 for filename in os.listdir(metadata_dir)
                 if (match := re.fullmatch(r"([1-9][0-9]{0,15})\.root\.json", filename))
             ]
+        previous_root: Metadata[Root] | None = None
         if published_roots:
             previous_root_version = max(published_roots)
             if root.version not in {previous_root_version, previous_root_version + 1}:
                 raise PreservationError(
                     "published root versions must remain sequential"
                 )
+            previous_root = parse_discovery_role(
+                read_metadata(
+                    destination, f"metadata/{previous_root_version}.root.json"
+                ),
+                Root,
+            )
             if root.version == previous_root_version + 1:
-                previous_root = parse_discovery_role(
-                    read_metadata(
-                        destination, f"metadata/{previous_root_version}.root.json"
-                    ),
-                    Root,
-                )
                 previous_root.signed.verify_delegate(
                     "root", root_metadata.signed_bytes, root_metadata.signatures
                 )
@@ -161,13 +162,55 @@ def publish_catalog(
                 raise PreservationError(
                     "publication version must increase; never overwrite an old version"
                 )
-            if not root.consistent_snapshot:
+            if (
+                not root.consistent_snapshot
+                or previous_root is None
+                or not previous_root.signed.consistent_snapshot
+            ):
                 # Unversioned catalog/role aliases cannot preserve the committed
                 # generation across an interrupted in-place update.
                 raise PreservationError(
                     "updates require consistent snapshots; publish a new source "
                     "or use an atomic whole-generation deployment"
                 )
+            if root.version != previous_root.signed.version:
+                # A client can observe either root around the timestamp switch.
+                # Both generations' role signatures must survive that boundary.
+                for role, proposed in (
+                    ("targets", targets),
+                    ("snapshot", snapshot),
+                    ("timestamp", timestamp),
+                ):
+                    previous_root.signed.verify_delegate(
+                        role, proposed.signed_bytes, proposed.signatures
+                    )
+                committed_snapshot = parse_discovery_role(
+                    read_metadata(
+                        destination,
+                        f"metadata/{previous.signed.snapshot_meta.version}.snapshot.json",
+                    ),
+                    Snapshot,
+                )
+                committed_targets_info = committed_snapshot.signed.meta.get(
+                    "targets.json"
+                )
+                if committed_targets_info is None:
+                    raise PreservationError("committed discovery targets are missing")
+                committed_targets = parse_discovery_role(
+                    read_metadata(
+                        destination,
+                        f"metadata/{committed_targets_info.version}.targets.json",
+                    ),
+                    Targets,
+                )
+                for role, committed in (
+                    ("targets", committed_targets),
+                    ("snapshot", committed_snapshot),
+                    ("timestamp", previous),
+                ):
+                    root.verify_delegate(
+                        role, committed.signed_bytes, committed.signatures
+                    )
         _immutable(destination, f"metadata/{root.version}.root.json", trusted_root)
         _immutable(destination, f"targets/{digest(catalog)}.catalog.json", catalog)
         _immutable(destination, f"metadata/{version}.targets.json", targets_bytes)
