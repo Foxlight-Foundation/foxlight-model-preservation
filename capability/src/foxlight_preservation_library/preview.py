@@ -39,62 +39,54 @@ class PreviewRefused(ValueError):
 
 
 def _library_source() -> str:
-    """Reinstall this installed Library cohort, never downgrade a source preview.
+    """Reuse a resolved public Git commit or the actually installed release URL.
 
-    Public Git installs retain their immutable resolved commit via PEP 610.
-    Released wheel installs use their own versioned public artifact. Unknown
-    VCS origins/identities refuse rather than becoming arbitrary installer input.
+    Version numbers do not prove a published artifact exists. Local, editable
+    and index installs remain usable with an existing Core, but cannot supply
+    a reproducible public cohort for isolated preview setup.
     """
     installed = distribution("foxlight-preservation-library")
     record = installed.read_text("direct_url.json")
-    if record is not None:
-        try:
-            metadata: object = json.loads(record)
-        except json.JSONDecodeError as error:
-            raise PreviewRefused(
-                "Library installation metadata is unreadable."
-            ) from error
-        match metadata:
-            case {
-                "url": str(url),
-                "subdirectory": "capability",
-                "vcs_info": {"vcs": "git", "commit_id": str(revision)},
-            }:
-                if (
-                    url
-                    not in {PUBLIC_REPOSITORY, PUBLIC_REPOSITORY.removesuffix(".git")}
-                    or re.fullmatch(r"[0-9a-f]{40}", revision) is None
-                ):
-                    raise PreviewRefused(
-                        "Install Library from its public repository at an immutable "
-                        "commit before preview setup."
-                    )
-                return (
-                    "git+"
-                    + PUBLIC_REPOSITORY
-                    + "@"
-                    + revision
-                    + "#subdirectory=capability"
-                )
-            case {"vcs_info": object()}:
-                raise PreviewRefused(
-                    "Library source identity is unsupported. "
-                    "Use the public source installation guide."
-                )
-            case _:
-                pass
-    release = installed.version
-    if re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", release) is None:
-        raise PreviewRefused(
-            "This Library build needs an immutable public source installation."
-        )
-    return (
-        "https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v"
-        + release
-        + "/foxlight_preservation_library-"
-        + release
-        + "-py3-none-any.whl"
+    refusal = (
+        "Preview setup needs an immutable public Library install. "
+        "Use the public source installation command; local installs can still "
+        "connect to an existing compatible Core."
     )
+    if record is None:
+        raise PreviewRefused(refusal)
+    try:
+        metadata: object = json.loads(record)
+    except json.JSONDecodeError as error:
+        raise PreviewRefused("Library installation metadata is unreadable.") from error
+    match metadata:
+        case {
+            "url": str(url),
+            "subdirectory": "capability",
+            "vcs_info": {"vcs": "git", "commit_id": str(revision)},
+        }:
+            if (
+                url not in {PUBLIC_REPOSITORY, PUBLIC_REPOSITORY.removesuffix(".git")}
+                or re.fullmatch(r"[0-9a-f]{40}", revision) is None
+            ):
+                raise PreviewRefused(refusal)
+            return (
+                "git+" + PUBLIC_REPOSITORY + "@" + revision + "#subdirectory=capability"
+            )
+        case {"url": str(url), "archive_info": object()}:
+            release = installed.version
+            if re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", release) is not None:
+                expected = (
+                    "https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v"
+                    + release
+                    + "/foxlight_preservation_library-"
+                    + release
+                    + "-py3-none-any.whl"
+                )
+                if url == expected:
+                    return url
+            raise PreviewRefused(refusal)
+        case _:
+            raise PreviewRefused(refusal)
 
 
 def _write(path: Path, content: str) -> None:
@@ -360,6 +352,9 @@ def setup(root: Path, *, resume: bool, with_dashboard: bool) -> None:
     else:
         if resume:
             raise PreviewRefused("No preview exists there. Run setup without --resume.")
+        # Refuse an unavailable cohort before creating a profile or running
+        # Core's installer.
+        _library_source()
         root.mkdir(mode=0o700)
         (root / "model-store").mkdir(mode=0o700)
         store_info = (root / "model-store").stat()

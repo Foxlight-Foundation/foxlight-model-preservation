@@ -267,5 +267,7 @@ foxlight-preservation-library
 A compatible Core is required on the model-store host. For a separate unconfigured
 installation use [the source preview setup](preview.md). Source setup reuses the
 exact resolved Library commit from the installed package; it does not replace
-this version with an older released wheel. The 0.7 software release has not been
+this version with an older released wheel. Local-source/local-wheel installs
+remain usable with an existing Core; preview setup requires the public Git
+installation command or an actual official release URL. The 0.7 release has not been
 cut; the older 0.6 release link above retains its previous behavior.

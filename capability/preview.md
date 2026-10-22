@@ -160,9 +160,11 @@ Then use the same `setup`, `core` and `library` commands above with a **new**
 preview directory. The installer pins a reviewed PMF-capable Core revision and
 its exact installer checksum. Source setup reads the installed Library's resolved
 public Git commit and installs that same cohort in the preview; a later change
-to `main` cannot silently replace it during setup. Released-wheel installations
-use their own versioned public wheel. Unsupported VCS identities refuse rather
-than becoming arbitrary installer input.
+to `main` cannot silently replace it during setup. Installations obtained from an official release URL reuse that exact URL.
+Local directory/wheel or index-only installs can use an existing Core, but
+preview setup refuses them before creating a new profile. Use the public Git
+command above for a reproducible source cohort. Unsupported identities never
+become arbitrary installer input.
 
 Preserve, Check, Save recovery kit and Restore use their normal reviewed jobs.
 PMF kits use explicit v2 framing; old v1 kits still work. Every captured model,
