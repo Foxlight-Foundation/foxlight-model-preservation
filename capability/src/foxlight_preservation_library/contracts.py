@@ -99,6 +99,22 @@ class SharingInput(Contract):
     advertised_url: str | None = Field(default=None, max_length=2048)
 
 
+class DeliveryInput(Contract):
+    """Public publication/receiving selections; byte metadata uses uploads."""
+
+    kind: Literal["publish", "receive"]
+    location_id: str = Field(min_length=1, max_length=128)
+    copy_id: str | None = Field(default=None, max_length=128)
+    destination_id: str | None = Field(default=None, max_length=128)
+    upload_id: str | None = Field(default=None, max_length=128)
+    resume_job_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    accepted_key_ids: list[str] = Field(default_factory=list, max_length=32)
+    download_limit_bytes: int = Field(default=20 * 1024**3, ge=1, le=2**53 - 1)
+    download_deadline_seconds: int = Field(default=3600, ge=1, le=86400)
+    allow_http: bool = False
+    allow_private: bool = False
+
+
 class CopyResult(Contract):
     """Exact completed retained copy, never an inferred runtime qualification."""
 
@@ -136,7 +152,7 @@ def build_manifest(*, executable: str, executable_sha256: str) -> Manifest:
     return Manifest(
         bundle_id="foxlight.model-preservation",
         skulk_requires=">=2.0.3,<3",
-        bundle_version="0.4.1",
+        bundle_version="0.5.0",
         executable=executable,
         executable_sha256=executable_sha256,
         arguments=(),

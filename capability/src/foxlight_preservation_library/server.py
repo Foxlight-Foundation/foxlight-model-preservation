@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from skulk_capability_sdk.contracts import Startup
 
 from .client import CoreClient, CoreRefused
-from .contracts import LibraryCall, SharingInput
+from .contracts import DeliveryInput, LibraryCall, SharingInput
 
 
 class _Server(http.server.ThreadingHTTPServer):
@@ -163,7 +163,53 @@ class LibraryServer:
             return await self.client.request(
                 "POST", "plans", selected.model_dump(mode="json")
             )
-        if action == "start":
+        if action == "delivery-plan":
+            delivery = DeliveryInput.model_validate(body)
+            return await self.client.request(
+                "POST", "plans", delivery.model_dump(mode="json", exclude_unset=True)
+            )
+        if action == "publisher-setup":
+            if body:
+                raise CoreRefused("invalid_submission")
+            return await self.client.request("POST", "setup/publisher", {})
+        if action in {"publication-source", "invitation-inspect", "receive-preview"}:
+            field = {
+                "publication-source": "copy_id",
+                "invitation-inspect": "upload_id",
+                "receive-preview": "job_id",
+            }[action]
+            identifier = body.get(field)
+            width = 32 if field == "upload_id" else 64
+            if (
+                set(body) != {field}
+                or not isinstance(identifier, str)
+                or re.fullmatch(r"[0-9a-f]{" + str(width) + "}", identifier) is None
+            ):
+                raise CoreRefused("invalid_submission")
+            if action == "receive-preview":
+                job = await self.client.request("GET", "jobs/" + identifier)
+                if (
+                    job.get("owner_id") != self.client.sharing_owner_id
+                    or job.get("kind") != "receive"
+                ):
+                    raise CoreRefused("job_owner_changed")
+            path = (
+                "copies/" + identifier + "/publication"
+                if action == "publication-source"
+                else "kit-uploads/" + identifier + "/invitation"
+                if action == "invitation-inspect"
+                else "jobs/" + identifier + "/invitation"
+            )
+            return await self.client.request("GET", path)
+        if action in {"start", "resume-receive"}:
+            job_id = body.get("job_id")
+            if action == "resume-receive":
+                if (
+                    not isinstance(job_id, str)
+                    or re.fullmatch(r"[0-9a-f]{64}", job_id) is None
+                ):
+                    raise CoreRefused("invalid_job_identity")
+                body = {key: value for key, value in body.items() if key != "job_id"}
             if (
                 not {"plan_id", "operation_id"}.issubset(body)
                 or set(body)
@@ -197,9 +243,32 @@ class LibraryServer:
             owner = (
                 self.client.sharing_owner_id
                 if selected_plan.get("kind")
-                in {"mirror_import", "http_share", "torrent_share"}
+                in {
+                    "mirror_import",
+                    "http_share",
+                    "torrent_share",
+                    "publish",
+                    "receive",
+                }
                 else self.client.owner_id
             )
+            if action == "resume-receive":
+                if (
+                    selected_plan.get("kind") != "receive"
+                    or selected_plan.get("resume_job_id") != job_id
+                ):
+                    raise CoreRefused("invalid_submission")
+                original = await self.client.request("GET", "jobs/" + cast(str, job_id))
+                if (
+                    original.get("owner_id") != self.client.sharing_owner_id
+                    or original.get("kind") != "receive"
+                ):
+                    raise CoreRefused("job_owner_changed")
+                return await self.client.request(
+                    "POST",
+                    "jobs/" + cast(str, job_id) + "/resume",
+                    {**body, "owner_id": owner},
+                )
             return await self.client.request(
                 "POST", "jobs", {**body, "owner_id": owner}
             )
@@ -214,7 +283,13 @@ class LibraryServer:
                 raise CoreRefused("invalid_job_identity")
             return await self.client.cancel_job(job_id)
         if action == "upload-create":
-            if set(body) != {"size_bytes"}:
+            purpose = body.get("purpose", "kit")
+            if (
+                "size_bytes" not in body
+                or set(body) - {"size_bytes", "purpose"}
+                or not isinstance(purpose, str)
+                or purpose not in {"kit", "invitation", "publication"}
+            ):
                 raise CoreRefused("invalid_upload")
             return await self.client.request("POST", "kit-uploads", body)
         if action in {"upload-status", "upload-remove"}:
@@ -348,6 +423,11 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         if selected is None:
             return
         app, relative = selected
+        if re.fullmatch(r"api/manifest/[0-9a-f]{64}", relative):
+            self._metadata(
+                app, "GET", "plans/" + relative.rsplit("/", 1)[1] + "/public-manifest"
+            )
+            return
         if re.fullmatch(r"api/trust/[0-9a-f]{64}", relative):
             self._trust(app, relative.rsplit("/", 1)[1])
             return
@@ -395,27 +475,37 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         if selected is None:
             return
         app, relative = selected
+        invitation = re.fullmatch(r"api/invitation/([0-9a-f]{64})", relative)
         try:
             length = int(self.headers.get("Content-Length", "0"))
             if (
                 self.headers.get("X-Preservation-Action") != "operator"
                 or self.headers.get_content_type() != "application/json"
                 or not 0 < length <= 65536
-                or relative
-                not in {
-                    "api/setup",
-                    "api/plan",
-                    "api/sharing-plan",
-                    "api/start",
-                    "api/cancel",
-                    "api/upload-create",
-                    "api/upload-status",
-                    "api/upload-remove",
-                    "api/retry-plan",
-                    "api/reclaim",
-                    "api/work-preview",
-                    "api/reclaim-work",
-                }
+                or (
+                    invitation is None
+                    and relative
+                    not in {
+                        "api/setup",
+                        "api/plan",
+                        "api/sharing-plan",
+                        "api/start",
+                        "api/cancel",
+                        "api/upload-create",
+                        "api/upload-status",
+                        "api/upload-remove",
+                        "api/retry-plan",
+                        "api/reclaim",
+                        "api/work-preview",
+                        "api/reclaim-work",
+                        "api/delivery-plan",
+                        "api/publisher-setup",
+                        "api/publication-source",
+                        "api/invitation-inspect",
+                        "api/receive-preview",
+                        "api/resume-receive",
+                    }
+                )
             ):
                 raise ValueError("invalid control")
             body: JsonValue = json.loads(self.rfile.read(length))
@@ -424,7 +514,35 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         except (ValueError, OSError):
             self._reply(400, b'{"error":"invalid_control"}')
             return
+        if invitation is not None:
+            if set(body) != {"mirrors"}:
+                self._reply(400, b'{"error":"invalid_control"}')
+                return
+            self._metadata(
+                app, "POST", "public-copies/" + invitation[1] + "/invitation", body
+            )
+            return
         self._control(app, relative.removeprefix("api/"), body)
+
+    def _metadata(
+        self,
+        app: LibraryServer,
+        method: str,
+        path: str,
+        body: dict[str, JsonValue] | None = None,
+    ) -> None:
+        """Serve bounded public metadata; the private screen URL is never shared."""
+        future = asyncio.run_coroutine_threadsafe(
+            app.client.metadata(method, path, body), app.loop
+        )
+        try:
+            self._reply(200, future.result(timeout=12), "application/json")
+        except concurrent.futures.TimeoutError:
+            _ = future.cancel()
+            self._reply(503, b'{"error":"host_unavailable"}')
+        except (CoreRefused, ValueError, OSError) as error:
+            code = str(error) if isinstance(error, CoreRefused) else "host_unavailable"
+            self._reply(409, json.dumps({"error": code}).encode())
 
     def do_PUT(self) -> None:
         """Proxy one bounded binary chunk separately from SDK/control JSON."""

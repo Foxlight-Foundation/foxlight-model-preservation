@@ -1,0 +1,70 @@
+import {test,expect,type Page} from '@playwright/test';
+
+const key='ed25519:'+'3'.repeat(64),manifest='2'.repeat(64);
+const location={location_id:'device',label:'Private archive',purpose:'private',reachable:true,free_bytes:100000000000,publisher_key_id:'capture'};
+const copy={copy_id:'1'.repeat(64),model_id:'community/future',location_id:'device',manifest_id:manifest,audience:'private',size_bytes:8*1024**3,checked_at:1,member_count:2};
+const publicCopy={...copy,audience:'public',location_id:'public-1',publisher_key_ids:[key]};
+const member={member_id:'base',role:'model',repository:'example/model',revision:'0'.repeat(40),format:'opaque',size_bytes:100,file_count:1,license_id:'MIT',terms_reference:'https://example.org/license',notice_paths:[]};
+const source={copy_id:copy.copy_id,manifest_id:manifest,name:'Complete model',workloads:['text'],runtime_requirements:['opaque-v99'],members:[member,{...member,member_id:'tokenizer',role:'tokenizer'}]};
+const preview={manifest_id:manifest,name:'Complete model',size_bytes:8*1024**3,member_count:2,members:['base: model','tokenizer: tokenizer'],publisher_key_ids:[key],threshold:1,mirrors:['https://models.example.org/']};
+const basePlan={plan_id:'a'.repeat(64),model_id:copy.model_id,location_id:'device',size_bytes:preview.size_bytes,members:preview.members,member_count:2,manifest_id:manifest,publisher_key_ids:[key],expires_at:9999999999};
+async function inventory(page:Page,extra:Record<string,unknown>={}){await page.route('**/api/library?offset=*',route=>route.fulfill({json:{locations:[location],models:[],copies:[copy],public_copies:[publicCopy],publishing:null,uploads:[],jobs:[],next_offset:null,...extra}}));}
+async function upload(page:Page,received:(text:string)=>void=()=>{}){let size=0,offset=0;await page.route('**/api/upload-create',route=>{size=route.request().postDataJSON().size_bytes;offset=0;return route.fulfill({json:{upload_id:'4'.repeat(32),size_bytes:size,offset,complete:false}});});await page.route('**/api/upload/*',route=>{const data=route.request().postDataBuffer()!;received(data.toString());offset+=data.length;return route.fulfill({json:{upload_id:'4'.repeat(32),size_bytes:size,offset,complete:offset===size}});});}
+
+test('kept private copy publishes complete member terms through metadata upload and fresh consent',async({page})=>{
+  await inventory(page);await page.route('**/api/publication-source',route=>route.fulfill({json:source}));
+  let setups=0,metadata='',started:Record<string,unknown>|null=null,planned:Record<string,unknown>|null=null;
+  await page.route('**/api/publisher-setup',route=>{setups++;return route.fulfill({json:{...location,location_id:'publisher',purpose:'public',publisher_key_id:key}});});
+  await upload(page,text=>{metadata+=text;});
+  await page.route('**/api/delivery-plan',route=>{planned=route.request().postDataJSON();return route.fulfill({json:{...basePlan,kind:'publish'}});});
+  await page.route('**/api/start',route=>{started=route.request().postDataJSON();return route.fulfill({json:{}});});
+  await page.goto('/');await page.getByRole('button',{name:'Publish',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Prepare a public copy'})).toBeVisible();
+  await page.getByRole('button',{name:'Set up publishing'}).click();expect(setups).toBe(1);expect(started).toBeNull();
+  await expect(page.getByRole('button',{name:'Review public copy'})).toBeDisabled();
+  for(const fieldset of await page.locator('fieldset').all()){await fieldset.getByLabel('Why you may redistribute').fill('Permitted by the stated license.');await fieldset.getByLabel('Publisher-supplied license').fill('License notice\n'+'x'.repeat(40000));}
+  await page.getByRole('button',{name:'Review public copy'}).click();
+  await expect(page.getByRole('heading',{name:'Sign and keep this public copy'})).toBeVisible();
+  expect(metadata.length).toBeGreaterThan(65536);const request=JSON.parse(metadata);expect(request.members).toHaveLength(2);expect(request.notices).toHaveLength(2);expect(request.members[1].notice_paths).toEqual(['NOTICE.publisher.txt']);
+  expect(planned).toMatchObject({kind:'publish',copy_id:copy.copy_id,destination_id:'publisher',upload_id:'4'.repeat(32)});expect(planned).not.toHaveProperty('public_request');
+  await expect(page.getByRole('button',{name:'Create signed public copy'})).toBeDisabled();await page.getByLabel('I reviewed all member terms').check();await page.reload();await expect(page.getByRole('button',{name:'Create signed public copy'})).toBeDisabled();await page.getByLabel('I reviewed all member terms').check();await page.getByRole('button',{name:'Create signed public copy'}).click();
+  expect(started).toMatchObject({plan_id:basePlan.plan_id,public_participation:true});expect(started).not.toHaveProperty('allow_repository_code');
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
+});
+
+test('recipient inspects offline, independently selects fingerprints and downloads without installation',async({page})=>{
+  await inventory(page,{locations:[],copies:[]});await upload(page);
+  let inspected=0,planned:Record<string,unknown>|null=null,started:Record<string,unknown>|null=null;
+  await page.route('**/api/invitation-inspect',route=>{inspected++;return route.fulfill({json:preview});});
+  await page.route('**/api/delivery-plan',route=>{planned=route.request().postDataJSON();return route.fulfill({json:{...basePlan,kind:'receive',location_id:'invitation',receiving:{mirrors:preview.mirrors,max_bytes:3*preview.size_bytes+8*1024**2,deadline_seconds:86400,allow_http:false,allow_private:false}}});});
+  await page.route('**/api/start',route=>{started=route.request().postDataJSON();return route.fulfill({json:{}});});
+  await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();await page.getByRole('button',{name:'Receive shared model'}).click();await page.getByLabel('Invitation file',{exact:true}).setInputFiles({name:'model.invitation.json',mimeType:'application/json',buffer:Buffer.from('candidate invitation')});
+  await expect(page.getByRole('heading',{name:'Authenticate the sender'})).toBeVisible();expect(inspected).toBe(1);expect(planned).toBeNull();expect(started).toBeNull();await expect(page.getByRole('button',{name:'Review download',exact:true})).toBeDisabled();await page.getByLabel('I independently checked this fingerprint').check();await page.getByRole('button',{name:'Review download',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Download this signed copy'})).toBeVisible();expect(planned).toMatchObject({kind:'receive',accepted_key_ids:[key],allow_http:false,allow_private:false,download_deadline_seconds:86400});expect(Number(planned!['download_limit_bytes'])).toBeGreaterThan(preview.size_bytes);
+  await page.getByLabel('I accept this exact signed copy').check();await page.getByRole('button',{name:'Download model',exact:true}).click();expect(started).toMatchObject({plan_id:basePlan.plan_id,accept_owner_capture:true});expect(started).not.toHaveProperty('public_participation');expect(started).not.toHaveProperty('allow_repository_code');
+});
+
+test('stopped receive resumes original job with fresh review, no upload or allowance refill',async({page})=>{
+ const job={job_id:'b'.repeat(64),operation_id:'original',plan_id:'c'.repeat(64),kind:'receive',model_id:copy.model_id,state:'interrupted',stage:'receiving',created_at:1,bytes_copied:0,bytes_hashed:0,expected_manifest_id:manifest,copy_id:null,error_code:'host_restart_before_publication'};
+ await inventory(page,{locations:[],copies:[],jobs:[job],temporary_work_jobs:[job.job_id]});await page.route('**/api/receive-preview',route=>route.fulfill({json:preview}));let body:Record<string,unknown>|null=null,resumed:Record<string,unknown>|null=null;
+ await page.route('**/api/delivery-plan',route=>{body=route.request().postDataJSON();return route.fulfill({json:{...basePlan,kind:'receive',location_id:'invitation',resume_job_id:job.job_id,receiving:{mirrors:preview.mirrors,max_bytes:preview.size_bytes*2,deadline_seconds:3600,allow_http:false,allow_private:false}}});});
+ await page.route('**/api/resume-receive',route=>{resumed=route.request().postDataJSON();return route.fulfill({json:job});});
+ await page.goto('/');await page.getByRole('button',{name:'Activity',exact:true}).click();await page.getByRole('button',{name:'Review download resume'}).click();await page.getByRole('button',{name:'Review resume',exact:true}).click();expect(body).toEqual({kind:'receive',location_id:'invitation',resume_job_id:job.job_id});await page.getByLabel('I accept this exact signed copy').check();await page.getByRole('button',{name:'Resume download',exact:true}).click();expect(resumed).toMatchObject({job_id:job.job_id,plan_id:basePlan.plan_id,accept_owner_capture:true});expect(resumed!['operation_id']).not.toBe(job.operation_id);
+});
+
+test('recipient handoff downloads a portable invitation and never copies the control URL',async({page})=>{
+ await inventory(page,{locations:[],copies:[]});let exported:unknown;await page.route('**/api/invitation/*',route=>{exported=route.request().postDataJSON();return route.fulfill({contentType:'application/json',body:'{"original_signed_envelope":true}'});});
+ await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();await page.getByRole('button',{name:'Share with someone',exact:true}).click();await page.getByLabel('Mirror base addresses').fill('https://models.example.org/');const downloaded=page.waitForEvent('download');await page.getByRole('button',{name:'Download invitation file',exact:true}).click();expect((await downloaded).suggestedFilename()).toBe(manifest+'.invitation.json');expect(exported).toEqual({mirrors:['https://models.example.org/']});const message=await page.getByLabel('Message for your recipient').inputValue();expect(message).toContain(manifest);expect(message).toContain(key);expect(message).toContain('attached');expect(message).not.toContain(new URL(page.url()).origin);expect(message).not.toContain('/s/');expect(message).not.toContain('52415');expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
+});
+
+test('public-copy recovery kit works without private archive setup',async({page})=>{
+ await inventory(page,{locations:[],copies:[]});let planned:unknown;await page.route('**/api/plan',route=>{planned=route.request().postDataJSON();return route.fulfill({json:{...basePlan,kind:'kit_export',location_id:publicCopy.location_id}});});await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();await page.getByRole('button',{name:'Save recovery kit',exact:true}).click();await expect(page.getByRole('heading',{name:'Save a recovery kit'})).toBeVisible();await expect(page.getByRole('button',{name:'Create recovery kit',exact:true})).toBeEnabled();expect(planned).toMatchObject({kind:'kit_export',location_id:publicCopy.location_id,copy_id:publicCopy.copy_id});
+});
+
+for(const kind of ['publish','receive'] as const)test(`leaving ${kind} while metadata is pending cannot reopen its review`,async({page})=>{
+ await inventory(page);let release!:()=>void;const pending=new Promise<void>(resolve=>{release=resolve;});await page.route(kind==='publish'?'**/api/publication-source':'**/api/invitation-inspect',async route=>{await pending;await route.fulfill({json:kind==='publish'?source:preview});});await upload(page);await page.goto('/');if(kind==='publish')await page.getByRole('button',{name:'Publish',exact:true}).click();else{await page.getByRole('button',{name:'Sharing',exact:true}).click();await page.getByRole('button',{name:'Receive shared model'}).click();await page.getByLabel('Invitation file',{exact:true}).setInputFiles({name:'model.json',mimeType:'application/json',buffer:Buffer.from('invitation')});}await page.getByRole('button',{name:'Sharing',exact:true}).click();release();await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));await expect(page.getByRole('heading',{name:'Keep a community copy available.'})).toBeVisible();await expect(page.getByRole('heading',{name:'Prepare a public copy',exact:true})).toHaveCount(0);await expect(page.getByRole('heading',{name:'Authenticate the sender',exact:true})).toHaveCount(0);
+});
+
+test('changing mirror hints during invitation export cannot mark the new handoff ready',async({page})=>{
+ await inventory(page,{locations:[],copies:[]});let release!:()=>void;const pending=new Promise<void>(resolve=>{release=resolve;});await page.route('**/api/invitation/*',async route=>{await pending;await route.fulfill({contentType:'application/json',body:'{"original":true}'});});await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();await page.getByRole('button',{name:'Share with someone',exact:true}).click();await page.getByLabel('Mirror base addresses').fill('https://old.example.org/');await page.getByRole('button',{name:'Download invitation file',exact:true}).click();await page.getByLabel('Mirror base addresses').fill('https://new.example.org/');const download=page.waitForEvent('download');release();await download;await expect(page.getByLabel('Message for your recipient')).toHaveCount(0);await expect(page.getByRole('button',{name:'Download invitation file',exact:true})).toBeEnabled();
+});

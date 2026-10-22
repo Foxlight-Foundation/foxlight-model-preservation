@@ -12,7 +12,7 @@ export function UploadKit({uploads,onReview,onBack,onChange,publicImport=false}:
       let current:Upload|undefined;
       // Match a flushed prefix before skipping ahead. Full signed hashing,
       // rather than this resume aid, remains the integrity boundary.
-      for(const candidate of uploads.filter(item=>item.size_bytes===file.size).sort((a,b)=>b.offset-a.offset)) {
+      for(const candidate of uploads.filter(item=>(item.purpose??'kit')==='kit'&&item.size_bytes===file.size).sort((a,b)=>b.offset-a.offset)) {
         try {current=await api<Upload>('upload-status',{upload_id:candidate.upload_id});if(current.offset>0)current=await uploadChunk(current.upload_id,0,file.slice(0,Math.min(current.offset,4*1024**2)));break;}catch{current=undefined;}
       }
       if(!current)current=await api<Upload>('upload-create',{size_bytes:file.size});
@@ -49,7 +49,7 @@ export function ReviewPlan({plan,busy,online,onBack,onStart}:{plan:Plan;busy:boo
     {plan.requires_owner_acceptance&&<label className="mp-consent"><input type="checkbox" checked={accept} onChange={event=>setAccept(event.target.checked)}/><span>I trust this exact recovery copy and accept its stated provenance limits.</span></label>}
     {plan.requires_code_permission&&<label className="mp-consent"><input type="checkbox" checked={code} onChange={event=>setCode(event.target.checked)}/><span>Separately, I allow this model’s repository code to run on this Core.</span></label>}
     {(plan.deleted_aliases?.length??0)>0&&<label className="mp-consent"><input type="checkbox" checked={removed} onChange={event=>setRemoved(event.target.checked)}/><span>I want to restore these deliberately removed models: {plan.deleted_aliases?.join(', ')}.</span></label>}
-    <p className="mp-small mp-muted">Permissions from the old Core are not reused. Existing models and deliberate removals are protected.</p></>:<p className="mp-muted">This copy stays private. File checks preserve captured identity; they do not grant new registry assurance or permission to run repository code.</p>}
+    <p className="mp-small mp-muted">Permissions from the old Core are not reused. Existing models and deliberate removals are protected.</p></>:<p className="mp-muted">The copy keeps its original signed audience. Exporting a kit starts no hosting. File checks preserve captured identity; they do not grant new registry assurance or permission to run repository code.</p>}
     <div className="mp-finish"><span className="mp-small mp-muted">You can leave while Skulk works.</span><button className="mp-button mp-primary" disabled={Boolean(blocked)} onClick={()=>onStart(accept,code,removed)}>{busy?'Starting…':recovering?'Restore model':plan.kind==='kit_export'?'Create recovery kit':plan.kind==='preserve'?'Preserve model':'Check files'}</button></div>
   </section>;
 }
