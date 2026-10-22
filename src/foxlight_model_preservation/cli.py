@@ -5,16 +5,25 @@ from __future__ import annotations
 import argparse
 import getpass
 import json
+import os
 import signal
 import ssl
 import sys
 import time
+import uuid
 from pathlib import Path
 
 from pydantic import JsonValue
 
 from .assurance import inspect_member_evidence, retain_card
 from .cards import create_card, identity_json, load_card
+from .invitations import (
+    accept_invitation_keys,
+    authenticate_invitation,
+    create_invitation,
+    fetch_invitation,
+    read_invitation,
+)
 from .kits import export_kit, import_kit, inspect_kit
 from .models import MAX_METADATA_BYTES, Catalog, PreservationError, Recipe, TrustProfile
 from .operations import OperationCancelled, OperationControl, Progress, failure_code
@@ -33,7 +42,15 @@ from .signing import (
     strict_json,
     verify_catalog,
 )
-from .storage import pack, plan_pack, plan_restore, restore, verify_store
+from .storage import (
+    directory,
+    pack,
+    plan_pack,
+    plan_restore,
+    read_metadata,
+    restore,
+    verify_store,
+)
 from .torrent import TorrentExport, TorrentSeeder, TorrentSeedPolicy, export_torrent
 from .transfer import TransferPolicy, fetch, plan_fetch
 
@@ -50,7 +67,11 @@ class Arguments(argparse.Namespace):
     command: str
     key: Path
     trust_out: Path
-    trust: Path
+    trust: Path | None = None
+    invitation: Path
+    accept_key: list[str]
+    save_trust: Path | None = None
+    deadline_seconds: float
     passphrase_file: Path | None = None
     unencrypted: bool = False
     recipe: Path
@@ -140,6 +161,12 @@ def _trust_options(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _enrolled_trust(arguments: Arguments) -> TrustProfile:
+    if arguments.trust is None:
+        raise PreservationError("independently enrolled trust is required")
+    return load_trust(read_input(arguments.trust))
+
+
 def argument_parser() -> argparse.ArgumentParser:
     """Expose effect-specific commands with no implicit public serving behavior."""
     parser = argparse.ArgumentParser(prog="model-preserve")
@@ -219,6 +246,42 @@ def argument_parser() -> argparse.ArgumentParser:
     download.add_argument("--max-bytes", type=int, default=20 * 1024**3)
     download.add_argument("--allow-private", action="store_true")
     download.add_argument("--allow-http", action="store_true")
+    invitation = commands.add_parser(
+        "invite", help="export public signed metadata and mirror hints; no hosting"
+    )
+    _trust_options(invitation)
+    invitation.add_argument("--store", type=Path, required=True)
+    invitation.add_argument("--mirror", action="append", required=True)
+    invitation.add_argument("--output", type=Path, required=True)
+    inspection = commands.add_parser(
+        "inspect-invitation",
+        help="inspect candidate signatures offline; no trust grant",
+    )
+    inspection.add_argument("invitation", type=Path)
+    receiving = commands.add_parser(
+        "fetch-invitation", help="receive an exact public copy under explicit trust"
+    )
+    receiving.add_argument("invitation", type=Path)
+    authority = receiving.add_mutually_exclusive_group(required=True)
+    authority.add_argument("--trust", type=Path, help="independently enrolled policy")
+    authority.add_argument(
+        "--accept-key",
+        action="append",
+        default=[],
+        help="explicit first-contact fingerprint acceptance for this copy only",
+    )
+    receiving.add_argument("--store", type=Path, required=True)
+    receiving.add_argument(
+        "--save-trust", type=Path, help="retain the selected public policy for recovery"
+    )
+    receiving.add_argument("--max-bytes", type=int, default=20 * 1024**3)
+    receiving.add_argument("--deadline-seconds", type=float, default=3600)
+    receiving.add_argument("--allow-private", action="store_true")
+    receiving.add_argument("--allow-http", action="store_true")
+    receiving.add_argument(
+        "--operation-id", help="retain cumulative allowance on retry"
+    )
+    receiving.add_argument("--progress", action="store_true")
     materialize = commands.add_parser(
         "restore", help="restore member layouts into a new directory"
     )
@@ -403,6 +466,8 @@ def run(
     arguments: Arguments, *, control: OperationControl | None = None
 ) -> dict[str, JsonValue]:
     """Execute exactly the selected operation and return a bounded safe receipt."""
+    if arguments.command in {"invite", "inspect-invitation", "fetch-invitation"}:
+        return _invitation_commands(arguments, control)
     if arguments.command.startswith("kit-"):
         if arguments.command == "kit-export":
             if not isinstance(arguments.manifest, str):
@@ -410,7 +475,7 @@ def run(
             info = export_kit(
                 arguments.store,
                 arguments.manifest,
-                load_trust(read_input(arguments.trust)),
+                _enrolled_trust(arguments),
                 arguments.output,
                 control=control,
             )
@@ -488,7 +553,7 @@ def run(
         with arguments.output.open("xb") as output:
             output.write(encoded)
         return {"catalog": digest(encode_record(catalog))}
-    trust = load_trust(read_input(arguments.trust))
+    trust = _enrolled_trust(arguments)
     if arguments.command in {
         "plan-publication",
         "publish",
@@ -671,6 +736,115 @@ def run(
     }
 
 
+def _save_invitation_trust(destination: Path, trust: TrustProfile) -> None:
+    # Match recovery-kit no-replacement publication: a flushed temporary inode
+    # becomes visible under the final name atomically, never as a partial file.
+    with directory(destination.parent) as parent:
+        pending = ".invitation-trust-" + uuid.uuid4().hex
+        descriptor = os.open(
+            pending,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+            0o600,
+            dir_fd=parent,
+        )
+        try:
+            with os.fdopen(descriptor, "wb") as output:
+                output.write(encode_record(trust))
+                output.flush()
+                os.fsync(output.fileno())
+            try:
+                os.link(
+                    pending,
+                    destination.name,
+                    src_dir_fd=parent,
+                    dst_dir_fd=parent,
+                    follow_symlinks=False,
+                )
+            except FileExistsError:
+                if load_trust(read_metadata(parent, destination.name)) != trust:
+                    raise PreservationError(
+                        "saved trust differs from the selected policy"
+                    ) from None
+            os.fsync(parent)
+        finally:
+            os.unlink(pending, dir_fd=parent)
+
+
+def _invitation_commands(
+    arguments: Arguments, control: OperationControl | None
+) -> dict[str, JsonValue]:
+    if arguments.command == "invite":
+        if not isinstance(arguments.manifest, str):
+            raise PreservationError("one exact manifest identity required")
+        invitation = create_invitation(
+            arguments.store,
+            arguments.manifest,
+            _enrolled_trust(arguments),
+            tuple(arguments.mirror),
+        )
+        with arguments.output.open("xb") as stream:
+            stream.write(encode_record(invitation))
+        return {
+            "manifest": invitation.manifest_id,
+            "invitation": digest(encode_record(invitation)),
+            "verification": "metadata_only",
+            "serving": False,
+        }
+    invitation = read_invitation(read_input(arguments.invitation))
+    metadata = invitation.manifest
+    if arguments.command == "inspect-invitation":
+        return {
+            "manifest": invitation.manifest_id,
+            "name": metadata.name,
+            "logical_bytes": metadata.total_bytes,
+            "member_count": len(metadata.members),
+            "members": [
+                {
+                    "member_id": member.member_id,
+                    "role": member.role,
+                    "format": member.format,
+                    "dependencies": list(member.dependencies),
+                }
+                for member in metadata.members
+            ],
+            "fingerprints": [key.key_id for key in invitation.candidate_trust.keys],
+            "candidate_threshold": invitation.candidate_trust.threshold,
+            "mirrors": list(invitation.mirrors),
+            "candidate_signatures_verified": True,
+            "publisher_authenticated": False,
+            "registry_authority": "not_granted",
+            "network_started": False,
+        }
+    trust = (
+        _enrolled_trust(arguments)
+        if arguments.trust is not None
+        else accept_invitation_keys(invitation, tuple(arguments.accept_key))
+    )
+    if arguments.save_trust is not None:
+        authenticate_invitation(invitation, trust)
+        _save_invitation_trust(arguments.save_trust, trust)
+    received = fetch_invitation(
+        invitation,
+        trust,
+        arguments.store,
+        TransferPolicy(
+            max_bytes=arguments.max_bytes,
+            deadline_seconds=arguments.deadline_seconds,
+            allow_private=arguments.allow_private,
+            allow_http=arguments.allow_http,
+        ),
+        control=control,
+        operation_id=arguments.operation_id,
+    )
+    return {
+        "manifest": invitation.manifest_id,
+        "verified_bytes": received.total_bytes,
+        "key_authority": "capture_only",
+        "admitted": False,
+        "serving": False,
+    }
+
+
 def _sharing_commands(
     arguments: Arguments, trust: TrustProfile, control: OperationControl
 ) -> dict[str, JsonValue]:
@@ -769,6 +943,7 @@ def main() -> int:
         "pack",
         "verify",
         "fetch",
+        "fetch-invitation",
         "restore",
         "fetch-catalog",
         "plan-pack",

@@ -10,6 +10,19 @@
   keeps the existing governed copy operation contract unchanged. Public serving
   requires an updated Core; private-to-public publication remains a separate review.
 
+## 0.6.0
+
+- Add portable public invitations with the original signed manifest, offline
+  candidate-signature inspection and explicitly trusted bounded mirror receiving.
+  Embedded keys never enroll themselves or grant registry authority. New CLI
+  commands: `invite`, `inspect-invitation` and `fetch-invitation`.
+- Add pure metadata-only publication review and optional bounded, explicitly
+  supplied publisher notices. Original required notices remain intact; supplied
+  text does not become original signed upstream evidence. Full publication still
+  checks all source/output bytes and the exact reviewed identity.
+- Preserve existing bundle identities, opaque future card metadata and
+  receive-only defaults. No new account, hosted resolver or network transport.
+
 ## 0.5.3
 
 - Bind HTTP mirrors without the standard server's incidental reverse-DNS lookup.

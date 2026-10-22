@@ -175,6 +175,29 @@ from the signed preservation identity. Verification of the expected manifest and
 all actual SHA-256 file bytes remains mandatory. See [public sharing](public-sharing.md)
 for privacy, stop/limit semantics and external-client receiving instructions.
 
+## Public invitations (0.6.0)
+
+`foxlight.model-preservation.invitation.v1` carries an exact public manifest ID,
+the original DSSE envelope, candidate `TrustProfile` and 1–16 unsigned HTTP(S)
+mirror bases. The complete canonical wrapper is bounded to 8 MiB, including
+base64 overhead. Unknown wrapper fields/versions and duplicate JSON keys refuse.
+Every member must already have public audience. Embedded candidate keys can
+validate self-signatures but do not authenticate an owner. Receiving requires
+independently selected trust or an explicit first-contact fingerprint choice;
+it grants neither registry authority nor code consent. Mirror hints contain no
+credentials, query, fragment or local path. They cannot amend the signed model
+identity. Inspection/export are metadata-only and start no network. Actual
+receiving uses the same pinned-DNS, finite-budget, full-byte-verification fetcher.
+See [invitations](invitations.md) for CLI and application use.
+
+Publication requests may optionally include bounded publisher-supplied UTF-8
+notices. Each creates a new `NOTICE.publisher.txt` object bound into that member's
+public file table and notice list. It cannot replace a source file or remove an
+original required notice. It is owner evidence, not original upstream evidence;
+changing its contents changes the public manifest identity. This is additive to
+the publication request; existing v1 manifests, envelopes and identities remain
+unchanged. Pure metadata review and actual publication are separate checks.
+
 ## Self-contained recovery kits (v1)
 
 A `.foxkit` file transports one complete existing signed manifest without changing

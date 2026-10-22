@@ -1,7 +1,7 @@
 # Use the standalone Python library
 
 The CLI and library use the same implementation. No Skulk import, GPU library,
-hub account or service is required. This reference describes the 0.5.2 entry
+hub account or service is required. This reference describes the 0.6.0 entry
 points; pin the package revision/version in an integration and test its actual
 contracts. It is not a promise that every helper is a stable extension interface.
 
@@ -14,6 +14,12 @@ contracts. It is not a promise that every helper is a stable extension interface
 | `storage.pack` | `Recipe`, member-ID-to-folder mapping, destination, tuple of owner keys | Manifest ID. Copies selected content, checks it, signs and publishes the envelope last. |
 | `storage.verify_store` | Store path, expected manifest ID, independently trusted profile | Validated `Manifest`, after checking every required actual object. |
 | `transfer.fetch` | Expected manifest ID, trust, source tuple, destination, `TransferPolicy` | Validated `Manifest`. Resumes bounded transfers and publishes completion after verification. |
+| `publication.review_publication` | Already authenticated source `Manifest`, `PublicationRequest` | Exact proposed public metadata, without IO or weight hashing. Optional supplied notices are distinct owner evidence. Actual publication still verifies all bytes. |
+| `invitations.create_invitation` | Public store, exact ID, trust, HTTP(S) mirror tuple | Metadata-only `Invitation`; starts no network and asserts no current availability. |
+| `invitations.read_invitation` | Bounded invitation bytes | Offline candidate-signature inspection, without adopting keys or parsing retained card bodies. |
+| `invitations.authenticate_invitation` | Invitation, independently selected trust | Authenticated public `Manifest`; no IO or model admission. |
+| `invitations.accept_invitation_keys` | Invitation, explicitly authenticated fingerprint tuple | Exact-copy first-contact trust; never global enrollment or replacement for an existing revocation policy. |
+| `invitations.fetch_invitation` | Invitation, selected trust, caller-owned destination, transfer policy/controls | Authenticates before networking, then uses the ordinary fetcher. Never seeds, restores or runs code. |
 | `storage.restore` | Store, expected ID, trust, new output path | Validated `Manifest` and a fresh member layout. Existing outputs are refused. |
 | `signing.verify_catalog` | Envelope bytes, catalog trust, expected catalog ID | Validated catalog. No network request or trust enrollment. |
 | `seed.SeedServer` | Bind address, store, exact selected bundle IDs, trust and serving limits | Explicit read-only server. Construction verifies all selected objects before listening. |
@@ -75,6 +81,12 @@ actual object bytes across attempts are also bounded. Metadata and protocol
 overhead have separate limits or are excluded as described in the protocol.
 
 ## Calling from an application
+
+[Public invitations](invitations.md) describe the offline handoff and trust
+choices. `review_publication`, invitation inspection and authentication are
+metadata operations; `plan_publication` still reads and hashes the full source.
+Never run the latter in a short control-plane request or treat the former as
+proof of current disk bytes or redistribution rights.
 
 These entry points are synchronous and perform potentially long disk/network
 work. Run them in a bounded worker or isolated process, not in an event loop,
