@@ -5,7 +5,10 @@ everyday use, and Activity through Skulk Core's durable preservation host. It
 uses local HTTP; its optional managed adapter uses the capability authoring SDK. It includes no Skulk imports,
 private owner code, signing keys, verifier, artifact transfer or byte worker.
 
-Version 0.5 adds reviewed **Publish**, **Share with someone**, **Receive shared model**
+Version 0.6 adds reviewed local/mounted-folder setup, a durable destination for
+new copies, independent availability for each saved copy, a pinned separate Core
+preview installer and `--check` API compatibility. See [compatible preview setup
+and storage](preview.md). Version 0.5 added reviewed **Publish**, **Share with someone**, **Receive shared model**
 and **Review download resume** to the existing controls. Version 0.4 connected **Use this device**, **Preserve**, **Check**, **Check outcome**,
 **Save recovery kit**, **Download recovery kit**, **Restore** and **Stop job**.
 Preserve and restore review the complete supported companion selection. From a
@@ -67,7 +70,7 @@ fingerprints independently and select the exact manifest ID.
 Network mode binds all IPv4 interfaces. Arrange firewall/routing, DNS and TLS
 separately; a supplied mirror address is a hint, not verified reachability. Core
 builds without the compatible native BitTorrent adapter retain HTTP. Additional
-NAS/remote adapters, followed catalogs and unattended continuous hosting
+Direct object-store adapters, followed catalogs and unattended continuous hosting
 remain separate enhancements. An unclean Core exit
 can leave model-sized temporary torrent exports in Core-owned work storage.
 Activity lists known stopped jobs with **Review temporary files**. Inspect the
@@ -128,10 +131,12 @@ mirrors see Core’s network address; public BitTorrent exposes peer participati
 These controls require Core’s publishing, invitation and receive-resume APIs
 (delivered in Skulk PR #1280); version numbers alone do not establish their
 availability. Older Core builds keep the earlier controls and show an upgrade
-message. A hard process exit in the narrow final-directory reservation window
-can leave an empty, unregistered destination: retries refuse it and retain the
-verified stage/original copy for operator inspection. Temporary-work cleanup does
-not delete final destinations or claim to repair that reservation.
+message. Core PR #1281 replaces the final-directory reservation with an atomic exclusive
+move on supported Linux/macOS filesystems. A process exit retains the verified
+stage or complete destination without creating an empty placeholder. Unsupported
+filesystems refuse safely; old unauthenticated remnants still need inspection.
+Folder enrollment/default selection requires the additional setup APIs in the
+compatible preview. Specific NAS/provider behavior remains separately qualified.
 
 ## Install and open Library
 
@@ -141,11 +146,14 @@ Core on the same model-store host. Its wheel includes the interface; Node.js,
 Skulk's Python package and the managed SDK are not installation dependencies.
 
 ```sh
-uv tool install https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.5.0/foxlight_preservation_library-0.5.0-py3-none-any.whl
+uv tool install https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.6.0/foxlight_preservation_library-0.6.0-py3-none-any.whl
 foxlight-preservation-library
 ```
 
-The launcher checks the local Core and opens a private browser link. For another
+The launcher checks the local Core and opens a private browser link. Use `--check`
+for a read-only report of the actual owner and required API surfaces. If Core is
+missing or older, [preview setup](preview.md) installs pinned compatible components
+in a separate private directory. For another
 local Core port use `--core-url http://127.0.0.1:PORT`; `--no-browser` prints the
 link without opening it. It only listens on loopback and does not perform reverse DNS to start the local screen. Treat the ticket-scoped
 link as private. Closing the launcher stops its screen, while accepted jobs stay

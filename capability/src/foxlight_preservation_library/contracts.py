@@ -84,6 +84,26 @@ class CopyInput(Contract):
     plan_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
+class FolderReviewInput(Contract):
+    """Explicit operator storage setup; paths never enter governed copy inputs."""
+
+    path: str = Field(min_length=1, max_length=4096)
+    label: str = Field(min_length=1, max_length=80)
+
+
+class FolderConfirmationInput(Contract):
+    """Consent to one previously reviewed Core-host folder."""
+
+    review_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    confirmed: bool
+
+
+class DefaultStorageInput(Contract):
+    """An already enrolled private handle, never a new filesystem selection."""
+
+    location_id: str = Field(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$")
+
+
 class SharingInput(Contract):
     """Public data-only selections; no runtime permissions or host paths."""
 
@@ -152,7 +172,7 @@ def build_manifest(*, executable: str, executable_sha256: str) -> Manifest:
     return Manifest(
         bundle_id="foxlight.model-preservation",
         skulk_requires=">=2.0.3,<3",
-        bundle_version="0.5.0",
+        bundle_version="0.6.0",
         executable=executable,
         executable_sha256=executable_sha256,
         arguments=(),

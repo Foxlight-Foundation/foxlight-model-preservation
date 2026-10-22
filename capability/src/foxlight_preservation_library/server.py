@@ -24,7 +24,14 @@ if TYPE_CHECKING:
     from skulk_capability_sdk.contracts import Startup
 
 from .client import CoreClient, CoreRefused
-from .contracts import DeliveryInput, LibraryCall, SharingInput
+from .contracts import (
+    DefaultStorageInput,
+    DeliveryInput,
+    FolderConfirmationInput,
+    FolderReviewInput,
+    LibraryCall,
+    SharingInput,
+)
 
 
 class _Server(http.server.ThreadingHTTPServer):
@@ -151,7 +158,22 @@ class LibraryServer:
     async def dispatch(
         self, action: str, body: dict[str, JsonValue]
     ) -> dict[str, JsonValue]:
-        """Allow only exact UI controls; callers cannot select paths or owner IDs."""
+        """Allow exact UI controls; only explicit folder review accepts a host path."""
+        if action == "folder-review":
+            selection = FolderReviewInput.model_validate(body)
+            return await self.client.request(
+                "POST", "setup/folder/review", selection.model_dump(mode="json")
+            )
+        if action == "folder-setup":
+            confirmation = FolderConfirmationInput.model_validate(body)
+            return await self.client.request(
+                "POST", "setup/folder", confirmation.model_dump(mode="json")
+            )
+        if action == "storage-default":
+            selected_storage = DefaultStorageInput.model_validate(body)
+            return await self.client.request(
+                "POST", "setup/default", selected_storage.model_dump(mode="json")
+            )
         if action == "setup":
             return (
                 await self.client.library(LibraryCall(action="setup_device"))
@@ -487,6 +509,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                     and relative
                     not in {
                         "api/setup",
+                        "api/folder-review",
+                        "api/folder-setup",
+                        "api/storage-default",
                         "api/plan",
                         "api/sharing-plan",
                         "api/start",

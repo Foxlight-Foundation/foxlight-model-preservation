@@ -75,7 +75,9 @@ class CoreClient:
                     if len(data) > 65536:
                         raise CoreRefused("host_response_too_large")
                 if response.status_code == 404 and (
-                    path.startswith(("kit-uploads", "kits/"))
+                    path.startswith(
+                        ("kit-uploads", "kits/", "setup/folder", "setup/default")
+                    )
                     or path.endswith(
                         (
                             "/reclaim",
@@ -91,7 +93,15 @@ class CoreClient:
                     raise CoreRefused("core_upgrade_required")
                 if response.status_code not in {200, 202, 204}:
                     try:
-                        detail = json.loads(data).get("detail")
+                        failure: JsonValue = json.loads(data)
+                        detail = (
+                            failure.get("detail") if isinstance(failure, dict) else None
+                        )
+                        wrapped = (
+                            failure.get("error") if isinstance(failure, dict) else None
+                        )
+                        if detail is None and isinstance(wrapped, dict):
+                            detail = wrapped.get("message")
                     except (ValueError, AttributeError):
                         detail = None
                     if (

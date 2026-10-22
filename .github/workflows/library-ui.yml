@@ -39,7 +39,7 @@ jobs:
           cd /tmp
           /tmp/library-public/bin/python -c "import importlib.util; assert importlib.util.find_spec('skulk_capability_sdk') is None; assert importlib.util.find_spec('skulk') is None"
           /tmp/library-public/bin/foxlight-preservation-library --help
-          /tmp/library-public/bin/python -m pytest "$GITHUB_WORKSPACE/capability/tests/test_standalone.py" "$GITHUB_WORKSPACE/capability/tests/test_delivery.py" -q
+          /tmp/library-public/bin/python -m pytest "$GITHUB_WORKSPACE/capability/tests/test_standalone.py" "$GITHUB_WORKSPACE/capability/tests/test_delivery.py" "$GITHUB_WORKSPACE/capability/tests/test_storage.py" "$GITHUB_WORKSPACE/capability/tests/test_compatibility.py" "$GITHUB_WORKSPACE/capability/tests/test_preview.py" -q
       - uses: actions/upload-artifact@v4
         with:
           name: preservation-library-public

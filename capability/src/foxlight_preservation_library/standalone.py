@@ -9,6 +9,7 @@ import sys
 import webbrowser
 
 from .client import CoreClient, CoreRefused
+from .compatibility import check_core
 from .contracts import LibraryCall, Settings
 from .server import LibraryServer
 
@@ -40,19 +41,44 @@ async def run(settings: Settings, *, open_browser: bool) -> None:
         await client.close()
 
 
+async def compatibility(settings: Settings) -> bool:
+    """Report actual API availability without opening a screen or starting work."""
+    client = CoreClient(settings, "library-local")
+    try:
+        report = await check_core(client)
+        for name, supported in report.items():
+            print(name + ": " + ("available" if supported else "Core upgrade needed"))
+        print("This checks API compatibility. Storage and jobs are checked when used.")
+        return all(report.values())
+    finally:
+        await client.close()
+
+
 def main() -> None:
     """Open Library against a configured local Core with no managed SDK dependency."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--core-url", default="http://127.0.0.1:52415")
     parser.add_argument("--no-browser", action="store_true")
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Check the running owner and API compatibility without opening Library.",
+    )
     arguments = parser.parse_args()
     try:
         settings = Settings(skulk_api_url=arguments.core_url)
-        asyncio.run(run(settings, open_browser=not arguments.no_browser))
+        if arguments.check:
+            if not asyncio.run(compatibility(settings)):
+                raise SystemExit(2)
+        else:
+            asyncio.run(run(settings, open_browser=not arguments.no_browser))
     except (CoreRefused, ValueError) as error:
         print(
             "Library could not open. Start a compatible Skulk Core with its local "
-            "Model Store and preservation API enabled. "
+            "Model Store and preservation API enabled. For a separate pinned preview, "
+            "run foxlight-preservation-preview setup. Guide: "
+            "https://github.com/Foxlight-Foundation/"
+            "foxlight-model-preservation/blob/main/capability/preview.md "
             + (
                 str(error)
                 if isinstance(error, CoreRefused)
