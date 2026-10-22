@@ -3,7 +3,7 @@ export interface Location {location_id:string; label:string; purpose:'private'|'
 export interface Model {model_id:string; generation_id:string; size_bytes:number; verification:string}
 export interface Copy {copy_id:string; model_id:string; location_id:string; manifest_id:string; audience:'private'|'public'; size_bytes:number; checked_at:number; member_count:number; publisher_key_ids?:string[]}
 export interface Job {job_id:string; operation_id:string; plan_id:string; kind:string; model_id:string; state:string; stage:string; created_at:number; bytes_copied:number; bytes_hashed:number; expected_manifest_id:string|null; copy_id:string|null; error_code:string|null; location_id?:string|null; sharing_policy?:{public_network:boolean;duration_seconds:number;upload_limit_bytes:number;upload_rate_bytes:number;advertised_url:string|null}|null; sharing?:{ready:boolean;listen_port:number;charged_bytes:number;accounting:string;connected_peers:number;metainfo_sha256?:string|null}|null}
-export interface Page {locations:Location[]; models:Model[]; copies:Copy[]; jobs:Job[]; uploads?:Upload[]; public_copies?:Copy[]; bittorrent_available?:boolean; next_offset:number|null}
+export interface Page {locations:Location[]; models:Model[]; copies:Copy[]; jobs:Job[]; uploads?:Upload[]; public_copies?:Copy[]; bittorrent_available?:boolean; temporary_work_jobs?:string[]; next_offset:number|null}
 export interface Plan {plan_id:string; kind:'preserve'|'check'|'kit_export'|'recover'|'mirror_import'|'http_share'|'torrent_share'; model_id:string; location_id:string; size_bytes:number; members:string[]; member_count:number; expires_at:number; upload_id?:string|null; historical?:boolean; existing_companions?:string[]; deleted_aliases?:string[]; publisher_key_ids?:string[]; requires_owner_acceptance?:boolean; requires_code_permission?:boolean; publication?:string|null; file_coverage?:string|null;manifest_id?:string|null;sharing?:{public_network:boolean;listen_port:number;duration_seconds:number;upload_rate_bytes:number;upload_limit_bytes:number;advertised_url:string|null}|null}
 
 /** Same-origin ticket-scoped controls; no supplier or analytics requests. */
@@ -21,6 +21,10 @@ export function bytes(value:number):string {return value < 1024 ? `${value} B` :
 /** Stable codes are translated here; raw exceptions never become product copy. */
 export function errorText(code:string):string {
   const labels:Record<string,string> = {
+    temporary_job_not_stopped:'This job is still active or finishing. Wait for it to stop before clearing temporary files.',
+    temporary_work_identity_changed:'These working files have changed. They were kept for inspection.',
+    unsafe_temporary_directory:'These working files could not be safely identified. They were kept for inspection.',
+    unknown_temporary_work:'These files have no matching custody record. Keep them for operator inspection.',
     public_bundle_required:'This kit includes private members. Use the standalone publication review to create a separate signed public bundle before mirroring it.',
     bittorrent_unavailable:'This Core build has no compatible BitTorrent adapter. Use an HTTP mirror, or a Core build with the qualified adapter.',
     host_restart_stopped_sharing:'Core restarted and sharing stopped. Review a new session to share again.',

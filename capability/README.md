@@ -56,10 +56,16 @@ separately; a supplied mirror address is a hint, not verified reachability. Core
 builds without the compatible native BitTorrent adapter retain HTTP. Additional
 NAS/remote adapters, followed catalogs, one-step recipient invitations and
 unattended continuous hosting remain separate enhancements. An unclean Core exit
-can leave model-sized temporary torrent exports in Core-owned work storage. Clean
-stop removes the temporary export, but this preview has no restart reclamation
-control for abandoned sharing work. Preserve the verified public copy and use
-operator storage maintenance rather than deleting unknown files while Core runs.
+can leave model-sized temporary torrent exports in Core-owned work storage.
+Activity lists known stopped jobs with **Review temporary files**. Inspect the
+logical regular-file size (a lower bound when inspection reaches its limit),
+then confirm **Clear temporary files**. This removes only that job's owned work;
+verified public copies, private archives, keys, kits and retained torrent metadata
+stay intact. Core authenticates custody before deletion and quarantines the work
+so interrupted cleanup can be explicitly retried after restart. Older work needs
+its matching host-authored request. Missing custody evidence, changed directory
+identity, unsafe links and active jobs refuse deletion. Cleanup never restarts
+sharing or imports models. This control requires Core's temporary-files APIs.
 Tor/I2P remain under evaluation. Ordinary public mirrors and BitTorrent expose
 network addresses to the serving operator/other peers; neither is anonymous.
 
@@ -71,7 +77,7 @@ Core on the same model-store host. Its wheel includes the interface; Node.js,
 Skulk's Python package and the managed SDK are not installation dependencies.
 
 ```sh
-uv tool install https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.4.0/foxlight_preservation_library-0.4.0-py3-none-any.whl
+uv tool install https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.4.1/foxlight_preservation_library-0.4.1-py3-none-any.whl
 foxlight-preservation-library
 ```
 

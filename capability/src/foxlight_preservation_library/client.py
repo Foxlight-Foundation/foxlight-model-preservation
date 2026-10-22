@@ -76,7 +76,7 @@ class CoreClient:
                         raise CoreRefused("host_response_too_large")
                 if response.status_code == 404 and (
                     path.startswith(("kit-uploads", "kits/"))
-                    or path.endswith("/reclaim")
+                    or path.endswith(("/reclaim", "/temporary-files", "/reclaim-work"))
                 ):
                     raise CoreRefused("core_upgrade_required")
                 if response.status_code not in {200, 202, 204}:

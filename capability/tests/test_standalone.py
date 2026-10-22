@@ -176,6 +176,47 @@ async def test_sharing_uses_separate_owner_and_never_starts_during_review() -> N
         await client.close()
 
 
+@pytest.mark.parametrize(
+    ("action", "method", "suffix"),
+    [
+        ("work-preview", "GET", "temporary-files"),
+        ("reclaim-work", "POST", "reclaim-work"),
+    ],
+)
+async def test_sharing_cleanup_checks_custody_before_read_or_clear(
+    action: str, method: str, suffix: str
+) -> None:
+    seen: list[str] = []
+    owner = "unrelated"
+
+    def core(request: httpx.Request) -> httpx.Response:
+        seen.append(request.method + " " + request.url.path)
+        return httpx.Response(200, json={"owner_id": owner})
+
+    client = CoreClient(
+        Settings(), "library-local", transport=httpx.MockTransport(core)
+    )
+    server = LibraryServer(None, client, asyncio.get_running_loop())
+    server.start()
+    try:
+        with pytest.raises(CoreRefused, match="job_owner_changed"):
+            await server.dispatch(action, {"job_id": "a" * 64})
+        assert len(seen) == 1
+        owner = client.sharing_owner_id
+        async with httpx.AsyncClient(trust_env=False) as browser:
+            response = await browser.post(
+                server.url + "api/" + action,
+                json={"job_id": "a" * 64},
+                headers={"X-Preservation-Action": "operator"},
+            )
+            assert response.status_code == 200
+        assert seen[-1] == method + " /preservation/jobs/" + "a" * 64 + "/" + suffix
+        assert not any(path.endswith("/jobs") for path in seen)
+    finally:
+        await asyncio.to_thread(server.close)
+        await client.close()
+
+
 async def test_local_screen_does_not_require_reverse_dns(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
