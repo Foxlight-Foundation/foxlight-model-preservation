@@ -72,6 +72,9 @@ Changing those inputs under the same ID refuses rather than resetting its budget
 recovery-kit export. It writes no private key. An existing identical policy is
 reused on retry; a different one refuses before networking. This is a local file
 you explicitly retain, without enrolling its keys globally or as registry keys.
+The selected policy must authenticate this invitation before it is saved. The
+final file appears atomically after its complete contents are flushed; a crash
+may leave a temporary file of public keys, without a partial final policy.
 
 The downloader authenticates the included manifest before contacting a mirror,
 then authenticates the fetched manifest before requesting weights. Every actual

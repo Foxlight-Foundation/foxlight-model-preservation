@@ -5,10 +5,12 @@ from __future__ import annotations
 import argparse
 import getpass
 import json
+import os
 import signal
 import ssl
 import sys
 import time
+import uuid
 from pathlib import Path
 
 from pydantic import JsonValue
@@ -17,6 +19,7 @@ from .assurance import inspect_member_evidence, retain_card
 from .cards import create_card, identity_json, load_card
 from .invitations import (
     accept_invitation_keys,
+    authenticate_invitation,
     create_invitation,
     fetch_invitation,
     read_invitation,
@@ -39,7 +42,15 @@ from .signing import (
     strict_json,
     verify_catalog,
 )
-from .storage import pack, plan_pack, plan_restore, restore, verify_store
+from .storage import (
+    directory,
+    pack,
+    plan_pack,
+    plan_restore,
+    read_metadata,
+    restore,
+    verify_store,
+)
 from .torrent import TorrentExport, TorrentSeeder, TorrentSeedPolicy, export_torrent
 from .transfer import TransferPolicy, fetch, plan_fetch
 
@@ -725,6 +736,40 @@ def run(
     }
 
 
+def _save_invitation_trust(destination: Path, trust: TrustProfile) -> None:
+    # Match recovery-kit no-replacement publication: a flushed temporary inode
+    # becomes visible under the final name atomically, never as a partial file.
+    with directory(destination.parent) as parent:
+        pending = ".invitation-trust-" + uuid.uuid4().hex
+        descriptor = os.open(
+            pending,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+            0o600,
+            dir_fd=parent,
+        )
+        try:
+            with os.fdopen(descriptor, "wb") as output:
+                output.write(encode_record(trust))
+                output.flush()
+                os.fsync(output.fileno())
+            try:
+                os.link(
+                    pending,
+                    destination.name,
+                    src_dir_fd=parent,
+                    dst_dir_fd=parent,
+                    follow_symlinks=False,
+                )
+            except FileExistsError:
+                if load_trust(read_metadata(parent, destination.name)) != trust:
+                    raise PreservationError(
+                        "saved trust differs from the selected policy"
+                    ) from None
+            os.fsync(parent)
+        finally:
+            os.unlink(pending, dir_fd=parent)
+
+
 def _invitation_commands(
     arguments: Arguments, control: OperationControl | None
 ) -> dict[str, JsonValue]:
@@ -776,16 +821,8 @@ def _invitation_commands(
         else accept_invitation_keys(invitation, tuple(arguments.accept_key))
     )
     if arguments.save_trust is not None:
-        # Explicit local output only. Refuse a different retained policy before
-        # networking; repeating the same accepted choice is safe after a crash.
-        try:
-            with arguments.save_trust.open("xb") as output:
-                output.write(encode_record(trust))
-        except FileExistsError:
-            if load_trust(read_input(arguments.save_trust)) != trust:
-                raise PreservationError(
-                    "saved trust differs from the selected policy"
-                ) from None
+        authenticate_invitation(invitation, trust)
+        _save_invitation_trust(arguments.save_trust, trust)
     received = fetch_invitation(
         invitation,
         trust,

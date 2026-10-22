@@ -371,3 +371,72 @@ def test_cli_never_replaces_a_different_retained_trust_choice(
     assert "saved trust differs" in capsys.readouterr().err
     assert output.read_bytes() == original
     assert not (tmp_path / "received").exists()
+
+
+def test_cli_wrong_enrolled_policy_leaves_no_saved_choice(
+    capture: Capture,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    handoff = tmp_path / "selected.invitation.json"
+    handoff.write_bytes(encode_record(invitation(capture)))
+    wrong = capture.trust.model_copy(
+        update={"keys": (public_record(Ed25519PrivateKey.generate()),)}
+    )
+    enrolled = tmp_path / "wrong-trust.json"
+    enrolled.write_bytes(encode_record(wrong))
+    saved = tmp_path / "accepted-trust.json"
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        pytest.fail("wrong policy contacted a mirror")
+
+    monkeypatch.setattr(socket, "getaddrinfo", forbidden)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "model-preserve",
+            "fetch-invitation",
+            str(handoff),
+            "--trust",
+            str(enrolled),
+            "--save-trust",
+            str(saved),
+            "--store",
+            str(tmp_path / "received"),
+        ],
+    )
+    assert main() == 1
+    capsys.readouterr()
+    assert not saved.exists()
+    assert not (tmp_path / "received").exists()
+    assert not list(tmp_path.glob(".invitation-trust-*"))
+
+
+def test_saved_policy_is_atomic_no_replace_and_can_retry_after_flush_failure(
+    capture: Capture, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from foxlight_model_preservation import cli
+    from foxlight_model_preservation.signing import load_trust
+
+    selected = invitation(capture)
+    trust = accept_invitation_keys(selected, (capture.trust.keys[0].key_id,))
+    output = tmp_path / "accepted.json"
+
+    def fail_flush(*args: object, **kwargs: object) -> None:
+        assert not output.exists()
+        raise OSError("injected crash boundary before trust publication")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(cli.os, "fsync", fail_flush)
+        with pytest.raises(OSError):
+            cli._save_invitation_trust(output, trust)
+    assert not output.exists()
+    assert not list(tmp_path.glob(".invitation-trust-*"))
+    cli._save_invitation_trust(output, trust)
+    inode = output.stat().st_ino
+    cli._save_invitation_trust(output, trust)
+    assert load_trust(output.read_bytes()) == trust
+    assert output.stat().st_ino == inode
+    assert not list(tmp_path.glob(".invitation-trust-*"))
