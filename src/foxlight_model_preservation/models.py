@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections.abc import Sequence
 from pathlib import PurePosixPath
-from typing import Annotated, Literal, final
+from typing import Annotated, Literal, Protocol, final
 
 from pydantic import (
     BaseModel,
@@ -137,9 +138,36 @@ class ManifestMember(MemberBase):
     files: tuple[FileIdentity, ...] = Field(min_length=1, max_length=MAX_FILES)
 
 
-def check_members(
-    members: tuple[RecipeMember, ...] | tuple[ManifestMember, ...], root: str
-) -> None:
+class MemberLayout(Protocol):
+    """Shared file/companion invariants, independent of origin or card format."""
+
+    @property
+    def member_id(self) -> str:
+        """Return this member's namespace."""
+        ...
+
+    @property
+    def files(self) -> Sequence[SourceFile | FileIdentity]:
+        """Return the declared member files."""
+        ...
+
+    @property
+    def intake(self) -> Intake:
+        """Return the operator's rights and notice declaration."""
+        ...
+
+    @property
+    def loader_root(self) -> str | None:
+        """Return an optional relative loader directory."""
+        ...
+
+    @property
+    def dependencies(self) -> Sequence[str]:
+        """Return required companion member identifiers."""
+        ...
+
+
+def check_members(members: Sequence[MemberLayout], root: str) -> None:
     """Require a complete acyclic reachable member graph and unambiguous layouts."""
     by_id = {member.member_id: member for member in members}
     if len(by_id) != len(members) or root not in by_id:

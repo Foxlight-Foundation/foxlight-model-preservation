@@ -11,6 +11,12 @@ must explain provenance to its user, validate its own runtime semantics, obtain
 any required repository-code permission, and install through its normal store.
 Accepting a provenance warning must not silently authorize repository code.
 
+[Portable Model Format draft 0.1](portable-model-format.md) adds a standalone
+common archive schema and optional ecosystem profiles. Its preservation bridge
+retains the full original Skulk card and signed evidence, and can recover the
+unchanged v1 archive. Common PMF verification requires no Skulk/card interpreter;
+the original provenance still needs its independent verifier and trust root.
+
 ## The open card contract
 
 [`ModelCardEnvelope.json`](schemas/ModelCardEnvelope.json) describes the existing

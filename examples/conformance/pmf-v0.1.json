@@ -1,0 +1,125 @@
+{
+  "description": "PMF draft 0.1 positive vector. Only public keys are retained; the fixture signing key was discarded.",
+  "manifest_id": "0a94fc4f2fdc74166354b501adad07b01483e2469cb208a124a2a633f142a238",
+  "manifest": {
+    "schema_version": "pmf.manifest.v0.1",
+    "name": "PMF standalone conformance fixture",
+    "root_member": "model",
+    "members": [
+      {
+        "member_id": "model",
+        "role": "primary",
+        "format": "synthetic",
+        "origin": null,
+        "artifact_identity": null,
+        "loader_root": "weights",
+        "dependencies": [
+          "tokenizer"
+        ],
+        "files": [
+          {
+            "path": "weights/model.bin",
+            "size": 33,
+            "sha256": "ab292e62a07fd9e552f5831cd5888a5cdae7696c6c717277bc72acc425c0acdd"
+          },
+          {
+            "path": "LICENSE",
+            "size": 41,
+            "sha256": "fa30eda40527d84dcb5814a40bb87d639cb860c6fdc0e9c00cb9cc80ddc68995"
+          }
+        ],
+        "intake": {
+          "audience": "public",
+          "license_id": "Apache-2.0",
+          "terms_reference": "LICENSE",
+          "decision": "Synthetic public test fixture",
+          "notice_paths": [
+            "LICENSE"
+          ]
+        }
+      },
+      {
+        "member_id": "tokenizer",
+        "role": "tokenizer",
+        "format": "json",
+        "origin": null,
+        "artifact_identity": null,
+        "loader_root": null,
+        "dependencies": [],
+        "files": [
+          {
+            "path": "tokenizer.json",
+            "size": 19,
+            "sha256": "cb8daed7b30399a1c3c8b83b3b7bee4b774a30fc389afc1d375e4c23a3cc4ae8"
+          },
+          {
+            "path": "LICENSE",
+            "size": 41,
+            "sha256": "fa30eda40527d84dcb5814a40bb87d639cb860c6fdc0e9c00cb9cc80ddc68995"
+          }
+        ],
+        "intake": {
+          "audience": "public",
+          "license_id": "Apache-2.0",
+          "terms_reference": "LICENSE",
+          "decision": "Synthetic public test fixture",
+          "notice_paths": [
+            "LICENSE"
+          ]
+        }
+      }
+    ],
+    "documents": [
+      {
+        "document_id": "foreign-card",
+        "member_id": "model",
+        "role": "source-card",
+        "media_type": "application/json",
+        "schema_version": "example.card.v99",
+        "sha256": "b3b8518ce4a440b8f68acf284b1f85b88e9e1f7f44e3625f56c8bc6e74c0ec20",
+        "size": 57
+      }
+    ],
+    "profiles": [
+      {
+        "profile_id": "example.card.v99",
+        "member_id": "model",
+        "documents": [
+          "foreign-card"
+        ],
+        "required": false
+      }
+    ],
+    "workloads": [],
+    "runtime_requirements": [],
+    "attestation": "owner-capture",
+    "required_features": [],
+    "annotations": {
+      "description": "Synthetic conformance fixture; no runtime or model card standard is required."
+    }
+  },
+  "envelope_base64": "eyJwYXlsb2FkIjoiZXlKaGJtNXZkR0YwYVc5dWN5STZleUprWlhOamNtbHdkR2x2YmlJNklsTjViblJvWlhScFl5QmpiMjVtYjNKdFlXNWpaU0JtYVhoMGRYSmxPeUJ1YnlCeWRXNTBhVzFsSUc5eUlHMXZaR1ZzSUdOaGNtUWdjM1JoYm1SaGNtUWdhWE1nY21WeGRXbHlaV1F1SW4wc0ltRjBkR1Z6ZEdGMGFXOXVJam9pYjNkdVpYSXRZMkZ3ZEhWeVpTSXNJbVJ2WTNWdFpXNTBjeUk2VzNzaVpHOWpkVzFsYm5SZmFXUWlPaUptYjNKbGFXZHVMV05oY21RaUxDSnRaV1JwWVY5MGVYQmxJam9pWVhCd2JHbGpZWFJwYjI0dmFuTnZiaUlzSW0xbGJXSmxjbDlwWkNJNkltMXZaR1ZzSWl3aWNtOXNaU0k2SW5OdmRYSmpaUzFqWVhKa0lpd2ljMk5vWlcxaFgzWmxjbk5wYjI0aU9pSmxlR0Z0Y0d4bExtTmhjbVF1ZGprNUlpd2ljMmhoTWpVMklqb2lZak5pT0RVeE9HTmxOR0UwTkRCaU9HWTJPR0ZqWmpJNE5HSXhaamcxWWpnNFpUbGxNV1kzWmpRMFpUTTJNalZtTlRaak9HSmpObVUzTkdNd1pXTXlNQ0lzSW5OcGVtVWlPalUzZlYwc0ltMWxiV0psY25NaU9sdDdJbUZ5ZEdsbVlXTjBYMmxrWlc1MGFYUjVJanB1ZFd4c0xDSmtaWEJsYm1SbGJtTnBaWE1pT2xzaWRHOXJaVzVwZW1WeUlsMHNJbVpwYkdWeklqcGJleUp3WVhSb0lqb2lkMlZwWjJoMGN5OXRiMlJsYkM1aWFXNGlMQ0p6YUdFeU5UWWlPaUpoWWpJNU1tVTJNbUV3TjJaa09XVTFOVEptTlRnek1XTmtOVGc0T0dFMVkyUmhaVGMyT1Raak5tTTNNVGN5TnpkaVl6Y3lZV05qTkRJMVl6QmhZMlJrSWl3aWMybDZaU0k2TXpOOUxIc2ljR0YwYUNJNklreEpRMFZPVTBVaUxDSnphR0V5TlRZaU9pSm1ZVE13WldSaE5EQTFNamRrT0RSa1kySTFPREUwWVRRd1ltSTROMlEyTXpsallqZzJNR00yWm1Sak1HVTVZekF3WTJJNVkyTTRNR1JrWXpZNE9UazFJaXdpYzJsNlpTSTZOREY5WFN3aVptOXliV0YwSWpvaWMzbHVkR2hsZEdsaklpd2lhVzUwWVd0bElqcDdJbUYxWkdsbGJtTmxJam9pY0hWaWJHbGpJaXdpWkdWamFYTnBiMjRpT2lKVGVXNTBhR1YwYVdNZ2NIVmliR2xqSUhSbGMzUWdabWw0ZEhWeVpTSXNJbXhwWTJWdWMyVmZhV1FpT2lKQmNHRmphR1V0TWk0d0lpd2libTkwYVdObFgzQmhkR2h6SWpwYklreEpRMFZPVTBVaVhTd2lkR1Z5YlhOZmNtVm1aWEpsYm1ObElqb2lURWxEUlU1VFJTSjlMQ0pzYjJGa1pYSmZjbTl2ZENJNkluZGxhV2RvZEhNaUxDSnRaVzFpWlhKZmFXUWlPaUp0YjJSbGJDSXNJbTl5YVdkcGJpSTZiblZzYkN3aWNtOXNaU0k2SW5CeWFXMWhjbmtpZlN4N0ltRnlkR2xtWVdOMFgybGtaVzUwYVhSNUlqcHVkV3hzTENKa1pYQmxibVJsYm1OcFpYTWlPbHRkTENKbWFXeGxjeUk2VzNzaWNHRjBhQ0k2SW5SdmEyVnVhWHBsY2k1cWMyOXVJaXdpYzJoaE1qVTJJam9pWTJJNFpHRmxaRGRpTXpBek9UbGhNV016WXpoaU9ETmlNMkkzWW1WbE5HSTNOelJoTXpCbVl6TTRPV0ZtWXpGa016YzFaVFJqTWpOaE0yTmpOR0ZsT0NJc0luTnBlbVVpT2pFNWZTeDdJbkJoZEdnaU9pSk1TVU5GVGxORklpd2ljMmhoTWpVMklqb2labUV6TUdWa1lUUXdOVEkzWkRnMFpHTmlOVGd4TkdFME1HSmlPRGRrTmpNNVkySTROakJqTm1aa1l6QmxPV013TUdOaU9XTmpPREJrWkdNMk9EazVOU0lzSW5OcGVtVWlPalF4ZlYwc0ltWnZjbTFoZENJNkltcHpiMjRpTENKcGJuUmhhMlVpT25zaVlYVmthV1Z1WTJVaU9pSndkV0pzYVdNaUxDSmtaV05wYzJsdmJpSTZJbE41Ym5Sb1pYUnBZeUJ3ZFdKc2FXTWdkR1Z6ZENCbWFYaDBkWEpsSWl3aWJHbGpaVzV6WlY5cFpDSTZJa0Z3WVdOb1pTMHlMakFpTENKdWIzUnBZMlZmY0dGMGFITWlPbHNpVEVsRFJVNVRSU0pkTENKMFpYSnRjMTl5WldabGNtVnVZMlVpT2lKTVNVTkZUbE5GSW4wc0lteHZZV1JsY2w5eWIyOTBJanB1ZFd4c0xDSnRaVzFpWlhKZmFXUWlPaUowYjJ0bGJtbDZaWElpTENKdmNtbG5hVzRpT201MWJHd3NJbkp2YkdVaU9pSjBiMnRsYm1sNlpYSWlmVjBzSW01aGJXVWlPaUpRVFVZZ2MzUmhibVJoYkc5dVpTQmpiMjVtYjNKdFlXNWpaU0JtYVhoMGRYSmxJaXdpY0hKdlptbHNaWE1pT2x0N0ltUnZZM1Z0Wlc1MGN5STZXeUptYjNKbGFXZHVMV05oY21RaVhTd2liV1Z0WW1WeVgybGtJam9pYlc5a1pXd2lMQ0p3Y205bWFXeGxYMmxrSWpvaVpYaGhiWEJzWlM1allYSmtMblk1T1NJc0luSmxjWFZwY21Wa0lqcG1ZV3h6WlgxZExDSnlaWEYxYVhKbFpGOW1aV0YwZFhKbGN5STZXMTBzSW5KdmIzUmZiV1Z0WW1WeUlqb2liVzlrWld3aUxDSnlkVzUwYVcxbFgzSmxjWFZwY21WdFpXNTBjeUk2VzEwc0luTmphR1Z0WVY5MlpYSnphVzl1SWpvaWNHMW1MbTFoYm1sbVpYTjBMbll3TGpFaUxDSjNiM0pyYkc5aFpITWlPbHRkZlE9PSIsInBheWxvYWRUeXBlIjoiYXBwbGljYXRpb24vdm5kLnBtZi5tYW5pZmVzdC52MC4xK2pzb24iLCJzaWduYXR1cmVzIjpbeyJrZXlpZCI6ImVkMjU1MTk6YmEwYTk5ZDYwMDcwNzZmZWJmZGFkZDRmZDU1NjRlN2E4Zjk5MDFhZjI0MDM1M2JmMDM4MWU0ZWZkNDEyMjkxOCIsInNpZyI6ImRCSEFJM2R6NnJ4VTAxalBsRUJUdmg4bjRaa1NRUU8rTG9XcXlYVFgyUXg0MTl2WUthWSs2eEwyK2FUdGdoZjFab3BkNDFXUUNBNEtGR3dnajFldkRRPT0ifV19",
+  "trust": {
+    "schema_version": "foxlight.model-preservation.trust.v1",
+    "keys": [
+      {
+        "key_id": "ed25519:ba0a99d6007076febfdadd4fd5564e7a8f9901af240353bf0381e4efd4122918",
+        "public_key": "xf6KGWVWevKGPXS1CHysTWV6WfM94UX3Fhc3x0zHvAs="
+      }
+    ],
+    "threshold": 1,
+    "revoked_keys": [],
+    "as_of": "2026-10-22T00:00:00Z"
+  },
+  "objects_base64": {
+    "ab292e62a07fd9e552f5831cd5888a5cdae7696c6c717277bc72acc425c0acdd": "UE1GIHN5bnRoZXRpYyBtb2RlbDsgbm8gd2VpZ2h0cy4K",
+    "fa30eda40527d84dcb5814a40bb87d639cb860c6fdc0e9c00cb9cc80ddc68995": "U3ludGhldGljIGludGVyb3BlcmFiaWxpdHkgZml4dHVyZSBvbmx5Lgo=",
+    "cb8daed7b30399a1c3c8b83b3b7bee4b774a30fc389afc1d375e4c23a3cc4ae8": "eyJzeW50aGV0aWMiOnRydWV9Cg==",
+    "b3b8518ce4a440b8f68acf284b1f85b88e9e1f7f44e3625f56c8bc6e74c0ec20": "eyJzY2hlbWEiOjk5LCJzdHJlbmd0aCI6MS4wLCJpbnQ2NCI6OTIyMzM3MjAzNjg1NDc3NTgwN30K"
+  },
+  "negative_cases": [
+    "missing_companion",
+    "unknown_required_feature",
+    "unknown_version"
+  ]
+}

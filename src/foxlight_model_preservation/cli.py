@@ -27,6 +27,8 @@ from .invitations import (
 from .kits import export_kit, import_kit, inspect_kit
 from .models import MAX_METADATA_BYTES, Catalog, PreservationError, Recipe, TrustProfile
 from .operations import OperationCancelled, OperationControl, Progress, failure_code
+from .pmf import load_pmf, pack_pmf, restore_pmf, verify_pmf
+from .pmf_preservation import export_preservation, import_preservation
 from .publication import PublicationRequest, plan_publication, publish_public
 from .registry_proof import VersionFloor, create_registry_proof, verify_registry_proof
 from .seed import SeedServer
@@ -59,6 +61,10 @@ class Arguments(argparse.Namespace):
     """Typed parser output; each command uses only its declared arguments."""
 
     kit: Path
+    descriptor: Path
+    document: list[str]
+    source_trust: Path
+    expected_source_manifest_id: str
     accept_kit_key: bool = False
     bundle_trust: Path | None = None
     index: Path
@@ -171,6 +177,34 @@ def argument_parser() -> argparse.ArgumentParser:
     """Expose effect-specific commands with no implicit public serving behavior."""
     parser = argparse.ArgumentParser(prog="model-preserve")
     commands = parser.add_subparsers(dest="command", required=True)
+    for name in (
+        "pmf-pack",
+        "pmf-verify",
+        "pmf-restore",
+        "pmf-import-preservation",
+        "pmf-export-preservation",
+    ):
+        pmf = commands.add_parser(
+            name, help="standalone Portable Model Format draft 0.1"
+        )
+        pmf.add_argument("--store", type=Path, required=True)
+        if name == "pmf-pack":
+            pmf.add_argument("--descriptor", type=Path, required=True)
+            pmf.add_argument(
+                "--member", action="append", required=True, metavar="ID=DIRECTORY"
+            )
+            pmf.add_argument(
+                "--document", action="append", default=[], metavar="ID=FILE"
+            )
+        else:
+            _trust_options(pmf)
+        if name in {"pmf-pack", "pmf-import-preservation"}:
+            _key_options(pmf)
+        if name not in {"pmf-pack", "pmf-verify"}:
+            pmf.add_argument("--output", type=Path, required=True)
+        if name == "pmf-export-preservation":
+            pmf.add_argument("--source-trust", type=Path, required=True)
+            pmf.add_argument("--expected-source-manifest-id", required=True)
     for name in ("card-create", "card-verify", "card-retain"):
         card = commands.add_parser(name, help="use the open public model-card format")
         if name == "card-create":
@@ -462,10 +496,81 @@ def _proof_commands(arguments: Arguments) -> dict[str, JsonValue]:
     return verified.report.model_dump(mode="json")
 
 
+def _pmf_sources(values: list[str]) -> dict[str, Path]:
+    sources: dict[str, Path] = {}
+    for value in values:
+        name, separator, path = value.partition("=")
+        if not separator or not name or not path or name in sources:
+            raise PreservationError("PMF inputs must be unique nonempty ID=PATH pairs")
+        sources[name] = Path(path)
+    return sources
+
+
+def _pmf_commands(
+    arguments: Arguments, control: OperationControl | None
+) -> dict[str, JsonValue]:
+    if arguments.command == "pmf-pack":
+        identity = pack_pmf(
+            load_pmf(read_input(arguments.descriptor)),
+            _pmf_sources(arguments.member),
+            _pmf_sources(arguments.document),
+            arguments.store,
+            (load_key(arguments.key, _password(arguments)),),
+            control=control,
+        )
+        return {"manifest": identity, "attestation": "owner-capture"}
+    if not isinstance(arguments.manifest, str):
+        raise PreservationError("one exact PMF/source manifest required")
+    trust = _enrolled_trust(arguments)
+    if arguments.command == "pmf-import-preservation":
+        converted = import_preservation(
+            arguments.store,
+            arguments.manifest,
+            trust,
+            arguments.output,
+            (load_key(arguments.key, _password(arguments)),),
+            control=control,
+        )
+        return converted.model_dump(mode="json")
+    if arguments.command == "pmf-export-preservation":
+        converted = export_preservation(
+            arguments.store,
+            arguments.manifest,
+            trust,
+            arguments.output,
+            source_trust=load_trust(read_input(arguments.source_trust)),
+            expected_source_manifest_id=arguments.expected_source_manifest_id,
+            control=control,
+        )
+        return converted.model_dump(mode="json")
+    if arguments.command == "pmf-restore":
+        manifest = restore_pmf(
+            arguments.store,
+            arguments.manifest,
+            trust,
+            arguments.output,
+            control=control,
+        )
+    else:
+        manifest = verify_pmf(
+            arguments.store, arguments.manifest, trust, control=control
+        )
+    return {
+        "manifest": arguments.manifest,
+        "member_count": len(manifest.members),
+        "document_count": len(manifest.documents),
+        "logical_bytes": manifest.total_bytes,
+        "verification": "complete",
+        "authority": "owner-capture",
+    }
+
+
 def run(
     arguments: Arguments, *, control: OperationControl | None = None
 ) -> dict[str, JsonValue]:
     """Execute exactly the selected operation and return a bounded safe receipt."""
+    if arguments.command.startswith("pmf-"):
+        return _pmf_commands(arguments, control)
     if arguments.command in {"invite", "inspect-invitation", "fetch-invitation"}:
         return _invitation_commands(arguments, control)
     if arguments.command.startswith("kit-"):
@@ -954,7 +1059,7 @@ def main() -> int:
         "publish",
         "torrent-export",
         "torrent-seed",
-    }
+    } or arguments.command.startswith("pmf-")
     previous = signal.getsignal(signal.SIGINT)
     if controlled:
         signal.signal(signal.SIGINT, lambda _number, _frame: control.cancel())

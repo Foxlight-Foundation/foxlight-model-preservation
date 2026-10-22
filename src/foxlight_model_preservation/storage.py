@@ -375,17 +375,31 @@ def copy_verified_object(
     target: int,
     file: FileIdentity,
     control: OperationControl,
+    *,
+    verify_reused_source: bool = False,
 ) -> None:
-    """Copy one hash-checked object under the caller's destination writer lock."""
+    """Copy a checked object; optionally verify each input even when deduplicated.
+
+    A content-store caller can reuse an authenticated target object. A capture
+    caller promising that every supplied local path matches must additionally
+    request source verification on that reuse path.
+    """
     control.phase("checking")
     try:
         verify_object(target, file, control=control)
-        control.advance(reused=file.size)
-        return
     except OperationError:
         raise
     except (FileNotFoundError, PreservationError):
         pass
+    else:
+        if verify_reused_source:
+            observed = file_identity(source, source_path, file.size, control=control)
+            if observed.sha256 != file.sha256:
+                raise PreservationError(
+                    "deduplicated source failed integrity verification"
+                )
+        control.advance(reused=file.size)
+        return
     # Verified content needs no copy; missing or corrupt content needs a full
     # temporary replacement while any old object remains in place.
     if shutil.disk_usage(target).free < file.size + 16 * CHUNK_SIZE:

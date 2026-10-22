@@ -120,8 +120,10 @@ from an owner signature or a boolean supplied by another process.
 Retain the original evidence as signed capture content where applicable. Keep
 runtime installation, execution and engine provisioning separate from portable
 restoration. Restoring into a new folder does not register that folder with a
-runtime. The current release supplies no Skulk adapter or capability; describing
-an integration does not establish one as shipped.
+runtime. The separate [Skulk Library](../capability/README.md) uses Core's ordinary
+admission and durable jobs. The standalone [PMF draft and archive bridge](portable-model-format.md)
+can preserve and round-trip its public cards and archives without importing
+Skulk. This draft does not add automatic PMF admission to Core or Library.
 
 For protocol-compatible third-party mirrors, use the documented immutable paths.
 There is no registry of required approved mirror hosts: an explicitly permitted
