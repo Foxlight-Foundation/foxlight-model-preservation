@@ -64,9 +64,15 @@ def _unique_object(pairs: list[tuple[str, JsonValue]]) -> dict[str, JsonValue]:
     return result
 
 
-def strict_json(data: bytes) -> JsonValue:
-    """Reject oversized metadata, duplicate keys and non-JSON numeric values."""
-    if len(data) > MAX_METADATA_BYTES:
+def strict_json(data: bytes, *, maximum_bytes: int = MAX_METADATA_BYTES) -> JsonValue:
+    """Reject oversize/ambiguous JSON under an explicit bounded parser limit.
+
+    Signed formats retain the ordinary 8 MiB default. The discovery cache may
+    explicitly select up to 32 MiB without changing any signed format's limits.
+    """
+    if not 1 <= maximum_bytes <= 4 * MAX_METADATA_BYTES:
+        raise PreservationError("unsupported bounded JSON parser limit")
+    if len(data) > maximum_bytes:
         raise PreservationError("metadata size exceeds limit")
     try:
         value = cast(JsonValue, json.loads(data, object_pairs_hook=_unique_object))

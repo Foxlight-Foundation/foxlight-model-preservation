@@ -14,9 +14,11 @@ import uuid
 from pathlib import Path
 
 from pydantic import JsonValue
+from tuf.api.exceptions import RepositoryError
 
 from .assurance import inspect_member_evidence, retain_card
 from .cards import create_card, identity_json, load_card
+from .discovery_cli import DiscoveryArguments, register_commands, run_command
 from .invitations import (
     accept_invitation_keys,
     authenticate_invitation,
@@ -57,7 +59,7 @@ from .torrent import TorrentExport, TorrentSeeder, TorrentSeedPolicy, export_tor
 from .transfer import TransferPolicy, fetch, plan_fetch
 
 
-class Arguments(argparse.Namespace):
+class Arguments(DiscoveryArguments):
     """Typed parser output; each command uses only its declared arguments."""
 
     kit: Path
@@ -177,6 +179,7 @@ def argument_parser() -> argparse.ArgumentParser:
     """Expose effect-specific commands with no implicit public serving behavior."""
     parser = argparse.ArgumentParser(prog="model-preserve")
     commands = parser.add_subparsers(dest="command", required=True)
+    register_commands(commands.add_parser)
     for name in (
         "pmf-pack",
         "pmf-verify",
@@ -569,6 +572,8 @@ def run(
     arguments: Arguments, *, control: OperationControl | None = None
 ) -> dict[str, JsonValue]:
     """Execute exactly the selected operation and return a bounded safe receipt."""
+    if arguments.command.startswith("source-"):
+        return run_command(arguments, control)
     if arguments.command.startswith("pmf-"):
         return _pmf_commands(arguments, control)
     if arguments.command in {"invite", "inspect-invitation", "fetch-invitation"}:
@@ -1051,6 +1056,8 @@ def main() -> int:
         "fetch-invitation",
         "restore",
         "fetch-catalog",
+        "source-refresh",
+        "source-fetch",
         "plan-pack",
         "plan-fetch",
         "plan-restore",
@@ -1065,7 +1072,7 @@ def main() -> int:
         signal.signal(signal.SIGINT, lambda _number, _frame: control.cancel())
     try:
         receipt = run(arguments, control=control)
-    except (OSError, ValueError) as error:
+    except (OSError, ValueError, RepositoryError) as error:
         print(
             json.dumps({"error": str(error), "code": failure_code(error)}),
             file=sys.stderr,
@@ -1075,6 +1082,8 @@ def main() -> int:
         if controlled:
             signal.signal(signal.SIGINT, previous)
     print(json.dumps(receipt, sort_keys=True))
+    if arguments.command == "source-refresh" and receipt.get("failures"):
+        return 1
     return 0
 
 
