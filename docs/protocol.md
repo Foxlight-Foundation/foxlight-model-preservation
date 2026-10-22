@@ -250,3 +250,22 @@ reader/adapter for runtime admission. Public `card-create`/`card-verify` describ
 their packaged structural profile, while container validity is independent of
 that profile. Existing envelope/card versions and original identities remain
 unchanged by kit import.
+
+## PMF recovery kits (v2)
+
+Kit export/import/inspection also support draft PMF 0.1. The v2 magic is
+`FOXLIGHT-RECOVERY-KIT`, NUL, byte `02`, CR LF. All length bounds, independent
+trust requirements, atomic publication and SHA-256 streaming checks remain the
+same as v1. The closure additionally includes every PMF source document object,
+deduplicated with member objects and sorted by SHA-256. The kit version must
+match the signed manifest domain; unknown domains and mixed versions refuse.
+Legacy captures still export byte-for-byte v1 kits. Older readers refuse v2.
+
+`read_kit_document` is an adapter helper that authenticates a selected kit and
+seeks over signed lengths to read one bounded source record. It checks the
+record's actual digest; skipped weights remain unverified until full import.
+It starts no network or runtime. Candidate kit keys remain candidates.
+
+`archives.verify_archive_manifest` dispatches only explicit authenticated
+domains; `verify_archive` hashes the complete legacy or PMF object closure.
+The common archive/kit modules require neither Skulk nor a model-card profile.

@@ -204,3 +204,19 @@ The common-reader test blocks Skulk, Hugging Face, tensor libraries and all
 ecosystem/card adapters from importing. Installed-wheel CI also exercises the
 standalone vector outside this checkout. This is format/library evidence;
 automatic PMF handling in a released Skulk UI remains separate work.
+
+### Self-contained kits and application adapters
+
+The existing `kit-export`, `kit-inspect` and `kit-import` commands detect PMF
+automatically. PMF uses kit v2; legacy archives retain kit v1 without changed
+identities or bytes. A PMF kit carries all opaque documents as well as every
+model/companion object and the public candidate trust snapshot. No Skulk runtime
+is required. Use `pmf-verify` and `pmf-restore` on the imported portable store.
+Kits are unencrypted, never include a private key, and do not start sharing.
+
+The optional preservation adapter exposes metadata-only
+`build_preservation_pmf` and `inspect_preservation_pmf` helpers. The latter
+requires an already authenticated PMF and independently chosen original capture
+trust. It binds the complete common projection and every retained record to the
+exact original signed envelope. Runtime admission, registry verification and
+code permission remain responsibilities of the receiving application.

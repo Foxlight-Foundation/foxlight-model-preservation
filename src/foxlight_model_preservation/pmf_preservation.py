@@ -24,7 +24,16 @@ from .pmf_models import (
     PMFOrigin,
     PMFProfile,
 )
-from .signing import canonical_bytes, digest, verify_manifest
+from .signing import (
+    Envelope,
+    canonical_bytes,
+    decode_base64,
+    digest,
+    encode_record,
+    sign_manifest,
+    strict_json,
+    verify_manifest,
+)
 from .storage import (
     atomic_bytes,
     copy_verified_object,
@@ -259,3 +268,40 @@ def export_preservation(
         output_identity=expected_source_manifest_id,
         source_envelope_sha256=digest(envelope),
     )
+
+
+def build_preservation_pmf(
+    original: Manifest, keys: tuple[Ed25519PrivateKey, ...]
+) -> tuple[PMFManifest, dict[str, bytes]]:
+    """Build a lossless owner-signed capture's PMF descriptor and exact records.
+
+    No bytes are stored and no model/card interpretation occurs. The caller
+    must verify all member bytes before publishing the signed PMF generation.
+    """
+    envelope = encode_record(sign_manifest(original, keys))
+    if len(envelope) > 8 * 1024 * 1024:
+        raise PreservationError("original signed metadata exceeds size limit")
+    return _project(original, envelope)
+
+
+def inspect_preservation_pmf(
+    manifest: PMFManifest, envelope: bytes, *, source_trust: TrustProfile
+) -> tuple[str, Manifest]:
+    """Authenticate retained source metadata and require lossless projection.
+
+    The caller first authenticates the externally selected PMF. Its signed
+    document digest binds the exact original envelope, whose separate source
+    signature must satisfy independently selected source trust. This checks no
+    weights and grants no registry authority, code permission or runtime support.
+    """
+    signed = Envelope.model_validate_json(canonical_bytes(strict_json(envelope)))
+    source_identity = digest(decode_base64(signed.payload))
+    original = verify_manifest(envelope, source_trust, source_identity)
+    expected, _records = _project(original, envelope)
+    if manifest != expected:
+        raise PreservationError(
+            "PMF projection cannot be exported losslessly to its original"
+        )
+    # Equality with the recomputed descriptor binds every retained record's
+    # digest and size. Full archive verification checks their actual bytes.
+    return source_identity, original
