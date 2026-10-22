@@ -72,11 +72,22 @@ def test_real_peer_receives_signed_public_files_then_listener_stops(
             time.sleep(0.05)
         assert seeder.observe().ready
         handle.connect_peer(("127.0.0.1", port))
-        while not handle.status().is_seeding and time.monotonic() < deadline:
+        # Native piece completion can precede asynchronous filesystem writes.
+        # The receiver is complete only when our independent byte verifier passes.
+        restored = None
+        while time.monotonic() < deadline:
+            if handle.status().is_seeding:
+                try:
+                    restored = verify_store(
+                        received / capture.identity, capture.identity, capture.trust
+                    )
+                except (FileNotFoundError, PreservationError):
+                    pass
+                else:
+                    break
             time.sleep(0.05)
-        assert handle.status().is_seeding
-        restored = verify_store(
-            received / capture.identity, capture.identity, capture.trust
+        assert restored is not None, (
+            "peer did not publish a complete verified archive within the deadline"
         )
         assert (
             restored.total_bytes
