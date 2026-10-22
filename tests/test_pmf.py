@@ -557,6 +557,39 @@ def test_mid_copy_cancellation_never_publishes(capture, tmp_path):
     assert not list(tmp_path.glob(".pmf-*"))
 
 
+@pytest.mark.parametrize("duplicate", ["member", "document"])
+def test_each_duplicate_source_must_match_even_when_target_is_valid(
+    capture, tmp_path, duplicate
+):
+    manifest = common_manifest(capture)
+    documents = {}
+    if duplicate == "member":
+        # Both members declare identical LICENSE bytes, copied from weights first.
+        source = capture.sources["tokenizer"] / "LICENSE"
+    else:
+        file = next(
+            item for item in manifest.members[0].files if item.path == "LICENSE"
+        )
+        document = PMFDocument(
+            document_id="same-as-license",
+            role="source-card",
+            media_type="application/octet-stream",
+            size=file.size,
+            sha256=file.sha256,
+        )
+        manifest = manifest.model_copy(update={"documents": (document,)})
+        source = tmp_path / "same-as-license"
+        source.write_bytes((capture.sources["weights"] / "LICENSE").read_bytes())
+        documents[document.document_id] = source
+    original = source.read_bytes()
+    source.write_bytes(bytes([original[0] ^ 1]) + original[1:])
+    destination = tmp_path / "rejected-duplicate"
+    with pytest.raises(PreservationError, match="deduplicated source"):
+        pack_pmf(manifest, capture.sources, documents, destination, (capture.key,))
+    assert not destination.exists()
+    assert not list(tmp_path.glob(".pmf-*"))
+
+
 def test_cli_pmf_pack_verify_restore_and_bridge(capture, tmp_path):
     key, trust_file = tmp_path / "converter.pem", tmp_path / "trust.json"
     result = command(

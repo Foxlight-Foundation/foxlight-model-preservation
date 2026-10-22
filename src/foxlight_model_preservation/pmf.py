@@ -163,7 +163,14 @@ def pack_pmf(
             for member in manifest.members:
                 with directory(sources[member.member_id]) as source:
                     for file in member.files:
-                        copy_verified_object(source, file.path, target, file, active)
+                        copy_verified_object(
+                            source,
+                            file.path,
+                            target,
+                            file,
+                            active,
+                            verify_reused_source=True,
+                        )
             for document in manifest.documents:
                 path = documents[document.document_id]
                 with directory(path.parent) as source:
@@ -175,6 +182,7 @@ def pack_pmf(
                             path=path.name, size=document.size, sha256=document.sha256
                         ),
                         active,
+                        verify_reused_source=True,
                     )
             atomic_bytes(target, manifest_path(identity), envelope)
     return identity
