@@ -19,7 +19,8 @@ export function UploadKit({uploads,onReview,onBack,onChange,publicImport=false}:
       setProgress(current);
       while(current.offset<file.size&&!stop.current){current=await uploadChunk(current.upload_id,current.offset,file.slice(current.offset,Math.min(file.size,current.offset+4*1024**2)));setProgress(current);}
       await onChange();if(stop.current)return;
-      onReview(await api<Plan>(publicImport?'sharing-plan':'plan',publicImport?{kind:'mirror_import',location_id:'public-kit',upload_id:current.upload_id}:{kind:'recover',location_id:'kit',upload_id:current.upload_id,historical:true}));
+      const reviewed=await api<Plan>(publicImport?'sharing-plan':'plan',publicImport?{kind:'mirror_import',location_id:'public-kit',upload_id:current.upload_id}:{kind:'recover',location_id:'kit',upload_id:current.upload_id,historical:true});
+      if(!stop.current)onReview(reviewed);
     }catch(err){setError(err instanceof Error?err.message:'kit_transfer_refused');}finally{setBusy(false);}
   }
   async function remove(item:Upload){try{await api('upload-remove',{upload_id:item.upload_id});if(progress?.upload_id===item.upload_id)setProgress(null);await onChange();}catch(err){setError(err instanceof Error?err.message:'kit_transfer_refused');}}

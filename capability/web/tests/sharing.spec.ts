@@ -103,3 +103,21 @@ test('stopped temporary files require inspection and fresh cleanup consent',asyn
   await expect(page.getByRole('button',{name:'Set up HTTP mirror'})).toBeVisible();
   expect(starts).toBe(0);expect(cleared).toBe(1);
 });
+
+test('leaving import while its review arrives does not reopen intake',async({page})=>{
+  await page.route('**/api/library?offset=*',route=>route.fulfill({json:{locations:[],models:[],copies:[],public_copies:[],jobs:[],uploads:[],next_offset:null}}));
+  await page.route('**/api/upload-create',route=>route.fulfill({json:{upload_id:'1'.repeat(32),size_bytes:20,offset:0,complete:false}}));
+  await page.route('**/api/upload/*',route=>route.fulfill({json:{upload_id:'1'.repeat(32),size_bytes:20,offset:20,complete:true}}));
+  let release:()=>void=()=>{};
+  const pending=new Promise<void>(resolve=>{release=resolve;});
+  await page.route('**/api/sharing-plan',async route=>{await pending;await route.fulfill({json:{...plan,kind:'mirror_import',sharing:null}});});
+  await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();
+  await page.getByRole('button',{name:'Import public bundle'}).click();
+  const requested=page.waitForRequest('**/api/sharing-plan');
+  await page.getByLabel('Public bundle file').setInputFiles({name:'public.foxkit',mimeType:'application/octet-stream',buffer:Buffer.alloc(20,1)});
+  await requested;
+  await page.getByRole('button',{name:'Activity',exact:true}).click();
+  const arrived=page.waitForResponse('**/api/sharing-plan');release();await arrived;
+  await expect(page.getByRole('heading',{name:'Activity',exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Import public copy',exact:true})).toHaveCount(0);
+});
