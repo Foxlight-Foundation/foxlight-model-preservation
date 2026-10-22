@@ -13,6 +13,7 @@ from .cards import identity_json
 from .models import (
     MAX_METADATA_BYTES,
     Digest,
+    FileIdentity,
     Identifier,
     Intake,
     Manifest,
@@ -55,6 +56,8 @@ _PRIVATE_COMPONENTS = frozenset(
         ".foxlight-capture-notice.txt",
     }
 )
+PUBLISHER_NOTICE_PATH = "NOTICE.publisher.txt"
+MAX_PUBLISHER_NOTICE_BYTES = 1024 * 1024
 
 
 @final
@@ -69,6 +72,19 @@ class PublicMemberTerms(Record):
 
 
 @final
+class PublisherNotice(Record):
+    """Explicit publisher-supplied UTF-8 notice, separate from upstream evidence.
+
+    The fixed filename cannot replace a source file or introduce executable
+    paths. Supplying this text declares no upstream authorship or license grant.
+    Original required notices remain mandatory and unchanged.
+    """
+
+    member_id: Identifier
+    text: str = Field(min_length=1, max_length=65536)
+
+
+@final
 class PublicationRequest(Record):
     """Public-facing metadata and terms the publisher deliberately selects."""
 
@@ -76,6 +92,25 @@ class PublicationRequest(Record):
     workloads: tuple[str, ...] = Field(min_length=1, max_length=100)
     runtime_requirements: tuple[str, ...] = Field(default=(), max_length=100)
     members: tuple[PublicMemberTerms, ...] = Field(min_length=1, max_length=256)
+    notices: tuple[PublisherNotice, ...] = Field(default=(), max_length=256)
+
+
+def _notice_bytes(request: PublicationRequest) -> dict[str, bytes]:
+    result: dict[str, bytes] = {}
+    for notice in request.notices:
+        if (
+            notice.member_id in result
+            or "\x00" in notice.text
+            or not notice.text.strip()
+        ):
+            raise PreservationError("duplicate or non-text publisher notice")
+        try:
+            result[notice.member_id] = notice.text.encode("utf-8")
+        except UnicodeError as error:
+            raise PreservationError("publisher notice must be UTF-8 text") from error
+    if sum(len(data) for data in result.values()) > MAX_PUBLISHER_NOTICE_BYTES:
+        raise PreservationError("publisher notices exceed metadata allowance")
+    return result
 
 
 def _public_manifest(source: Manifest, request: PublicationRequest) -> Manifest:
@@ -85,6 +120,9 @@ def _public_manifest(source: Manifest, request: PublicationRequest) -> Manifest:
         if not (member.role == "notices" and member.member_id == "source-evidence")
     }
     terms = {item.member_id: item for item in request.members}
+    notices = _notice_bytes(request)
+    if not set(notices).issubset(selected):
+        raise PreservationError("publisher notice must select a public data member")
     if len(terms) != len(request.members) or set(terms) != set(selected):
         raise PreservationError(
             "public terms must select every data member exactly once"
@@ -94,7 +132,7 @@ def _public_manifest(source: Manifest, request: PublicationRequest) -> Manifest:
     members: list[ManifestMember] = []
     for member in selected.values():
         choice = terms[member.member_id]
-        if choice.license_id.casefold() in {
+        if choice.license_id.strip().casefold() in {
             "unresolved-owner-capture",
             "unknown",
             "unresolved",
@@ -105,6 +143,18 @@ def _public_manifest(source: Manifest, request: PublicationRequest) -> Manifest:
         files = tuple(
             file for file in member.files if file.path != ".foxlight-capture-notice.txt"
         )
+        if member.member_id in notices:
+            if any(file.path == PUBLISHER_NOTICE_PATH for file in member.files):
+                raise PreservationError("publisher notice cannot replace a source file")
+            if PUBLISHER_NOTICE_PATH not in choice.notice_paths:
+                raise PreservationError("publisher notice must be included in terms")
+            data = notices[member.member_id]
+            files = (
+                *files,
+                FileIdentity(
+                    path=PUBLISHER_NOTICE_PATH, size=len(data), sha256=digest(data)
+                ),
+            )
         for file in files:
             if any(
                 part.casefold() in _PRIVATE_COMPONENTS
@@ -160,6 +210,24 @@ def _public_manifest(source: Manifest, request: PublicationRequest) -> Manifest:
     )
 
 
+def review_publication(source: Manifest, request: PublicationRequest) -> Manifest:
+    """Transform authenticated metadata for review without IO or weight hashing.
+
+    Args:
+        source: An already signature-verified manifest selected by the caller.
+        request: Deliberate public metadata, per-member terms and optional notices.
+
+    Returns:
+        Exact planned public metadata; its identity is SHA-256 of encode_record.
+
+    This establishes neither current byte availability nor redistribution rights.
+    Source notices remain intact. Added notice text is publisher supplied, not
+    original signed upstream evidence. Actual publication rechecks every byte
+    and requires the exact reviewed identity and a distinct publishing key.
+    """
+    return _public_manifest(source, request)
+
+
 def plan_publication(
     source: Path,
     source_id: str,
@@ -174,7 +242,7 @@ def plan_publication(
     field and selected file: this prevents known operational-evidence exports,
     not secrets hidden inside an intentionally selected model file or public card.
     """
-    return _public_manifest(
+    return review_publication(
         verify_store(source, source_id, trust, control=control), request
     )
 
@@ -232,7 +300,7 @@ def _publish_public(
         destination.resolve()
     ) or destination.resolve().is_relative_to(source.resolve()):
         raise PreservationError("public and private archive roots must be separate")
-    manifest = _public_manifest(
+    manifest = review_publication(
         verify_store_contents(source, source_id, trust, control), request
     )
     manifest_id = digest(encode_record(manifest))
@@ -267,8 +335,16 @@ def _publish_public(
         directory(destination) as target,
         writer_lock(target),
     ):
+        added = {digest(data): data for data in _notice_bytes(request).values()}
         for file in unique_objects(manifest):
-            copy_verified_object(origin, object_path(file.sha256), target, file, active)
+            if file.sha256 in added:
+                active.checkpoint()
+                atomic_bytes(target, object_path(file.sha256), added[file.sha256])
+                active.advance(copied=file.size)
+            else:
+                copy_verified_object(
+                    origin, object_path(file.sha256), target, file, active
+                )
         active.phase("checking")
         for file in unique_objects(manifest):
             verify_object(target, file, control=active)

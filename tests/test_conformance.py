@@ -38,3 +38,23 @@ def test_public_vector(tmp_path: Path) -> None:
     selected.write_bytes(envelope[:-1])
     with pytest.raises(ValueError):
         verify_store(root, identity, trust)
+
+
+def test_public_invitation_vector_preserves_original_signed_identity() -> None:
+    from foxlight_model_preservation.invitations import (
+        authenticate_invitation,
+        read_invitation,
+    )
+
+    original = json.loads(Path("examples/conformance/v1.json").read_bytes())
+    invitation = read_invitation(
+        Path("examples/conformance/invitation-v1.json").read_bytes()
+    )
+    # Use the original independent vector trust, not the invitation's candidates.
+    trust = load_trust(canonical_bytes(original["trust"]))
+    authenticated = authenticate_invitation(invitation, trust)
+    assert authenticated == verify_manifest(
+        canonical_bytes(original["envelope"]), trust, original["manifest"]
+    )
+    assert invitation.envelope.payload == original["envelope"]["payload"]
+    assert invitation.manifest_id == original["manifest"]

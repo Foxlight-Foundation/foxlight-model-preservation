@@ -375,3 +375,269 @@ def test_publication_never_reuses_an_existing_static_mirror_root(
         assert (
             destination / "credentials.txt"
         ).read_text() == "unrelated private fixture"
+
+
+def test_metadata_review_is_pure_and_full_publish_still_rechecks_bytes(
+    capture: Capture, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from foxlight_model_preservation import publication
+    from foxlight_model_preservation.storage import object_path
+
+    private = private_capture(capture, tmp_path)
+    source = verify_store(private.store, private.identity, private.trust)
+    request = request_for(private)
+    expected = plan_publication(private.store, private.identity, private.trust, request)
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        pytest.fail("metadata review read weight bytes")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(publication, "verify_store", forbidden)
+        assert publication.review_publication(source, request) == expected
+    selected = next(
+        file
+        for member in source.members
+        for file in member.files
+        if file.path == "model.bin"
+    )
+    (private.store / object_path(selected.sha256)).write_bytes(b"changed source")
+    with pytest.raises(PreservationError):
+        publish_public(
+            private.store,
+            private.identity,
+            private.trust,
+            request,
+            tmp_path / "refused",
+            (Ed25519PrivateKey.generate(),),
+            expected_manifest_id=digest(encode_record(expected)),
+        )
+    assert not (tmp_path / "refused").exists()
+
+
+def test_owner_notice_enables_publication_without_inventing_upstream_evidence(
+    capture: Capture, tmp_path: Path
+) -> None:
+    import hashlib
+    import json
+
+    from foxlight_model_preservation.publication import (
+        PUBLISHER_NOTICE_PATH,
+        PublisherNotice,
+    )
+    from foxlight_model_preservation.storage import object_path
+
+    body = capture.recipe.model_dump(mode="json")
+    for member in body["members"]:
+        member["retained_card"] = None
+        member["intake"].update(
+            audience="private",
+            license_id="unresolved-owner-capture",
+            notice_paths=[".foxlight-capture-notice.txt"],
+        )
+        member["files"] = [
+            {"path": "model.bin"},
+            {"path": ".foxlight-capture-notice.txt"},
+        ]
+        (
+            capture.sources[member["member_id"]] / ".foxlight-capture-notice.txt"
+        ).write_text("Private capture bookkeeping, not a public license.")
+    private_recipe = Recipe.model_validate_json(json.dumps(body))
+    store = tmp_path / "private-without-source-notices"
+    source_id = pack(private_recipe, capture.sources, store, (capture.key,))
+    before = {
+        p.relative_to(store): hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in store.rglob("*")
+        if p.is_file()
+    }
+    notice = "Synthetic publisher-supplied test-only license and attribution.\n"
+    request = PublicationRequest(
+        name="Public synthetic model",
+        workloads=("test-only",),
+        members=tuple(
+            PublicMemberTerms(
+                member_id=m.member_id,
+                license_id="test-only",
+                terms_reference="Publisher-supplied synthetic notice",
+                decision="Synthetic public choice; no upstream authorship claimed",
+                notice_paths=(PUBLISHER_NOTICE_PATH,),
+            )
+            for m in private_recipe.members
+        ),
+        notices=tuple(
+            PublisherNotice(member_id=m.member_id, text=notice)
+            for m in private_recipe.members
+        ),
+    )
+    planned = plan_publication(store, source_id, capture.trust, request)
+    identity = digest(encode_record(planned))
+    key = Ed25519PrivateKey.generate()
+    trust = TrustProfile(
+        schema_version="foxlight.model-preservation.trust.v1",
+        keys=(public_record(key),),
+        threshold=1,
+        as_of="independently selected publisher",
+    )
+    public = tmp_path / "public-added-notices"
+    assert (
+        publish_public(
+            store,
+            source_id,
+            capture.trust,
+            request,
+            public,
+            (key,),
+            expected_manifest_id=identity,
+        )
+        == identity
+    )
+    assert verify_store(public, identity, trust) == planned
+    assert (
+        public / object_path(digest(notice.encode()))
+    ).read_bytes() == notice.encode()
+    assert planned.attestation == "owner-capture"
+    assert all(
+        m.retained_card is None and m.intake.notice_paths == (PUBLISHER_NOTICE_PATH,)
+        for m in planned.members
+    )
+    assert all(m.origin_revision == "a" * 40 for m in planned.members)
+    assert not any(
+        f.path == ".foxlight-capture-notice.txt"
+        for m in planned.members
+        for f in m.files
+    )
+    assert before == {
+        p.relative_to(store): hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in store.rglob("*")
+        if p.is_file()
+    }
+    changed = request.model_copy(
+        update={
+            "notices": (
+                PublisherNotice(member_id="weights", text=notice + "changed"),
+                *request.notices[1:],
+            )
+        }
+    )
+    with pytest.raises(PreservationError, match="reviewed plan"):
+        publish_public(
+            store,
+            source_id,
+            capture.trust,
+            changed,
+            tmp_path / "changed-notice",
+            (key,),
+            expected_manifest_id=identity,
+        )
+    assert not (tmp_path / "changed-notice").exists()
+
+
+def test_added_notice_cannot_displace_original_notices_or_target_another_member(
+    capture: Capture, tmp_path: Path
+) -> None:
+    from foxlight_model_preservation.publication import (
+        PUBLISHER_NOTICE_PATH,
+        PublisherNotice,
+    )
+
+    private = private_capture(capture, tmp_path)
+    request = request_for(private)
+    bad = request.model_copy(
+        update={
+            "members": tuple(
+                term.model_copy(update={"notice_paths": (PUBLISHER_NOTICE_PATH,)})
+                for term in request.members
+            ),
+            "notices": tuple(
+                PublisherNotice(member_id=t.member_id, text="Synthetic extra notice")
+                for t in request.members
+            ),
+        }
+    )
+    with pytest.raises(PreservationError, match="original notices"):
+        plan_publication(private.store, private.identity, private.trust, bad)
+    for notices in [
+        (PublisherNotice(member_id="missing", text="notice"),),
+        (
+            PublisherNotice(member_id="weights", text="one"),
+            PublisherNotice(member_id="weights", text="two"),
+        ),
+        (PublisherNotice(member_id="weights", text=" \n"),),
+        (PublisherNotice(member_id="weights", text="binary\x00text"),),
+    ]:
+        with pytest.raises(PreservationError):
+            plan_publication(
+                private.store,
+                private.identity,
+                private.trust,
+                request.model_copy(update={"notices": notices}),
+            )
+
+
+@pytest.mark.parametrize(
+    "source_path",
+    ["NOTICE.publisher.txt", "notice.PUBLISHER.txt", "NOTICE.publisher.txt/child"],
+)
+def test_supplied_notice_cannot_alias_an_original_file(
+    capture: Capture, tmp_path: Path, source_path: str
+) -> None:
+    from foxlight_model_preservation.models import FileIdentity, Manifest
+    from foxlight_model_preservation.publication import (
+        PublisherNotice,
+        review_publication,
+    )
+
+    private = private_capture(capture, tmp_path)
+    source = verify_store(private.store, private.identity, private.trust)
+    first = source.members[0]
+    changed = first.model_copy(
+        update={
+            "files": (
+                *first.files,
+                FileIdentity(path=source_path, size=5, sha256=digest(b"prior")),
+            )
+        }
+    )
+    source = Manifest.model_validate(
+        {
+            **source.model_dump(exclude={"members"}),
+            "members": (changed, *source.members[1:]),
+        }
+    )
+    request = request_for(private)
+    request = request.model_copy(
+        update={
+            "members": tuple(
+                t.model_copy(
+                    update={"notice_paths": (*t.notice_paths, "NOTICE.publisher.txt")}
+                )
+                if t.member_id == first.member_id
+                else t
+                for t in request.members
+            ),
+            "notices": (PublisherNotice(member_id=first.member_id, text="New notice"),),
+        }
+    )
+    with pytest.raises(ValueError):
+        review_publication(source, request)
+
+
+def test_utf8_notice_allowance_is_aggregate_bytes_not_characters(
+    capture: Capture, tmp_path: Path
+) -> None:
+    from foxlight_model_preservation.publication import (
+        PublisherNotice,
+        review_publication,
+    )
+
+    private = private_capture(capture, tmp_path)
+    source = verify_store(private.store, private.identity, private.trust)
+    request = request_for(private).model_copy(
+        update={
+            "notices": tuple(
+                PublisherNotice(member_id=f"member{i}", text="\U0001f98a" * 65536)
+                for i in range(5)
+            )
+        }
+    )
+    with pytest.raises(PreservationError, match="notices exceed metadata allowance"):
+        review_publication(source, request)

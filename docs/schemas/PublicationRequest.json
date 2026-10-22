@@ -46,6 +46,29 @@
       ],
       "title": "PublicMemberTerms",
       "type": "object"
+    },
+    "PublisherNotice": {
+      "additionalProperties": false,
+      "description": "Explicit publisher-supplied UTF-8 notice, separate from upstream evidence.\n\nThe fixed filename cannot replace a source file or introduce executable\npaths. Supplying this text declares no upstream authorship or license grant.\nOriginal required notices remain mandatory and unchanged.",
+      "properties": {
+        "member_id": {
+          "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+          "title": "Member Id",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 65536,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "member_id",
+        "text"
+      ],
+      "title": "PublisherNotice",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -65,6 +88,15 @@
       "minLength": 1,
       "title": "Name",
       "type": "string"
+    },
+    "notices": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/PublisherNotice"
+      },
+      "maxItems": 256,
+      "title": "Notices",
+      "type": "array"
     },
     "runtime_requirements": {
       "default": [],

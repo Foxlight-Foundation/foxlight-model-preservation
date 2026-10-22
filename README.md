@@ -34,6 +34,7 @@ wheels through an authenticated software channel.
 | Plan, observe, cancel or resume bounded worker operations | [Worker controls](docs/jobs.md) |
 | Keep a store healthy and recover from failures | [Operations](docs/operations.md) |
 | Host a copy for others | [Mirror guide](docs/mirrors.md) |
+| Send or receive a public model with an offline preview | [Public invitations](docs/invitations.md) |
 | Create a public-only publication or opt in to BitTorrent seeding | [Public sharing](docs/public-sharing.md) |
 | Retain independent trust and offline recovery material | [Trust and recovery](docs/trust-and-recovery.md) |
 | Publish an open model card or retain registry evidence | [Public cards and offline provenance](docs/cards-and-provenance.md) |

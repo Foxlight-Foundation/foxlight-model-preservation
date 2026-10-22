@@ -38,6 +38,25 @@ Use the source manifest's actual member IDs and original notices. There is no
 automatic license decision. The publisher's declaration does not grant rights.
 An unresolved private-capture notice cannot substitute for original notices.
 
+If an installed capture lacks the necessary public notice file, the request can
+explicitly supply UTF-8 notice text for each affected member:
+
+```json
+"notices": [{
+  "member_id": "primary",
+  "text": "The actual license and attribution text, reviewed by the publisher.\n"
+}]
+```
+
+This optional field belongs at the top level of `PublicationRequest`. Include
+`NOTICE.publisher.txt` in that member's `notice_paths`. The fixed new file is
+publisher supplied; it does not become original signed upstream evidence or a
+license grant. Existing source files cannot be replaced and every original
+required public notice remains mandatory. Text must be nonblank, contain no NUL,
+and fit 65,536 characters per member and 1 MiB of UTF-8 across the request.
+It adds no arbitrary host-file reads or executable paths. Recheck the applicable
+terms rather than assuming that adding a notice grants redistribution rights.
+
 ```sh
 model-preserve plan-publication PRIVATE_MANIFEST --store /private/archive \
   --trust capture-trust.json --request publication.json
@@ -65,6 +84,13 @@ This is not a general secret scanner: deliberately selected model files and
 retained public cards can themselves contain sensitive data. Inspect the proposed
 fields and content before publishing. It starts no server or peer participation.
 
+Applications can use `publication.review_publication(authenticated_manifest,
+request)` for a metadata-only preview without disk/network IO or weight hashing.
+The caller must first authenticate the source manifest. This preview does not
+prove current bytes or rights; `publish_public` still rechecks the full source
+and requires the exact reviewed public identity. Changed notice text changes
+that identity and requires fresh review.
+
 ## Host an ordinary mirror
 
 Point an ordinary read-only static HTTPS server at `/public/model`, or use the
@@ -73,6 +99,10 @@ base URL, exact public manifest ID and independently authenticated public trust
 material. The hosting operator accepts public exposure; the mirror can observe
 downloader addresses and requests. Do not expose the Skulk API or storage/key
 management listener as a mirror.
+
+Once a public copy is hosted, [export an invitation](invitations.md) with the
+original signed manifest and mirror hints. Recipients can review it offline and
+download with explicitly selected trust. The invitation itself starts no hosting.
 
 ## Optional BitTorrent export
 
