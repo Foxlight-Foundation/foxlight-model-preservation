@@ -161,6 +161,13 @@ def publish_catalog(
                 raise PreservationError(
                     "publication version must increase; never overwrite an old version"
                 )
+            if not root.consistent_snapshot:
+                # Unversioned catalog/role aliases cannot preserve the committed
+                # generation across an interrupted in-place update.
+                raise PreservationError(
+                    "updates require consistent snapshots; publish a new source "
+                    "or use an atomic whole-generation deployment"
+                )
         _immutable(destination, f"metadata/{root.version}.root.json", trusted_root)
         _immutable(destination, f"targets/{digest(catalog)}.catalog.json", catalog)
         _immutable(destination, f"metadata/{version}.targets.json", targets_bytes)

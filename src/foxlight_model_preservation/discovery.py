@@ -439,6 +439,21 @@ def follow_source(
                         raise PreservationError(
                             "cache import has conflicting trusted roots"
                         )
+                # A higher role version cannot revive authority revoked by a
+                # successor root, including one learned before a target failed.
+                # A newly supplied successor also takes effect before imported
+                # catalog replacement. First-contact historical snapshots remain
+                # explicitly historical; they cannot later lower this floor.
+                authority_floor = max(
+                    old_roots[-1].signed.version, new_roots[-1].signed.version
+                )
+                if (
+                    incoming.accepted_root_version is None
+                    or incoming.accepted_root_version < authority_floor
+                ):
+                    raise PreservationError(
+                        "cache import would roll back trusted root authority"
+                    )
                 for role in ROLES:
                     if role in state.metadata:
                         old = _json(decode_base64(state.metadata[role]))

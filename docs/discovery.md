@@ -241,3 +241,17 @@ catalog signer profile and optional exact-entry descriptions. Offline interchang
 is `foxlight.discovery-cache.v1`. These explicit surrounding profiles do not
 reinterpret or change historical catalog v1 bytes, model cards, PMF manifests,
 bundle identities or recovery kits. Unsupported interpreted versions fail closed.
+
+Offline import into an existing followed source requires the catalog's accepted
+root authority to be at least the newest root in both receiver and incoming
+chains. Higher role versions signed by retired keys cannot restore revoked
+authority, even after an unsuccessful target update. Historical snapshots with
+older accepted roots remain importable into a new cache as explicitly
+superseded-root evidence; use the bootstrap file to refollow an existing source
+without replacing its retained catalog.
+
+The static publisher can initialize a non-consistent TUF tree, but refuses its
+in-place updates before changing any committed file. Updates require consistent
+snapshots. Operators of other TUF layouts must use an atomic whole-generation
+deployment through their own repository tooling, or publish a separately
+reviewed source. The default root example enables consistent snapshots.

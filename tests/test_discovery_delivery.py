@@ -106,6 +106,33 @@ def test_publication_with_independent_role_keys_and_no_listener(
         )
     assert not (tmp_path / "bad").exists()
     assert not list(public.rglob("*.pem"))
+    if not consistent_snapshot:
+        committed = {
+            str(path.relative_to(public)): path.read_bytes()
+            for path in public.rglob("*")
+            if path.is_file()
+        }
+        fixture.name = "A changed catalog"
+        fixture.publish(2)
+        changed = DiscoveryCatalogTarget.model_validate_json(
+            json.dumps(fixture.targets.signed.targets["catalog.json"].custom)
+        )
+        with pytest.raises(PreservationError, match="updates require consistent"):
+            publish_catalog(
+                public,
+                root.to_bytes(),
+                fixture.envelope,
+                changed,
+                role_keys,
+                version=2,
+                expires=expires,
+            )
+        assert {
+            str(path.relative_to(public)): path.read_bytes()
+            for path in public.rglob("*")
+            if path.is_file()
+        } == committed
+        assert refresh_source(cache, source.source_id).freshness == "fresh"
 
 
 def test_installed_command_flow_and_source_failures_have_nonzero_exit(
@@ -594,3 +621,48 @@ def test_truncated_chunked_metadata_fails_over_without_cli_traceback(tmp_path, c
             server.shutdown()
             server.server_close()
             thread.join()
+
+
+@pytest.mark.parametrize("successor_state", ["accepted", "observed", "incoming"])
+def test_import_cannot_restore_retired_root_authority(
+    tmp_path, capture, successor_state
+):
+    """Higher role versions cannot revive keys revoked by a known successor root."""
+    publisher = Publisher(tmp_path / "publisher", capture)
+    bootstrap = publisher.bootstrap()
+    retired_signer = publisher.tuf_key
+    cache = tmp_path / "cache"
+    source = follow(cache, bootstrap, allow_local=True)
+    refresh_source(cache, source.source_id)
+    publisher.rotate()
+    successor = publisher.root.to_bytes()
+    publisher.publish(2, wrong_catalog_key=successor_state != "accepted")
+    if successor_state == "accepted":
+        refresh_source(cache, source.source_id)
+    elif successor_state == "observed":
+        with pytest.raises(PreservationError):
+            refresh_source(cache, source.source_id)
+    before = export_source(cache, source.source_id)
+    # A compromised old online signer can create internally consistent, higher
+    # role versions. Keeping the real successor chain does not restore its grant.
+    publisher.tuf_key = retired_signer
+    publisher.name = "Forged with retired authority"
+    publisher.publish(3)
+    forged = DiscoveryCacheBundle(
+        bootstrap=bootstrap,
+        roots=(base64.b64encode(successor).decode(),),
+        metadata={
+            role: base64.b64encode(metadata.to_bytes()).decode()
+            for role, metadata in (
+                ("timestamp", publisher.timestamp),
+                ("snapshot", publisher.snapshot),
+                ("targets", publisher.targets),
+            )
+        },
+        accepted_root_version=1,
+        catalog=base64.b64encode(publisher.envelope).decode(),
+    )
+    with pytest.raises(PreservationError, match="root authority"):
+        follow_source(cache, encode_record(forged), bootstrap_identity(bootstrap))
+    assert export_source(cache, source.source_id) == before
+    assert not search_sources(cache, "forged")
