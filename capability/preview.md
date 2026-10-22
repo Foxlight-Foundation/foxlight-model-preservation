@@ -31,7 +31,11 @@ launches for that profile must be stopped first.
 It retains interrupted files for inspection and never adopts another existing
 installation. The Core installer is downloaded from an immutable revision and
 checked against the embedded SHA-256 before execution. The installed checkout's
-revision is checked afterward. Setup and preview launches share kernel-held locks:
+revision is checked afterward. Setup and Core launch also validate the ignored
+runtime configuration: the Model Store and staging must still point inside the
+same profile, with its local host and port and no foreign per-node override.
+Ordinary YAML saved by Core can retain other settings. A changed storage path is
+refused before launch; restore its original profile paths or choose a new preview. Setup and preview launches share kernel-held locks:
 resuming setup refuses while that preview Core or Library is running, and only
 one preview Core can launch. Complete installer output stays in the private
 `installation.log`; the final commands use the isolated profile.

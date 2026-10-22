@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import cast
 
 import httpx
+import yaml
 
 # Updated only after the compatible Core candidate is integrated and verified.
 CORE_REVISION = "6c586e825efc95fa4fe03f6fe682427dc2e2e346"
@@ -170,6 +171,50 @@ def _environment(root: Path, receipt: dict[str, str | int]) -> dict[str, str]:
     }
 
 
+def _validate_configuration(root: Path) -> None:
+    for leaf in ("state", "model-store", "staging", "worker-models"):
+        selected = root / leaf
+        if selected.is_symlink() or (selected.exists() and not selected.is_dir()):
+            raise PreviewRefused(
+                "An isolated preview data path was replaced by a symlink or file. "
+                "Keep it for inspection; no runtime was started."
+            )
+    descriptor = os.open(
+        root / "core" / "skulk.yaml",
+        os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+    )
+    with os.fdopen(descriptor, "rb") as stream:
+        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+            raise PreviewRefused("The preview configuration is not a regular file.")
+        raw = stream.read(65537)
+    if len(raw) > 65536:
+        raise PreviewRefused("The preview configuration exceeds its expected limit.")
+    try:
+        loaded: object = yaml.safe_load(raw)
+    except yaml.YAMLError as error:
+        raise PreviewRefused(
+            "The preview configuration cannot be read safely."
+        ) from error
+    configuration = cast(dict[str, object], loaded) if isinstance(loaded, dict) else {}
+    value = configuration.get("model_store")
+    store = cast(dict[str, object], value) if isinstance(value, dict) else {}
+    value = store.get("staging")
+    staging = cast(dict[str, object], value) if isinstance(value, dict) else {}
+    if (
+        store.get("enabled", True) is not True
+        or store.get("store_host") != socket.gethostname().split(".")[0]
+        or store.get("store_port") != 13415
+        or store.get("store_path") != str(root / "model-store")
+        or store.get("nodes", {}) != {}
+        or staging.get("node_cache_path") != str(root / "staging")
+    ):
+        raise PreviewRefused(
+            "Preview storage settings no longer match this isolated profile. "
+            "Restore its original Model Store and staging settings or choose a "
+            "new preview directory. No runtime was started."
+        )
+
+
 def _clean_checkout(core: Path) -> None:
     if core.is_symlink() or (core / ".git").is_symlink():
         raise PreviewRefused("The preview checkout changed. Keep its contents.")
@@ -274,6 +319,7 @@ def _setup(root: Path, receipt: dict[str, str | int], *, with_dashboard: bool) -
             )
             + "\n",
         )
+    _validate_configuration(root)
     # Verify the exact immutable installer before executing it. A redirect or
     # oversized response never becomes shell input, and nothing is piped to bash.
     installer = bytearray()
@@ -336,6 +382,7 @@ def _setup(root: Path, receipt: dict[str, str | int], *, with_dashboard: bool) -
         raise PreviewRefused(
             "Core did not resolve to the pinned revision. No runtime was started."
         )
+    _validate_configuration(root)
     subprocess.run(
         ["uv", "tool", "install", "--force", "--python", "3.13", LIBRARY_WHEEL],
         env=environment,
@@ -370,6 +417,7 @@ def launch(root: Path, action: str) -> None:
 def _launch(root: Path, action: str, receipt: dict[str, str | int]) -> None:
     environment = _environment(root, receipt)
     if action == "core":
+        _validate_configuration(root)
         _clean_checkout(root / "core")
         actual = subprocess.check_output(
             ["git", "-C", str(root / "core"), "rev-parse", "HEAD"], text=True

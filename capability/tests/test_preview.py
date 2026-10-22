@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+import socket
 import subprocess
 from pathlib import Path
 
@@ -121,3 +124,138 @@ def test_installer_keeps_full_private_log_and_only_profile_launch_commands(
     assert "wrong generic launch" not in shown
     assert "wrong generic launch" in (tmp_path / "installation.log").read_text()
     assert (tmp_path / "installation.log").stat().st_mode & 0o077 == 0
+
+
+def managed_profile(root: Path) -> None:
+    """Create a private setup receipt/configuration without running software."""
+    root.mkdir(mode=0o700)
+    info = root.stat()
+    preview._write(
+        root / "preview.json",
+        json.dumps(
+            {
+                "format": 1,
+                "core_revision": preview.CORE_REVISION,
+                "device": info.st_dev,
+                "inode": info.st_ino,
+                "namespace": "a" * 64,
+            }
+        ),
+    )
+    (root / "core").mkdir(mode=0o700)
+    preview._write(
+        root / "core" / "skulk.yaml",
+        json.dumps(
+            {
+                "model_store": {
+                    "store_host": socket.gethostname().split(".")[0],
+                    "store_port": 13415,
+                    "store_path": str(root / "model-store"),
+                    "staging": {"node_cache_path": str(root / "staging")},
+                }
+            }
+        ),
+    )
+
+
+@pytest.mark.parametrize("changed", ["store", "staging", "node_override"])
+def test_changed_runtime_configuration_is_refused_before_launch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, changed: str
+) -> None:
+    root = tmp_path / "preview"
+    managed_profile(root)
+    path = root / "core" / "skulk.yaml"
+    configuration = json.loads(path.read_text())
+    store = configuration["model_store"]
+    if changed == "store":
+        store["store_path"] = str(tmp_path / "existing-store")
+    elif changed == "staging":
+        store["staging"]["node_cache_path"] = str(tmp_path / "existing-staging")
+    else:
+        store["nodes"] = {"other": {"staging": {"node_cache_path": "/other-store"}}}
+    path.write_text(json.dumps(configuration))
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        pytest.fail("Changed ignored configuration must not launch any child")
+
+    monkeypatch.setattr(preview.subprocess, "run", forbidden)
+    with pytest.raises(preview.PreviewRefused, match="storage settings"):
+        preview.launch(root, "core")
+    assert not (tmp_path / "existing-store").exists()
+    assert not (tmp_path / "existing-staging").exists()
+
+
+def test_core_saved_yaml_can_retain_other_settings_inside_profile(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "preview"
+    managed_profile(root)
+    path = root / "core" / "skulk.yaml"
+    configuration = json.loads(path.read_text())
+    configuration["logging"] = {"enabled": False}
+    configuration["model_store"]["store_http_host"] = "127.0.0.1"
+    path.write_text(preview.yaml.safe_dump(configuration))
+    preview._validate_configuration(root)
+
+
+def test_installer_configuration_rewrite_is_refused_before_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "preview"
+    managed_profile(root)
+    script = b"# checksum-pinned fixture installer\n"
+    monkeypatch.setattr(
+        preview, "CORE_INSTALLER_SHA256", hashlib.sha256(script).hexdigest()
+    )
+    original_client = httpx.Client
+    monkeypatch.setattr(
+        preview.httpx,
+        "Client",
+        lambda **kwargs: original_client(
+            transport=httpx.MockTransport(
+                lambda _: httpx.Response(200, content=script)
+            ),
+            **kwargs,
+        ),
+    )
+
+    def rewrite(*args: object, **kwargs: object) -> None:
+        path = root / "core" / "skulk.yaml"
+        configuration = json.loads(path.read_text())
+        configuration["model_store"]["store_path"] = "/existing-store"
+        path.write_text(json.dumps(configuration))
+
+    monkeypatch.setattr(preview, "_install_core", rewrite)
+    monkeypatch.setattr(
+        preview.subprocess,
+        "check_output",
+        lambda *args, **kwargs: preview.CORE_REVISION,
+    )
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        pytest.fail("A rewritten profile must not install Library or report success")
+
+    monkeypatch.setattr(preview.subprocess, "run", forbidden)
+    with pytest.raises(preview.PreviewRefused, match="storage settings"):
+        preview.setup(root, resume=True, with_dashboard=False)
+
+
+def test_store_alias_cannot_redirect_an_unchanged_profile_configuration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "preview"
+    managed_profile(root)
+    other = tmp_path / "existing-store"
+    other.mkdir()
+    kept = other / "keep"
+    kept.write_bytes(b"original-operator-data")
+    (root / "model-store").symlink_to(other, target_is_directory=True)
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        pytest.fail("A redirected Model Store must not launch any child")
+
+    monkeypatch.setattr(preview.subprocess, "run", forbidden)
+    with pytest.raises(preview.PreviewRefused, match="data path"):
+        preview.launch(root, "core")
+    assert kept.read_bytes() == b"original-operator-data"
+    assert list(other.iterdir()) == [kept]
