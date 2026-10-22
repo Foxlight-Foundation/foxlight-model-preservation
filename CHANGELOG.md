@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Library 0.4.1 fixes navigation out of public import and adds Activity review and explicit cleanup of authenticated stopped sharing/import work. Saved copies, keys, kits and metainfo remain intact. Requires Core's temporary-files APIs.
+
 - Library 0.4 preview connects public-only signed bundle import, explicit bounded
   HTTP mirrors and opt-in BitTorrent to Core-owned jobs. It retains unknown card
   metadata without model admission, offers metainfo/public-key downloads and

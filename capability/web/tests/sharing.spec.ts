@@ -61,3 +61,85 @@ test('stop waits for owned completion and retained torrent download joins no swa
   await expect(page.getByText('Only this device · preview · up to 3600 seconds')).toBeVisible();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
 });
+
+for(const destination of ['Storage & keys','Activity','Your copies','Sharing'])test(`public import exits through ${destination}`,async({page})=>{
+  let starts=0;
+  await page.route('**/api/library?offset=*',route=>route.fulfill({json:{locations:[{location_id:'private',label:'Private archive',purpose:'private',reachable:true,free_bytes:10000,publisher_key_id:'capture'}],models:[],copies:[],public_copies:[],jobs:[],uploads:[],next_offset:null,bittorrent_available:false}}));
+  await page.route('**/api/start',route=>{starts++;return route.fulfill({json:{}});});
+  await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();
+  await page.getByRole('button',{name:'Import public bundle',exact:true}).click();
+  await expect(page.getByLabel('Public bundle file')).toBeVisible();
+  await page.getByRole('button',{name:destination,exact:true}).click();
+  await expect(page.getByLabel('Public bundle file')).toHaveCount(0);
+  if(destination==='Storage & keys')await expect(page.getByRole('heading',{name:'Storage & keys',exact:true})).toBeVisible();
+  if(destination==='Activity')await expect(page.getByRole('heading',{name:'Activity',exact:true})).toBeVisible();
+  if(destination==='Your copies')await expect(page.getByRole('heading',{name:'Your models, kept close.'})).toBeVisible();
+  if(destination==='Sharing')await expect(page.getByRole('heading',{name:'Keep a community copy available.'})).toBeVisible();
+  expect(starts).toBe(0);
+});
+
+test('stopped temporary files require inspection and fresh cleanup consent',async({page})=>{
+  const job={job_id:'6'.repeat(64),kind:'torrent_share',model_id:copy.model_id,state:'failed',stage:'failed',created_at:1,bytes_copied:0,bytes_hashed:0,sharing:{ready:false,listen_port:0,charged_bytes:0,connected_peers:0,accounting:'observed-torrent-payload'}};
+  let cleared=0,starts=0;
+  await page.route('**/api/library?offset=*',route=>route.fulfill({json:{locations:[],models:[],copies:[],public_copies:[copy],jobs:[job],temporary_work_jobs:cleared?[]:[job.job_id],next_offset:null,bittorrent_available:true}}));
+  await page.route('**/api/work-preview',route=>route.fulfill({json:{job_id:job.job_id,found:true,logical_bytes:2048,files:2,complete:false,removed:false}}));
+  await page.route('**/api/reclaim-work',route=>{expect(route.request().postDataJSON()).toEqual({job_id:job.job_id});cleared++;return route.fulfill({json:{job_id:job.job_id,found:true,logical_bytes:2048,files:2,complete:true,removed:true}});});
+  await page.route('**/api/start',route=>{starts++;return route.fulfill({json:{}});});
+  await page.goto('/');await page.getByRole('button',{name:'Activity',exact:true}).click();
+  await page.getByRole('button',{name:'Review temporary files'}).click();
+  await expect(page.getByText('At least 2.0 KB in 2 regular files')).toBeVisible();
+  await expect(page.getByRole('button',{name:'Clear temporary files',exact:true})).toBeDisabled();
+  await page.getByLabel('Clear only this stopped job’s temporary files').check();
+  await page.getByRole('button',{name:'Sharing',exact:true}).click();
+  await page.getByRole('button',{name:'Activity',exact:true}).click();
+  await page.getByRole('button',{name:'Review temporary files'}).click();
+  await expect(page.getByRole('button',{name:'Clear temporary files',exact:true})).toBeDisabled();
+  expect(cleared).toBe(0);
+  await page.getByLabel('Clear only this stopped job’s temporary files').check();
+  await page.getByRole('button',{name:'Clear temporary files',exact:true}).click();
+  await expect(page.getByRole('status')).toContainText('Temporary files cleared');
+  await expect(page.getByRole('button',{name:'Review temporary files'})).toHaveCount(0);
+  await page.getByRole('button',{name:'Sharing',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Set up HTTP mirror'})).toBeVisible();
+  expect(starts).toBe(0);expect(cleared).toBe(1);
+});
+
+test('leaving import while its review arrives does not reopen intake',async({page})=>{
+  await page.route('**/api/library?offset=*',route=>route.fulfill({json:{locations:[],models:[],copies:[],public_copies:[],jobs:[],uploads:[],next_offset:null}}));
+  await page.route('**/api/upload-create',route=>route.fulfill({json:{upload_id:'1'.repeat(32),size_bytes:20,offset:0,complete:false}}));
+  await page.route('**/api/upload/*',route=>route.fulfill({json:{upload_id:'1'.repeat(32),size_bytes:20,offset:20,complete:true}}));
+  let release:()=>void=()=>{};
+  const pending=new Promise<void>(resolve=>{release=resolve;});
+  await page.route('**/api/sharing-plan',async route=>{await pending;await route.fulfill({json:{...plan,kind:'mirror_import',sharing:null}});});
+  await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();
+  await page.getByRole('button',{name:'Import public bundle'}).click();
+  const requested=page.waitForRequest('**/api/sharing-plan');
+  await page.getByLabel('Public bundle file').setInputFiles({name:'public.foxkit',mimeType:'application/octet-stream',buffer:Buffer.alloc(20,1)});
+  await requested;
+  await page.getByRole('button',{name:'Activity',exact:true}).click();
+  const arrived=page.waitForResponse('**/api/sharing-plan');release();await(await arrived).finished();
+  await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve()))));
+  await expect(page.getByRole('heading',{name:'Activity',exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Import public copy',exact:true})).toHaveCount(0);
+});
+
+for(const outcome of ['preview','error'])for(const destination of ['Sharing','Restore from recovery kit'])test(`cleanup ${outcome} cannot reopen after ${destination}`,async({page})=>{
+  const job={job_id:'6'.repeat(64),kind:'torrent_share',model_id:copy.model_id,state:'failed',stage:'failed',created_at:1,bytes_copied:0,bytes_hashed:0};
+  await page.route('**/api/library?offset=*',route=>route.fulfill({json:{locations:[],models:[],copies:[],public_copies:[copy],jobs:[job],temporary_work_jobs:[job.job_id],uploads:[],next_offset:null}}));
+  let release:()=>void=()=>{};const pending=new Promise<void>(resolve=>{release=resolve;});
+  await page.route('**/api/work-preview',async route=>{await pending;await route.fulfill(outcome==='error'?{status:503,json:{error:'host_unavailable'}}:{json:{job_id:job.job_id,found:true,logical_bytes:2048,files:2,complete:true,removed:false}});});
+  await page.goto('/');await page.getByRole('button',{name:'Activity',exact:true}).click();
+  const requested=page.waitForRequest('**/api/work-preview');
+  await page.getByRole('button',{name:'Review temporary files',exact:true}).click();await requested;
+  await page.getByRole('button',{name:destination,exact:true}).click();
+  const arrived=page.waitForResponse('**/api/work-preview');release();await(await arrived).finished();
+  await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve()))));
+  if(destination==='Sharing')await expect(page.getByRole('heading',{name:'Keep a community copy available.'})).toBeVisible();
+  else {
+    await expect(page.getByRole('heading',{name:'Restore from a recovery kit'})).toBeVisible();
+    await page.getByRole('button',{name:'Back to Library'}).click();
+    await expect(page.getByRole('heading',{name:'Keep your models within reach.'})).toBeVisible();
+  }
+  await expect(page.getByRole('heading',{name:'Clear this stopped job’s temporary files?'})).toHaveCount(0);
+  await expect(page.getByRole('alert')).toHaveCount(0);
+});

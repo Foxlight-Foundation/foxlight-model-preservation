@@ -229,7 +229,7 @@ class LibraryServer:
                 "GET" if action == "upload-status" else "DELETE",
                 "kit-uploads/" + upload_id,
             )
-        if action == "reclaim":
+        if action in {"reclaim", "work-preview", "reclaim-work"}:
             job_id = body.get("job_id")
             if (
                 set(body) != {"job_id"}
@@ -238,9 +238,23 @@ class LibraryServer:
             ):
                 raise CoreRefused("invalid_job_identity")
             job = await self.client.request("GET", "jobs/" + job_id)
-            if job.get("owner_id") != self.client.owner_id:
+            permitted = {self.client.owner_id}
+            if action != "reclaim":
+                permitted.add(self.client.sharing_owner_id)
+            if job.get("owner_id") not in permitted:
                 raise CoreRefused("job_owner_changed")
-            return await self.client.request("POST", "jobs/" + job_id + "/reclaim", {})
+            if action == "work-preview":
+                return await self.client.request(
+                    "GET", "jobs/" + job_id + "/temporary-files"
+                )
+            return await self.client.request(
+                "POST",
+                "jobs/"
+                + job_id
+                + "/"
+                + ("reclaim" if action == "reclaim" else "reclaim-work"),
+                {},
+            )
         if action == "retry-plan":
             job_id = body.get("job_id")
             if (
@@ -399,6 +413,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                     "api/upload-remove",
                     "api/retry-plan",
                     "api/reclaim",
+                    "api/work-preview",
+                    "api/reclaim-work",
                 }
             ):
                 raise ValueError("invalid control")
