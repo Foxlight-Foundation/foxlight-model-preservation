@@ -104,7 +104,7 @@ export function Progress({value,max,tone='live',label}:{value?:number;max?:numbe
 
 /** Empty states: a friendly sentence and one way forward. */
 export function Empty({icon,title,children,action}:{icon:IconName;title:ReactNode;children?:ReactNode;action?:ReactNode}) {
-  return <div className="sk-empty"><span className="sk-empty-icon"><Icon name={icon} size={22}/></span><h3>{title}</h3>{children&&<p>{children}</p>}{action}</div>;
+  return <div className="sk-empty"><span className="sk-empty-icon"><Icon name={icon} size={22}/></span><h2>{title}</h2>{children&&<p>{children}</p>}{action}</div>;
 }
 
 const SheetStack=createContext<{stack:string[];register:(id:string)=>()=>void;banner:ReactNode}>({stack:[],register:()=>()=>undefined,banner:null});
@@ -117,7 +117,9 @@ export function SheetHost({banner,children}:{banner:ReactNode;children:ReactNode
 /** Renders app-level messages in page flow only while no sheet covers it. */
 export function PageBanner() {const {stack,banner}=useContext(SheetStack);return stack.length?null:<>{banner}</>;}
 
-let locks=0;
+let locks=0,lastFocused:HTMLElement|null=null;
+// Controls that start an async review are disabled while it loads, so remember the last focused control to return to.
+if(typeof document!=='undefined')document.addEventListener('focusin',event=>{if(event.target instanceof HTMLElement&&event.target!==document.body)lastFocused=event.target;},true);
 /** A right-side sheet under the header (full screen on phones). The header stays usable: leaving an area discards the sheet. */
 export function Sheet({kicker,title,subtitle,back,onClose,footer,children,wide}:{kicker?:ReactNode;title:ReactNode;subtitle?:ReactNode;back:string;onClose:()=>void;footer?:ReactNode;children:ReactNode;wide?:boolean}) {
   const id=useId(),heading=useRef<HTMLHeadingElement>(null),panel=useRef<HTMLElement>(null),close=useRef(onClose);close.current=onClose;
@@ -125,7 +127,8 @@ export function Sheet({kicker,title,subtitle,back,onClose,footer,children,wide}:
   top.current=stack[stack.length-1]===id;
   useEffect(()=>register(id),[id,register]);
   useEffect(()=>{
-    const opener=document.activeElement instanceof HTMLElement?document.activeElement:null;
+    const active=document.activeElement instanceof HTMLElement&&document.activeElement!==document.body?document.activeElement:null;
+    const opener=active??lastFocused;
     locks++;document.documentElement.classList.add('sk-locked');
     const frame=requestAnimationFrame(()=>heading.current?.focus({preventScroll:true}));
     function key(event:globalThis.KeyboardEvent){if(event.key==='Escape'&&top.current&&!event.defaultPrevented){event.preventDefault();close.current();}}
@@ -137,9 +140,9 @@ export function Sheet({kicker,title,subtitle,back,onClose,footer,children,wide}:
       if(lost&&opener?.isConnected&&!opener.closest('[inert]'))opener.focus({preventScroll:true});};
   },[]);
   return <div className="sk-layer" data-wide={wide?'true':undefined}><div className="sk-scrim" aria-hidden="true" onClick={()=>close.current()}/><section ref={panel} className="sk-sheet" role="dialog" aria-labelledby={id}>
-    <header className="sk-sheet-head"><div className="sk-sheet-titles">{kicker&&<p className="sk-label">{kicker}</p>}<h2 id={id} ref={heading} tabIndex={-1}>{title}</h2>{subtitle&&<p className="sk-sheet-sub">{subtitle}</p>}</div><button type="button" className="sk-icon-btn" aria-label={back} title={back} onClick={()=>close.current()}><Icon name="close" size={18}/></button></header>
+    <div className="sk-sheet-head"><div className="sk-sheet-titles">{kicker&&<p className="sk-label">{kicker}</p>}<h2 id={id} ref={heading} tabIndex={-1}>{title}</h2>{subtitle&&<p className="sk-sheet-sub">{subtitle}</p>}</div><button type="button" className="sk-icon-btn" aria-label={back} title={back} onClick={()=>close.current()}><Icon name="close" size={18}/></button></div>
     <div className="sk-sheet-body">{stack[stack.length-1]===id&&banner}{children}</div>
-    {footer&&<footer className="sk-sheet-foot">{footer}</footer>}
+    {footer&&<div className="sk-sheet-foot">{footer}</div>}
   </section></div>;
 }
 
