@@ -34,10 +34,51 @@ Install from this repository; there is no PyPI release:
 python -m pip install '.[peer]'
 ```
 
-Separately install the official [Kubo 0.43.1 release](https://github.com/ipfs/kubo/releases/tag/v0.43.1)
-for your platform and verify its release checksum through your authenticated
-software distribution process. The adapter checks the exact executable version;
-it does not download software or adopt an existing IPFS repository.
+Review and install the pinned native support in private per-user storage:
+
+```sh
+model-preserve peer-runtime-plan
+model-preserve peer-runtime-install --allow-runtime-download
+```
+
+This supports macOS/Linux ARM64 and AMD64, needs no administrator access and
+changes no PATH or system packages. The offline plan reports the exact version,
+download size, SHA-512 archive identity, SHA-256 executable identity and fixed
+official download origins. Install verifies those packaged identities rather
+than trusting a checksum fetched during installation. If the first official
+origin is unavailable, the second can supply the same pinned archive. HTTPS
+redirects are restricted to approved official distribution hosts. No installers,
+hooks or extracted binaries run during acquisition. Publication is atomic;
+interrupted work is not usable. Normal failures remove staging; a process crash
+can leave private `.native-pending-*` scratch directories, which can be removed
+when no installation is running. Never remove the lock file during a running
+installation. The next explicit invocation starts again; partial downloads are
+not resumed. Verified existing generations are reused without another download.
+
+For an offline computer, bring the exact official archive reported by the plan:
+
+```sh
+model-preserve peer-runtime-install --archive ./kubo_v0.43.1_linux-amd64.tar.gz
+```
+
+The default native directory is `~/.local/state/foxlight-preservation/runtime`;
+`--runtime-directory` chooses another private local directory. The CLI detects
+the default managed executable automatically and rehashes it before selection.
+With a custom directory, pass its returned executable using `--ipfs`.
+Explicit `--ipfs` and an existing PATH installation remain supported and are
+checked for the exact qualified version. A damaged managed installation refuses;
+inspect/remove that generation offline before reinstalling. Acquiring software
+does not initialize a peer repository, connect to peers, grant model trust or
+start sharing. It does not adopt an existing IPFS repository.
+
+Acquisition has a five-minute cooperative deadline, bounded archive/executable
+sizes, and a free-space check for staging plus a reserve. OS DNS/filesystem
+stalls may outlast the deadline. This software transfer is separate from model
+object allowances; interrupted attempts may download the archive again. Native
+repository caches and model transfers retain their separate documented limits.
+See the [official Kubo release](https://github.com/ipfs/kubo/releases/tag/v0.43.1)
+for upstream distributions and notices. Broader native platform and public-network
+qualification are distinct from verifying distribution identities.
 
 Replace `PEER_MULTIADDRESS` with a reachable standard contact such as
 `/ip4/PUBLIC_IP/tcp/PORT/p2p/PEER_ID`. Numeric IPv4/IPv6 TCP addresses are accepted;
