@@ -20,6 +20,11 @@ GROUPS: dict[str, tuple[tuple[str, str], ...]] = {
         ("/preservation/discovery/peer", "get"),
         ("/preservation/discovery/peer", "post"),
     ),
+    "Peer software setup": (
+        ("/preservation/discovery/peer/runtime", "get"),
+        ("/preservation/discovery/peer/runtime/jobs", "post"),
+        ("/preservation/discovery/peer/runtime/jobs/{job_id}", "delete"),
+    ),
     "Source discovery": (
         ("/preservation/discovery/reviews", "post"),
         ("/preservation/discovery/sources", "post"),

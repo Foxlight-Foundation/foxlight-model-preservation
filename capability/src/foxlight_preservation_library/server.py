@@ -163,6 +163,9 @@ class LibraryServer:
         if action in {
             "peer-read",
             "peer-setup",
+            "peer-runtime-read",
+            "peer-runtime-start",
+            "peer-runtime-stop",
             "discovery-read",
             "discovery-search",
             "discovery-start",
@@ -524,6 +527,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                     not in {
                         "api/peer-read",
                         "api/peer-setup",
+                        "api/peer-runtime-read",
+                        "api/peer-runtime-start",
+                        "api/peer-runtime-stop",
                         "api/discovery-read",
                         "api/discovery-search",
                         "api/discovery-start",

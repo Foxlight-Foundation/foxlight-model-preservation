@@ -268,3 +268,68 @@ async def test_peer_controls_keep_settings_and_per_operation_consent_separate() 
         assert len(calls) == before
     finally:
         await client.close()
+
+
+async def test_native_setup_grant_is_exact_and_uses_client_owned_receipts() -> None:
+    calls: list[tuple[str, str, str, object]] = []
+
+    def core(request: httpx.Request) -> httpx.Response:
+        calls.append(
+            (
+                request.method,
+                request.url.path,
+                request.url.query.decode(),
+                json.loads(request.content) if request.content else {},
+            )
+        )
+        return httpx.Response(200, json={})
+
+    client = CoreClient(
+        Settings(), "native-client", transport=httpx.MockTransport(core)
+    )
+    server = LibraryServer(None, client, asyncio.get_running_loop())
+    try:
+        await server.dispatch("peer-runtime-read", {})
+        assert calls[-1][:3] == (
+            "GET",
+            "/preservation/discovery/peer/runtime",
+            "owner_id=" + client.discovery_owner_id,
+        )
+        before = len(calls)
+        for body in (
+            {"plan_id": "a" * 64, "operation_id": "setup", "confirmed": False},
+            {
+                "plan_id": "a" * 64,
+                "operation_id": "setup",
+                "confirmed": True,
+                "url": "https://unknown.invalid",
+            },
+            {
+                "plan_id": "a" * 64,
+                "operation_id": "setup",
+                "confirmed": True,
+                "allow_peer_network": True,
+            },
+        ):
+            with pytest.raises(ValueError):
+                await server.dispatch("peer-runtime-start", body)
+        assert len(calls) == before
+        await server.dispatch(
+            "peer-runtime-start",
+            {"plan_id": "a" * 64, "operation_id": "setup", "confirmed": True},
+        )
+        assert calls[-1][0:2] == ("POST", "/preservation/discovery/peer/runtime/jobs")
+        assert calls[-1][3] == {
+            "plan_id": "a" * 64,
+            "operation_id": "setup",
+            "confirmed": True,
+            "owner_id": client.discovery_owner_id,
+        }
+        await server.dispatch("peer-runtime-stop", {"job_id": "b" * 64})
+        assert calls[-1][:3] == (
+            "DELETE",
+            "/preservation/discovery/peer/runtime/jobs/" + "b" * 64,
+            "owner_id=" + client.discovery_owner_id,
+        )
+    finally:
+        await client.close()

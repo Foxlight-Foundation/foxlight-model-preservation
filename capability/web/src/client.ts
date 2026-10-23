@@ -21,13 +21,18 @@ export function bytes(value:number):string {return value < 1024 ? `${value} B` :
 /** Stable codes are translated here; raw exceptions never become product copy. */
 export function errorText(code:string):string {
   const labels:Record<string,string> = {
+    peer_runtime_confirmation_required:'Review the software source and explicitly allow this installation.',
+    peer_runtime_plan_changed:'The peer support build changed. Check setup again and review its current plan.',
+    peer_runtime_setup_failed:'Peer support could not be installed. Check Core’s connection and free storage, then review another attempt.',
+    peer_runtime_job_capacity_reached:'Core has retained its maximum setup receipts. Use a compatible existing Kubo installation; retained authorization history was kept.',
+    peer_runtime_job_not_found:'This setup receipt is unavailable for the current Library client.',
     peer_setup_required:'Set up peer connections, then explicitly allow this operation.',
     peer_setup_changed:'Peer settings changed. Review the current contacts and allow this operation again.',
     peer_network_confirmation_required:'Review and allow peer connections for this operation.',
-    peer_runtime_required:'Install Kubo 0.43.1 on the Core host, then reopen peer setup.',
+    peer_runtime_required:'Set up verified peer support on Core, then review peer connections.',
     peer_scope_changed_new_receive_required:'This download was reviewed for a different private-address scope. Restore that scope to resume, or review a separate download.',
     peer_pinned_snapshot_required:'This peer source has no pinned recovery snapshot. Ask its operator for an updated source file.',
-    peer_runtime_unavailable:'Install the qualified Kubo runtime on the Core host, then review peer connections again.',
+    peer_runtime_unavailable:'Set up verified peer support on Core, then review peer connections again.',
     peer_busy_try_again:'A peer operation is finishing. Wait for it to stop before changing connection settings.',
     peer_ipfs_model_hint_required:'This source has no supported peer model reference. Ask its operator for a peer invitation or recovery kit.',
     source_transport_changed:'This source was reviewed for a different transport. Reopen it and review its current connection settings.',

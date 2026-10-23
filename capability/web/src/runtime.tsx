@@ -1,0 +1,31 @@
+import {useEffect,useRef,useState} from 'react';
+import {api,bytes,errorText} from './client';
+
+/** Native software setup is separate from model transfer and peer exposure. */
+export interface RuntimeJob {job_id:string;owner_id:string;state:'queued'|'running'|'cancelling'|'succeeded'|'failed'|'cancelled'|'interrupted';bytes_copied:number;error_code:string|null}
+/** Core supplies fixed reviewed identities; the browser never selects an executable. */
+export interface RuntimeView {supported:boolean;plan_id:string|null;plan:{version:string;target:string;artifact:{archive_bytes:number;executable_bytes:number;archive_sha512:string;executable_sha256:string};download_urls:string[]}|null;job:RuntimeJob|null}
+const pending=(job:RuntimeJob|null|undefined)=>!!job&&['queued','running','cancelling'].includes(job.state);
+
+/** Review, authorize and observe Core-owned acquisition without starting peer access. */
+export function RuntimeSetup({onReady}:{onReady:()=>void}) {
+  const [view,setView]=useState<RuntimeView|null>(null),[confirmed,setConfirmed]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('');
+  const live=useRef(true),working=useRef(false),ready=useRef<string|null>(null),callback=useRef(onReady),submission=useRef<{plan:string;id:string}|null>(null);callback.current=onReady;
+  function accept(value:RuntimeView){if(!live.current)return;setView(value);if(value.job?.state==='succeeded'&&ready.current!==value.job.job_id){ready.current=value.job.job_id;callback.current();}}
+  async function read(){working.current=true;setBusy(true);setError('');try{accept(await api<RuntimeView>('peer-runtime-read',{}));}catch(err){if(live.current)setError(err instanceof Error?err.message:'host_unavailable');}finally{working.current=false;if(live.current)setBusy(false);}}
+  useEffect(()=>{live.current=true;void read();return()=>{live.current=false;};},[]);
+  useEffect(()=>{if(busy||!pending(view?.job))return;let cancelled=false;let timer:ReturnType<typeof setTimeout>;async function poll(){try{const value=await api<RuntimeView>('peer-runtime-read',{});if(!cancelled&&!working.current){accept(value);setError('');}}catch(err){if(!cancelled&&!working.current)setError(err instanceof Error?err.message:'host_unavailable');}if(!cancelled)timer=setTimeout(()=>void poll(),1000);}timer=setTimeout(()=>void poll(),1000);return()=>{cancelled=true;clearTimeout(timer);};},[view?.job?.job_id,view?.job?.state,busy]);
+  async function start(){if(!view?.plan_id||!confirmed||working.current)return;working.current=true;setBusy(true);setError('');if(submission.current?.plan!==view.plan_id)submission.current={plan:view.plan_id,id:crypto.randomUUID()};try{const job=await api<RuntimeJob>('peer-runtime-start',{plan_id:view.plan_id,operation_id:submission.current.id,confirmed:true});submission.current=null;if(live.current){setConfirmed(false);accept({...view,job});}}catch(err){if(live.current)setError(err instanceof Error?err.message:'host_unavailable');}finally{working.current=false;if(live.current)setBusy(false);}}
+  async function stop(){if(!view?.job||working.current)return;working.current=true;setBusy(true);setError('');try{const job=await api<RuntimeJob>('peer-runtime-stop',{job_id:view.job.job_id});if(live.current)accept({...view,job});}catch(err){if(live.current)setError(err instanceof Error?err.message:'host_unavailable');}finally{working.current=false;if(live.current)setBusy(false);}}
+  return <section aria-label="Set up peer support">
+    <h4>Set up peer support</h4><p className="mp-small">Install verified IPFS support on this Core. No administrator access is needed. Installation does not connect to peers or share models.</p>
+    {view?.plan&&<><p className="mp-small">Kubo {view.plan.version} · {bytes(view.plan.artifact.archive_bytes)} download · {bytes(view.plan.artifact.executable_bytes)} installed</p><details><summary>Software source and verification</summary><p className="mp-small">Core checks its packaged archive and executable hashes before use. Downloads use these official sources:</p><ul>{view.plan.download_urls.map(url=><li key={url}><a href={url} target="_blank" rel="noreferrer">{new URL(url).hostname}</a></li>)}</ul><p className="mp-small mp-muted">Private staging needs the download size plus installed size and a reserve. Interrupted attempts may download again.</p></details></>}
+    {view&&!view.supported&&<p className="mp-notice">Automatic setup is unavailable on this platform. An existing compatible Kubo installation can still be used.</p>}
+    {view?.job&&<p role="status" className="mp-small">{view.job.state==='succeeded'?'Peer support installed. Use the local runtime recheck if it is not detected yet.':view.job.state==='interrupted'?'Setup was interrupted when Core stopped. Review a new attempt to continue.':view.job.state==='cancelled'?'Setup stopped.':view.job.state==='failed'?'Setup could not finish. Review a new attempt to try again.':view.job.state==='cancelling'?'Stopping setup…':view.job.state==='queued'?'Setup is queued on Core.':'Setting up peer support on Core…'}{view.job.bytes_copied>0&&` ${bytes(view.job.bytes_copied)} staged.`}</p>}
+    {view?.job?.error_code&&view.job.state==='failed'&&<p className="mp-notice">{errorText(view.job.error_code)}</p>}
+    {pending(view?.job)?<><p className="mp-small mp-muted">You can close Library and return. Setup continues on Core.</p><button className="mp-button mp-quiet" disabled={busy||view?.job?.state==='cancelling'} onClick={()=>void stop()}>Stop setup</button></>:view?.plan_id&&view.job?.state!=='succeeded'&&<><label className="mp-consent"><input type="checkbox" checked={confirmed} disabled={busy} onChange={event=>setConfirmed(event.target.checked)}/><span>Download and install this verified peer support on Core.</span></label><button className="mp-button" disabled={busy||!confirmed} onClick={()=>void start()}>{busy?'Starting setup…':'Set up peer support'}</button></>}
+    {error&&<p role="alert" className="mp-notice mp-error">{errorText(error)}</p>}
+    {(!view||error)&&<button className="mp-button mp-quiet" disabled={busy} onClick={()=>void read()}>Check setup again</button>}
+    <p className="mp-small mp-muted">Offline setup is also available with the standalone model-preserve tool and the matching official archive.</p>
+  </section>;
+}
