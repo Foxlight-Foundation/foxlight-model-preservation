@@ -299,7 +299,12 @@ change the selection. Reservations precede each object request; uncertain
 reservations survive a crash without refund. Verified complete objects are
 reused, while partial object exports restart; Kubo's separate native cache may
 retain their blocks. A completed archive is published only after the full
-closure verifies. Accounting remains private under `.operations/`; public
+closure verifies. Object staging uses descriptor-relative files on the selected
+archive volume and atomic rename after verification, avoiding a second full
+object allocation. Local write/fsync/rename errors stop the attempt instead of
+triggering supplier failover. Unverified known staging slots left by a crash are
+removed before the next space check/request. Native cache space remains separate.
+Accounting remains private under `.operations/`; public
 publish/export still selects only signed manifest and exact objects.
 
 Python consumers use `peer_invitations.inspect_peer_model`,

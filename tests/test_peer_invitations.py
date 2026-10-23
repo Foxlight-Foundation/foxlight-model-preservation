@@ -250,3 +250,73 @@ def test_nonpersistent_failover_also_consumes_its_allowance(tmp_path, capture):
     assert transport.exported_bytes <= maximum
     assert len(transport.paths) < len(roots)
     assert not (destination / manifest_path(capture.identity)).exists()
+
+
+def test_staging_uses_only_the_selected_archive_volume(tmp_path, capture, monkeypatch):
+    import os
+    import tempfile
+
+    destination = tmp_path / "receiver"
+    destination.mkdir(mode=0o700)
+    # A system temporary directory can be missing, small, or on another volume.
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path / "unusable-system-temp"))
+
+    class VolumeTransport(Transport):
+        def cat(self, path, *, maximum, sink=None):
+            assert sink is not None
+            assert os.fstat(sink.fileno()).st_dev == destination.stat().st_dev
+            return super().cat(path, maximum=maximum, sink=sink)
+
+    # Crash leftovers are private/unverified, not extra permanent model copies.
+    from foxlight_model_preservation.storage import unique_objects
+
+    files = unique_objects(reference(capture).manifest)
+    for file in files:
+        (destination / (".peer-object-" + file.sha256)).write_bytes(b"unverified")
+    fetch_peer_invitation(
+        reference(capture), capture.trust, destination, VolumeTransport(capture)
+    )
+    assert (
+        verify_store(destination, capture.identity, capture.trust)
+        == reference(capture).manifest
+    )
+    assert not tuple(destination.glob(".peer-object-*"))
+
+
+def test_local_disk_failure_does_not_try_another_supplier(tmp_path, capture):
+    import errno
+
+    from multiformats import CID as ContentID
+    from multiformats import multihash
+
+    invitation = reference(capture).model_copy(
+        update={
+            "mirrors": tuple(
+                "ipfs://"
+                + ContentID(
+                    "base32", 1, "dag-pb", multihash.digest(bytes([i]), "sha2-256")
+                ).encode()
+                for i in range(2)
+            )
+        }
+    )
+
+    class DiskFailure(Transport):
+        def cat(self, path, *, maximum, sink=None):
+            self.paths.append(path)
+            raise OSError(errno.ENOSPC, "synthetic storage failure")
+
+    transport = DiskFailure(capture)
+    destination = tmp_path / "receiver"
+    with pytest.raises(OSError):
+        fetch_peer_invitation(
+            invitation,
+            capture.trust,
+            destination,
+            transport,
+            maximum_bytes=1000000,
+            operation_id="receive",
+        )
+    assert len(transport.paths) == 1
+    assert not (destination / manifest_path(capture.identity)).exists()
+    assert not tuple(destination.glob(".peer-object-*"))

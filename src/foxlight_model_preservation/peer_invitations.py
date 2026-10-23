@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import shutil
 import stat
-import tempfile
 from pathlib import Path
 from typing import Literal
 
@@ -34,11 +33,12 @@ from .signing import (
 from .storage import (
     CHUNK_SIZE,
     atomic_bytes,
-    copy_verified_object,
     directory,
+    file_identity,
     manifest_path,
     object_path,
     observe_objects,
+    parent_directory,
     unique_objects,
     verify_object,
     writer_lock,
@@ -215,6 +215,13 @@ def _fetch_peer_invitation(
             request_digest=binding,
         )
         missing, _, _ = observe_objects(target, files, client.control)
+        # These hash-named private staging slots belong to this receiver only.
+        # A prior crash cannot retain an unverified extra full-file allocation.
+        for file in missing:
+            try:
+                os.unlink(".peer-object-" + file.sha256, dir_fd=target)
+            except FileNotFoundError:
+                pass
         if (
             shutil.disk_usage(target).free
             < sum(file.size for file in missing) + 16 * CHUNK_SIZE
@@ -226,17 +233,19 @@ def _fetch_peer_invitation(
                 client.control.checkpoint()
                 try:
                     client.control.phase("downloading")
-                    budget.reserve(file.size)
-                    # Charge the declared maximum before RPC, including failed
-                    # attempts when no persistent operation ID was requested.
-                    budget.consume(file.size)
-                    with tempfile.TemporaryDirectory(
-                        prefix="peer-object-"
-                    ) as temporary:
-                        stage = Path(temporary)
-                        path = stage / object_path(file.sha256)
-                        path.parent.mkdir(parents=True, mode=0o700)
-                        with path.open("xb") as sink:
+                    staged_name = ".peer-object-" + file.sha256
+                    try:
+                        descriptor = os.open(
+                            staged_name,
+                            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                            0o600,
+                            dir_fd=target,
+                        )
+                        with os.fdopen(descriptor, "wb") as sink:
+                            # Reserve only after local creation succeeds, and
+                            # charge the declared maximum before network RPC.
+                            budget.reserve(file.size)
+                            budget.consume(file.size)
                             if file.size:
                                 client.cat(
                                     "/ipfs/"
@@ -246,19 +255,38 @@ def _fetch_peer_invitation(
                                     maximum=file.size,
                                     sink=sink,
                                 )
-                        with directory(stage) as origin:
-                            copy_verified_object(
-                                origin,
-                                object_path(file.sha256),
-                                target,
-                                file,
-                                client.control,
+                            sink.flush()
+                            os.fsync(sink.fileno())
+                        observed = file_identity(
+                            target, staged_name, file.size, control=client.control
+                        )
+                        if observed.sha256 != file.sha256:
+                            raise PreservationError(
+                                "peer object failed integrity verification"
                             )
+                        with parent_directory(
+                            target, object_path(file.sha256), create=True
+                        ) as (parent, name):
+                            os.replace(
+                                staged_name, name, src_dir_fd=target, dst_dir_fd=parent
+                            )
+                            os.fsync(parent)
+                        os.fsync(target)
+                    finally:
+                        try:
+                            os.unlink(staged_name, dir_fd=target)
+                        except FileNotFoundError:
+                            pass
                     completed = True
                     break
                 except OperationError:
                     raise
-                except (OSError, ValueError):
+                except OSError:
+                    # A local write/fsync/rename failure is not another supplier
+                    # opportunity. Stop before any further charged request.
+                    budget.abandon()
+                    raise
+                except ValueError:
                     budget.abandon()
                     client.control.checkpoint()
             if not completed:
