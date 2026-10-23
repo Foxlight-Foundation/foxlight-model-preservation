@@ -112,7 +112,7 @@ covers GGUF, MLX and a required vision projector with central endpoints unavaila
 All drill endpoints are locally controlled; inference is a separate check.
 
 This is an initial public reference implementation. External independent custody,
-P2P discovery, stable/frozen Core distribution, a public hosted weight archive,
+broader public-network peer qualification, stable/frozen Core distribution, a public hosted weight archive,
 and censorship/privacy qualification are not included. Direct HTTPS mirrors see
 the client's IP and requested files. This release makes no anonymity or
 censorship-resistance claim.
@@ -137,7 +137,10 @@ launcher with `--check` to inspect the actual owner API before use. Publishing
 and receiving retain separately reviewed, bounded HTTP/BitTorrent sessions with
 explicit stop and public-key/torrent downloads. The source-based Core preview
 builds native dependencies and is separate from stable/frozen distribution.
-Standalone mirror/BitTorrent tools remain independently usable; public
+Library 0.9 source preview adds reviewed peer source files, offline search,
+metadata review and bounded receive-only Core jobs, using separately installed
+Kubo 0.43.1. See [peer setup and receiving](capability/README.md#receive-through-peers).
+Standalone mirror/BitTorrent/peer tools remain independently usable; public
 reachability and custody are operator-owned.
 
 ### Recover after losing the original host

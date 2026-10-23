@@ -7,7 +7,24 @@ installation: it downloads native prerequisites and builds the pinned public
 Core source. This is a development preview, not a frozen or stable desktop
 release.
 
-## Install
+## Current source preview
+
+Peer discovery and receiving are in Library source version 0.9.0 and its pinned
+Core. The released wheel below remains an earlier cohort. To use current source:
+
+```sh
+uv tool install --python 3.13 'git+https://github.com/Foxlight-Foundation/foxlight-model-preservation.git@main#subdirectory=capability'
+foxlight-preservation-preview setup
+```
+
+Git installation records its resolved immutable Library commit; setup reuses
+that exact commit and the pinned compatible Core. This is a development preview.
+For peer operations, separately install Kubo 0.43.1 on Core's PATH and review
+starting contacts in Library. No native peer networking starts on launch or
+compatibility checks. Source/receiving trust and restore/code permission remain
+separate. See [Library peer use](README.md#receive-through-peers).
+
+## Released cohort installation
 
 On macOS or Linux, install `uv` and Git first. macOS also needs the Xcode Command
 Line Tools (`xcode-select --install`). The canonical Core installer handles its

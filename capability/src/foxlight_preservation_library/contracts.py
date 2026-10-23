@@ -131,6 +131,8 @@ class DeliveryInput(Contract):
     accepted_key_ids: list[str] = Field(default_factory=list, max_length=32)
     download_limit_bytes: int = Field(default=20 * 1024**3, ge=1, le=2**53 - 1)
     download_deadline_seconds: int = Field(default=3600, ge=1, le=86400)
+    allow_peer_network: bool = False
+    peer_setup_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     allow_http: bool = False
     allow_private: bool = False
 

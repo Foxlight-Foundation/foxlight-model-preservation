@@ -75,6 +75,12 @@ async def test_discovery_routes_keep_separate_owner_and_network_policies() -> No
             and body["allow_http"] is False
             and body["allow_private"] is False
         )
+        assert isinstance(body, dict) and not {
+            "transport",
+            "allow_peer_network",
+            "peer_setup_id",
+            "historical",
+        }.intersection(body)
         before = len(calls)
         with pytest.raises(CoreRefused, match="job_owner_changed"):
             await server.dispatch("discovery-cancel", {"job_id": "e" * 64})
@@ -176,4 +182,89 @@ async def test_discovery_http_origin_gate_and_missing_core_upgrade() -> None:
             }
     finally:
         await asyncio.to_thread(server.close)
+        await client.close()
+
+
+async def test_peer_controls_keep_settings_and_per_operation_consent_separate() -> None:
+    calls: list[tuple[str, str, object]] = []
+
+    def core(request: httpx.Request) -> httpx.Response:
+        calls.append(
+            (
+                request.method,
+                request.url.path,
+                json.loads(request.content) if request.content else {},
+            )
+        )
+        return httpx.Response(200, json={})
+
+    client = CoreClient(Settings(), "client", transport=httpx.MockTransport(core))
+    server = LibraryServer(None, client, asyncio.get_running_loop())
+    try:
+        await server.dispatch("peer-read", {})
+        assert calls == [("GET", "/preservation/discovery/peer", {})]
+        await server.dispatch(
+            "peer-setup",
+            {
+                "bootstrap": ["/ip4/127.0.0.1/tcp/4001/p2p/example"],
+                "allow_private": True,
+                "confirmed": True,
+            },
+        )
+        assert calls[-1][0] == "POST" and calls[-1][2] == {
+            "bootstrap": ["/ip4/127.0.0.1/tcp/4001/p2p/example"],
+            "allow_private": True,
+            "confirmed": True,
+        }
+        await server.dispatch(
+            "discovery-start",
+            {
+                "kind": "refresh",
+                "operation_id": "peer",
+                "source_id": "a" * 64,
+                "transport": "peer",
+                "allow_peer_network": True,
+                "peer_setup_id": "b" * 64,
+                "historical": True,
+            },
+        )
+        assert (
+            isinstance(calls[-1][2], dict)
+            and calls[-1][2]["owner_id"] == client.discovery_owner_id
+        )
+        assert calls[-1][2]["historical"] is True
+        await server.dispatch(
+            "delivery-plan",
+            {
+                "kind": "receive",
+                "location_id": "invitation",
+                "resume_job_id": "c" * 64,
+                "allow_peer_network": True,
+                "peer_setup_id": "b" * 64,
+            },
+        )
+        assert calls[-1][2] == {
+            "kind": "receive",
+            "location_id": "invitation",
+            "resume_job_id": "c" * 64,
+            "allow_peer_network": True,
+            "peer_setup_id": "b" * 64,
+        }
+        before = len(calls)
+        for action, body in (
+            ("peer-read", {"binary": "/tmp/program"}),
+            ("peer-setup", {"bootstrap": [], "confirmed": True}),
+            (
+                "peer-setup",
+                {
+                    "bootstrap": ["contact"],
+                    "confirmed": True,
+                    "repository": "/tmp/cache",
+                },
+            ),
+        ):
+            with pytest.raises(ValueError):
+                await server.dispatch(action, body)
+        assert len(calls) == before
+    finally:
         await client.close()
