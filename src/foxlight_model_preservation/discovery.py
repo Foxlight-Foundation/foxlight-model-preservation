@@ -731,6 +731,37 @@ def refresh_source(
     Verified update metadata is retained even if a later step fails. No model
     weights, source recommendations, bundle keys or executable code are fetched.
     """
+    return _refresh_source(cache, source_id, control=control)
+
+
+def refresh_source_from_directory(
+    cache: Path,
+    source_id: str,
+    metadata_directory: Path,
+    *,
+    control: DiscoveryControl | None = None,
+) -> SourceStatus:
+    """Verify privately staged peer metadata with the same stock TUF updater/floors.
+
+    This explicit local transport never changes a source's endpoint hints or
+    persisted filesystem/network permissions. The caller owns the staged tree;
+    source metadata cannot choose a filesystem path.
+    """
+    return _refresh_source(
+        cache,
+        source_id,
+        control=control,
+        metadata_directory=metadata_directory.resolve(strict=True),
+    )
+
+
+def _refresh_source(
+    cache: Path,
+    source_id: str,
+    *,
+    control: DiscoveryControl | None = None,
+    metadata_directory: Path | None = None,
+) -> SourceStatus:
     control = control or OperationControl()
     budget = _Budget(time.monotonic() + 120)
     with _cache(cache) as root, writer_lock(root):
@@ -749,7 +780,12 @@ def refresh_source(
             )
         state = state.model_copy(update={"last_attempt_at": now})
         last_error: Exception | None = None
-        for endpoint in state.bootstrap.endpoints:
+        endpoints = (
+            (str(metadata_directory),)
+            if metadata_directory is not None
+            else state.bootstrap.endpoints
+        )
+        for endpoint in endpoints:
             control.checkpoint()
             with tempfile.TemporaryDirectory(prefix="model-discovery-") as temporary:
                 stage = Path(temporary)
@@ -760,7 +796,14 @@ def refresh_source(
                         str(stage),
                         VIRTUAL_BASE + "metadata/",
                         target_base_url=VIRTUAL_BASE + "targets/",
-                        fetcher=_Fetcher(endpoint, state, budget, control),
+                        fetcher=_Fetcher(
+                            endpoint,
+                            state
+                            if metadata_directory is None
+                            else state.model_copy(update={"allow_local": True}),
+                            budget,
+                            control,
+                        ),
                         bootstrap=decode_base64(
                             (state.bootstrap.root, *state.roots)[-1]
                         ),

@@ -1,0 +1,78 @@
+{
+  "$defs": {
+    "SourceBootstrap": {
+      "additionalProperties": false,
+      "description": "An independently authenticated file, not endpoint-provided trust discovery.",
+      "properties": {
+        "schema_version": {
+          "const": "foxlight.discovery-source.v1",
+          "default": "foxlight.discovery-source.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "root": {
+          "maxLength": 131072,
+          "minLength": 1,
+          "title": "Root",
+          "type": "string"
+        },
+        "endpoints": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Endpoints",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "root",
+        "endpoints"
+      ],
+      "title": "SourceBootstrap",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "First-contact pin for an IPNS hint, with a separate immutable TUF authority.",
+  "properties": {
+    "schema_version": {
+      "const": "foxlight.peer-source.v1",
+      "default": "foxlight.peer-source.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source": {
+      "$ref": "#/$defs/SourceBootstrap"
+    },
+    "ipns": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Ipns",
+      "type": "string"
+    },
+    "snapshots": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 8,
+      "title": "Snapshots",
+      "type": "array"
+    }
+  },
+  "required": [
+    "source",
+    "ipns"
+  ],
+  "title": "PeerSource",
+  "type": "object"
+}

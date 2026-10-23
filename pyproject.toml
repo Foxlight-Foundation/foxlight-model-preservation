@@ -1,6 +1,6 @@
 [project]
 name = "foxlight-model-preservation"
-version = "0.8.0"
+version = "0.9.0"
 description = "Portable signed model bundles and receive-only mirror downloads"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -19,6 +19,9 @@ model-preserve = "foxlight_model_preservation.cli:main"
 [project.optional-dependencies]
 bittorrent = [
     "libtorrent==2.0.14",
+]
+peer = [
+    "multiformats>=0.3.1,<0.4",
 ]
 
 [dependency-groups]

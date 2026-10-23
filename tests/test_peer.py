@@ -1,0 +1,346 @@
+"""Peer hints cannot replace TUF/model authority, local grants or complete bytes."""
+
+from __future__ import annotations
+
+import base64
+import json
+import subprocess
+import sys
+
+import pytest
+from test_discovery import Publisher, follow
+
+from foxlight_model_preservation.discovery import (
+    export_source,
+    list_sources,
+    refresh_source,
+    search_sources,
+    source_identity,
+)
+from foxlight_model_preservation.models import PreservationError
+from foxlight_model_preservation.operations import OperationCancelled, OperationControl
+from foxlight_model_preservation.peer import (
+    PeerSource,
+    follow_peer_source,
+    inspect_peer_source,
+    peer_source_identity,
+    refresh_peer_source,
+)
+from foxlight_model_preservation.peer_runtime import (
+    PeerProfile,
+    _command,
+    bootstrap_address,
+    content_id,
+    read_profile,
+)
+from foxlight_model_preservation.signing import canonical_bytes, digest, encode_record
+from foxlight_model_preservation.storage import atomic_bytes, directory
+
+CID = "bafkreigh2akiscaildc6tvep3jhk5xb3wpymuc3g63wy2bmy3z2bl3rn44"
+NAME = "k51qzi5uqu5dl0ppxz7s1b5ou99zdf5ridzo2lvjti880d6t0tqyamyhwglmxf"
+
+
+@pytest.fixture(autouse=True)
+def peer_extra():
+    pytest.importorskip("multiformats")
+
+
+class Transport:
+    """Only the metadata transport is controlled; TUF and model crypto are real."""
+
+    def __init__(
+        self, snapshot: bytes, *, name: str = NAME, resolved: str = "/ipfs/" + CID
+    ):
+        self.snapshot = snapshot
+        self.resolved = resolved
+        self.name = name
+        self.control = OperationControl()
+        self.exported_bytes = 0
+        self.paths = []
+        self.profile = PeerProfile(mode="receive", configuration_sha256="a" * 64)
+
+    def command(self, *args, maximum=65536):
+        self.paths.append(args)
+        return self.resolved.encode()
+
+    def cat(self, path, *, maximum, sink=None):
+        self.paths.append(path)
+        self.exported_bytes += len(self.snapshot)
+        if len(self.snapshot) > maximum:
+            raise PreservationError("too large")
+        return self.snapshot
+
+
+def setup(tmp_path, capture):
+    producer = Publisher(tmp_path / "publisher", capture)
+    bootstrap = producer.bootstrap(str(producer.path))
+    cache = tmp_path / "producer-cache"
+    source = follow(cache, bootstrap, allow_local=True)
+    refresh_source(cache, source.source_id)
+    record = PeerSource(source=bootstrap, ipns=NAME, snapshots=(CID,))
+    receiver = tmp_path / "receiver"
+    follow_peer_source(receiver, encode_record(record), peer_source_identity(record))
+    return producer, cache, source.source_id, record, receiver
+
+
+def test_offline_enrollment_and_ordinary_search_need_no_runtime(tmp_path, capture):
+    producer, cache, source, record, receiver = setup(tmp_path, capture)
+    inspected = inspect_peer_source(encode_record(record))
+    assert source_identity(inspected.source) == source
+    assert list_sources(receiver)[0].freshness == "empty"
+    transport = Transport(export_source(cache, source))
+    assert refresh_peer_source(receiver, source, transport).freshness == "fresh"
+    assert search_sources(receiver, "offline")[0].manifest == capture.identity
+    assert all("removed" not in str(path) for path in transport.paths)
+    exported = json.loads(export_source(receiver, source))
+    assert exported["bootstrap"] == record.source.model_dump(mode="json")
+    assert not exported.get("allow_local")
+    # The trusted source's local endpoint is still ungranted after peer update.
+    with pytest.raises(PreservationError):
+        refresh_source(receiver, source)
+    assert search_sources(receiver, "offline")
+    with pytest.raises(PreservationError, match="independently"):
+        follow_peer_source(tmp_path / "wrong", encode_record(record), "f" * 64)
+    assert not (tmp_path / "wrong").exists()
+
+
+def test_peer_snapshot_cannot_substitute_another_root_or_rollback(tmp_path, capture):
+    producer, cache, source, _record, receiver = setup(tmp_path, capture)
+    first = export_source(cache, source)
+    refresh_peer_source(receiver, source, Transport(first))
+    other = Publisher(tmp_path / "other", capture)
+    other_cache = tmp_path / "other-cache"
+    other_source = follow(
+        other_cache, other.bootstrap(str(other.path)), allow_local=True
+    )
+    refresh_source(other_cache, other_source.source_id)
+    with pytest.raises(PreservationError, match="acceptable"):
+        refresh_peer_source(
+            receiver,
+            source,
+            Transport(export_source(other_cache, other_source.source_id)),
+        )
+    producer.publish(2)
+    refresh_source(cache, source)
+    refresh_peer_source(receiver, source, Transport(export_source(cache, source)))
+    with pytest.raises(PreservationError):
+        refresh_peer_source(receiver, source, Transport(first))
+    assert list_sources(receiver)[0].catalog_id == list_sources(cache)[0].catalog_id
+    # An attacker-controlled IPNS name remains unable to replace TUF authority.
+    with pytest.raises(PreservationError):
+        refresh_peer_source(receiver, source, Transport(first), historical=True)
+
+
+def test_expired_snapshot_requires_explicit_pinned_historical_import(tmp_path, capture):
+    producer, cache, source, record, receiver = setup(tmp_path, capture)
+    from datetime import UTC, datetime, timedelta
+
+    from foxlight_model_preservation.discovery_models import DiscoveryCacheBundle
+
+    producer.publish(2, expires=datetime.now(UTC) - timedelta(days=1))
+    snapshot = encode_record(
+        DiscoveryCacheBundle(
+            bootstrap=record.source,
+            roots=(),
+            accepted_root_version=1,
+            metadata={
+                role: base64.b64encode(getattr(producer, role).to_bytes()).decode()
+                for role in ("timestamp", "snapshot", "targets")
+            },
+            catalog=base64.b64encode(producer.envelope).decode(),
+        )
+    )
+    with pytest.raises(PreservationError):
+        refresh_peer_source(receiver, source, Transport(snapshot))
+    assert list_sources(receiver)[0].catalog_id is None
+    imported = refresh_peer_source(
+        receiver, source, Transport(snapshot), historical=True
+    )
+    assert imported.freshness == "stale"
+    assert imported.accepted_at is None
+    assert search_sources(receiver, "offline")
+    no_pins = record.model_copy(update={"snapshots": ()})
+    follow_peer_source(receiver, encode_record(no_pins), peer_source_identity(no_pins))
+    with pytest.raises(PreservationError, match="pinned snapshot"):
+        refresh_peer_source(receiver, source, Transport(snapshot), historical=True)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        CID.upper(),
+        "https://gateway.example/ipfs/" + CID,
+        CID + "/source.json",
+        "../escape",
+        "bafk",
+        "",
+    ],
+)
+def test_unsafe_peer_content_references_refuse(value):
+    with pytest.raises(PreservationError):
+        content_id(value)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "example.org",
+        "/dns/example.org/tcp/1/p2p/" + "1" * 40,
+        "/ip4/127.0.0.1/tcp/0/p2p/" + "1" * 40,
+        "/ip4/10.0.0.1/tcp/4001/p2p/" + "1" * 40,
+    ],
+)
+def test_bootstrap_needs_explicit_private_permission(value):
+    with pytest.raises(PreservationError):
+        bootstrap_address(value, False)
+    assert bootstrap_address("/ip4/127.0.0.1/tcp/4001/p2p/" + "1" * 40, True)
+
+
+def test_native_response_limits_cancel_and_config_binding(tmp_path):
+    script = tmp_path / "output.py"
+    script.write_text('print("x"*1000)')
+    import time
+
+    with pytest.raises(PreservationError, match="byte bound"):
+        _command(
+            sys.executable,
+            tmp_path,
+            (str(script),),
+            maximum=10,
+            control=OperationControl(),
+            deadline=time.monotonic() + 5,
+        )
+    active = OperationControl()
+    active.cancel()
+    with pytest.raises(OperationCancelled):
+        _command(
+            sys.executable,
+            tmp_path,
+            (str(script),),
+            maximum=10000,
+            control=active,
+            deadline=time.monotonic() + 5,
+        )
+    root = tmp_path / "repo"
+    root.mkdir(mode=0o700)
+    profile = PeerProfile(
+        mode="receive", configuration_sha256=digest(b'{"Bootstrap":[]}')
+    )
+    with directory(root) as descriptor:
+        atomic_bytes(descriptor, "config", b"{}")
+        atomic_bytes(descriptor, "preservation-peer.json", encode_record(profile))
+    assert read_profile(root).mode == "receive"
+    (root / "config").write_text('{"Bitswap":{"ServerEnabled":true}}')
+    with pytest.raises(PreservationError, match="configuration changed"):
+        read_profile(root)
+
+
+def test_pinned_snapshot_file_version_and_keys_stay_separate(tmp_path, capture):
+    _producer, _cache, _source, record, _receiver = setup(tmp_path, capture)
+    changed = json.loads(encode_record(record))
+    changed["allow_peer_network"] = True
+    with pytest.raises(ValueError):
+        inspect_peer_source(json.dumps(changed).encode())
+    changed = json.loads(encode_record(record))
+    changed["schema_version"] = "foxlight.peer-source.v9"
+    with pytest.raises(ValueError):
+        inspect_peer_source(json.dumps(changed).encode())
+    assert inspect_peer_source(encode_record(record)).source == record.source
+    with pytest.raises(PreservationError, match="256 KiB"):
+        inspect_peer_source(b"x" * (256 * 1024 + 1))
+
+
+def test_no_peer_command_makes_optional_runtime_a_default_dependency():
+    # Ordinary help/list/verification must retain their original dependency closure.
+    completed = subprocess.run(
+        [sys.executable, "-m", "foxlight_model_preservation.cli", "--help"],
+        capture_output=True,
+    )
+    assert completed.returncode == 0 and b"peer-refresh" in completed.stdout
+
+
+def test_bootstrap_replacement_is_atomic_offline_and_preserves_identity(tmp_path):
+    from foxlight_model_preservation.peer_runtime import set_bootstrap
+
+    repo = tmp_path / "repo"
+    repo.mkdir(mode=0o700)
+    config = {"Bootstrap": [], "Identity": {"PeerID": "retained"}}
+    profile = PeerProfile(
+        mode="receive",
+        configuration_sha256=digest(canonical_bytes(config)),
+        allow_private_peers=True,
+    )
+    with directory(repo) as root:
+        atomic_bytes(root, "config", canonical_bytes(config))
+        atomic_bytes(root, "preservation-peer.json", encode_record(profile))
+    contact = "/ip4/127.0.0.1/tcp/4001/p2p/" + "1" * 40
+    assert set_bootstrap(repo, (contact,)) == (contact,)
+    assert read_profile(repo) == profile
+    assert json.loads((repo / "config").read_bytes())["Identity"] == config["Identity"]
+    previous = (repo / "config").read_bytes()
+    with pytest.raises(PreservationError):
+        set_bootstrap(repo, ("/dns/attacker.invalid/tcp/4001",))
+    assert (repo / "config").read_bytes() == previous
+    (repo / "api").write_text("/ip4/127.0.0.1/tcp/9999")
+    with pytest.raises(PreservationError, match="stop"):
+        set_bootstrap(repo, ())
+    assert (repo / "config").read_bytes() == previous
+
+
+def test_model_trust_refuses_before_any_weight_read(tmp_path, capture):
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    from foxlight_model_preservation.peer import fetch_peer_model
+    from foxlight_model_preservation.signing import public_record
+    from foxlight_model_preservation.storage import manifest_path
+
+    producer, cache, source, _record, receiver = setup(tmp_path, capture)
+    producer.mirrors = ("ipfs://" + CID,)
+    producer.publish(2)
+    refresh_source(cache, source)
+    refresh_peer_source(receiver, source, Transport(export_source(cache, source)))
+    transport = Transport(
+        (capture.store / manifest_path(capture.identity)).read_bytes()
+    )
+    with pytest.raises(PreservationError):
+        fetch_peer_model(
+            receiver,
+            source,
+            "small_text",
+            capture.identity,
+            capture.trust.model_copy(
+                update={"keys": (public_record(Ed25519PrivateKey.generate()),)}
+            ),
+            tmp_path / "received",
+            transport,
+        )
+    assert len(transport.paths) == 1
+    assert "manifests/" in transport.paths[0]
+    assert not (tmp_path / "received").exists()
+
+
+def test_owned_command_deadline_stops_silent_native_child(tmp_path):
+    import time
+
+    script = tmp_path / "silent.py"
+    script.write_text("import time\ntime.sleep(60)\n")
+    started = time.monotonic()
+    with pytest.raises(PreservationError, match="deadline"):
+        _command(
+            sys.executable,
+            tmp_path,
+            (str(script),),
+            maximum=10,
+            control=OperationControl(),
+            deadline=started + 0.3,
+        )
+    assert time.monotonic() - started < 5
+
+
+def test_published_peer_schema_matches_installed_model():
+    from importlib.resources import files
+
+    resource = files("foxlight_model_preservation").joinpath(
+        "resources/peer_source_v1.json"
+    )
+    assert json.loads(resource.read_bytes()) == PeerSource.model_json_schema()

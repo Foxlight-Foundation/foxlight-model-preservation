@@ -78,6 +78,12 @@ Discovery authority can list exact candidates and supplier hints; it cannot
 enroll model signers, change original cards or grant runtime execution. Search
 uses locally accepted metadata and never performs an implicit network refresh.
 
+The optional [peer source profile](peer-discovery.md) wraps the original source
+bootstrap with a pinned IPNS key and immutable snapshot hints. Its published
+[JSON schema](../src/foxlight_model_preservation/resources/peer_source_v1.json)
+is derived from `PeerSource`. IPNS/UnixFS locate content; the same TUF and model
+authorities authenticate it. No v1 manifest or catalog semantics change.
+
 Pack and fetch write content to private temporary files, check the actual
 length/hash, fsync, and replace within the selected store. A nonblocking kernel
 writer lock fences concurrent writers. The envelope is published last, after
