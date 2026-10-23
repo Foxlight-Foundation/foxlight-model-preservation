@@ -109,7 +109,8 @@ at an already accepted version.
 
 Removal disables following and search results but retains update floors, so
 re-following cannot reset rollback protection. Re-following without a receiver
-policy flag keeps that source's existing grants; pass the flags again to set them.
+policy flag keeps that source's existing grant; `--no-allow-http`,
+`--no-allow-private` and `--no-allow-local` revoke one explicitly.
 
 Refresh refuses when the system clock is behind the source's last recorded
 attempt. If a refresh once ran under a clock set in the future, correct the clock

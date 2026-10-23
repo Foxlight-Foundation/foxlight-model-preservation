@@ -50,6 +50,9 @@ class DiscoveryArguments(argparse.Namespace):
     command: str
     allow_private: bool
     allow_http: bool
+    grant_private: bool | None = None
+    grant_http: bool | None = None
+    grant_local: bool | None = None
     output: Path
     entry: str
     expected_manifest_id: str
@@ -151,9 +154,15 @@ def register_commands(add_parser: Callable[..., argparse.ArgumentParser]) -> Non
         if name == "source-follow":
             command.add_argument("--source-file", type=Path, required=True)
             command.add_argument("--expected-bootstrap-id", required=True)
-            command.add_argument("--allow-private", action="store_true")
-            command.add_argument("--allow-http", action="store_true")
-            command.add_argument("--allow-local", action="store_true")
+            # Omitted keeps a re-followed source's current grant (none for a new
+            # source); --no-allow-* revokes it explicitly.
+            for grant in ("private", "http", "local"):
+                command.add_argument(
+                    "--allow-" + grant,
+                    dest="grant_" + grant,
+                    action=argparse.BooleanOptionalAction,
+                    default=None,
+                )
         if name in {"source-refresh", "source-export", "source-remove", "source-fetch"}:
             command.add_argument(
                 "--source", dest="source_id", required=name != "source-refresh"
@@ -226,9 +235,9 @@ def run_command(
             arguments.cache,
             _input(arguments.source_file),
             arguments.expected_bootstrap_id,
-            allow_private=arguments.allow_private,
-            allow_http=arguments.allow_http,
-            allow_local=arguments.allow_local,
+            allow_private=arguments.grant_private,
+            allow_http=arguments.grant_http,
+            allow_local=arguments.grant_local,
         )
         return {"source": status.model_dump(mode="json")}
     if arguments.command == "source-list":
