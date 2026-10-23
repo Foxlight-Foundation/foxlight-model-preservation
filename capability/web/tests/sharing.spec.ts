@@ -22,7 +22,7 @@ test('public mirror review has fresh consent, preserves exact limits, and requir
   await expect(page.getByRole('button',{name:'Start reviewed session'})).toBeDisabled();
   await page.getByLabel('I choose this sharing exposure').check();
   await page.getByRole('button',{name:'Start reviewed session'}).click();
-  expect(planned).toMatchObject({kind:'http_share',copy_id:copy.copy_id,public_network:false,upload_limit_bytes:Math.round(Math.ceil(Math.max(16*1024**2,copy.size_bytes*3+8*1024**2)/1024**3*10)/10*1024**3),duration_seconds:86400});
+  expect(planned).toMatchObject({kind:'http_share',copy_id:copy.copy_id,public_network:false,upload_limit_bytes:Math.round(Math.ceil(Math.max(16*1024**2,copy.size_bytes*3+8*1024**2)/1024**3*1000)/1000*1024**3),duration_seconds:86400});
   expect(started).toMatchObject({plan_id:plan.plan_id,public_participation:true});
   expect(started).not.toHaveProperty('allow_repository_code');
   expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
