@@ -161,6 +161,8 @@ class LibraryServer:
     ) -> dict[str, JsonValue]:
         """Allow exact UI controls; only explicit folder review accepts a host path."""
         if action in {
+            "peer-read",
+            "peer-setup",
             "discovery-read",
             "discovery-search",
             "discovery-start",
@@ -520,6 +522,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                     invitation is None
                     and relative
                     not in {
+                        "api/peer-read",
+                        "api/peer-setup",
                         "api/discovery-read",
                         "api/discovery-search",
                         "api/discovery-start",

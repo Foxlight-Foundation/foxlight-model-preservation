@@ -316,3 +316,38 @@ This is source integration, not a published Library 0.8 release or a claim of
 independent community operators, anonymous retrieval, peer discovery or
 censorship-resistance qualification. Direct source and mirror requests expose
 Core's network address and requested metadata/artifact to their operators.
+
+### Receive through peers
+
+The current source preview supports peer discovery and receiving in Library and
+Guided. It needs a compatible Core with the peer API and **Kubo 0.43.1 separately
+installed on that Core host's PATH**. The ordinary Library launcher still needs
+no managed SDK. Use `foxlight-preservation-library --check` to inspect actual
+Core API support; this does not qualify the native runtime or start networking.
+
+In **Find a model**, choose **Add a source** and import a trusted `.foxpeer` file.
+Review its source identity, enter up to eight numeric starting contacts supplied
+by your peer operator, and save the connection settings. Saving and browsing
+stay offline. Allow peer connections separately when getting listings or
+reviewing a model. Source trust authorizes listings only. Download review asks
+for fresh exact-copy key acceptance, network consent and a cumulative object-byte
+allowance. Routing traffic and the native block cache are outside that allowance.
+Suppliers can observe Core's address and requested content; this is not an
+anonymous mode.
+
+A `.foxpeer-model` invitation also works from **Sharing → Receive** with an
+independently authenticated model identity, threshold and fingerprints. Resume
+retains the original trust, bytes and remaining allowance. You may review new
+starting contacts within the same private-address scope; changing that scope
+requires a new receive. Public and private peer scopes use separate caches.
+Receiving advertises no blocks and starts no sharing. Original cards, signed
+provenance, companions and the existing separate code-permission check survive
+Restore.
+
+**Sources & updates** offers **Recover pinned listings** only when the imported
+source includes exact snapshots. This explicit historical path does not relax
+signature checks or rollback floors. Search uses the authenticated local cache.
+Activity and downloads belong to Core and survive closing Library. Stop drains
+the actual native session; Core restart interrupts work without replaying it.
+Peer publishing/sharing controls and direct PMF peer transport are separate
+features. Standalone operator tools remain available without Skulk.

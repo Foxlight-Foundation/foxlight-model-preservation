@@ -8,6 +8,10 @@ from .client import CoreClient, CoreRefused
 from .contracts import Contract
 
 
+def _peer_default(value: object) -> bool:
+    return value is None or value is False or value == "http"
+
+
 class SourceReviewInput(Contract):
     """Select only completed host-created bootstrap metadata ingress."""
 
@@ -53,9 +57,23 @@ class DiscoveryStartInput(Contract):
     source_id: str = Field(pattern=r"^[0-9a-f]{64}$")
     entry_id: str | None = Field(default=None, max_length=512)
     manifest_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    transport: Literal["http", "peer"] = Field(default="http", exclude_if=_peer_default)
+    allow_peer_network: bool = Field(default=False, exclude_if=_peer_default)
+    peer_setup_id: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$", exclude_if=_peer_default
+    )
+    historical: bool = Field(default=False, exclude_if=_peer_default)
     accept_source_keys: bool = False
     allow_http: bool = False
     allow_private: bool = False
+
+
+class PeerSetupInput(Contract):
+    """Explicit numeric routing hints and connection exposure, never host paths."""
+
+    bootstrap: list[str] = Field(min_length=1, max_length=8)
+    allow_private: bool = False
+    confirmed: bool
 
 
 class DiscoveryJobInput(Contract):
@@ -68,6 +86,14 @@ async def discovery_control(
     client: CoreClient, action: str, body: dict[str, JsonValue]
 ) -> dict[str, JsonValue]:
     """Translate exact typed UI actions while retaining Core authority and jobs."""
+    if action == "peer-read":
+        Contract.model_validate(body)
+        return await client.request("GET", "discovery/peer")
+    if action == "peer-setup":
+        setup = PeerSetupInput.model_validate(body)
+        return await client.request(
+            "POST", "discovery/peer", setup.model_dump(mode="json")
+        )
     if action == "discovery-read":
         page = DiscoveryPageInput.model_validate(body)
         return await client.request(

@@ -104,8 +104,13 @@ Changing an entry's manifest requires a new explicit selection.
 This receiver transfers **preservation v1 public archives**, as ordinary source
 fetch does. A direct PMF network adapter is not implemented. PMF local/kit recovery
 and its lossless v1 bridge remain available separately. Skulk can restore the
-resulting archives/kits through its existing workflow; native Library/Guided peer
-setup and background-node controls are not part of this adapter.
+resulting archives/kits through its existing workflow. The separate [Library 0.9
+source preview](../capability/README.md#receive-through-peers) adds peer file
+import, offline setup, explicit updates and metadata review, bounded receiving,
+Activity and resume through a compatible Core. Kubo 0.43.1 is a separately
+installed prerequisite on that Core host. Core owns finite native sessions and
+drains them before terminal receipts. The standalone adapter requires no Skulk
+or managed SDK; peer sharing and direct PMF network transport remain separate.
 
 ## Historical recovery after publisher loss
 
