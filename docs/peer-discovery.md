@@ -271,9 +271,11 @@ model-preserve peer-bootstrap-set --repo ./public-peer \
 This atomically changes only bounded contacts, preserves the native identity,
 pins and source trust, and refuses an active repository. An empty list is
 permitted for an isolated first routing node; it cannot find a network alone.
-Critical serving/privacy/identity config changes refuse. Existing API markers
-(including stale markers after an OS crash) refuse startup; investigate the
-owned repository/process before manually removing a confirmed stale marker.
+Critical serving/privacy/identity config changes refuse. A live API marker
+refuses startup and contact changes. Every owned node holds the repository's
+writer lock while it runs, so under that lock a loopback marker whose port
+refuses connections (left by a killed node or an OS crash) is cleared
+automatically. Any other marker still refuses; investigate before removing it.
 Never point the adapter at a user's existing IPFS repo.
 
 ## Privacy, resources and demonstrated limits

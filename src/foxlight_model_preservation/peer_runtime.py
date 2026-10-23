@@ -10,6 +10,7 @@ import re
 import selectors
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -281,11 +282,36 @@ def read_profile(repo: Path) -> PeerProfile:
     return profile
 
 
+def _live_api(root: int) -> bool:
+    """Report whether an API marker names a live listener; clear a dead one.
+
+    Callers hold the repo writer lock, which every owned node holds for its whole
+    lifetime. A loopback marker whose port refuses connections was therefore left
+    by an owned node killed before Kubo removed it. Anything else is retained.
+    """
+    try:
+        with open_file(root, "api") as stream:
+            address = stream.read(513).decode(errors="replace").strip()
+    except FileNotFoundError:
+        return False
+    match = re.fullmatch(r"/ip4/127\.0\.0\.1/tcp/([0-9]{1,5})", address)
+    if match is None or not 0 < int(match.group(1)) <= 65535:
+        return True
+    try:
+        with socket.create_connection(("127.0.0.1", int(match.group(1))), timeout=1):
+            return True
+    except ConnectionRefusedError:
+        os.unlink("api", dir_fd=root)
+        return False
+    except OSError:
+        return True
+
+
 def set_bootstrap(repo: Path, contacts: tuple[str, ...]) -> tuple[str, ...]:
     """Atomically replace offline routing contacts without changing keys or trust."""
     with directory(repo) as root, writer_lock(root):
         profile = read_profile(repo)
-        if (repo / "api").exists():
+        if _live_api(root):
             raise PreservationError("stop the owned peer before replacing contacts")
         with open_file(root, "config") as stream:
             config = cast(dict[str, JsonValue], strict_json(stream.read(256 * 1024)))
@@ -489,7 +515,7 @@ def serve_peer(
         )
     active = control or OperationControl()
     with directory(repo) as root, writer_lock(root):
-        if (repo / "api").exists():
+        if _live_api(root):
             raise PreservationError(
                 "existing peer API retained; stop its owner before launch"
             )

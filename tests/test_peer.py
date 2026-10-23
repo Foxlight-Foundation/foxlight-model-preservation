@@ -281,10 +281,23 @@ def test_bootstrap_replacement_is_atomic_offline_and_preserves_identity(tmp_path
     with pytest.raises(PreservationError):
         set_bootstrap(repo, ("/dns/attacker.invalid/tcp/4001",))
     assert (repo / "config").read_bytes() == previous
-    (repo / "api").write_text("/ip4/127.0.0.1/tcp/9999")
+    import socket
+
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        port = listener.getsockname()[1]
+        (repo / "api").write_text(f"/ip4/127.0.0.1/tcp/{port}")
+        with pytest.raises(PreservationError, match="stop"):
+            set_bootstrap(repo, ())
+        assert (repo / "config").read_bytes() == previous
+    # The listener is gone: under the writer lock that marker is provably stale.
+    assert set_bootstrap(repo, ()) == ()
+    assert not (repo / "api").exists()
+    (repo / "api").write_text("/unix/elsewhere")
     with pytest.raises(PreservationError, match="stop"):
         set_bootstrap(repo, ())
-    assert (repo / "config").read_bytes() == previous
+    assert (repo / "api").exists()
 
 
 def test_model_trust_refuses_before_any_weight_read(tmp_path, capture):
