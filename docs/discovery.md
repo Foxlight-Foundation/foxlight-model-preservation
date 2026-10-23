@@ -108,7 +108,14 @@ existing cache cannot lower its known versions or replace conflicting metadata
 at an already accepted version.
 
 Removal disables following and search results but retains update floors, so
-re-following cannot reset rollback protection. It never removes installed models,
+re-following cannot reset rollback protection. Re-following without a receiver
+policy flag keeps that source's existing grants; pass the flags again to set them.
+
+Refresh refuses when the system clock is behind the source's last recorded
+attempt. If a refresh once ran under a clock set in the future, correct the clock
+and run `source-refresh --source SOURCE_ID --accept-clock-rollback`. This clears
+only the recorded attempt time; trusted roots, role versions and the accepted
+catalog are retained, and TUF still checks expiry against the corrected clock. It never removes installed models,
 preserved copies, downloaded files or recovery kits. Search continues to work
 with no original publisher or Foxlight service. Runtime software/dependency
 wheels must be retained separately for completely offline software installation.

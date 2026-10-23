@@ -520,3 +520,53 @@ def test_cache_rejects_shared_directory_and_symlink_state(publisher, tmp_path):
     with pytest.raises(OSError):
         refresh_source(cache, source.source_id)
     assert list_sources(cache)[0].freshness == "invalid"
+
+
+def test_future_clock_attempt_is_recoverable_without_losing_floors(
+    publisher, tmp_path, monkeypatch
+):
+    from foxlight_model_preservation import discovery
+    from foxlight_model_preservation.discovery import accept_source_clock_rollback
+
+    cache = tmp_path / "cache"
+    bootstrap = publisher.bootstrap()
+    source = follow(cache, bootstrap, allow_local=True)
+    refresh_source(cache, source.source_id)
+    publisher.publish(2)
+
+    class Ahead(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.now(tz) + timedelta(days=3650)
+
+    monkeypatch.setattr(discovery, "datetime", Ahead)
+    refresh_source(cache, source.source_id)
+    monkeypatch.undo()
+    publisher.publish(3)
+    with pytest.raises(PreservationError, match="clock moved backwards"):
+        refresh_source(cache, source.source_id)
+    # Neither removal nor re-following clears the future attempt time.
+    remove_source(cache, source.source_id)
+    follow(cache, bootstrap, allow_local=True)
+    with pytest.raises(PreservationError, match="clock moved backwards"):
+        refresh_source(cache, source.source_id)
+    accepted = accept_source_clock_rollback(cache, source.source_id)
+    assert accepted.last_attempt_at is None
+    assert refresh_source(cache, source.source_id).freshness == "fresh"
+    # Floors survived: an older catalog version still cannot be replayed.
+    publisher.publish(2)
+    with pytest.raises(PreservationError):
+        refresh_source(cache, source.source_id)
+
+
+def test_refollow_without_flags_keeps_grants_and_flags_still_revoke(
+    publisher, tmp_path
+):
+    cache = tmp_path / "cache"
+    bootstrap = publisher.bootstrap()
+    source = follow(cache, bootstrap, allow_local=True, allow_http=True)
+    follow(cache, bootstrap)
+    assert refresh_source(cache, source.source_id).freshness == "fresh"
+    follow(cache, bootstrap, allow_local=False)
+    with pytest.raises(PreservationError):
+        refresh_source(cache, source.source_id)

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
 
@@ -31,19 +33,30 @@ from .discovery_models import (
 )
 from .models import (
     MAX_METADATA_BYTES,
+    FileIdentity,
     Manifest,
     PreservationError,
     Record,
     TrustProfile,
 )
 from .peer_runtime import PeerClient, content_id
-from .signing import decode_base64, digest, encode_record, verify_manifest
+from .signing import (
+    canonical_bytes,
+    decode_base64,
+    digest,
+    encode_record,
+    strict_json,
+    verify_manifest,
+)
 from .storage import (
+    CHUNK_SIZE,
     atomic_bytes,
     copy_verified_object,
     directory,
+    file_identity,
     manifest_path,
     object_path,
+    observe_objects,
     open_file,
     read_metadata,
     unique_objects,
@@ -81,7 +94,11 @@ def inspect_peer_source(data: bytes) -> PeerSource:
     """Inspect bounded portable peer metadata offline; no network or enrollment."""
     if len(data) > 256 * 1024:
         raise PreservationError("peer source file exceeds 256 KiB")
-    record = PeerSource.model_validate_json(data)
+    # Duplicate keys are rejected, as for discovery bootstraps, so a reviewer
+    # and this parser cannot read different values from one pinned file.
+    record = PeerSource.model_validate_json(
+        canonical_bytes(strict_json(data, maximum_bytes=256 * 1024))
+    )
     source_identity(record.source)
     return record
 
@@ -106,8 +123,9 @@ def follow_peer_source(cache: Path, data: bytes, expected_peer_id: str) -> Sourc
         )
     source = source_identity(record.source)
     path = _profile_path(cache, source)
-    # Ordinary source following retains all existing verifier floors; the peer
-    # hint cannot enroll bundle keys or grant HTTP/local-file access.
+    # Ordinary source following retains all existing verifier floors and the
+    # operator's receiver grants; the peer hint cannot enroll bundle keys or
+    # grant (or silently revoke) HTTP/private/local-file access.
     status = follow_source(
         cache, encode_record(record.source), bootstrap_identity(record.source)
     )
@@ -322,26 +340,45 @@ def publish_peer_model(
     with directory(store) as root:
         envelope = read_metadata(root, manifest_path(manifest_id))
     verify_manifest(envelope, trust, manifest_id)
-    with tempfile.TemporaryDirectory(prefix="peer-model-export-") as temporary:
-        with directory(store) as origin, directory(Path(temporary)) as target:
-            for file in unique_objects(manifest):
-                copy_verified_object(
-                    origin, object_path(file.sha256), target, file, client.control
+    files = unique_objects(manifest)
+    # Stage beside the store, on its volume, instead of in system temporary
+    # storage. Exporters serialize on this private area's own lock (not the
+    # store writer lock), so a crash-orphaned stage is removed by the next one.
+    with (
+        directory(store / ".peer-export", create=True) as area,
+        writer_lock(area),
+    ):
+        for name in os.listdir(area):
+            if name.startswith("stage-"):
+                shutil.rmtree(name, dir_fd=area)
+        if (
+            shutil.disk_usage(area).free
+            < sum(file.size for file in files) + len(envelope) + 16 * CHUNK_SIZE
+        ):
+            raise PreservationError("store volume has insufficient free space")
+        temporary = tempfile.mkdtemp(prefix="stage-", dir=store / ".peer-export")
+        try:
+            with directory(store) as origin, directory(Path(temporary)) as target:
+                for file in files:
+                    copy_verified_object(
+                        origin, object_path(file.sha256), target, file, client.control
+                    )
+                atomic_bytes(target, manifest_path(manifest_id), envelope)
+            cid = (
+                client.command(
+                    "add",
+                    "--recursive",
+                    "--quiet",
+                    "--cid-version=1",
+                    "--pin=true",
+                    temporary,
+                    maximum=8 * 1024**2,
                 )
-            atomic_bytes(target, manifest_path(manifest_id), envelope)
-        cid = (
-            client.command(
-                "add",
-                "--recursive",
-                "--quiet",
-                "--cid-version=1",
-                "--pin=true",
-                temporary,
-                maximum=8 * 1024**2,
+                .decode()
+                .splitlines()[-1]
             )
-            .decode()
-            .splitlines()[-1]
-        )
+        finally:
+            shutil.rmtree(temporary, ignore_errors=True)
     content_id(cid)
     return {
         "manifest": manifest_id,
@@ -349,6 +386,55 @@ def publish_peer_model(
         "mirror": "ipfs://" + cid,
         "verified_bytes": manifest.total_bytes,
     }
+
+
+def _stage_peer_objects(
+    store: Path,
+    cid: str,
+    files: tuple[FileIdentity, ...],
+    client: PeerClient,
+    remaining: Callable[[], int],
+) -> None:
+    """Receive peer objects into the store's own resumable partial slots.
+
+    Staging on the store volume avoids a second full copy in system temporary
+    storage (often a size-limited tmpfs), checks free space first, and leaves
+    verified partials that a later fetch reuses after an interruption. A wrong
+    or incomplete partial is discarded; Kubo offers no ranged resume here.
+    """
+    with directory(store, create=True) as target, writer_lock(target):
+        missing, _reused, partial = observe_objects(
+            target, files, client.control, include_partials=True
+        )
+        additional = sum(file.size for file in missing) - partial
+        if missing and shutil.disk_usage(target).free < additional + 16 * CHUNK_SIZE:
+            raise PreservationError("destination has insufficient free space")
+        client.control.phase("downloading")
+        for file in missing:
+            pending = ".partial/" + file.sha256
+            with open_file(target, pending, write=True) as sink:
+                size = os.fstat(sink.fileno()).st_size
+            if (
+                size == file.size
+                and (
+                    file_identity(target, pending, file.size, control=client.control)
+                ).sha256
+                == file.sha256
+            ):
+                continue
+            with open_file(target, pending, write=True) as sink:
+                sink.truncate(0)
+                if file.size:
+                    client.cat(
+                        "/ipfs/" + cid + "/" + object_path(file.sha256),
+                        maximum=min(file.size, remaining()),
+                        sink=sink,
+                    )
+            observed = file_identity(target, pending, control=client.control)
+            if (observed.size, observed.sha256) != (file.size, file.sha256):
+                with open_file(target, pending, write=True) as sink:
+                    sink.truncate(0)
+                raise PreservationError("peer object failed integrity verification")
 
 
 def fetch_peer_model(
@@ -404,33 +490,26 @@ def fetch_peer_model(
                 raise PreservationError(
                     "peer receive allowance cannot cover complete selected model"
                 )
+            _stage_peer_objects(
+                store,
+                cid,
+                files,
+                client,
+                lambda: maximum_bytes - (client.exported_bytes - started_bytes),
+            )
+            # Only the small signed envelope uses system temporary storage.
             with tempfile.TemporaryDirectory(prefix="peer-model-receive-") as temporary:
-                stage = Path(temporary)
-                with directory(stage) as root:
-                    for file in files:
-                        path = stage / object_path(file.sha256)
-                        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-                        with path.open("xb") as sink:
-                            if file.size == 0:
-                                continue
-                            client.cat(
-                                "/ipfs/" + cid + "/" + object_path(file.sha256),
-                                maximum=min(
-                                    file.size,
-                                    maximum_bytes
-                                    - (client.exported_bytes - started_bytes),
-                                ),
-                                sink=sink,
-                            )
+                with directory(Path(temporary)) as root:
                     atomic_bytes(root, manifest_path(expected_manifest), envelope)
                 # The private staging path comes from this function, never from
-                # a peer/catalog. Only the ordinary receiver publishes the store.
+                # a peer/catalog. Only the ordinary receiver publishes the store,
+                # consuming the verified partials staged above without a copy.
                 # Each attempt needs its own invocation control so a failed CID
                 # cannot block failover to the next one.
                 return fetch(
                     expected_manifest,
                     trust,
-                    (str(stage),),
+                    (temporary,),
                     store,
                     TransferPolicy(max_bytes=maximum_bytes),
                     control=client.control.fork(),

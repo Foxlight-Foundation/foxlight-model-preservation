@@ -13,6 +13,7 @@ from pydantic import JsonValue, TypeAdapter
 from tuf.api.exceptions import RepositoryError
 
 from .discovery import (
+    accept_source_clock_rollback,
     export_source,
     fetch_selection,
     follow_source,
@@ -56,6 +57,7 @@ class DiscoveryArguments(argparse.Namespace):
     store: Path
     max_bytes: int
     deadline_seconds: float = 3600
+    accept_clock_rollback: bool = False
     operation_id: str | None = None
     root: Path | None = None
     endpoint: list[str]
@@ -163,6 +165,13 @@ def register_commands(add_parser: Callable[..., argparse.ArgumentParser]) -> Non
             command.add_argument("--output", type=Path, required=True)
         if name in {"source-refresh", "source-fetch"}:
             command.add_argument("--progress", action="store_true")
+        if name == "source-refresh":
+            command.add_argument(
+                "--accept-clock-rollback",
+                action="store_true",
+                help="after correcting a clock that ran ahead, clear the recorded "
+                "attempt time for --source (update floors are retained)",
+            )
         if name == "source-fetch":
             command.add_argument("--entry", required=True)
             command.add_argument("--expected-manifest-id", required=True)
@@ -244,6 +253,10 @@ def run_command(
             "network_requests": 0,
         }
     if arguments.command == "source-refresh":
+        if arguments.accept_clock_rollback:
+            if arguments.source_id is None:
+                raise PreservationError("accepting a clock rollback needs --source")
+            accept_source_clock_rollback(arguments.cache, arguments.source_id)
         identities = (
             [arguments.source_id]
             if arguments.source_id is not None
