@@ -114,8 +114,8 @@ normal `--core-url` option.
 
 ## Choose storage
 
-In Guided setup, choose **Use this device** or **Use folder or NAS**. In
-**Storage & keys**, choose **Add folder or NAS**, enter a path on the machine
+In Guided setup, choose **Use this device** or **Use a folder or NAS**. In
+**Storage**, choose **Add folder or NAS**, enter a path on the machine
 running Core and a storage name, then choose **Review storage**. The review
 shows the selected folder, observed free space and whether one private folder
 will be created. Confirm **Use this storage** to enroll it for new Preserve
@@ -156,7 +156,7 @@ exact manifest identity. Replacing both a bundle and its bundled keys can replac
 an unanchored identity.
 
 Save a `.foxkit` through Library to storage independent of the original Core.
-On a fresh compatible Core, **Restore from recovery kit** works before archive
+On a fresh compatible Core, the header's **Restore** works before archive
 setup. If only a raw archive remains, the standalone portable tools can verify
 its manifest and export a kit using its public trust snapshot without the old
 Core, private signing key or registry. Required companions and original
@@ -193,7 +193,7 @@ Library 0.8 source/installed-component acceptance is distinct from a published
 0.8 release, stable/frozen distribution or inference qualification.
 
 
-The source cohort also includes **Find a model** and Guided source following.
+The source cohort also includes **Find** and Guided source following.
 No source is enrolled by setup. Get a source bootstrap file from a trusted
 operator, inspect it offline, then explicitly follow and refresh. Search is local;
 model details, download and Restore retain separate trust and network reviews.
