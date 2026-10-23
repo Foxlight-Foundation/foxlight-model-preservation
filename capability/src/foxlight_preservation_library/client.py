@@ -38,6 +38,9 @@ class CoreClient:
         self.sharing_owner_id = hashlib.sha256(
             (owner_id + "\x00sharing").encode()
         ).hexdigest()
+        self.discovery_owner_id = hashlib.sha256(
+            (owner_id + "\x00discovery").encode()
+        ).hexdigest()
         self.http = httpx.AsyncClient(
             base_url=settings.skulk_api_url,
             timeout=10,
@@ -76,7 +79,13 @@ class CoreClient:
                         raise CoreRefused("host_response_too_large")
                 if response.status_code == 404 and (
                     path.startswith(
-                        ("kit-uploads", "kits/", "setup/folder", "setup/default")
+                        (
+                            "kit-uploads",
+                            "kits/",
+                            "setup/folder",
+                            "setup/default",
+                            "discovery",
+                        )
                     )
                     or path.endswith(
                         (

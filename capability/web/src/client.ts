@@ -21,6 +21,20 @@ export function bytes(value:number):string {return value < 1024 ? `${value} B` :
 /** Stable codes are translated here; raw exceptions never become product copy. */
 export function errorText(code:string):string {
   const labels:Record<string,string> = {
+    source_document_too_large:'Choose a source bootstrap file up to 256 KB. Import complete offline caches with the standalone tools.',
+    source_bootstrap_required:'Choose the source bootstrap file. Historical cache interchange is available in the standalone tools.',
+    source_review_missing_or_expired:'This source review expired. Choose its file and review again.',
+    source_trust_confirmation_required:'Confirm that you trust the supplier of this source file for listings.',
+    discovery_busy_try_again:'A source update is still finishing. Wait for it to stop before changing sources.',
+    discovery_job_capacity_reached:'Core’s metadata queue or retained history is full. Wait for active jobs to finish before submitting more work.',
+    discovery_preview_too_large:'These listings exceed this screen’s preview limit. Use a more specific search or the standalone tools; the original signed metadata is retained.',
+    candidate_bundle_keys_required:'This source has no model verification keys for an automatic handoff. Ask its operator for an invitation or use standalone tools with independently trusted keys.',
+    public_model_mirror_required:'This source has no usable public HTTP(S) model mirror. Use an invitation or a recovery kit from a trusted sender.',
+    model_metadata_unavailable:'Signed model details could not be obtained. Check the model-detail network permissions and mirror availability, then review again.',
+    source_model_reference_changed:'The source’s model reference changed. Search again and review the new exact selection.',
+    discovery_outcome_uncertain:'The metadata worker stopped without a confirmed receipt. Your cached listings are retained; inspect their status before a new update.',
+    discovery_deadline_exceeded:'This metadata attempt reached its time limit and stopped. Cached listings remain available; choose a new refresh to try again.',
+    core_restarted:'Core restarted. Metadata work was interrupted and will not replay. Your accepted cache remains available.',
     storage_unavailable:'This folder could not be reached or created safely. Mount the drive, check access and review again.',
     storage_review_expired:'This storage review expired or changed. Review the folder again.',
     storage_review_changed:'The folder or its mounted parent changed after review. Reconnect it and review again.',
@@ -57,7 +71,7 @@ export function errorText(code:string):string {
     unsupported_pmf_profile:'This PMF archive needs a compatible Skulk profile. Keep the kit; standalone PMF tools can recover all captured files and documents without Skulk.',
     public_pmf_adapter_required:'Public PMF mirroring needs a supported transport adapter. Create a reviewed public publication from a saved private copy to use current mirrors.',
     unsupported_model_card:'This reader cannot interpret the card. Keep the kit and use a compatible Skulk version. Standalone tools can still recover its captured files.',
-    remove_unused_kit_uploads:'Remove an unused kit transfer to free an upload slot.',
+    remove_unused_kit_uploads:'Remove an unused transfer to free an upload slot.',
     kit_upload_in_use:'A recovery job still needs this transfer. Stop or finish that job before removing it.',
     kit_transfer_refused:'Select the same file to resume, or remove an unused transfer and start again.',
     explicit_recovery_retry_required:'Review a new restore or kit export plan. Checking the source archive cannot establish that recovery finished.',
@@ -78,7 +92,7 @@ export function errorText(code:string):string {
   }; return labels[code] ?? `The operation could not continue (${code.replaceAll('_',' ')}).`;
 }
 
-export interface Upload {upload_id:string; size_bytes:number; offset:number; complete:boolean; purpose?:'kit'|'invitation'|'publication'}
+export interface Upload {upload_id:string; size_bytes:number; offset:number; complete:boolean; purpose?:'kit'|'invitation'|'publication'|'source'}
 
 export interface PublicationMember {member_id:string;role:string;repository:string;revision:string;format:string;size_bytes:number;file_count:number;license_id:string;terms_reference:string;notice_paths:string[]}
 export interface PublicationSource {copy_id:string;manifest_id:string;name:string;workloads:string[];runtime_requirements:string[];members:PublicationMember[]}
@@ -86,8 +100,8 @@ export interface InvitationPreview {manifest_id:string;name:string;size_bytes:nu
 export interface ReceivingPolicy {mirrors:string[];max_bytes:number;deadline_seconds:number;allow_http:boolean;allow_private:boolean}
 
 /** Metadata is bounded separately from weights and ordinary control JSON. */
-export async function uploadMetadata(content:Blob,purpose:'invitation'|'publication'):Promise<Upload> {
-  if(content.size===0||content.size>8*1024**2)throw new Error('public_metadata_too_large');
+export async function uploadMetadata(content:Blob,purpose:'invitation'|'publication'|'source'):Promise<Upload> {
+  if(content.size===0||content.size>(purpose==='source'?256*1024:8*1024**2))throw new Error(purpose==='source'?'source_document_too_large':'public_metadata_too_large');
   let upload=await api<Upload>('upload-create',{size_bytes:content.size,purpose});
   while(upload.offset<content.size)upload=await uploadChunk(upload.upload_id,upload.offset,content.slice(upload.offset,upload.offset+4*1024**2));
   return upload;
@@ -116,3 +130,17 @@ export function kitDownload(job:Job):string{return new URL(`api/download/${job.j
 /** Standard metainfo and public verification keys; downloading joins no swarm. */
 export function torrentDownload(job:Job):string{return new URL(`api/torrent/${job.job_id}`,new URL('.',location.href)).href;}
 export function trustDownload(copy:Copy):string{return new URL(`api/trust/${copy.copy_id}`,new URL('.',location.href)).href;}
+
+/** Cached metadata-source state; freshness never establishes registry trust. */
+export interface ModelSource {source_id:string;name:string;enabled:boolean;freshness:'empty'|'fresh'|'retained'|'stale'|'imported'|'superseded-root'|'invalid';accepted_at:string|null;expires:string|null;last_error:string|null;root_version:number|null;catalog_id:string|null;bootstrap_id:string|null}
+/** A metadata-only job remains owned by Core across page closure. */
+export interface DiscoveryJob {job_id:string;owner_id:string;kind:'refresh'|'model_metadata';source_id:string;manifest_id:string|null;state:string;created_at:number;updated_at:number;error_code:string|null;upload_id:string|null}
+/** Local source/activity read, with no refresh or supplier query. */
+export interface DiscoveryPage {sources:ModelSource[];jobs:DiscoveryJob[];next_offset:number|null}
+/** Exact file review performed offline before source enrollment. */
+export interface SourceReview {review_id:string;source_id:string;bootstrap_id:string;name:string;endpoints:string[];expires_at:number}
+/** One attributed statement; original signed data stays in Core. */
+export interface ModelSupplier {source_id:string;source_name:string;entry_id:string;name:string;summary:string;freshness:string;model_keys_available:boolean}
+/** Exact identity grouping keeps conflicting source statements separate. */
+export interface FoundModel {manifest_id:string;suppliers:ModelSupplier[];supplier_count:number;next_supplier_offset:number|null}
+export interface DiscoveryResults {results:FoundModel[];next_offset:number|null}

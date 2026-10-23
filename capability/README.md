@@ -70,7 +70,7 @@ fingerprints independently and select the exact manifest ID.
 Network mode binds all IPv4 interfaces. Arrange firewall/routing, DNS and TLS
 separately; a supplied mirror address is a hint, not verified reachability. Core
 builds without the compatible native BitTorrent adapter retain HTTP. Additional
-Direct object-store adapters, followed catalogs and unattended continuous hosting
+Direct object-store adapters, unattended continuous hosting
 remain separate enhancements. An unclean Core exit
 can leave model-sized temporary torrent exports in Core-owned work storage.
 Activity lists known stopped jobs with **Review temporary files**. Inspect the
@@ -271,3 +271,48 @@ this version with an older released wheel. Local-source/local-wheel installs
 remain usable with an existing Core; preview setup requires the public Git
 installation command or an actual official release URL. The 0.7 release has not been
 cut; the older 0.6 release link above retains its previous behavior.
+
+
+## Follow sources and find preserved models (Library 0.8 source preview)
+
+Choose **Find a model**, or **Find a shared model** during Guided setup. Choose a
+small `.foxsource`/JSON bootstrap file from a supplier you trust. Core inspects
+it offline and shows the source identity and metadata endpoints. Confirm listing
+trust, then choose **Trust source and get listings**. No central source is
+preselected. HTTP and local/private metadata endpoints need separate opt-ins.
+The source operator can create this file with the public standalone
+[`source` commands](../docs/discovery.md); running Library or Skulk is unnecessary
+for publishing, following, caching, searching or fetching with those tools.
+
+**Search saved listings** queries only Core's protected cache. Source metadata
+uses TUF update verification plus the original signed catalog. **Sources & updates**
+shows freshness, accepted history and finite update jobs. Refresh is explicit;
+opening Library or searching never sends your query or installed inventory to a
+source. Failed updates retain verified listings. Unfollow stops using a source
+and retains its rollback evidence. Stale or retained listings are labeled;
+changed root authority cannot use the automatic model handoff.
+
+Choose **Review model** beside an attributed supplier to retrieve only signed
+model metadata. All companions, the exact bundle, signature threshold and keys
+are shown before downloading. A listing's keys are candidate references: they
+are never enrolled as registry authorities. Explicitly accept this source's
+saved reference and keys for this copy, review the finite download policy, then
+confirm the normal **Download this signed copy** review. Model metadata and
+object-download HTTP/private-network permissions are separate from source-update
+permissions. Downloads start no hosting, swarm, installation or code execution.
+**Restore** subsequently checks the retained cards, signed provenance and
+repository-code consent through its existing flow.
+
+Source updates and model-detail jobs belong to Core, survive closing this page,
+and are interrupted without automatic replay after Core restart. Reopen completed
+model details under **Source activity**. Local search remains available with all
+sources offline. The UI bounds result pages and display text; full signed
+metadata remains in Core's cache. Offline cache export/import and local-file
+sources are available through standalone tools; Library accepts bootstrap files
+up to 256 KiB, not full cache interchange.
+
+Use the public source installation command above and a compatible Core preview.
+This is source integration, not a published Library 0.8 release or a claim of
+independent community operators, anonymous retrieval, peer discovery or
+censorship-resistance qualification. Direct source and mirror requests expose
+Core's network address and requested metadata/artifact to their operators.
