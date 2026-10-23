@@ -4,6 +4,15 @@ Skulk Library is versioned separately from the portable core. Releases are
 tagged `library-v*`; versions without a tag are source previews installed from
 `main` (see [README](README.md)).
 
+## 0.11.0 (source preview)
+
+- Share an exact public copy through a finite Core-owned peer session and send
+  one `.foxhandoff` file. Download remains available after reload or Stop.
+- Import model/source files with reviewable contact suggestions, preserving
+  original signatures and separate model, source, code and network decisions.
+- Keep explicit cache cleanup, retained archives and no restart replay; preserve
+  HTTP invitation compatibility with older Core. Standalone tools need no Skulk.
+
 ## 0.10.0 (source preview)
 
 - Guide verified peer software setup: Library can install the pinned Kubo runtime

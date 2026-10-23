@@ -1,4 +1,5 @@
 import {test,expect,type Page} from '@playwright/test';
+test.beforeEach(async({page})=>{await page.route('**/api/core-features',route=>route.fulfill({json:{'Portable handoffs':false}}));});
 const sid='a'.repeat(64),mid='b'.repeat(64),jid='c'.repeat(64),setup='d'.repeat(64),key='ed25519:'+'e'.repeat(64);
 const source={source_id:sid,name:'Community peer archive',enabled:true,transport:'peer',snapshot_count:1,freshness:'fresh',accepted_at:null,last_error:null,root_version:1,catalog_id:mid};
 const job={job_id:jid,owner_id:'owner',kind:'model_metadata',source_id:sid,state:'succeeded',upload_id:'f'.repeat(32),error_code:null};

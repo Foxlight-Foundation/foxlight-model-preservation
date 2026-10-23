@@ -1,4 +1,5 @@
 import {test,expect,type Page} from '@playwright/test';
+test.beforeEach(async({page})=>{await page.route('**/api/core-features',route=>route.fulfill({json:{'Portable handoffs':false}}));});
 const mid='b'.repeat(64),sid='a'.repeat(64),plan='e'.repeat(64),jid='c'.repeat(64);
 const peer={runtime:'missing',setup_id:'d'.repeat(64),bootstrap:['/ip4/203.0.113.1/tcp/4001/p2p/example'],allow_private:false,active:false};
 const native={supported:true,plan_id:plan,plan:{version:'0.43.1',target:'linux-amd64',artifact:{archive_bytes:55000000,executable_bytes:125000000,archive_sha512:'f'.repeat(128),executable_sha256:'a'.repeat(64)},download_urls:['https://dist.ipfs.tech/kubo/test.tar.gz','https://github.com/ipfs/kubo/releases/test.tar.gz']},job:null as null|Record<string,unknown>};

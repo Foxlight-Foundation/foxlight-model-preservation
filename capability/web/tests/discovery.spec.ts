@@ -1,4 +1,5 @@
 import {test,expect,type Page} from '@playwright/test';
+test.beforeEach(async({page})=>{await page.route('**/api/core-features',route=>route.fulfill({json:{'Portable handoffs':false}}));});
 
 const sourceId='a'.repeat(64),manifest='b'.repeat(64),jobId='c'.repeat(64),key='ed25519:'+'d'.repeat(64);
 const source={source_id:sourceId,name:'Community archive',enabled:true,catalog_id:'e'.repeat(64),accepted_at:'2026-10-22T12:00:00Z',freshness:'fresh',root_version:1,last_error:null};

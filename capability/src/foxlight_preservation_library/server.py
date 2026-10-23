@@ -24,13 +24,16 @@ if TYPE_CHECKING:
     from skulk_capability_sdk.contracts import Startup
 
 from .client import CoreClient, CoreRefused
+from .compatibility import check_core
 from .contracts import (
     DefaultStorageInput,
     DeliveryInput,
     FolderConfirmationInput,
     FolderReviewInput,
+    HandoffInput,
     LibraryCall,
     SharingInput,
+    SharingReferenceInput,
 )
 from .discovery import discovery_control
 
@@ -215,8 +218,42 @@ class LibraryServer:
         if action == "sharing-plan":
             selected = SharingInput.model_validate(body)
             return await self.client.request(
-                "POST", "plans", selected.model_dump(mode="json")
+                "POST",
+                "plans",
+                selected.model_dump(
+                    mode="json",
+                    exclude={"allow_peer_network", "peer_setup_id"}
+                    if selected.kind != "peer_share"
+                    else set(),
+                ),
             )
+        if action == "core-features":
+            if body:
+                raise ValueError("empty feature read required")
+            return cast(dict[str, JsonValue], await check_core(self.client))
+        if action == "sharing-reference":
+            selected_job = SharingReferenceInput.model_validate(body)
+            job = await self.client.request("GET", "jobs/" + selected_job.job_id)
+            if (
+                job.get("owner_id") != self.client.sharing_owner_id
+                or job.get("kind") != "peer_share"
+            ):
+                raise CoreRefused("job_owner_changed")
+            plan_id = job.get("plan_id")
+            if (
+                not isinstance(plan_id, str)
+                or re.fullmatch(r"[0-9a-f]{64}", plan_id) is None
+            ):
+                raise CoreRefused("invalid_job_identity")
+            plan = await self.client.request("GET", "plans/" + plan_id)
+            copy_id, manifest_id = plan.get("copy_id"), plan.get("manifest_id")
+            if plan.get("kind") != "peer_share" or any(
+                not isinstance(value, str)
+                or re.fullmatch(r"[0-9a-f]{64}", value) is None
+                for value in (copy_id, manifest_id)
+            ):
+                raise CoreRefused("public_metadata_refused")
+            return {"copy_id": copy_id, "manifest_id": manifest_id}
         if action == "delivery-plan":
             delivery = DeliveryInput.model_validate(body)
             return await self.client.request(
@@ -301,6 +338,7 @@ class LibraryServer:
                     "mirror_import",
                     "http_share",
                     "torrent_share",
+                    "peer_share",
                     "publish",
                     "receive",
                 }
@@ -528,6 +566,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             return
         app, relative = selected
         invitation = re.fullmatch(r"api/invitation/([0-9a-f]{64})", relative)
+        handoff = re.fullmatch(r"api/handoff/([0-9a-f]{64})", relative)
         try:
             length = int(self.headers.get("Content-Length", "0"))
             if (
@@ -536,9 +575,11 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 or not 0 < length <= 65536
                 or (
                     invitation is None
+                    and handoff is None
                     and relative
                     not in {
                         "api/peer-read",
+                        "api/core-features",
                         "api/peer-setup",
                         "api/peer-runtime-read",
                         "api/peer-runtime-start",
@@ -557,6 +598,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                         "api/storage-default",
                         "api/plan",
                         "api/sharing-plan",
+                        "api/sharing-reference",
                         "api/start",
                         "api/cancel",
                         "api/upload-create",
@@ -581,6 +623,23 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 raise ValueError("invalid object")
         except (ValueError, OSError):
             self._reply(400, b'{"error":"invalid_control"}')
+            return
+        if handoff is not None:
+            try:
+                if set(body) not in ({"mirrors"}, {"sharing_job_id"}):
+                    raise ValueError("one handoff route required")
+                value = HandoffInput.model_validate(body)
+                if not value.mirrors and value.sharing_job_id is None:
+                    raise ValueError("handoff route required")
+            except ValueError:
+                self._reply(400, b'{"error":"invalid_control"}')
+                return
+            self._metadata(
+                app,
+                "POST",
+                "public-copies/" + handoff[1] + "/handoff",
+                value.model_dump(mode="json", exclude_unset=True),
+            )
             return
         if invitation is not None:
             if set(body) != {"mirrors"}:

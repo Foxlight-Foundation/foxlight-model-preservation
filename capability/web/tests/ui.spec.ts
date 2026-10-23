@@ -1,4 +1,5 @@
 import {test,expect,type Page} from '@playwright/test';
+test.beforeEach(async({page})=>{await page.route('**/api/core-features',route=>route.fulfill({json:{'Portable handoffs':false}}));});
 
 const location={location_id:'device',label:'This device',purpose:'private',reachable:true,free_bytes:1000000,publisher_key_id:'ed25519:'+'7'.repeat(64)};
 const model={model_id:'example/alpha',generation_id:'a'.repeat(64),size_bytes:100,verification:'custom'};

@@ -9,8 +9,9 @@ release.
 
 ## Current source preview
 
-Peer discovery and receiving are in Library source version 0.10.0 and its pinned
-Core. The released wheel below remains an earlier cohort. To use current source:
+Portable handoffs, finite peer sharing and peer receiving are in Library source
+version 0.11.0 and its pinned Core. The released wheel below remains an earlier
+cohort. To use current source:
 
 ```sh
 uv tool install --python 3.13 'git+https://github.com/Foxlight-Foundation/foxlight-model-preservation.git@main#subdirectory=capability'

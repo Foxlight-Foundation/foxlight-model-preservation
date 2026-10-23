@@ -1,4 +1,5 @@
 import {test,expect} from '@playwright/test';
+test.beforeEach(async({page})=>{await page.route('**/api/core-features',route=>route.fulfill({json:{'Portable handoffs':false}}));});
 
 const copy={copy_id:'1'.repeat(64),model_id:'community/future',location_id:'public-1',manifest_id:'2'.repeat(64),audience:'public',size_bytes:10000,checked_at:1,member_count:2,publisher_key_ids:['ed25519:'+'3'.repeat(64)]};
 const plan={plan_id:'a'.repeat(64),kind:'http_share',model_id:copy.model_id,location_id:copy.location_id,manifest_id:copy.manifest_id,size_bytes:copy.size_bytes,members:['community/future'],member_count:2,expires_at:9999999999,publisher_key_ids:copy.publisher_key_ids,sharing:{public_network:false,listen_port:0,duration_seconds:3600,upload_limit_bytes:1073741824,upload_rate_bytes:1048576,advertised_url:null}};

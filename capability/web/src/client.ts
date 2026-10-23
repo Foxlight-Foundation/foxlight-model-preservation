@@ -2,9 +2,9 @@
 export interface Location {location_id:string; label:string; purpose:'private'|'public'; reachable:boolean; free_bytes:number|null; publisher_key_id:string}
 export interface Model {model_id:string; generation_id:string; size_bytes:number; verification:string}
 export interface Copy {copy_id:string; model_id:string; location_id:string; manifest_id:string; audience:'private'|'public'; size_bytes:number; checked_at:number; member_count:number; publisher_key_ids?:string[]}
-export interface Job {job_id:string; operation_id:string; plan_id:string; kind:string; model_id:string; state:string; stage:string; created_at:number; bytes_copied:number; bytes_hashed:number; expected_manifest_id:string|null; copy_id:string|null; error_code:string|null; location_id?:string|null; sharing_policy?:{public_network:boolean;duration_seconds:number;upload_limit_bytes:number;upload_rate_bytes:number;advertised_url:string|null}|null; sharing?:{ready:boolean;listen_port:number;charged_bytes:number;accounting:string;connected_peers:number;metainfo_sha256?:string|null}|null}
+export interface Job {job_id:string; operation_id:string; plan_id:string; kind:string; model_id:string; state:string; stage:string; created_at:number; bytes_copied:number; bytes_hashed:number; expected_manifest_id:string|null; copy_id:string|null; error_code:string|null; location_id?:string|null; sharing_policy?:{peer_private?:boolean;public_network:boolean;duration_seconds:number;upload_limit_bytes:number;upload_rate_bytes:number;advertised_url:string|null}|null; sharing?:{handoff_sha256?:string|null;ready:boolean;listen_port:number;charged_bytes:number;accounting:string;connected_peers:number;metainfo_sha256?:string|null}|null}
 export interface Page {default_location_id?:string|null; locations:Location[]; models:Model[]; copies:Copy[]; jobs:Job[]; uploads?:Upload[]; public_copies?:Copy[]; publishing?:Location|null; bittorrent_available?:boolean; temporary_work_jobs?:string[]; next_offset:number|null}
-export interface Plan {archive_format?:'preservation-v1'|'pmf-v0.1';plan_id:string; kind:'preserve'|'check'|'kit_export'|'recover'|'mirror_import'|'http_share'|'torrent_share'|'publish'|'receive'; receiving?:ReceivingPolicy|null; resume_job_id?:string|null; model_id:string; location_id:string; size_bytes:number; members:string[]; member_count:number; expires_at:number; upload_id?:string|null; historical?:boolean; existing_companions?:string[]; deleted_aliases?:string[]; publisher_key_ids?:string[]; requires_owner_acceptance?:boolean; requires_code_permission?:boolean; publication?:string|null; file_coverage?:string|null;manifest_id?:string|null;sharing?:{public_network:boolean;listen_port:number;duration_seconds:number;upload_rate_bytes:number;upload_limit_bytes:number;advertised_url:string|null}|null}
+export interface Plan {archive_format?:'preservation-v1'|'pmf-v0.1';plan_id:string; kind:'preserve'|'check'|'kit_export'|'recover'|'mirror_import'|'http_share'|'torrent_share'|'peer_share'|'publish'|'receive'; receiving?:ReceivingPolicy|null; resume_job_id?:string|null; model_id:string; location_id:string; size_bytes:number; members:string[]; member_count:number; expires_at:number; upload_id?:string|null; historical?:boolean; existing_companions?:string[]; deleted_aliases?:string[]; publisher_key_ids?:string[]; requires_owner_acceptance?:boolean; requires_code_permission?:boolean; publication?:string|null; file_coverage?:string|null;manifest_id?:string|null;sharing?:{peer_private?:boolean;public_network:boolean;listen_port:number;duration_seconds:number;upload_rate_bytes:number;upload_limit_bytes:number;advertised_url:string|null}|null}
 
 /** Same-origin ticket-scoped controls; no supplier or analytics requests. */
 export async function api<T>(action:string, body?:unknown):Promise<T> {
@@ -112,7 +112,7 @@ export interface Upload {upload_id:string; size_bytes:number; offset:number; com
 
 export interface PublicationMember {member_id:string;role:string;repository:string;revision:string;format:string;size_bytes:number;file_count:number;license_id:string;terms_reference:string;notice_paths:string[]}
 export interface PublicationSource {copy_id:string;manifest_id:string;name:string;workloads:string[];runtime_requirements:string[];members:PublicationMember[]}
-export interface InvitationPreview {transport?:'http'|'peer';manifest_id:string;name:string;size_bytes:number;member_count:number;members:string[];publisher_key_ids:string[];threshold:number;mirrors:string[]}
+export interface InvitationPreview {contacts?:string[];transport?:'http'|'peer';manifest_id:string;name:string;size_bytes:number;member_count:number;members:string[];publisher_key_ids:string[];threshold:number;mirrors:string[]}
 export interface ReceivingPolicy {transport?:'http'|'peer';allow_peer_network?:boolean;peer_private?:boolean;mirrors:string[];max_bytes:number;deadline_seconds:number;allow_http:boolean;allow_private:boolean}
 
 /** Metadata is bounded separately from weights and ordinary control JSON. */
@@ -130,6 +130,15 @@ export async function saveInvitation(copy:Copy,mirrors:string[]):Promise<void> {
   const data=await reply.blob();
   if(data.size>8*1024**2)throw new Error('public_metadata_too_large');
   const url=URL.createObjectURL(data),anchor=document.createElement('a');anchor.href=url;anchor.download=`${copy.manifest_id}.invitation.json`;anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+
+/** Save one portable metadata file; it contains no Library ticket or signing key. */
+export async function saveHandoff(copy:Pick<Copy,'copy_id'|'manifest_id'>,route:{mirrors:string[]}|{sharing_job_id:string}):Promise<void> {
+  const reply=await fetch(new URL(`api/handoff/${copy.copy_id}`,new URL('.',location.href)),{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','X-Preservation-Action':'operator'},body:JSON.stringify(route)});
+  if(!reply.ok)throw new Error(reply.status===404?'core_upgrade_required':'public_metadata_refused');
+  const data=await reply.blob();
+  if(data.size>8*1024**2)throw new Error('public_metadata_too_large');
+  const url=URL.createObjectURL(data),anchor=document.createElement('a');anchor.href=url;anchor.download=`${copy.manifest_id}.foxhandoff`;anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
 
 export function manifestDownload(plan:Plan):string{return new URL(`api/manifest/${plan.plan_id}`,new URL('.',location.href)).href;}
@@ -154,7 +163,7 @@ export interface DiscoveryJob {job_id:string;owner_id:string;kind:'refresh'|'mod
 /** Local source/activity read, with no refresh or supplier query. */
 export interface DiscoveryPage {sources:ModelSource[];jobs:DiscoveryJob[];next_offset:number|null}
 /** Exact file review performed offline before source enrollment. */
-export interface SourceReview {transport?:'http'|'peer';ipns_name?:string|null;snapshot_count?:number;review_id:string;source_id:string;bootstrap_id:string;name:string;endpoints:string[];expires_at:number}
+export interface SourceReview {contacts?:string[];transport?:'http'|'peer';ipns_name?:string|null;snapshot_count?:number;review_id:string;source_id:string;bootstrap_id:string;name:string;endpoints:string[];expires_at:number}
 /** One attributed statement; original signed data stays in Core. */
 export interface ModelSupplier {transport?:'http'|'peer';source_id:string;source_name:string;entry_id:string;name:string;summary:string;freshness:string;model_keys_available:boolean}
 /** Exact identity grouping keeps conflicting source statements separate. */

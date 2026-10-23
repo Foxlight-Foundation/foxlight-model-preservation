@@ -44,6 +44,7 @@ GROUPS: dict[str, tuple[tuple[str, str], ...]] = {
         ("/preservation/kit-uploads", "post"),
         ("/preservation/kits/{job_id}", "get"),
     ),
+    "Portable handoffs": (("/preservation/public-copies/{copy_id}/handoff", "post"),),
     "Publishing and receiving": (
         ("/preservation/setup/publisher", "post"),
         ("/preservation/jobs/{job_id}/invitation", "get"),

@@ -107,7 +107,7 @@ class DefaultStorageInput(Contract):
 class SharingInput(Contract):
     """Public data-only selections; no runtime permissions or host paths."""
 
-    kind: Literal["mirror_import", "http_share", "torrent_share"]
+    kind: Literal["mirror_import", "http_share", "torrent_share", "peer_share"]
     location_id: str = Field(min_length=1, max_length=128)
     copy_id: str | None = Field(default=None, max_length=128)
     upload_id: str | None = Field(default=None, max_length=128)
@@ -117,6 +117,21 @@ class SharingInput(Contract):
     upload_rate_bytes: int = Field(default=1048576, ge=1024, le=104857600)
     upload_limit_bytes: int = Field(default=1073741824, ge=1, le=2**53 - 1)
     advertised_url: str | None = Field(default=None, max_length=2048)
+    allow_peer_network: bool = False
+    peer_setup_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+
+class HandoffInput(Contract):
+    """Reviewed HTTP hints or an owned share receipt; never host paths or code."""
+
+    mirrors: list[str] = Field(default_factory=list, max_length=16)
+    sharing_job_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+
+class SharingReferenceInput(Contract):
+    """Resolve an owned sharing job's selected public copy after page closure."""
+
+    job_id: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
 class DeliveryInput(Contract):
@@ -147,7 +162,7 @@ class CopyResult(Contract):
     member_count: int | None = Field(default=None, ge=1)
 
 
-BUNDLE_VERSION = "0.10.0"
+BUNDLE_VERSION = "0.11.0"
 """Managed bundle version; tests keep it equal to this package's version."""
 
 
