@@ -108,7 +108,9 @@ Python applications use `handoffs.read_reference`, `reference_contacts`,
 `read_handoff`, `write_handoff` and `handoff_identity`. `peer_session.owned_peer`
 provides finite standalone supervision. `peer_sharing.serve_peer_model` is a
 synchronous primitive for a host-owned worker with an EOF/cancellation fence and
-actual process-group drain. No module imports Skulk or its SDK.
+actual process-group drain. Its independent wire guard remains active during
+slow preparation; exhausting the allowance before readiness fails preparation
+and stops the native daemon. No module imports Skulk or its SDK.
 
 Peer sharing is public, not anonymous: peers may observe addresses, content IDs
 and timing. Native upload accounting is an observed threshold with in-flight

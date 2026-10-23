@@ -8,6 +8,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
 from contextlib import contextmanager
 
@@ -205,6 +206,50 @@ def test_one_file_sharing_expiry_stops_without_deleting(
         assert handoff.exists()
         assert not (repo / "api").exists()
         assert verify_store(capture.store, capture.identity, capture.trust)
+
+
+def test_hosted_mirror_guards_uploads_during_slow_preparation(
+    tmp_path, native_binary, monkeypatch
+):
+    from foxlight_model_preservation.operations import BudgetExceeded
+    from foxlight_model_preservation.peer_runtime import serve_peer
+
+    repo = tmp_path / "guarded-mirror"
+    initialize_peer(repo, native_binary, mode="mirror", allow_private_peers=True)
+    preparing = threading.Event()
+    measured = []
+    original = PeerClient.wire_usage
+
+    def usage(client):
+        # Use the real daemon/API, injecting only a deterministic counter
+        # threshold so the test need not send uncontrolled native wire traffic.
+        real = original(client)
+        return max(real, 1000000) if preparing.is_set() else 0
+
+    monkeypatch.setattr(PeerClient, "wire_usage", usage)
+
+    def slow_prepare(client):
+        preparing.set()
+        end = time.monotonic() + 10
+        while (repo / "api").exists() and time.monotonic() < end:
+            time.sleep(0.05)
+        assert not (repo / "api").exists(), (
+            "upload limit was suspended until preparation returned"
+        )
+
+    with pytest.raises(BudgetExceeded):
+        serve_peer(
+            repo,
+            native_binary,
+            allow_network=True,
+            share_public=True,
+            seconds=30,
+            max_upload_bytes=1000000,
+            on_ready=slow_prepare,
+            observe_upload=measured.append,
+        )
+    assert measured[-1] >= 1000000
+    assert not (repo / "api").exists()
 
 
 @pytest.mark.parametrize("publisher_lost", [False, True])
