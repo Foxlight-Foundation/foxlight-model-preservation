@@ -270,3 +270,49 @@ Protocol references: [IPNS](https://docs.ipfs.tech/concepts/ipns/),
 [IPFS DHT](https://docs.ipfs.tech/concepts/dht/),
 [privacy](https://docs.ipfs.tech/concepts/privacy-and-encryption/),
 [Kubo configuration at the qualified revision](https://github.com/ipfs/kubo/blob/v0.43.1/docs/config.md).
+
+## Review a peer model before receiving its weights
+
+The separately versioned `foxlight.model-preservation.peer-invitation.v1`
+[reference schema](../src/foxlight_model_preservation/resources/peer_invitation_v1.json)
+retains the exact signed envelope, candidate public keys and canonical IPFS
+root hints. It grants no trust or network access. Released HTTP invitations
+remain unchanged and do not accept this version. A metadata-only handoff lets
+an application show all members and provenance before asking to receive bytes:
+
+```sh
+model-preserve peer-model-metadata --source SOURCE_ID --entry ENTRY_ID \
+  --expected-manifest-id MANIFEST_SHA256 --bundle-trust model-trust.json \
+  --repo ./receiver-peer --allow-peer-network --output model.foxpeer-model
+model-preserve peer-invitation-inspect --invitation model.foxpeer-model
+model-preserve peer-invitation-fetch --invitation model.foxpeer-model \
+  --bundle-trust independently-selected-trust.json --repo ./receiver-peer \
+  --allow-peer-network --store ./received --max-bytes 21474836480 \
+  --operation-id receive
+```
+
+Inspection is entirely offline. Fetch authenticates the exact envelope with
+independently selected trust before requesting objects. `--operation-id` binds
+the protected destination inode, complete reference, trust and allowance to a
+fsynced transfer receipt. Retries with that ID cannot increase the allowance or
+change the selection. Reservations precede each object request; uncertain
+reservations survive a crash without refund. Verified complete objects are
+reused, while partial object exports restart; Kubo's separate native cache may
+retain their blocks. A completed archive is published only after the full
+closure verifies. Object staging uses descriptor-relative files on the selected
+archive volume and atomic rename after verification, avoiding a second full
+object allocation. Local write/fsync/rename errors stop the attempt instead of
+triggering supplier failover. Unverified known staging slots left by a crash are
+removed before the next space check/request. Native cache space remains separate.
+Accounting remains private under `.operations/`; public
+publish/export still selects only signed manifest and exact objects.
+
+Python consumers use `peer_invitations.inspect_peer_model`,
+`read_peer_invitation`, `authenticate_peer_invitation`,
+`accept_peer_invitation_keys` and `fetch_peer_invitation`. The existing
+copy-scoped threshold/revocation policy is shared with HTTP handoffs. Embedded
+keys remain candidates; a source's metadata signature cannot silently grant
+model, registry or runtime authority. `peer_runtime.serve_peer` is the owned
+synchronous primitive for known/frozen worker integrations; its caller must
+supply a lifetime/cancellation fence and drain the actual native process.
+Standalone callers should use `run_peer`, which already owns that supervision.

@@ -108,4 +108,4 @@ jobs:
       - name: Qualify the real native mesh without public bootstrap services
         env:
           KUBO_BINARY: /tmp/kubo/ipfs
-        run: uv run --extra peer pytest tests/test_peer.py tests/test_peer_native.py
+        run: uv run --extra peer pytest tests/test_peer.py tests/test_peer_invitations.py tests/test_peer_native.py

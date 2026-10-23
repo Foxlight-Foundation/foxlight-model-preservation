@@ -172,8 +172,23 @@ def accept_invitation_keys(
     resume without inventing a new trust time on every call.
     """
     checked = read_invitation(encode_record(invitation))
+    return accept_model_keys(
+        checked.envelope, checked.manifest_id, checked.candidate_trust, key_ids
+    )
+
+
+def accept_model_keys(
+    envelope: Envelope,
+    manifest_id: str,
+    candidates: TrustProfile,
+    key_ids: tuple[str, ...],
+) -> TrustProfile:
+    """Accept independently authenticated fingerprints for one exact signed copy.
+
+    This transport-independent policy preserves thresholds/revocations and grants
+    no global trust, registry status, runtime code consent or network permission.
+    """
     chosen = set(key_ids)
-    candidates = checked.candidate_trust
     if (
         not chosen
         or len(chosen) != len(key_ids)
@@ -188,13 +203,13 @@ def accept_invitation_keys(
             keys=tuple(key for key in candidates.keys if key.key_id in chosen),
             threshold=candidates.threshold,
             revoked_keys=candidates.revoked_keys,
-            as_of="explicit-invitation:" + checked.manifest_id,
+            as_of="explicit-invitation:" + manifest_id,
         )
     except ValueError as error:
         raise PreservationError(
             "accepted fingerprints do not satisfy the candidate trust policy"
         ) from error
-    authenticate_invitation(checked, trust)
+    verify_manifest(encode_record(envelope), trust, manifest_id)
     return trust
 
 

@@ -1,0 +1,170 @@
+{
+  "$defs": {
+    "Envelope": {
+      "additionalProperties": false,
+      "description": "Bounded standard DSSE envelope; keys are never inferred from this object.",
+      "properties": {
+        "payloadType": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Payloadtype",
+          "type": "string"
+        },
+        "payload": {
+          "maxLength": 16777216,
+          "title": "Payload",
+          "type": "string"
+        },
+        "signatures": {
+          "items": {
+            "$ref": "#/$defs/Signature"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "title": "Signatures",
+          "type": "array"
+        }
+      },
+      "required": [
+        "payloadType",
+        "payload",
+        "signatures"
+      ],
+      "title": "Envelope",
+      "type": "object"
+    },
+    "Signature": {
+      "additionalProperties": false,
+      "description": "One Ed25519 signature in the standard DSSE envelope.",
+      "properties": {
+        "keyid": {
+          "pattern": "^ed25519:[0-9a-f]{64}$",
+          "title": "Keyid",
+          "type": "string"
+        },
+        "sig": {
+          "maxLength": 100,
+          "minLength": 80,
+          "title": "Sig",
+          "type": "string"
+        }
+      },
+      "required": [
+        "keyid",
+        "sig"
+      ],
+      "title": "Signature",
+      "type": "object"
+    },
+    "TrustProfile": {
+      "additionalProperties": false,
+      "description": "Explicit historical trust snapshot, never automatically imported from a peer.",
+      "properties": {
+        "schema_version": {
+          "const": "foxlight.model-preservation.trust.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "keys": {
+          "items": {
+            "$ref": "#/$defs/TrustedKey"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "title": "Keys",
+          "type": "array"
+        },
+        "threshold": {
+          "maximum": 32,
+          "minimum": 1,
+          "title": "Threshold",
+          "type": "integer"
+        },
+        "revoked_keys": {
+          "default": [],
+          "items": {
+            "pattern": "^ed25519:[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "title": "Revoked Keys",
+          "type": "array"
+        },
+        "as_of": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "As Of",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "keys",
+        "threshold",
+        "as_of"
+      ],
+      "title": "TrustProfile",
+      "type": "object"
+    },
+    "TrustedKey": {
+      "additionalProperties": false,
+      "description": "One independently enrolled Ed25519 public key.",
+      "properties": {
+        "key_id": {
+          "pattern": "^ed25519:[0-9a-f]{64}$",
+          "title": "Key Id",
+          "type": "string"
+        },
+        "public_key": {
+          "maxLength": 100,
+          "minLength": 40,
+          "title": "Public Key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key_id",
+        "public_key"
+      ],
+      "title": "TrustedKey",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Candidate-signed public model metadata and unsigned content-provider hints.\n\nReading grants no network, signer, registry, code or serving permission.\nThis distinct version leaves the released HTTP invitation contract unchanged.",
+  "properties": {
+    "schema_version": {
+      "const": "foxlight.model-preservation.peer-invitation.v1",
+      "default": "foxlight.model-preservation.peer-invitation.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "manifest_id": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Manifest Id",
+      "type": "string"
+    },
+    "envelope": {
+      "$ref": "#/$defs/Envelope"
+    },
+    "candidate_trust": {
+      "$ref": "#/$defs/TrustProfile"
+    },
+    "mirrors": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 16,
+      "minItems": 1,
+      "title": "Mirrors",
+      "type": "array"
+    }
+  },
+  "required": [
+    "manifest_id",
+    "envelope",
+    "candidate_trust",
+    "mirrors"
+  ],
+  "title": "PeerInvitation",
+  "type": "object"
+}
