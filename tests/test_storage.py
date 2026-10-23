@@ -238,3 +238,36 @@ def test_unrelated_or_corrupt_existing_envelope_is_replaced(capture: Capture) ->
     verify_store(capture.store, capture.identity, trust)
     with pytest.raises(PreservationError, match="threshold"):
         verify_store(capture.store, capture.identity, capture.trust)
+
+
+def test_signers_survive_a_differently_encoded_identical_payload(
+    tmp_path: Path,
+) -> None:
+    import base64
+    import json
+
+    from foxlight_model_preservation.signing import canonical_bytes
+    from foxlight_model_preservation.storage import (
+        directory,
+        manifest_path,
+        publish_envelope,
+    )
+
+    payload = bytes([0xFB, 0xEF, 0xFF]) * 4
+    standard = base64.b64encode(payload).decode()
+    url_safe = base64.urlsafe_b64encode(payload).decode()
+    assert standard != url_safe
+
+    def envelope(encoded: str, key: str) -> bytes:
+        signature = {"keyid": "ed25519:" + key * 64, "sig": "A" * 86 + "=="}
+        return canonical_bytes(
+            {"payloadType": "t", "payload": encoded, "signatures": [signature]}
+        )
+
+    identity = "0" * 64
+    with directory(tmp_path, create=True) as root:
+        publish_envelope(root, identity, envelope(standard, "a"))
+        publish_envelope(root, identity, envelope(url_safe, "b"))
+    stored = json.loads((tmp_path / manifest_path(identity)).read_bytes())
+    assert stored["payload"] == url_safe
+    assert [item["keyid"][-1] for item in stored["signatures"]] == ["b", "a"]

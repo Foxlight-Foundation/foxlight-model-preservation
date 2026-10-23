@@ -29,6 +29,7 @@ from .operations import OperationControl, OperationError, OperationPlan, Request
 from .signing import (
     Envelope,
     canonical_bytes,
+    decode_base64,
     digest,
     encode_record,
     sign_manifest,
@@ -150,10 +151,14 @@ def publish_envelope(root: int, manifest_id: str, envelope: bytes) -> None:
         retained = None
     if retained is not None:
         incoming = Envelope.model_validate_json(canonical_bytes(strict_json(envelope)))
-        if (retained.payloadType, retained.payload) == (
-            incoming.payloadType,
-            incoming.payload,
-        ):
+        try:
+            # DSSE allows standard or URL-safe base64: compare the signed bytes.
+            same = retained.payloadType == incoming.payloadType and decode_base64(
+                retained.payload
+            ) == decode_base64(incoming.payload)
+        except ValueError:
+            same = False
+        if same:
             signatures = list(incoming.signatures)
             signatures.extend(
                 item for item in retained.signatures if item not in signatures
