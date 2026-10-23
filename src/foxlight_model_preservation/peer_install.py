@@ -267,6 +267,7 @@ def install_runtime(
                 "insufficient free space for native runtime staging"
             )
         end = time.monotonic() + 300
+        active.limit_deadline(end)
         with tempfile.TemporaryDirectory(
             prefix=".native-pending-", dir=root
         ) as temporary:
@@ -303,6 +304,7 @@ def install_runtime(
             active.checkpoint()
             with directory(publication) as generation:
                 os.fsync(generation)
+            active.checkpoint()
             os.rename(publication, _generation(plan), dst_dir_fd=descriptor)
             os.fsync(descriptor)
             active.mark_committed()

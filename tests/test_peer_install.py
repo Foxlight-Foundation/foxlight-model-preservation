@@ -15,7 +15,11 @@ import pytest
 from foxlight_model_preservation import peer_install, peer_runtime
 from foxlight_model_preservation.cli import argument_parser
 from foxlight_model_preservation.models import PreservationError
-from foxlight_model_preservation.operations import OperationCancelled, OperationControl
+from foxlight_model_preservation.operations import (
+    DeadlineExceeded,
+    OperationCancelled,
+    OperationControl,
+)
 from foxlight_model_preservation.peer_install import (
     RuntimeArtifact,
     RuntimePlan,
@@ -175,6 +179,42 @@ def test_cancellation_during_copy_leaves_no_generation(artifact):
         install_runtime(root, archive=archive, control=control)
     assert managed_executable(root) is None
     assert not list(root.glob(".native-pending-*"))
+
+
+def test_deadline_during_executable_extraction_refuses_publication(
+    artifact, monkeypatch
+):
+    archive, root, _ = artifact
+    clock = [time.monotonic()]
+    monkeypatch.setattr(peer_install.time, "monotonic", lambda: clock[0])
+    original = tarfile.ExFileObject.read
+
+    def slow_read(stream, *arguments):
+        data = original(stream, *arguments)
+        clock[0] += 301
+        return data
+
+    monkeypatch.setattr(tarfile.ExFileObject, "read", slow_read)
+    with pytest.raises(DeadlineExceeded):
+        install_runtime(root, archive=archive)
+    assert managed_executable(root) is None
+    assert not list(root.glob(".native-pending-*"))
+
+
+def test_deadline_after_extraction_refuses_publication(artifact, monkeypatch):
+    archive, root, _ = artifact
+    clock = [time.monotonic()]
+    monkeypatch.setattr(peer_install.time, "monotonic", lambda: clock[0])
+    original = peer_install._extract
+
+    def slow_extract(*arguments):
+        original(*arguments)
+        clock[0] += 301
+
+    monkeypatch.setattr(peer_install, "_extract", slow_extract)
+    with pytest.raises(DeadlineExceeded):
+        install_runtime(root, archive=archive)
+    assert managed_executable(root) is None
 
 
 @pytest.mark.parametrize("damage", ["bytes", "permissions", "link"])
