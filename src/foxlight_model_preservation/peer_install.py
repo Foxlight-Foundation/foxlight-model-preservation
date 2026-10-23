@@ -39,6 +39,10 @@ class _DownloadUnavailable(PreservationError):
     pass
 
 
+class UnsupportedRuntimePlatform(PreservationError):
+    """Managed acquisition has no pinned build; an existing native runtime may work."""
+
+
 class RuntimeArtifact(Record):
     """Release-reviewed native identities; remote metadata cannot change these pins."""
 
@@ -72,7 +76,7 @@ def runtime_plan() -> RuntimePlan:
         .read_bytes()
     )
     if target not in pins:
-        raise PreservationError(
+        raise UnsupportedRuntimePlatform(
             "managed peer runtime supports macOS/Linux ARM64 and AMD64"
         )
     filename = f"kubo_v{KUBO_VERSION}_{target}.tar.gz"
@@ -97,11 +101,15 @@ def _generation(plan: RuntimePlan) -> str:
 def managed_executable(root: Path) -> str | None:
     """Rehash managed executable bytes against packaged pins before returning a path.
 
-    Missing installations return None. Corruption, non-private storage, links and
+    Missing installations or unsupported managed platforms return None.
+    Corruption, non-private storage, links and
     incomplete generations refuse rather than falling back to another executable.
     This function never executes the binary or starts a native daemon.
     """
-    plan = runtime_plan()
+    try:
+        plan = runtime_plan()
+    except UnsupportedRuntimePlatform:
+        return None
     if not root.exists():
         if root.is_symlink():
             raise PreservationError("managed runtime directory must not be a link")

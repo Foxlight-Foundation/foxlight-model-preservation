@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from foxlight_model_preservation import peer_install
+from foxlight_model_preservation import peer_install, peer_runtime
 from foxlight_model_preservation.cli import argument_parser
 from foxlight_model_preservation.models import PreservationError
 from foxlight_model_preservation.operations import OperationCancelled, OperationControl
@@ -74,6 +74,20 @@ def test_plan_offline_platforms(monkeypatch):
     monkeypatch.setattr(peer_install.platform, "system", lambda: "Windows")
     with pytest.raises(PreservationError, match="supports"):
         runtime_plan()
+
+
+def test_unmanaged_platform_keeps_existing_path_runtime(tmp_path, monkeypatch):
+    monkeypatch.setattr(peer_install.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(peer_install.platform, "machine", lambda: "armv7l")
+    binary = tmp_path / "existing-ipfs"
+    binary.touch()
+    monkeypatch.setattr(peer_runtime.shutil, "which", lambda _: str(binary))
+    monkeypatch.setattr(peer_runtime, "_command", lambda *a, **kw: b"0.43.1\n")
+    assert managed_executable(tmp_path / "missing") is None
+    assert peer_runtime.executable() == str(binary)
+    with pytest.raises(peer_install.UnsupportedRuntimePlatform):
+        install_runtime(tmp_path / "install", allow_download=True)
+    assert not (tmp_path / "install").exists()
 
 
 def test_offline_atomic_reusable_without_extraction_or_execution(artifact):
