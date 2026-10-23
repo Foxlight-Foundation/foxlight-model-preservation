@@ -337,8 +337,10 @@ sources, configure peer contacts, accept model keys, enable code or start sharin
 Finished installation leaves peer consent unchecked and retains unsaved contact
 edits. A local recheck handles a temporarily busy runtime observation. Managed
 setup retains at most 64 replay receipts and refuses further jobs at capacity.
-If managed runtime bytes are later lost or damaged, the old successful receipt
-does not prevent a fresh, separately authorized setup attempt.
+If the managed installation is later removed, the old successful receipt does
+not prevent a fresh, separately authorized setup attempt. Altered or incomplete
+managed directories still refuse and need operator inspection before another
+installation; setup does not silently overwrite suspect local software.
 The standalone [offline archive installation](../docs/peer-discovery.md#install-and-start-a-receiver)
 remains available independently of Skulk. Existing PATH installation also works.
 
