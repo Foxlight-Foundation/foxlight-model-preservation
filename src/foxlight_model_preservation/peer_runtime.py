@@ -212,7 +212,11 @@ def _command(
 
 def executable(value: str | None = None) -> str:
     """Select the explicit optional Kubo executable and verify the qualified version."""
-    selected = value or shutil.which("ipfs")
+    from .peer_install import default_runtime_directory, managed_executable
+
+    selected = (
+        value or managed_executable(default_runtime_directory()) or shutil.which("ipfs")
+    )
     if selected is None:
         raise PreservationError("install public Kubo 0.43.1 for peer commands")
     selected = str(Path(selected).resolve(strict=True))

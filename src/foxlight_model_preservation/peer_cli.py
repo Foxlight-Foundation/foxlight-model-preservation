@@ -24,6 +24,7 @@ from .peer import (
     publish_peer_source,
     refresh_peer_source,
 )
+from .peer_install import default_runtime_directory, install_runtime, runtime_plan
 from .peer_invitations import (
     fetch_peer_invitation,
     inspect_peer_model,
@@ -73,6 +74,9 @@ class PeerArguments(argparse.Namespace):
     max_bytes: int
     peer_invitation: Path
     operation_id: str | None = None
+    runtime_directory: Path
+    runtime_archive: Path | None = None
+    allow_runtime_download: bool
 
 
 def register_peer_commands(add_parser: Callable[..., argparse.ArgumentParser]) -> None:
@@ -93,10 +97,22 @@ def register_peer_commands(add_parser: Callable[..., argparse.ArgumentParser]) -
         "peer-model-metadata",
         "peer-invitation-inspect",
         "peer-invitation-fetch",
+        "peer-runtime-plan",
+        "peer-runtime-install",
     ):
         parser = add_parser(
             command, help="optional IPFS peer discovery and public distribution"
         )
+        if command in {"peer-runtime-plan", "peer-runtime-install"}:
+            if command == "peer-runtime-install":
+                parser.add_argument(
+                    "--runtime-directory",
+                    type=Path,
+                    default=default_runtime_directory(),
+                )
+                parser.add_argument("--archive", dest="runtime_archive", type=Path)
+                parser.add_argument("--allow-runtime-download", action="store_true")
+            continue
         if command not in {
             "peer-source-file",
             "peer-inspect",
@@ -238,6 +254,21 @@ def run_peer_command(
 ) -> dict[str, JsonValue]:
     """Keep peer enrollment offline and require separate permission for network work."""
     command = arguments.command
+    if command == "peer-runtime-plan":
+        return runtime_plan().model_dump(mode="json")
+    if command == "peer-runtime-install":
+        binary = install_runtime(
+            arguments.runtime_directory,
+            allow_download=arguments.allow_runtime_download,
+            archive=arguments.runtime_archive,
+            control=control,
+        )
+        return {
+            "installed": True,
+            "executable": binary,
+            "peer_network_started": False,
+            "sharing_started": False,
+        }
     if command == "peer-invitation-inspect":
         invitation = read_peer_invitation(_read(arguments.peer_invitation, 8 * 1024**2))
         return {

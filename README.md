@@ -36,6 +36,7 @@ wheels through an authenticated software channel.
 | Host a copy for others | [Mirror guide](docs/mirrors.md) |
 | Follow sources, search offline and fetch an exact model | [Standalone discovery](docs/discovery.md) |
 | Find source updates and model providers without a central service | [Optional IPFS/IPNS peer discovery](docs/peer-discovery.md) |
+| Set up optional peer support without a system installer | [Pinned native acquisition, including offline setup](docs/peer-discovery.md#install-and-start-a-receiver) |
 | Send or receive a public model with an offline preview | [Public invitations](docs/invitations.md) |
 | Create a public-only publication or opt in to BitTorrent seeding | [Public sharing](docs/public-sharing.md) |
 | Retain independent trust and offline recovery material | [Trust and recovery](docs/trust-and-recovery.md) |

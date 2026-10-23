@@ -1,0 +1,26 @@
+{
+  "darwin-arm64": {
+    "archive_sha512": "bc282d781d856736051ce6d216ba47d52bec703f1a54ab5fa20fba26a92e4af3e8fb131e220cdf01f20205f1effb1a5b7bedbdeff15e8edbbe8e5b01923a7cbb",
+    "archive_bytes": 41045646,
+    "executable_sha256": "9b8e75bca4fa666338b45fd4353aed1716fa4262c61bb5bae2c1e0f91d902b56",
+    "executable_bytes": 88805120
+  },
+  "darwin-amd64": {
+    "archive_sha512": "efe0c1561595fbf7b5bdc3fc651863697c2bf388eed5f8c94c163f60d9575201808538abba84f652718f015ad1af6e3c01ced1321ddb2082f934ba8952e4a4ab",
+    "archive_bytes": 44704920,
+    "executable_sha256": "5f3a8f9844e7d868bd3363d26a00600ae1ccc72a40834f0738787f0caa195a29",
+    "executable_bytes": 94898912
+  },
+  "linux-arm64": {
+    "archive_sha512": "70f082584651ef78fb5b07448be53bb0adf141aadcb7eea15ffa59bd9ca78fed46781c2cf5915b3528c591052f97486067fedb0a7a1415abd5bfd44942921501",
+    "archive_bytes": 39040966,
+    "executable_sha256": "49f878c64edfaaf9915aa710b22b12703c05a3cc1e8f916752d76df5913f5422",
+    "executable_bytes": 86049178
+  },
+  "linux-amd64": {
+    "archive_sha512": "ff53b2428794fc8cca39505d28c15b4cceaef4b90a09284f291f611fcdc8c06399690575fc89cbd4d85ef71f3652581296c6f2e710386f887c8edf36b6e89d71",
+    "archive_bytes": 55646028,
+    "executable_sha256": "8768c8a2907f429f177917091e8abe250d3368d1b82ea0348332cf7e53807bf0",
+    "executable_bytes": 124704056
+  }
+}
