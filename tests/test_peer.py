@@ -344,3 +344,79 @@ def test_published_peer_schema_matches_installed_model():
         "resources/peer_source_v1.json"
     )
     assert json.loads(resource.read_bytes()) == PeerSource.model_json_schema()
+
+
+SECOND_CID = "bafkreiaw4p5cuelyea6zzd33mpjjx4aykemkpn6mkofqprdvgxbh54rjwu"
+
+
+class ModelTransport(Transport):
+    """Serve exact store paths under each CID; selected CIDs corrupt objects."""
+
+    def __init__(self, store, *, corrupt=frozenset()):
+        super().__init__(b"")
+        self.store = store
+        self.corrupt = corrupt
+
+    def cat(self, path, *, maximum, sink=None):
+        self.paths.append(path)
+        self.control.checkpoint()
+        _, _, cid, relative = path.split("/", 3)
+        data = (self.store / relative).read_bytes()
+        if cid in self.corrupt and relative.startswith("objects/"):
+            data = bytes([data[0] ^ 1]) + data[1:]
+        if len(data) > maximum:
+            raise PreservationError("too large")
+        self.exported_bytes += len(data)
+        if sink is None:
+            return data
+        sink.write(data)
+        return b""
+
+
+def model_source(tmp_path, capture):
+    producer, cache, source, _record, receiver = setup(tmp_path, capture)
+    producer.mirrors = ("ipfs://" + CID, "ipfs://" + SECOND_CID)
+    producer.publish(2)
+    refresh_source(cache, source)
+    refresh_peer_source(receiver, source, Transport(export_source(cache, source)))
+    return receiver, source
+
+
+def test_corrupt_first_peer_root_fails_over_to_the_next(tmp_path, capture):
+    from foxlight_model_preservation.peer import fetch_peer_model
+    from foxlight_model_preservation.storage import verify_store
+
+    receiver, source = model_source(tmp_path, capture)
+    transport = ModelTransport(capture.store, corrupt=frozenset({CID}))
+    manifest = fetch_peer_model(
+        receiver,
+        source,
+        "small_text",
+        capture.identity,
+        capture.trust,
+        tmp_path / "received",
+        transport,
+    )
+    assert manifest.name == "fixture"
+    assert any(SECOND_CID in path for path in transport.paths)
+    verify_store(tmp_path / "received", capture.identity, capture.trust)
+
+
+def test_cancelled_peer_receive_stops_instead_of_failing_over(tmp_path, capture):
+    from foxlight_model_preservation.peer import fetch_peer_model
+
+    receiver, source = model_source(tmp_path, capture)
+    transport = ModelTransport(capture.store, corrupt=frozenset({CID}))
+    transport.control.cancel()
+    with pytest.raises(OperationCancelled):
+        fetch_peer_model(
+            receiver,
+            source,
+            "small_text",
+            capture.identity,
+            capture.trust,
+            tmp_path / "received",
+            transport,
+        )
+    assert not any(SECOND_CID in path for path in transport.paths)
+    assert not (tmp_path / "received").exists()

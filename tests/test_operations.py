@@ -582,3 +582,20 @@ def test_receipt_symlink_is_not_followed(capture: Capture, tmp_path: Path) -> No
             operation_id="protected",
         )
     assert outside.read_bytes() == before
+
+
+def test_forked_controls_share_stop_but_each_owns_one_invocation():
+    parent = OperationControl()
+    first, second = parent.fork(), parent.fork()
+    with first.operation("fetch"):
+        pass
+    with pytest.raises(ValueError, match="fresh control"):
+        with first.operation("fetch"):
+            pass
+    with pytest.raises(OperationCancelled):
+        with second.operation("fetch"):
+            parent.cancel()
+            second.checkpoint()
+    assert second.progress.stage == "cancelled"
+    with pytest.raises(OperationCancelled):
+        parent.fork().checkpoint()

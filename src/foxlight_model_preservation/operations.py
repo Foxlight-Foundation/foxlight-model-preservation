@@ -160,6 +160,17 @@ class OperationControl:
         """Request cooperative stop; the worker's terminal outcome confirms it."""
         self._cancelled.set()
 
+    def fork(self) -> OperationControl:
+        """Return a fresh control for one nested invocation of a retrying worker.
+
+        The child shares this control's stop request, deadline and observer, so a
+        cancellation of either stops both. Use one per attempt; never reuse it.
+        """
+        child = OperationControl(self._observer, interval_seconds=self._interval)
+        child._cancelled = self._cancelled
+        child._deadline = self._deadline
+        return child
+
     def limit_deadline(self, deadline: float) -> None:
         """Apply an absolute monotonic deadline without extending an existing one."""
         if not math.isfinite(deadline):
