@@ -56,6 +56,7 @@ covers what each check proves, offline evidence and installing a verified wheel.
 | Find source updates and model providers without a central service | [Optional IPFS/IPNS peer discovery](docs/peer-discovery.md) |
 | Set up optional peer support without a system installer | [Pinned native acquisition, including offline setup](docs/peer-discovery.md#install-and-start-a-receiver) |
 | Send or receive a public model with an offline preview | [Public invitations](docs/invitations.md) |
+| Share one exact public copy and receive using one file | [Portable handoffs and finite peer sharing](docs/handoffs.md) |
 | Create a public-only publication or opt in to BitTorrent seeding | [Public sharing](docs/public-sharing.md) |
 | Retain independent trust and offline recovery material | [Trust and recovery](docs/trust-and-recovery.md) |
 | Check a downloaded release before installing it | [Verifying a release](docs/releases.md) |

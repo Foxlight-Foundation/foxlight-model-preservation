@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Portable `.foxhandoff` wrappers retain original signed model/source references
+  and bounded numeric peer contacts. `handoff-create`/`handoff-inspect` work
+  offline; `handoff-fetch`/`handoff-follow`/`handoff-refresh` keep independent
+  model/source trust and explicit network permissions. Skulk remains optional.
+- `peer-share` verifies one complete public closure and publishes its handoff in
+  a finite, separately opted-in native session. Stop, expiry and caller loss
+  stop the daemon and retain the operator's archive; no automatic deletion,
+  eviction, restart or persistent service is introduced.
+
 - Releases are built, checked and attested by `.github/workflows/release.yml`
   from the pushed `v*` or `library-v*` tag. GitHub build-provenance attestations
   cover the wheel, sdist and `SHA256SUMS`; see [verifying a release](docs/releases.md).

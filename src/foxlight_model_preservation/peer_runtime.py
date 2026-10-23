@@ -23,7 +23,12 @@ from typing import BinaryIO, Literal, Protocol, cast
 from pydantic import Field, JsonValue
 
 from .models import PreservationError, Record
-from .operations import OperationControl
+from .operations import (
+    BudgetExceeded,
+    DeadlineExceeded,
+    OperationCancelled,
+    OperationControl,
+)
 from .signing import canonical_bytes, digest, encode_record, strict_json
 from .storage import atomic_bytes, directory, open_file, writer_lock
 
@@ -487,6 +492,66 @@ class PeerClient:
         )
 
 
+def _prepare_mirror(
+    client: PeerClient,
+    process: subprocess.Popen[bytes],
+    prepare: Callable[[PeerClient], None],
+    maximum: int,
+    observe: Callable[[int], None] | None,
+) -> None:
+    """Keep wire enforcement active while trusted preparation performs slow IO.
+
+    Preparation and observations remain on the caller's thread. The guard owns
+    an independent counter client/control and stops only this native process.
+    Its failure is joined and propagated before continuing or reporting ready.
+    """
+    finished = threading.Event()
+    failures: list[BaseException] = []
+    observed = [0]
+
+    def guard() -> None:
+        try:
+            counters = PeerClient(
+                client.repo,
+                client.binary,
+                allow_network=True,
+                seconds=max(0.001, client.deadline - time.monotonic()),
+            )
+            while not finished.wait(0.2):
+                if time.monotonic() >= client.deadline:
+                    raise DeadlineExceeded("sharing expired during preparation")
+                observed[0] = counters.wire_usage()
+                if observed[0] >= maximum:
+                    raise BudgetExceeded("peer allowance exhausted during preparation")
+        except BaseException as error:
+            failures.append(error)
+            try:
+                _stop(process)
+            except BaseException as stopping:
+                failures.append(stopping)
+
+    monitor = threading.Thread(target=guard, name="peer-preparation-guard", daemon=True)
+    monitor.start()
+    preparation_error: BaseException | None = None
+    try:
+        prepare(client)
+    except BaseException as error:
+        preparation_error = error
+    finally:
+        finished.set()
+        monitor.join(timeout=10)
+    if monitor.is_alive():
+        raise PreservationError("peer preparation guard stop could not be confirmed")
+    if observe is not None:
+        observe(observed[0])
+    if isinstance(preparation_error, OperationCancelled):
+        raise preparation_error
+    if failures:
+        raise failures[0] from preparation_error
+    if preparation_error is not None:
+        raise preparation_error
+
+
 def serve_peer(
     repo: Path,
     binary: str,
@@ -496,6 +561,8 @@ def serve_peer(
     seconds: int = 3600,
     max_upload_bytes: int = 1024**3,
     control: OperationControl | None = None,
+    on_ready: Callable[[PeerClient], None] | None = None,
+    observe_upload: Callable[[int], None] | None = None,
 ) -> dict[str, object]:
     """Run and stop only this finite node; receive mode never serves model blocks.
 
@@ -519,6 +586,7 @@ def serve_peer(
             raise PreservationError(
                 "existing peer API retained; stop its owner before launch"
             )
+        active.checkpoint()
         process = subprocess.Popen(  # noqa: S603 - owned executable and fixed command
             [binary, "daemon", "--migrate=false"],
             env=_environment(repo),
@@ -549,10 +617,22 @@ def serve_peer(
                             "owned peer API could not start"
                         ) from None
                     time.sleep(0.05)
+            if on_ready is not None:
+                active.checkpoint()
+                if profile.mode == "mirror":
+                    _prepare_mirror(
+                        client, process, on_ready, max_upload_bytes, observe_upload
+                    )
+                else:
+                    on_ready(client)
+                active.checkpoint()
             while process.poll() is None and time.monotonic() - started < seconds:
                 active.checkpoint()
                 if profile.mode == "mirror":
-                    if client.wire_usage() >= max_upload_bytes:
+                    uploaded = client.wire_usage()
+                    if observe_upload is not None:
+                        observe_upload(uploaded)
+                    if uploaded >= max_upload_bytes:
                         break
                 time.sleep(0.2)
             if process.poll() is not None:

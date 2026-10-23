@@ -328,6 +328,10 @@ Protocol references: [IPNS](https://docs.ipfs.tech/concepts/ipns/),
 
 ## Review a peer model before receiving its weights
 
+For one file carrying starting contacts with finite supervised receiving/sharing,
+see [portable handoffs](handoffs.md). The lower-level references and separately
+supervised nodes below remain supported.
+
 The separately versioned `foxlight.model-preservation.peer-invitation.v1`
 [reference schema](../src/foxlight_model_preservation/resources/peer_invitation_v1.json)
 retains the exact signed envelope, candidate public keys and canonical IPFS

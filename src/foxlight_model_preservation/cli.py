@@ -19,6 +19,12 @@ from tuf.api.exceptions import RepositoryError
 from .assurance import inspect_member_evidence, retain_card
 from .cards import create_card, identity_json, load_card
 from .discovery_cli import DiscoveryArguments, register_commands, run_command
+from .handoff_cli import COMMANDS as HANDOFF_COMMANDS
+from .handoff_cli import (
+    HandoffArguments,
+    register_handoff_commands,
+    run_handoff_command,
+)
 from .invitations import (
     accept_invitation_keys,
     authenticate_invitation,
@@ -60,7 +66,7 @@ from .torrent import TorrentExport, TorrentSeeder, TorrentSeedPolicy, export_tor
 from .transfer import TransferPolicy, fetch, plan_fetch
 
 
-class Arguments(DiscoveryArguments, PeerArguments):
+class Arguments(DiscoveryArguments, PeerArguments, HandoffArguments):
     """Typed parser output; each command uses only its declared arguments."""
 
     kit: Path
@@ -182,6 +188,7 @@ def argument_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     register_commands(commands.add_parser)
     register_peer_commands(commands.add_parser)
+    register_handoff_commands(commands.add_parser)
     for name in (
         "pmf-pack",
         "pmf-verify",
@@ -581,6 +588,8 @@ def run(
     arguments: Arguments, *, control: OperationControl | None = None
 ) -> dict[str, JsonValue]:
     """Execute exactly the selected operation and return a bounded safe receipt."""
+    if arguments.command in HANDOFF_COMMANDS:
+        return run_handoff_command(arguments, control or OperationControl())
     if arguments.command.startswith("peer-"):
         return run_peer_command(arguments, control or OperationControl())
     if arguments.command.startswith("source-"):
@@ -1082,7 +1091,7 @@ def main() -> int:
         "publish",
         "torrent-export",
         "torrent-seed",
-    } or arguments.command.startswith(("pmf-", "peer-"))
+    } or arguments.command.startswith(("pmf-", "peer-", "handoff-"))
     previous = signal.getsignal(signal.SIGINT)
     if controlled:
         signal.signal(signal.SIGINT, lambda _number, _frame: control.cancel())
