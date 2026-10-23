@@ -113,7 +113,9 @@ uv tool install '.[bittorrent]'
 # Or: python -m pip install '.[bittorrent]'
 ```
 
-The adapter pins libtorrent 2.0.14; installation needs a compatible native wheel.
+The `bittorrent` extra pins libtorrent 2.0.14, the qualified version; at runtime
+the adapter refuses any binding outside the 2.0 API line. Installation needs a
+compatible native wheel.
 It is tested on the CI's Linux/macOS and Python 3.11/3.13 combinations, not every
 platform. No packages are downloaded or installed automatically at runtime.
 
@@ -136,8 +138,9 @@ torrent.json
 Serve `/public/export` with the static server. An ordinary receiver uses mirror
 base `https://mirror.example/models/PUBLIC_MANIFEST`. A torrent web seed uses
 its parent `https://mirror.example/models/`; the standard client appends the
-torrent's manifest-ID folder. HTTP web seeds require `--allow-local-http` explicitly
-for trusted tests; default web-seed metadata permits only credential-free HTTPS.
+torrent's manifest-ID folder. Plain HTTP web seeds require `--allow-local-http`
+and a loopback host (`localhost`, `127.0.0.0/8` or `::1`), for trusted local tests
+only; otherwise web-seed metadata permits only credential-free HTTPS.
 
 Export authenticates and copies selected public bytes and creates standard v1
 torrent metainfo. It opens no listener or discovery session. BitTorrent piece

@@ -174,8 +174,24 @@ def test_installed_command_flow_and_source_failures_have_nonzero_exit(
     )
     assert followed.returncode == 0, followed.stderr
     source = identity["source_id"]
+    refollow = (
+        "source-follow",
+        "--cache",
+        str(cache),
+        "--source-file",
+        str(bootstrap_path),
+        "--expected-bootstrap-id",
+        identity["bootstrap_id"],
+    )
+    # Re-following without policy flags keeps the existing local grant.
+    assert command(*refollow).returncode == 0
     refreshed = command("source-refresh", "--cache", str(cache), "--source", source)
     assert refreshed.returncode == 0, refreshed.stderr
+    # An explicit --no-allow-local revokes it; --allow-local restores it.
+    assert command(*refollow, "--no-allow-local").returncode == 0
+    revoked = command("source-refresh", "--cache", str(cache), "--source", source)
+    assert revoked.returncode != 0
+    assert command(*refollow, "--allow-local").returncode == 0
     searched = command("source-search", "writing", "--cache", str(cache))
     data = json.loads(searched.stdout)
     assert (

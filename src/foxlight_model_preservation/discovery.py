@@ -402,14 +402,16 @@ def follow_source(
     document: bytes,
     expected_bootstrap_id: str,
     *,
-    allow_private: bool = False,
-    allow_http: bool = False,
-    allow_local: bool = False,
+    allow_private: bool | None = None,
+    allow_http: bool | None = None,
+    allow_local: bool | None = None,
 ) -> SourceStatus:
     """Enroll an independently authenticated source, without connecting or fetching.
 
     Re-enrollment retains update floors and prior cache. Offline bundles are
     verified as historical evidence and never labeled as a successful refresh.
+    An omitted receiver grant keeps the source's current grant (none for a new
+    source); pass an explicit boolean to set or revoke it.
     """
     record = read_source_document(document)
     bootstrap = record if isinstance(record, SourceBootstrap) else record.bootstrap
@@ -496,13 +498,24 @@ def follow_source(
                     "discovery source/cache reservation limit reached"
                 )
             state = incoming
+        # A bundle import replaced ``state`` above; grants come from the
+        # retained local record, never from imported evidence.
+        current = (
+            _read(root, source_id)
+            if source_id in identities
+            else SourceState(bootstrap=bootstrap)
+        )
         state = state.model_copy(
             update={
                 "bootstrap": bootstrap,
                 "enabled": True,
-                "allow_private": allow_private,
-                "allow_http": allow_http,
-                "allow_local": allow_local,
+                "allow_private": current.allow_private
+                if allow_private is None
+                else allow_private,
+                "allow_http": current.allow_http if allow_http is None else allow_http,
+                "allow_local": current.allow_local
+                if allow_local is None
+                else allow_local,
             }
         )
         _save(root, source_id, state)
@@ -542,6 +555,22 @@ def remove_source(cache: Path, source_id: str) -> None:
     with _cache(cache) as root, writer_lock(root):
         state = _read(root, source_id).model_copy(update={"enabled": False})
         _save(root, source_id, state)
+
+
+def accept_source_clock_rollback(cache: Path, source_id: str) -> SourceStatus:
+    """Clear the recorded attempt time after an operator corrects a future clock.
+
+    Refresh refuses when the clock is behind the last attempt, so one refresh
+    under a clock set in the future would otherwise wedge the source until real
+    time catches up. Re-following and removal keep that time, and deleting the
+    cache would discard rollback floors. This explicit acceptance clears only
+    the attempt time; trusted roots, role versions and the catalog are retained,
+    and TUF still checks expiry against the corrected clock.
+    """
+    with _cache(cache) as root, writer_lock(root):
+        state = _read(root, source_id).model_copy(update={"last_attempt_at": None})
+        _save(root, source_id, state)
+        return _status(source_id, state)
 
 
 def export_source(cache: Path, source_id: str) -> bytes:
@@ -776,7 +805,8 @@ def _refresh_source(
         now = datetime.now(UTC).isoformat()
         if state.last_attempt_at is not None and now < state.last_attempt_at:
             raise PreservationError(
-                "clock moved backwards since the last source update"
+                "clock moved backwards since the last source update; after "
+                "correcting the clock, explicitly accept the rollback to resume"
             )
         state = state.model_copy(update={"last_attempt_at": now})
         last_error: Exception | None = None

@@ -301,8 +301,11 @@ receive nodes do neither block serving nor provider advertising.
 
 Export allowances do **not** bound all native wire traffic, routing/DAG overhead
 or block-cache storage. Kubo can cache traversed blocks during failed requests.
-The adapter stages verified input before ordinary archive publication, so allow
-space for the native block store, temporary copies and final archive. Use an
+Model receive stages objects in the destination archive's own resumable partial
+files, after a free-space check, and model publication stages its export copy in
+a `.peer-export` area beside the archive on the same volume. Neither uses system
+temporary storage for weights. Allow space for the native block store, the export
+copy and the final archive. Use an
 operator disk/filesystem quota and firewall/network quota where hard limits are
 required. There is no automatic eviction, unpin, storage purchase, repair or
 persistent service registration. Software/dependency distribution and native

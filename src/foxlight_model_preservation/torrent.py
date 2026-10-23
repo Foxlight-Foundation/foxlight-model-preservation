@@ -108,11 +108,22 @@ def _files(manifest: Manifest, envelope: bytes, manifest_id: str) -> dict[str, i
     }
 
 
+def _loopback(host: str) -> bool:
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 def _web_seed(value: str, allow_local_http: bool) -> str:
     parsed = urlsplit(value)
     if (
         parsed.scheme not in ({"https", "http"} if allow_local_http else {"https"})
         or parsed.hostname is None
+        # The local-HTTP test grant names loopback hosts only, never the LAN.
+        or (parsed.scheme == "http" and not _loopback(parsed.hostname))
         or parsed.username is not None
         or parsed.password is not None
         or parsed.query

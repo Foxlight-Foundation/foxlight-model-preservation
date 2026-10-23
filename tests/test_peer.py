@@ -6,6 +6,8 @@ import base64
 import json
 import subprocess
 import sys
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from test_discovery import Publisher, follow
@@ -464,3 +466,135 @@ def test_owned_runtime_never_relays_or_announces_private_addresses(
     expected = [] if allow_private else list(PRIVATE_FILTERS)
     assert config["Addresses"]["NoAnnounce"] == expected
     assert config["Identity"] == {"PeerID": "fixture"}
+
+
+def test_peer_receive_stages_on_the_store_volume_and_resumes(
+    tmp_path, capture, monkeypatch
+):
+    import tempfile
+
+    from foxlight_model_preservation import peer
+    from foxlight_model_preservation.peer import fetch_peer_model
+    from foxlight_model_preservation.storage import verify_store
+
+    receiver, source = model_source(tmp_path, capture)
+    system_temp = tmp_path / "system-temp"
+    system_temp.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(system_temp))
+    store = tmp_path / "received"
+
+    class Interrupted(ModelTransport):
+        """Abort like a killed process after the first object reaches the store."""
+
+        def cat(self, path, *, maximum, sink=None):
+            if sink is not None and any(
+                item.stat().st_size for item in (store / ".partial").glob("*")
+            ):
+                raise KeyboardInterrupt
+            temp_bytes = sum(
+                item.stat().st_size for item in system_temp.rglob("*") if item.is_file()
+            )
+            # Weights never pass through system temporary storage.
+            assert temp_bytes < 64 * 1024
+            return super().cat(path, maximum=maximum, sink=sink)
+
+    def receive(transport):
+        return fetch_peer_model(
+            receiver,
+            source,
+            "small_text",
+            capture.identity,
+            capture.trust,
+            store,
+            transport,
+        )
+
+    with pytest.raises(KeyboardInterrupt):
+        receive(Interrupted(capture.store))
+    staged = [
+        item.name for item in (store / ".partial").iterdir() if item.stat().st_size
+    ]
+    assert len(staged) == 1
+    transport = ModelTransport(capture.store)
+    assert receive(transport).name == "fixture"
+    # The verified partial from the interrupted attempt was not received again.
+    assert not any(path.endswith(staged[0]) for path in transport.paths)
+    verify_store(store, capture.identity, capture.trust)
+
+    other = tmp_path / "full"
+    full = SimpleNamespace(total=1, used=1, free=0)
+    monkeypatch.setattr(peer.shutil, "disk_usage", lambda _path: full)
+    transport = ModelTransport(capture.store)
+    with pytest.raises(PreservationError, match="no peer supplied"):
+        fetch_peer_model(
+            receiver,
+            source,
+            "small_text",
+            capture.identity,
+            capture.trust,
+            other,
+            transport,
+        )
+    assert not any("/objects/" in path for path in transport.paths)
+
+
+def test_peer_publish_stages_beside_the_store_and_clears_orphans(
+    tmp_path, capture, monkeypatch
+):
+    import tempfile
+
+    from foxlight_model_preservation.peer import publish_peer_model
+
+    system_temp = tmp_path / "system-temp"
+    system_temp.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(system_temp))
+    orphan = capture.store / ".peer-export" / "stage-orphan"
+    (orphan / "objects").mkdir(parents=True)
+    (orphan / "objects" / "leftover").write_bytes(b"x" * 1024)
+    added = []
+
+    class Mirror(Transport):
+        def __init__(self):
+            super().__init__(b"")
+            self.profile = PeerProfile(mode="mirror", configuration_sha256="a" * 64)
+
+        def command(self, *args, maximum=65536):
+            stage = Path(args[-1])
+            assert stage.parent == capture.store / ".peer-export"
+            assert not orphan.exists()
+            assert not list(system_temp.iterdir())
+            added.append(sorted(str(p.relative_to(stage)) for p in stage.rglob("*")))
+            return (CID + "\n").encode()
+
+    result = publish_peer_model(
+        capture.store, capture.identity, capture.trust, Mirror(), public_model=True
+    )
+    assert result["cid"] == CID
+    assert any(name.startswith("manifests/") for name in added[0])
+    assert list((capture.store / ".peer-export").iterdir()) == [
+        capture.store / ".peer-export" / ".write.lock"
+    ]
+
+
+def test_peer_source_rejects_duplicate_json_keys(tmp_path, capture):
+    *_, record, _receiver = setup(tmp_path, capture)
+    data = encode_record(record)
+    duplicated = data[:-1] + b',"ipns":"' + NAME.encode() + b'"}'
+    assert inspect_peer_source(data) == record
+    with pytest.raises(PreservationError, match="invalid bounded JSON"):
+        inspect_peer_source(duplicated)
+
+
+def test_peer_follow_and_historical_refresh_keep_receiver_grants(tmp_path, capture):
+    from test_discovery import follow as follow_plain
+
+    _producer, cache, source, record, _receiver = setup(tmp_path, capture)
+    receiver = tmp_path / "granted"
+    follow_plain(receiver, record.source, allow_local=True, allow_http=True)
+    follow_peer_source(receiver, encode_record(record), peer_source_identity(record))
+    status = refresh_peer_source(
+        receiver, source, Transport(export_source(cache, source)), historical=True
+    )
+    assert status.source_id == source
+    # The operator's local grant still works for an ordinary refresh.
+    assert refresh_source(receiver, source).freshness == "fresh"
