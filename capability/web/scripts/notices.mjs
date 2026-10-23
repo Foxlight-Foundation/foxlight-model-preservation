@@ -8,6 +8,12 @@ for(const name of ['react','react-dom','scheduler']) {
   const pkg=JSON.parse(readFileSync(new URL('package.json',base),'utf8'));
   notices+=`${name} ${pkg.version}\n${readFileSync(new URL('LICENSE',base),'utf8')}\n\n`;
 }
+// Self-hosted interface fonts (latin subset only), SIL Open Font License 1.1.
+for(const [name,files] of [['@fontsource-variable/instrument-sans','instrument-sans-latin-wght-normal.woff2'],['@fontsource-variable/jetbrains-mono','jetbrains-mono-latin-wght-normal.woff2']]) {
+  const base=new URL(`node_modules/${name}/`,web);
+  const pkg=JSON.parse(readFileSync(new URL('package.json',base),'utf8'));
+  notices+=`${name} ${pkg.version} (bundled file: assets/${files})\n${readFileSync(new URL('LICENSE',base),'utf8').trim()}\n\n`;
+}
 notices+='Vite module-preload helper (Vite package license and notices):\n'+readFileSync(new URL('node_modules/vite/LICENSE.md',web),'utf8');
 writeFileSync(new URL('THIRD_PARTY_NOTICES.txt',target),notices);
 writeFileSync(new URL('LICENSE.txt',target),readFileSync(new URL('../LICENSE',web)));

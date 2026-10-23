@@ -16,7 +16,7 @@ export async function api<T>(action:string, body?:unknown):Promise<T> {
 }
 
 /** Human sizes describe observations rather than invented progress percentages. */
-export function bytes(value:number):string {return value < 1024 ? `${value} B` : value < 1024**2 ? `${(value/1024).toFixed(1)} KB` : value < 1024**3 ? `${(value/1024**2).toFixed(1)} MB` : `${(value/1024**3).toFixed(1)} GB`;}
+export function bytes(value:number):string {return value < 1024 ? `${value} B` : value < 1024**2 ? `${(value/1024).toFixed(1)} KB` : value < 1024**3 ? `${(value/1024**2).toFixed(1)} MB` : value < 1024**4 ? `${(value/1024**3).toFixed(1)} GB` : `${(value/1024**4).toFixed(1)} TB`;}
 
 /** Stable codes are translated here; raw exceptions never become product copy. */
 export function errorText(code:string):string {
