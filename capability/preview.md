@@ -171,5 +171,12 @@ PMF kits use explicit v2 framing; old v1 kits still work. Every captured model,
 companion and source record is hash-checked. Runtime profile support, registry
 proof and repository-code permission remain separate from capture-key trust.
 Neither installing nor launching joins a torrent swarm or starts a mirror.
-Library 0.7 source/installed-component acceptance is distinct from a published
-0.7 release, stable/frozen distribution or inference qualification.
+Library 0.8 source/installed-component acceptance is distinct from a published
+0.8 release, stable/frozen distribution or inference qualification.
+
+
+The source cohort also includes **Find a model** and Guided source following.
+No source is enrolled by setup. Get a source bootstrap file from a trusted
+operator, inspect it offline, then explicitly follow and refresh. Search is local;
+model details, download and Restore retain separate trust and network reviews.
+See [the Library discovery flow](README.md#follow-sources-and-find-preserved-models-library-08-source-preview).

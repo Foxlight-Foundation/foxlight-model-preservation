@@ -32,6 +32,7 @@ from .contracts import (
     LibraryCall,
     SharingInput,
 )
+from .discovery import discovery_control
 
 
 class _Server(http.server.ThreadingHTTPServer):
@@ -159,6 +160,17 @@ class LibraryServer:
         self, action: str, body: dict[str, JsonValue]
     ) -> dict[str, JsonValue]:
         """Allow exact UI controls; only explicit folder review accepts a host path."""
+        if action in {
+            "discovery-read",
+            "discovery-search",
+            "discovery-start",
+            "discovery-observe",
+            "discovery-cancel",
+            "source-review",
+            "source-follow",
+            "source-remove",
+        }:
+            return await discovery_control(self.client, action, body)
         if action == "folder-review":
             selection = FolderReviewInput.model_validate(body)
             return await self.client.request(
@@ -310,7 +322,7 @@ class LibraryServer:
                 "size_bytes" not in body
                 or set(body) - {"size_bytes", "purpose"}
                 or not isinstance(purpose, str)
-                or purpose not in {"kit", "invitation", "publication"}
+                or purpose not in {"kit", "invitation", "publication", "source"}
             ):
                 raise CoreRefused("invalid_upload")
             return await self.client.request("POST", "kit-uploads", body)
@@ -508,6 +520,14 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                     invitation is None
                     and relative
                     not in {
+                        "api/discovery-read",
+                        "api/discovery-search",
+                        "api/discovery-start",
+                        "api/discovery-observe",
+                        "api/discovery-cancel",
+                        "api/source-review",
+                        "api/source-follow",
+                        "api/source-remove",
                         "api/setup",
                         "api/folder-review",
                         "api/folder-setup",

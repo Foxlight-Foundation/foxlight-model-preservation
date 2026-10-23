@@ -16,6 +16,16 @@ GROUPS: dict[str, tuple[tuple[str, str], ...]] = {
         ("/preservation/plans", "post"),
         ("/preservation/jobs", "post"),
     ),
+    "Source discovery": (
+        ("/preservation/discovery/reviews", "post"),
+        ("/preservation/discovery/sources", "post"),
+        ("/preservation/discovery/sources/{source_id}", "delete"),
+        ("/preservation/discovery", "get"),
+        ("/preservation/discovery/search", "post"),
+        ("/preservation/discovery/jobs", "post"),
+        ("/preservation/discovery/jobs/{job_id}", "get"),
+        ("/preservation/discovery/jobs/{job_id}/cancel", "post"),
+    ),
     "Folder storage": (
         ("/preservation/setup/folder/review", "post"),
         ("/preservation/setup/folder", "post"),
