@@ -5,7 +5,9 @@ through interchangeable endpoints, search locally and retain an offline cache.
 They need no Skulk, Core process, private SDK, model hub, hosted account or GPU.
 The commands operate on metadata until an explicit exact-model fetch. They do
 not start a listener, advertise possession, seed a torrent or send search terms
-and installed-model inventories to suppliers.
+and installed-model inventories to suppliers. The separate optional
+[IPFS/IPNS peer adapter](peer-discovery.md) adds peer routing with explicit
+network participation, keeping this offline search and TUF authority unchanged.
 
 ## Follow and search
 
