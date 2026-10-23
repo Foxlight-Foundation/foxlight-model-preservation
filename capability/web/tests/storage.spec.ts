@@ -13,7 +13,7 @@ test('Guided folder setup binds review and explicit consent without starting a c
   await page.route('**/api/plan',route=>route.fulfill({json:{plan_id:'f'.repeat(64),kind:'preserve',model_id:model.model_id,location_id:nas.location_id,size_bytes:100,members:[model.model_id],member_count:1,expires_at:9999999999}}));
   await page.route('**/api/start',route=>{effects++;return route.fulfill({json:{}});});
   await page.goto('/');
-  await page.getByRole('button',{name:'Use folder or NAS',exact:true}).click();
+  await page.getByRole('button',{name:'Use a folder or NAS',exact:true}).click();
   await page.getByRole('button',{name:'Add folder or NAS',exact:true}).click();
   await page.getByLabel('Folder on this Core host').fill('/mounted/backup');
   await page.getByRole('button',{name:'Review storage',exact:true}).click();
@@ -22,7 +22,7 @@ test('Guided folder setup binds review and explicit consent without starting a c
   await page.getByLabel('Use this folder for private model copies').check();
   await page.getByRole('button',{name:'Use this storage',exact:true}).click();
   await expect(page.getByText('Storage is ready for new copies.',{exact:false})).toBeVisible();
-  await page.getByRole('button',{name:'Your copies',exact:true}).click();
+  await page.getByRole('button',{name:'Library',exact:true}).click();
   await expect(page.getByText('New copies go to My NAS',{exact:false})).toBeVisible();
   await page.getByRole('button',{name:'Preserve',exact:true}).click();
   await expect(page.getByText('My NAS',{exact:true})).toBeVisible();
@@ -36,7 +36,7 @@ test('editing or leaving a pending folder review discards late preview and conse
   const delayed=new Promise<void>(resolve=>{release=resolve;});
   await page.route('**/api/folder-review',async route=>{await delayed;await route.fulfill({json:review});});
   await page.goto('/');
-  await page.getByRole('button',{name:'Storage & keys',exact:true}).click();
+  await page.getByRole('button',{name:'Storage',exact:true}).click();
   await page.getByRole('button',{name:'Add folder or NAS',exact:true}).click();
   await page.getByLabel('Folder on this Core host').fill('/first');
   await page.getByRole('button',{name:'Review storage',exact:true}).click();
@@ -44,8 +44,8 @@ test('editing or leaving a pending folder review discards late preview and conse
   release();
   await expect(page.getByRole('button',{name:'Review storage',exact:true})).toBeEnabled();
   await expect(page.getByRole('button',{name:'Use this storage',exact:true})).toHaveCount(0);
-  await page.getByRole('button',{name:'Your copies',exact:true}).click();
-  await expect(page.getByRole('heading',{name:'Your models, kept close.'})).toBeVisible();
+  await page.getByRole('button',{name:'Library',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Your models',exact:true})).toBeVisible();
   await expect(page.getByLabel('Folder on this Core host')).toHaveCount(0);
 });
 
@@ -59,9 +59,9 @@ test('offline default never falls back and does not block copies on other storag
   await expect(page.getByRole('button',{name:'Check copy',exact:true})).toBeEnabled();
   await page.getByRole('button',{name:'Check copy',exact:true}).click();
   expect(planned).toEqual({kind:'check',location_id:'device',copy_id:copy.copy_id});
-  await page.getByRole('button',{name:'Storage & keys',exact:true}).click();
+  await page.getByRole('button',{name:'Storage',exact:true}).click();
   await page.getByRole('button',{name:'Use for new copies',exact:true}).click();
   await expect(page.getByText('Private · Destination for new copies',{exact:true})).toBeVisible();
-  await page.getByRole('button',{name:'Your copies',exact:true}).click();
+  await page.getByRole('button',{name:'Library',exact:true}).click();
   await expect(page.getByRole('button',{name:'Preserve',exact:true})).toBeEnabled();
 });
