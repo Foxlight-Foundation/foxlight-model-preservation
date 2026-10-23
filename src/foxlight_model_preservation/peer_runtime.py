@@ -322,11 +322,18 @@ def initialize_peer(
             config = cast(dict[str, JsonValue], json.loads(stream.read(256 * 1024)))
         config.update(
             {
+                # Rewriting Addresses drops the server profile's NoAnnounce, so
+                # restate it: a private-scope-filtered node never advertises its
+                # LAN/loopback addresses to the peers it contacts.
                 "Addresses": {
                     "API": "/ip4/127.0.0.1/tcp/0",
                     "Gateway": [],
                     "Swarm": ["/ip4/0.0.0.0/tcp/0"],
+                    "NoAnnounce": [] if allow_private_peers else list(PRIVATE_FILTERS),
                 },
+                # Relaying and reachability probing serve third parties; neither
+                # receiving nor reviewed block sharing consents to that.
+                "AutoNAT": {"ServiceMode": "disabled"},
                 "AutoConf": {"Enabled": False},
                 "DNS": {"Resolvers": {}},
                 "AutoTLS": {"Enabled": False},
@@ -343,6 +350,7 @@ def initialize_peer(
                 "Ipns": {"DelegatedPublishers": [], "UsePubsub": False},
                 "Swarm": {
                     "DisableNatPortMap": True,
+                    "RelayService": {"Enabled": False},
                     "AddrFilters": [] if allow_private_peers else list(PRIVATE_FILTERS),
                     "ConnMgr": {"LowWater": 16, "HighWater": 32, "GracePeriod": "20s"},
                 },

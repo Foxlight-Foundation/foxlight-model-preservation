@@ -420,3 +420,34 @@ def test_cancelled_peer_receive_stops_instead_of_failing_over(tmp_path, capture)
         )
     assert not any(SECOND_CID in path for path in transport.paths)
     assert not (tmp_path / "received").exists()
+
+
+@pytest.mark.parametrize("allow_private", [False, True])
+@pytest.mark.parametrize("mode", ["receive", "mirror"])
+def test_owned_runtime_never_relays_or_announces_private_addresses(
+    tmp_path, mode, allow_private
+):
+    from foxlight_model_preservation.peer_runtime import (
+        PRIVATE_FILTERS,
+        initialize_peer,
+    )
+
+    fake = tmp_path / "ipfs"
+    fake.write_text(
+        f"#!{sys.executable}\n"
+        "import json, os\n"
+        "config = {'Identity': {'PeerID': 'fixture'},\n"
+        "          'Addresses': {'NoAnnounce': ['/ip4/10.0.0.0/ipcidr/8']},\n"
+        "          'Swarm': {'RelayService': {'Enabled': True}}}\n"
+        "with open(os.path.join(os.environ['IPFS_PATH'], 'config'), 'w') as f:\n"
+        "    json.dump(config, f)\n"
+    )
+    fake.chmod(0o700)
+    repo = tmp_path / "repo"
+    initialize_peer(repo, str(fake), mode=mode, allow_private_peers=allow_private)
+    config = json.loads((repo / "config").read_bytes())
+    assert config["Swarm"]["RelayService"] == {"Enabled": False}
+    assert config["AutoNAT"] == {"ServiceMode": "disabled"}
+    expected = [] if allow_private else list(PRIVATE_FILTERS)
+    assert config["Addresses"]["NoAnnounce"] == expected
+    assert config["Identity"] == {"PeerID": "fixture"}

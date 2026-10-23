@@ -96,9 +96,13 @@ Run subsequent commands in a second terminal while that bounded session runs.
 Use `--ipfs /absolute/path/to/ipfs` on native commands if Kubo is not on PATH.
 Initialization is offline. Starting the node is separate explicit network
 participation. No default Foxlight/IPFS bootstrap list, mDNS, HTTP retrieval,
-public gateway, delegated router or delegated IPNS publisher is enabled.
+public gateway, delegated router or delegated IPNS publisher is enabled. Owned
+nodes in either mode run no circuit-relay or AutoNAT service for other peers.
 Private/LAN contacts need `peer-init --allow-private-peers`, which also permits
-connections to private peer addresses discovered by the routing layer.
+connections to private peer addresses discovered by the routing layer. Without
+it, the node neither dials nor announces private/loopback addresses. Profiles
+created by earlier releases keep their recorded configuration; create a new
+profile to adopt these settings.
 
 A receive profile disables **both Bitswap block serving and provider
 advertisement**. It can retain blocks in its private native cache without
