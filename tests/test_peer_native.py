@@ -249,6 +249,37 @@ def test_cold_peer_discovery_after_original_publisher_loss(
                     maximum_bytes=1000000,
                 )
                 assert restored_manifest == original
+                from foxlight_model_preservation.peer_invitations import (
+                    fetch_peer_invitation,
+                    inspect_peer_model,
+                )
+
+                metadata = inspect_peer_model(
+                    capture.identity,
+                    capture.trust,
+                    ("ipfs://" + first["cid"],),
+                    PeerClient(
+                        consumer.repo, native_binary, allow_network=True, seconds=90
+                    ),
+                )
+                referenced = tmp_path / "reference-received"
+                assert (
+                    fetch_peer_invitation(
+                        metadata,
+                        capture.trust,
+                        referenced,
+                        PeerClient(
+                            consumer.repo, native_binary, allow_network=True, seconds=90
+                        ),
+                        maximum_bytes=1000000,
+                        operation_id="receive",
+                    )
+                    == original
+                )
+                assert (
+                    verify_store(referenced, capture.identity, capture.trust)
+                    == original
+                )
                 assert (
                     verify_store(received, capture.identity, capture.trust) == original
                 )

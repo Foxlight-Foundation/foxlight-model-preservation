@@ -383,6 +383,7 @@ class PeerClient:
         self.repo, self.binary, self.address = repo, binary, address
         self.control = control or OperationControl()
         self.deadline = time.monotonic() + seconds
+        self.control.limit_deadline(self.deadline)
         self.exported_bytes = 0
 
     def command(self, *arguments: str, maximum: int = 65536) -> bytes:
@@ -448,7 +449,7 @@ class PeerClient:
         )
 
 
-def _serve_peer(
+def serve_peer(
     repo: Path,
     binary: str,
     *,
@@ -624,7 +625,7 @@ def _worker() -> int:
 
     threading.Thread(target=lifetime, daemon=True).start()
     try:
-        result = _serve_peer(
+        result = serve_peer(
             Path(sys.argv[2]),
             sys.argv[3],
             allow_network=True,

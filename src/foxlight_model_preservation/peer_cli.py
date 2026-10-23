@@ -10,7 +10,7 @@ from typing import Literal, cast
 
 from pydantic import JsonValue
 
-from .discovery import read_source_document, refresh_source_from_directory
+from .discovery import read_source_document, refresh_source_from_directory, select_entry
 from .discovery_models import SourceBootstrap
 from .models import PreservationError
 from .operations import OperationControl
@@ -23,6 +23,11 @@ from .peer import (
     publish_peer_model,
     publish_peer_source,
     refresh_peer_source,
+)
+from .peer_invitations import (
+    fetch_peer_invitation,
+    inspect_peer_model,
+    read_peer_invitation,
 )
 from .peer_runtime import (
     PeerClient,
@@ -66,6 +71,8 @@ class PeerArguments(argparse.Namespace):
     entry: str
     expected_manifest_id: str
     max_bytes: int
+    peer_invitation: Path
+    operation_id: str | None = None
 
 
 def register_peer_commands(add_parser: Callable[..., argparse.ArgumentParser]) -> None:
@@ -83,11 +90,19 @@ def register_peer_commands(add_parser: Callable[..., argparse.ArgumentParser]) -
         "peer-source-mirror",
         "peer-model-publish",
         "peer-fetch",
+        "peer-model-metadata",
+        "peer-invitation-inspect",
+        "peer-invitation-fetch",
     ):
         parser = add_parser(
             command, help="optional IPFS peer discovery and public distribution"
         )
-        if command not in {"peer-source-file", "peer-inspect", "peer-follow"}:
+        if command not in {
+            "peer-source-file",
+            "peer-inspect",
+            "peer-follow",
+            "peer-invitation-inspect",
+        }:
             parser.add_argument("--repo", dest="peer_repo", type=Path, required=True)
             parser.add_argument("--ipfs")
         if command not in {
@@ -96,6 +111,7 @@ def register_peer_commands(add_parser: Callable[..., argparse.ArgumentParser]) -
             "peer-source-file",
             "peer-inspect",
             "peer-follow",
+            "peer-invitation-inspect",
         }:
             parser.add_argument("--allow-peer-network", action="store_true")
             parser.add_argument(
@@ -103,7 +119,7 @@ def register_peer_commands(add_parser: Callable[..., argparse.ArgumentParser]) -
                 dest="peer_deadline_seconds",
                 type=float,
                 default=86400
-                if command == "peer-fetch"
+                if command in {"peer-fetch", "peer-invitation-fetch"}
                 else 3600
                 if command == "peer-model-publish"
                 else 120,
@@ -114,6 +130,7 @@ def register_peer_commands(add_parser: Callable[..., argparse.ArgumentParser]) -
             "peer-source-publish",
             "peer-source-mirror",
             "peer-fetch",
+            "peer-model-metadata",
         }:
             parser.add_argument(
                 "--cache",
@@ -125,9 +142,14 @@ def register_peer_commands(add_parser: Callable[..., argparse.ArgumentParser]) -
             "peer-source-publish",
             "peer-source-mirror",
             "peer-fetch",
+            "peer-model-metadata",
         }:
             parser.add_argument("--source", dest="source_id", required=True)
-        if command in {"peer-source-file", "peer-inspect", "peer-follow"}:
+        if command in {
+            "peer-source-file",
+            "peer-inspect",
+            "peer-follow",
+        }:
             parser.add_argument("--source-file", type=Path, required=True)
         if command == "peer-init":
             parser.add_argument(
@@ -161,17 +183,27 @@ def register_peer_commands(add_parser: Callable[..., argparse.ArgumentParser]) -
         if command in {"peer-source-publish", "peer-source-mirror"}:
             parser.add_argument("--public-metadata", action="store_true")
             parser.add_argument("--metadata-directory", type=Path)
-        if command in {"peer-fetch", "peer-model-publish"}:
+        if command in {"peer-fetch", "peer-model-publish", "peer-invitation-fetch"}:
             parser.add_argument("--store", type=Path, required=True)
         if command == "peer-model-publish":
             parser.add_argument("--manifest", required=True)
             parser.add_argument("--trust", type=Path, required=True)
             parser.add_argument("--public-model", action="store_true")
-        if command == "peer-fetch":
+        if command in {"peer-fetch", "peer-model-metadata"}:
             parser.add_argument("--entry", required=True)
             parser.add_argument("--expected-manifest-id", required=True)
             parser.add_argument("--bundle-trust", type=Path, required=True)
+        if command in {"peer-fetch", "peer-invitation-fetch"}:
             parser.add_argument("--max-bytes", type=int, default=20 * 1024**3)
+        if command == "peer-model-metadata":
+            parser.add_argument("--output", type=Path, required=True)
+        if command in {"peer-invitation-inspect", "peer-invitation-fetch"}:
+            parser.add_argument(
+                "--invitation", dest="peer_invitation", type=Path, required=True
+            )
+        if command == "peer-invitation-fetch":
+            parser.add_argument("--bundle-trust", type=Path, required=True)
+            parser.add_argument("--operation-id")
 
 
 def _read(path: Path, maximum: int) -> bytes:
@@ -206,6 +238,14 @@ def run_peer_command(
 ) -> dict[str, JsonValue]:
     """Keep peer enrollment offline and require separate permission for network work."""
     command = arguments.command
+    if command == "peer-invitation-inspect":
+        invitation = read_peer_invitation(_read(arguments.peer_invitation, 8 * 1024**2))
+        return {
+            "manifest": invitation.manifest_id,
+            "members": len(invitation.manifest.members),
+            "network_requests": 0,
+            "trusted": False,
+        }
     if command == "peer-source-file":
         source = read_source_document(_read(arguments.source_file, 256 * 1024))
         if not isinstance(source, SourceBootstrap):
@@ -276,6 +316,41 @@ def run_peer_command(
             "mode": client.profile.mode,
             "block_serving": client.profile.mode == "mirror",
         }
+    if command == "peer-invitation-fetch" and arguments.bundle_trust is not None:
+        invitation = read_peer_invitation(_read(arguments.peer_invitation, 8 * 1024**2))
+        manifest = fetch_peer_invitation(
+            invitation,
+            load_trust(_read(arguments.bundle_trust, 8 * 1024**2)),
+            arguments.store,
+            client,
+            maximum_bytes=arguments.max_bytes,
+            operation_id=arguments.operation_id,
+        )
+        return {
+            "manifest": invitation.manifest_id,
+            "verified_bytes": manifest.total_bytes,
+            "serving": False,
+        }
+    if (
+        command == "peer-model-metadata"
+        and arguments.source_id is not None
+        and arguments.bundle_trust is not None
+    ):
+        entry = select_entry(
+            arguments.cache,
+            arguments.source_id,
+            arguments.entry,
+            arguments.expected_manifest_id,
+        )
+        invitation = inspect_peer_model(
+            entry.manifest,
+            load_trust(_read(arguments.bundle_trust, 8 * 1024**2)),
+            entry.mirrors,
+            client,
+        )
+        with arguments.output.open("xb") as stream:
+            _ = stream.write(encode_record(invitation))
+        return {"manifest": invitation.manifest_id, "weights_downloaded": 0}
     if arguments.source_id is None and command != "peer-model-publish":
         raise PreservationError("exact followed peer source required")
     if command == "peer-refresh" and arguments.source_id is not None:
