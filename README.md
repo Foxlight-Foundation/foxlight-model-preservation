@@ -20,9 +20,27 @@ uv tool install .
 model-preserve --help
 ```
 
-`python -m pip install .` is also supported. No package has been published to PyPI.
-For offline recovery, retain the verifier and its platform-compatible dependency
-wheels through an authenticated software channel.
+`python -m pip install .` is also supported, as is a [verified release wheel](#verify-a-release).
+No package has been published to PyPI. For offline recovery, retain the verifier
+and its platform-compatible dependency wheels through an authenticated software channel.
+
+## Verify a release
+
+[Releases](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases)
+after `v0.6.0` and `library-v0.6.0` are built from their tag and attested by the
+[release workflow](.github/workflows/release.yml); earlier ones have checksums only.
+With the files and `SHA256SUMS` in one directory:
+
+```sh
+sha256sum -c SHA256SUMS
+gh attestation verify FILE --repo Foxlight-Foundation/foxlight-model-preservation \
+  --signer-workflow Foxlight-Foundation/foxlight-model-preservation/.github/workflows/release.yml \
+  --source-ref refs/tags/TAG
+```
+
+A pass binds the file to this repository's release workflow at that tag, not to a
+maintainer's offline key. PyPI publishing is not enabled yet. [Verifying a release](docs/releases.md)
+covers what each check proves, offline evidence and installing a verified wheel.
 
 ## Learn the system
 
@@ -40,6 +58,7 @@ wheels through an authenticated software channel.
 | Send or receive a public model with an offline preview | [Public invitations](docs/invitations.md) |
 | Create a public-only publication or opt in to BitTorrent seeding | [Public sharing](docs/public-sharing.md) |
 | Retain independent trust and offline recovery material | [Trust and recovery](docs/trust-and-recovery.md) |
+| Check a downloaded release before installing it | [Verifying a release](docs/releases.md) |
 | Publish an open model card or retain registry evidence | [Public cards and offline provenance](docs/cards-and-provenance.md) |
 | Use draft PMF or round-trip an existing Skulk/preservation archive | [Portable Model Format](docs/portable-model-format.md) |
 

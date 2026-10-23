@@ -1,0 +1,295 @@
+name: Release
+# A pushed v* tag releases the core; a library-v* tag releases the Library.
+# Manual runs only rehearse: they build and attest, never release or upload.
+# See RELEASING.md (maintainers) and docs/releases.md (verification).
+on:
+  push:
+    tags: ['v*', 'library-v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to rehearse (v1.2.3 or library-v1.2.3); must match the selected ref's version
+        required: true
+        type: string
+      dry_run:
+        description: Build and attest only. Manual runs never publish; push the tag to release.
+        required: true
+        type: boolean
+        default: true
+permissions: {}
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  build:
+    name: Build and check distributions
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
+      notes-start-tag: ${{ steps.release.outputs.notes-start-tag }}
+      name: ${{ steps.dist.outputs.name }}
+      sums-sha256: ${{ steps.dist.outputs.sums-sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - name: Match the tag to the project version
+        id: release
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          if [ "$EVENT_NAME" = push ]; then
+            tag=$REF_NAME
+          else
+            if [ "$DRY_RUN" != true ]; then
+              echo "::error::Manual runs only rehearse. Push the tag to publish a release."
+              exit 1
+            fi
+            tag=$INPUT_TAG
+          fi
+          if ! [[ $tag =~ ^(library-)?v[0-9][0-9A-Za-z.+!_-]*$ ]]; then
+            echo "::error::The tag must look like v1.2.3 (core) or library-v1.2.3 (Library)."
+            exit 1
+          fi
+          if [ "$REF_TYPE" = tag ] && [ "$REF_NAME" != "$tag" ]; then
+            echo "::error::The selected tag $REF_NAME differs from the tag input $tag."
+            exit 1
+          fi
+          case $tag in
+            library-v*) prefix=library-v project=capability pyproject=capability/pyproject.toml ;;
+            *) prefix=v project=. pyproject=pyproject.toml ;;
+          esac
+          version=$(python -c 'import sys, tomllib; print(tomllib.load(open(sys.argv[1], "rb"))["project"]["version"])' "$pyproject")
+          if [ "$tag" != "$prefix$version" ]; then
+            echo "::error file=$pyproject::Tag $tag does not match version $version; expected $prefix$version."
+            exit 1
+          fi
+          # Generated notes start at the previous tag of the same series.
+          notes_start=$(git describe --tags --abbrev=0 --match "${prefix}[0-9]*" HEAD^ 2>/dev/null || true)
+          {
+            echo "tag=$tag"
+            echo "project=$project"
+            echo "version=$version"
+            echo "notes-start-tag=$notes_start"
+          } >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: steps.release.outputs.project == 'capability'
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Require the committed Library interface to match a clean rebuild
+        if: steps.release.outputs.project == 'capability'
+        working-directory: capability/web
+        run: |
+          npm ci
+          npm run build
+          if [ -n "$(git status --porcelain --untracked-files=all)" ]; then
+            git status --short --untracked-files=all
+            git diff --stat
+            echo "::error::npm ci && npm run build changed the committed interface bundle. Rebuild and commit it."
+            exit 1
+          fi
+      - run: python -m pip install uv==0.12.23
+      - name: Build the sdist and wheel
+        env:
+          PROJECT: ${{ steps.release.outputs.project }}
+        run: uv build --no-sources --project "$PROJECT" --out-dir dist
+      - name: Check the built metadata and write SHA256SUMS
+        id: dist
+        env:
+          PROJECT: ${{ steps.release.outputs.project }}
+          TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          python - "$PROJECT/pyproject.toml" dist <<'PY'
+          import os
+          import re
+          import sys
+          import tarfile
+          import tomllib
+          import zipfile
+          from email.parser import HeaderParser
+          from pathlib import Path
+
+          def canonical(name: str) -> str:
+              return re.sub(r"[-_.]+", "-", name).lower()
+
+          project = tomllib.loads(Path(sys.argv[1]).read_text())["project"]
+          files = sorted(p for p in Path(sys.argv[2]).iterdir() if not p.name.startswith("."))
+          wheels = [p for p in files if p.name.endswith(".whl")]
+          sdists = [p for p in files if p.name.endswith(".tar.gz")]
+          if len(wheels) != 1 or len(sdists) != 1 or len(files) != 2:
+              sys.exit(f"Expected one wheel and one sdist, found {[p.name for p in files]}")
+          with zipfile.ZipFile(wheels[0]) as wheel:
+              (member,) = (
+                  n for n in wheel.namelist()
+                  if n.count("/") == 1 and n.endswith(".dist-info/METADATA")
+              )
+              wheel_metadata = wheel.read(member).decode()
+          with tarfile.open(sdists[0]) as sdist:
+              (member,) = (
+                  m for m in sdist.getmembers()
+                  if m.name.count("/") == 1 and m.name.endswith("/PKG-INFO")
+              )
+              stream = sdist.extractfile(member)
+              assert stream is not None
+              sdist_metadata = stream.read().decode()
+          for label, text in (("wheel", wheel_metadata), ("sdist", sdist_metadata)):
+              metadata = HeaderParser().parsestr(text)
+              built = (canonical(metadata["Name"]), metadata["Version"])
+              wanted = (canonical(project["name"]), os.environ["VERSION"])
+              if built != wanted:
+                  sys.exit(f"The {label} is {built}; pyproject.toml declares {wanted}")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"name={canonical(project['name'])}\n")
+          PY
+          cd dist
+          sha256sum -- *.whl *.tar.gz > SHA256SUMS
+          echo "sums-sha256=$(sha256sum SHA256SUMS | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+          {
+            echo "### $TAG built from $GITHUB_REF_NAME at $GITHUB_SHA"
+            echo '```'
+            cat SHA256SUMS
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: distributions
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30
+
+  provenance:
+    name: Attest build provenance
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: distributions
+          path: dist
+      - name: Require exactly the files the build job hashed
+        working-directory: dist
+        env:
+          SUMS_SHA256: ${{ needs.build.outputs.sums-sha256 }}
+        run: |
+          echo "$SUMS_SHA256  SHA256SUMS" | sha256sum --check --strict -
+          sha256sum --check --strict SHA256SUMS
+          test "$(find . -type f | wc -l)" -eq "$(($(wc -l < SHA256SUMS) + 1))"
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/*.whl
+            dist/*.tar.gz
+            dist/SHA256SUMS
+
+  github-release:
+    name: Create the GitHub pre-release
+    needs: [build, provenance]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: distributions
+          path: dist
+      - name: Require exactly the files the build job hashed
+        working-directory: dist
+        env:
+          SUMS_SHA256: ${{ needs.build.outputs.sums-sha256 }}
+        run: |
+          echo "$SUMS_SHA256  SHA256SUMS" | sha256sum --check --strict -
+          sha256sum --check --strict SHA256SUMS
+          test "$(find . -type f | wc -l)" -eq "$(($(wc -l < SHA256SUMS) + 1))"
+      - name: Publish the pre-release with its files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.build.outputs.tag }}
+          NAME: ${{ needs.build.outputs.name }}
+          VERSION: ${{ needs.build.outputs.version }}
+          NOTES_START_TAG: ${{ needs.build.outputs.notes-start-tag }}
+        run: |
+          cat > notes.template <<'MD'
+          ## Verify this release
+
+          Download the files beside `SHA256SUMS`, then check each one:
+
+          ```sh
+          sha256sum -c SHA256SUMS
+          for file in *.whl *.tar.gz SHA256SUMS; do
+            gh attestation verify "$file" --repo @REPO@ \
+              --signer-workflow @REPO@/.github/workflows/release.yml \
+              --source-ref refs/tags/@TAG@
+          done
+          ```
+
+          A pass binds each file to this repository's release workflow run for
+          `@TAG@`. It is not a maintainer's offline signature and does not review the
+          code. See [verifying a release](@SERVER@/@REPO@/blob/@TAG@/docs/releases.md).
+          MD
+          sed -e "s|@REPO@|$GITHUB_REPOSITORY|g" -e "s|@TAG@|$TAG|g" \
+            -e "s|@SERVER@|$GITHUB_SERVER_URL|g" notes.template > notes.md
+          start=()
+          if [ -n "$NOTES_START_TAG" ]; then
+            start=(--notes-start-tag "$NOTES_START_TAG")
+          fi
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease \
+            --title "$NAME $VERSION" --notes-file notes.md --generate-notes "${start[@]}" \
+            dist/*.whl dist/*.tar.gz dist/SHA256SUMS
+
+  pypi:
+    name: Publish to PyPI
+    needs: [build, provenance, github-release]
+    # Off until the PyPI pending publishers and the pypi environment exist.
+    if: github.event_name == 'push' && vars.PUBLISH_PYPI == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: pypi
+      url: https://pypi.org/project/${{ needs.build.outputs.name }}/${{ needs.build.outputs.version }}/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: distributions
+          path: release
+      - name: Require exactly the files the build job hashed
+        working-directory: release
+        env:
+          SUMS_SHA256: ${{ needs.build.outputs.sums-sha256 }}
+        run: |
+          echo "$SUMS_SHA256  SHA256SUMS" | sha256sum --check --strict -
+          sha256sum --check --strict SHA256SUMS
+          test "$(find . -type f | wc -l)" -eq "$(($(wc -l < SHA256SUMS) + 1))"
+      - name: Select only the distributions
+        run: |
+          mkdir dist
+          cp release/*.whl release/*.tar.gz dist/
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          packages-dir: dist/
+          attestations: true
