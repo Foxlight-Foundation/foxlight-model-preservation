@@ -87,11 +87,11 @@ a valid archive. A directory flush failure after publication can leave complete
 bytes with uncertain durability: verify the existing destination before retrying.
 Linux/macOS filesystem, rename/fsync and mounted-storage limits still apply.
 
-These initial commands operate on local stores. PMF-aware network fetching,
-invitations, recovery-kit framing and Library UI integration are not added by
-this draft. To use existing transport, sharing and Skulk recovery paths, export
-the unchanged original v1 archive. Existing v1 tools never silently gain PMF
-support by being renamed.
+These `pmf-*` commands operate on local stores. Recovery kits (v2) and the
+Library integration support PMF; see the sections below. PMF-aware network
+fetching, invitations and public sharing are not added by this draft. To use
+those transport and sharing paths, export the unchanged original v1 archive.
+Existing v1 tools never silently gain PMF support by being renamed.
 
 ## Existing archive and Skulk profile
 

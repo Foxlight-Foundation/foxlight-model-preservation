@@ -150,6 +150,11 @@ uv tool install https://github.com/Foxlight-Foundation/foxlight-model-preservati
 foxlight-preservation-library
 ```
 
+That is the latest tagged release (0.6.0). PMF, followed sources and peer
+receiving (0.7–0.10) are source previews; see the
+[PMF section](#pmf-source-preview-library-07) for the source install command and
+[CHANGELOG.md](CHANGELOG.md) for what each version added.
+
 The launcher checks the local Core and opens a private browser link. Use `--check`
 for a read-only report of the actual owner and required API surfaces. If Core is
 missing or older, [preview setup](preview.md) installs pinned compatible components
@@ -163,11 +168,13 @@ an archive, start a restore, host a mirror or join a swarm on launch.
 A Core build with the preservation/recovery APIs is required; an older stable
 installation may need an update. This package does not update Core, configure a
 Model Store or install an inference engine. The launcher and managed capability
-use the same Library/Guided interface and canonical Core job journal.
+use the same Library/Guided interface and canonical Core job journal. Each mode
+uses its own owner identity, so Activity in one mode does not list or control
+jobs started from the other.
 
 Source installation is also available with `python -m pip install ./capability`
-from this repository. The default wheel has only public `httpx` and `pydantic`
-dependencies. The optional `managed` extra uses the separately supplied SDK; the
+from this repository. The default wheel has only public `httpx`, `pydantic` and
+`PyYAML` dependencies. The optional `managed` extra uses the separately supplied SDK; the
 public launcher never loads it.
 
 ## Clear unused restore files
@@ -227,6 +234,13 @@ with a volatile ticket-scoped path, same-origin JSON controls, no-store response
 no-referrer policy and a restrictive content policy. It loads no analytics,
 external fonts or supplier resources. Opaque handles are not an OS sandbox:
 same-user processes and the trusted fabric retain their existing authority.
+
+Library's own screen listens only on loopback, but Core's `/preservation` API
+uses Skulk's standard operator boundary: loopback, the authenticated operator
+gateway, or a direct private-LAN/CGNAT peer (for example over Tailscale) that
+sends no forwarding headers. Any machine your cluster already trusts that way can
+call these controls directly, including folder review and starting public
+sharing. Run the model-store host only on networks whose peers you trust.
 
 ## Earlier Library 0.3.0 delivery
 
@@ -317,7 +331,7 @@ independent community operators, anonymous retrieval, peer discovery or
 censorship-resistance qualification. Direct source and mirror requests expose
 Core's network address and requested metadata/artifact to their operators.
 
-### Receive through peers
+## Receive through peers (Library 0.9–0.10 source preview)
 
 The current source preview supports peer discovery and receiving in Library and
 Guided. Library 0.10 adds **Set up peer support** on a compatible Core. Review

@@ -1,7 +1,7 @@
 # Use the standalone Python library
 
 The CLI and library use the same implementation. No Skulk import, GPU library,
-hub account or service is required. This reference describes the 0.6.0 entry
+hub account or service is required. This reference describes the 0.10.0 entry
 points; pin the package revision/version in an integration and test its actual
 contracts. It is not a promise that every helper is a stable extension interface.
 
