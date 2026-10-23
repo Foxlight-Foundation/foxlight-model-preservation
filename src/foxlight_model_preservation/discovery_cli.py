@@ -55,6 +55,7 @@ class DiscoveryArguments(argparse.Namespace):
     bundle_trust: Path | None = None
     store: Path
     max_bytes: int
+    deadline_seconds: float = 3600
     operation_id: str | None = None
     root: Path | None = None
     endpoint: list[str]
@@ -168,6 +169,12 @@ def register_commands(add_parser: Callable[..., argparse.ArgumentParser]) -> Non
             command.add_argument("--bundle-trust", type=Path, required=True)
             command.add_argument("--store", type=Path, required=True)
             command.add_argument("--max-bytes", type=int, default=20 * 1024**3)
+            command.add_argument(
+                "--deadline-seconds",
+                type=float,
+                default=3600,
+                help="overall transfer deadline for this invocation (max 86400)",
+            )
             command.add_argument("--allow-private", action="store_true")
             command.add_argument("--allow-http", action="store_true")
             command.add_argument("--allow-local", action="store_true")
@@ -291,6 +298,7 @@ def run_command(
         arguments.store,
         TransferPolicy(
             max_bytes=arguments.max_bytes,
+            deadline_seconds=arguments.deadline_seconds,
             allow_private=arguments.allow_private,
             allow_http=arguments.allow_http,
         ),

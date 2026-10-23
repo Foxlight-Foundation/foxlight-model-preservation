@@ -424,6 +424,13 @@ def argument_parser() -> argparse.ArgumentParser:
                 planning.add_argument("--max-bytes", type=int, default=20 * 1024**3)
                 planning.add_argument("--allow-private", action="store_true")
                 planning.add_argument("--allow-http", action="store_true")
+    for name in ("fetch", "fetch-catalog", "plan-fetch"):
+        commands.choices[name].add_argument(
+            "--deadline-seconds",
+            type=float,
+            default=3600,
+            help="overall transfer deadline for this invocation (max 86400)",
+        )
     return parser
 
 
@@ -729,6 +736,7 @@ def run(
             arguments.store,
             TransferPolicy(
                 max_bytes=arguments.max_bytes,
+                deadline_seconds=arguments.deadline_seconds,
                 allow_private=arguments.allow_private,
                 allow_http=arguments.allow_http,
             ),
@@ -755,6 +763,7 @@ def run(
             arguments.store,
             TransferPolicy(
                 max_bytes=arguments.max_bytes,
+                deadline_seconds=arguments.deadline_seconds,
                 allow_private=arguments.allow_private,
                 allow_http=arguments.allow_http,
             ),
@@ -788,6 +797,7 @@ def run(
             arguments.store,
             TransferPolicy(
                 max_bytes=arguments.max_bytes,
+                deadline_seconds=arguments.deadline_seconds,
                 allow_private=arguments.allow_private,
                 allow_http=arguments.allow_http,
             ),
