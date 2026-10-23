@@ -20,6 +20,8 @@ contracts. It is not a promise that every helper is a stable extension interface
 | `invitations.authenticate_invitation` | Invitation, independently selected trust | Authenticated public `Manifest`; no IO or model admission. |
 | `invitations.accept_invitation_keys` | Invitation, explicitly authenticated fingerprint tuple | Exact-copy first-contact trust; never global enrollment or replacement for an existing revocation policy. |
 | `invitations.fetch_invitation` | Invitation, selected trust, caller-owned destination, transfer policy/controls | Authenticates before networking, then uses the ordinary fetcher. Never seeds, restores or runs code. |
+| `handoffs.read_reference`, `reference_contacts` | Bounded handoff or legacy reference bytes | Unchanged inner reference and optional untrusted routing hints; no network or trust enrollment. |
+| `handoffs.write_handoff` | New output path, `Handoff` | Atomic metadata-only export; refuses existing files/symlinks. See [portable handoffs](handoffs.md). |
 | `storage.restore` | Store, expected ID, trust, new output path | Validated `Manifest` and a fresh member layout. Existing outputs are refused. |
 | `signing.verify_catalog` | Envelope bytes, catalog trust, expected catalog ID | Validated catalog. No network request or trust enrollment. |
 | `seed.SeedServer` | Bind address, store, exact selected bundle IDs, trust and serving limits | Explicit read-only server. Construction verifies all selected objects before listening. |

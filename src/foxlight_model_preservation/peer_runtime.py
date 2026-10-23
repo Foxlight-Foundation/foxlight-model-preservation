@@ -496,6 +496,8 @@ def serve_peer(
     seconds: int = 3600,
     max_upload_bytes: int = 1024**3,
     control: OperationControl | None = None,
+    on_ready: Callable[[PeerClient], None] | None = None,
+    observe_upload: Callable[[int], None] | None = None,
 ) -> dict[str, object]:
     """Run and stop only this finite node; receive mode never serves model blocks.
 
@@ -519,6 +521,7 @@ def serve_peer(
             raise PreservationError(
                 "existing peer API retained; stop its owner before launch"
             )
+        active.checkpoint()
         process = subprocess.Popen(  # noqa: S603 - owned executable and fixed command
             [binary, "daemon", "--migrate=false"],
             env=_environment(repo),
@@ -549,10 +552,17 @@ def serve_peer(
                             "owned peer API could not start"
                         ) from None
                     time.sleep(0.05)
+            if on_ready is not None:
+                active.checkpoint()
+                on_ready(client)
+                active.checkpoint()
             while process.poll() is None and time.monotonic() - started < seconds:
                 active.checkpoint()
                 if profile.mode == "mirror":
-                    if client.wire_usage() >= max_upload_bytes:
+                    uploaded = client.wire_usage()
+                    if observe_upload is not None:
+                        observe_upload(uploaded)
+                    if uploaded >= max_upload_bytes:
                         break
                 time.sleep(0.2)
             if process.poll() is not None:

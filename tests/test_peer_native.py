@@ -126,6 +126,175 @@ def node(tmp_path, name, binary, *, mode="receive", bootstrap=()):
         )
 
 
+@contextmanager
+def model_sharer(tmp_path, capture, binary, contacts):
+    """Start the public CLI, waiting for its atomically published one-file output."""
+    trust = tmp_path / "sharing-trust.json"
+    trust.write_bytes(encode_record(capture.trust))
+    handoff = tmp_path / "model.foxhandoff"
+    repo = tmp_path / "sharing-peer"
+    arguments = [
+        sys.executable,
+        "-m",
+        "foxlight_model_preservation.cli",
+        "peer-share",
+        "--store",
+        str(capture.store),
+        "--manifest",
+        capture.identity,
+        "--trust",
+        str(trust),
+        "--repo",
+        str(repo),
+        "--ipfs",
+        binary,
+        "--output",
+        str(handoff),
+        "--allow-peer-network",
+        "--share-public",
+        "--public-model",
+        "--allow-private-peers",
+        "--seconds",
+        "120",
+    ]
+    for contact in contacts:
+        arguments.extend(("--bootstrap-address", contact))
+    process = subprocess.Popen(  # noqa: S603 - own module and separate arguments
+        arguments,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        stdin=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    try:
+        end = time.monotonic() + 40
+        while not handoff.exists() and time.monotonic() < end:
+            if process.poll() is not None:
+                pytest.fail(
+                    "one-file sharing startup failed: " + repr(process.communicate())
+                )
+            time.sleep(0.05)
+        assert handoff.exists(), "one-file sharing did not publish a complete reference"
+        yield process, handoff, repo
+    finally:
+        if process.poll() is None:
+            process.send_signal(2)
+            try:
+                process.wait(timeout=25)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=3)
+        output = process.communicate(timeout=3)
+        end = time.monotonic() + 15
+        while (repo / "api").exists() and time.monotonic() < end:
+            time.sleep(0.05)
+        assert not (repo / "api").exists(), "sharing stop left native work running"
+        assert process.returncode in (130, -9), output
+
+
+@pytest.mark.parametrize("publisher_lost", [False, True])
+def test_one_file_receive_and_operator_stop_keep_archive(
+    tmp_path, capture, native_binary, publisher_lost
+):
+    from foxlight_model_preservation.handoffs import read_handoff
+    from foxlight_model_preservation.peer_sharing import prepare_peer_handoff
+
+    original = verify_store(capture.store, capture.identity, capture.trust)
+    with node(tmp_path, "handoff-router", native_binary, mode="mirror") as (
+        _,
+        _,
+        contact,
+    ):
+        with node(
+            tmp_path,
+            "handoff-retainer",
+            native_binary,
+            mode="mirror",
+            bootstrap=(contact,),
+        ) as (_, retainer, _):
+            with model_sharer(tmp_path, capture, native_binary, (contact,)) as (
+                process,
+                handoff,
+                sharing_repo,
+            ):
+                record = read_handoff(handoff.read_bytes())
+                assert record.reference.manifest_id == capture.identity
+                assert record.reference.manifest == original
+                assert contact in record.contacts
+                assert (
+                    PeerClient(
+                        sharing_repo, native_binary, allow_network=True
+                    ).profile.mode
+                    == "mirror"
+                )
+                if publisher_lost:
+                    retained = prepare_peer_handoff(
+                        capture.store,
+                        capture.identity,
+                        capture.trust,
+                        retainer,
+                        public_model=True,
+                        bootstrap=(contact,),
+                    )
+                    assert retained.reference.mirrors == record.reference.mirrors
+                    # Only the original handoff remains: no new mirror inventory,
+                    # source service, publisher key or Core is supplied to receiver.
+                    process.kill()
+                    process.wait(timeout=3)
+                    end = time.monotonic() + 15
+                    while (sharing_repo / "api").exists() and time.monotonic() < end:
+                        time.sleep(0.05)
+                    assert not (sharing_repo / "api").exists()
+                    shutil.rmtree(sharing_repo)
+                receiver = tmp_path / "one-file-receiver"
+                receiver_repo = tmp_path / "one-file-receiver-peer"
+                result = subprocess.run(  # noqa: S603 - own module, fixed arguments
+                    [
+                        sys.executable,
+                        "-m",
+                        "foxlight_model_preservation.cli",
+                        "handoff-fetch",
+                        "--handoff",
+                        str(handoff),
+                        "--store",
+                        str(receiver),
+                        "--repo",
+                        str(receiver_repo),
+                        "--ipfs",
+                        native_binary,
+                        "--allow-peer-network",
+                        "--allow-private-peers",
+                        "--seconds",
+                        "60",
+                        "--accept-key",
+                        capture.trust.keys[0].key_id,
+                        "--operation-id",
+                        "same-file-recovery",
+                    ],
+                    capture_output=True,
+                    timeout=85,
+                    check=False,
+                )
+                assert result.returncode == 0, result.stderr.decode()
+                assert json.loads(result.stdout)["serving"] is False
+                assert not (receiver_repo / "api").exists()
+                assert (
+                    verify_store(receiver, capture.identity, capture.trust) == original
+                )
+                restored = tmp_path / "one-file-restored"
+                restore(receiver, capture.identity, capture.trust, restored)
+                for member in ("weights", "tokenizer"):
+                    assert (
+                        restored / "members" / member / "model.bin"
+                    ).read_bytes() == (
+                        capture.sources[member] / "model.bin"
+                    ).read_bytes()
+            assert handoff.exists()
+            assert (
+                verify_store(capture.store, capture.identity, capture.trust) == original
+            )
+
+
 def test_cold_peer_discovery_after_original_publisher_loss(
     tmp_path, capture, native_binary
 ):

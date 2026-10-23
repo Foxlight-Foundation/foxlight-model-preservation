@@ -1,0 +1,334 @@
+{
+  "$defs": {
+    "Envelope": {
+      "additionalProperties": false,
+      "description": "Bounded standard DSSE envelope; keys are never inferred from this object.",
+      "properties": {
+        "payloadType": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Payloadtype",
+          "type": "string"
+        },
+        "payload": {
+          "maxLength": 16777216,
+          "title": "Payload",
+          "type": "string"
+        },
+        "signatures": {
+          "items": {
+            "$ref": "#/$defs/Signature"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "title": "Signatures",
+          "type": "array"
+        }
+      },
+      "required": [
+        "payloadType",
+        "payload",
+        "signatures"
+      ],
+      "title": "Envelope",
+      "type": "object"
+    },
+    "Invitation": {
+      "additionalProperties": false,
+      "description": "Bounded metadata-only handoff; embedded keys are candidates, not authority.\n\nThe original DSSE envelope binds the exact complete model closure. Mirror\nhints remain unsigned, untrusted transport data. Neither reading this record\nnor matching its self-signatures authenticates a publisher, performs network\nIO, grants registry authority, or authorizes runtime execution.",
+      "properties": {
+        "schema_version": {
+          "const": "foxlight.model-preservation.invitation.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "manifest_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Manifest Id",
+          "type": "string"
+        },
+        "envelope": {
+          "$ref": "#/$defs/Envelope"
+        },
+        "candidate_trust": {
+          "$ref": "#/$defs/TrustProfile"
+        },
+        "mirrors": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "title": "Mirrors",
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema_version",
+        "manifest_id",
+        "envelope",
+        "candidate_trust",
+        "mirrors"
+      ],
+      "title": "Invitation",
+      "type": "object"
+    },
+    "PeerInvitation": {
+      "additionalProperties": false,
+      "description": "Candidate-signed public model metadata and unsigned content-provider hints.\n\nReading grants no network, signer, registry, code or serving permission.\nThis distinct version leaves the released HTTP invitation contract unchanged.",
+      "properties": {
+        "schema_version": {
+          "const": "foxlight.model-preservation.peer-invitation.v1",
+          "default": "foxlight.model-preservation.peer-invitation.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "manifest_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Manifest Id",
+          "type": "string"
+        },
+        "envelope": {
+          "$ref": "#/$defs/Envelope"
+        },
+        "candidate_trust": {
+          "$ref": "#/$defs/TrustProfile"
+        },
+        "mirrors": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "title": "Mirrors",
+          "type": "array"
+        }
+      },
+      "required": [
+        "manifest_id",
+        "envelope",
+        "candidate_trust",
+        "mirrors"
+      ],
+      "title": "PeerInvitation",
+      "type": "object"
+    },
+    "PeerSource": {
+      "additionalProperties": false,
+      "description": "First-contact pin for an IPNS hint, with a separate immutable TUF authority.",
+      "properties": {
+        "schema_version": {
+          "const": "foxlight.peer-source.v1",
+          "default": "foxlight.peer-source.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceBootstrap"
+        },
+        "ipns": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Ipns",
+          "type": "string"
+        },
+        "snapshots": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 8,
+          "title": "Snapshots",
+          "type": "array"
+        }
+      },
+      "required": [
+        "source",
+        "ipns"
+      ],
+      "title": "PeerSource",
+      "type": "object"
+    },
+    "Signature": {
+      "additionalProperties": false,
+      "description": "One Ed25519 signature in the standard DSSE envelope.",
+      "properties": {
+        "keyid": {
+          "pattern": "^ed25519:[0-9a-f]{64}$",
+          "title": "Keyid",
+          "type": "string"
+        },
+        "sig": {
+          "maxLength": 100,
+          "minLength": 80,
+          "title": "Sig",
+          "type": "string"
+        }
+      },
+      "required": [
+        "keyid",
+        "sig"
+      ],
+      "title": "Signature",
+      "type": "object"
+    },
+    "SourceBootstrap": {
+      "additionalProperties": false,
+      "description": "An independently authenticated file, not endpoint-provided trust discovery.",
+      "properties": {
+        "schema_version": {
+          "const": "foxlight.discovery-source.v1",
+          "default": "foxlight.discovery-source.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "root": {
+          "maxLength": 131072,
+          "minLength": 1,
+          "title": "Root",
+          "type": "string"
+        },
+        "endpoints": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Endpoints",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "root",
+        "endpoints"
+      ],
+      "title": "SourceBootstrap",
+      "type": "object"
+    },
+    "TrustProfile": {
+      "additionalProperties": false,
+      "description": "Explicit historical trust snapshot, never automatically imported from a peer.",
+      "properties": {
+        "schema_version": {
+          "const": "foxlight.model-preservation.trust.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "keys": {
+          "items": {
+            "$ref": "#/$defs/TrustedKey"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "title": "Keys",
+          "type": "array"
+        },
+        "threshold": {
+          "maximum": 32,
+          "minimum": 1,
+          "title": "Threshold",
+          "type": "integer"
+        },
+        "revoked_keys": {
+          "default": [],
+          "items": {
+            "pattern": "^ed25519:[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "title": "Revoked Keys",
+          "type": "array"
+        },
+        "as_of": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "As Of",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "keys",
+        "threshold",
+        "as_of"
+      ],
+      "title": "TrustProfile",
+      "type": "object"
+    },
+    "TrustedKey": {
+      "additionalProperties": false,
+      "description": "One independently enrolled Ed25519 public key.",
+      "properties": {
+        "key_id": {
+          "pattern": "^ed25519:[0-9a-f]{64}$",
+          "title": "Key Id",
+          "type": "string"
+        },
+        "public_key": {
+          "maxLength": 100,
+          "minLength": 40,
+          "title": "Public Key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key_id",
+        "public_key"
+      ],
+      "title": "TrustedKey",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Portable routing suggestions; no trust, network, serving or code grant.\n\nInner model/source identities and original signed payloads are unchanged.\nThe wrapper identity includes unsigned contacts, not a publisher attestation.\nPrivate contacts still require the recipient's separate local permission.",
+  "properties": {
+    "schema_version": {
+      "const": "foxlight.model-preservation.handoff.v1",
+      "default": "foxlight.model-preservation.handoff.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "reference": {
+      "discriminator": {
+        "mapping": {
+          "foxlight.model-preservation.invitation.v1": "#/$defs/Invitation",
+          "foxlight.model-preservation.peer-invitation.v1": "#/$defs/PeerInvitation",
+          "foxlight.peer-source.v1": "#/$defs/PeerSource"
+        },
+        "propertyName": "schema_version"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/Invitation"
+        },
+        {
+          "$ref": "#/$defs/PeerInvitation"
+        },
+        {
+          "$ref": "#/$defs/PeerSource"
+        }
+      ],
+      "title": "Reference"
+    },
+    "contacts": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 8,
+      "title": "Contacts",
+      "type": "array"
+    }
+  },
+  "required": [
+    "reference"
+  ],
+  "title": "Handoff",
+  "type": "object"
+}

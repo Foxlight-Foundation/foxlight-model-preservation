@@ -84,6 +84,11 @@ bootstrap with a pinned IPNS key and immutable snapshot hints. Its published
 is derived from `PeerSource`. IPNS/UnixFS locate content; the same TUF and model
 authorities authenticate it. No v1 manifest or catalog semantics change.
 
+The separately versioned [handoff wrapper](handoffs.md) carries one unchanged
+HTTP invitation, peer model invitation or peer source and bounded numeric
+starting contacts. Its routing identity grants no trust, network participation
+or serving permission. The signed model/source identities stay unchanged.
+
 Pack and fetch write content to private temporary files, check the actual
 length/hash, fsync, and replace within the selected store. A nonblocking kernel
 writer lock fences concurrent writers. The envelope is published last, after
