@@ -127,7 +127,7 @@ def node(tmp_path, name, binary, *, mode="receive", bootstrap=()):
 
 
 @contextmanager
-def model_sharer(tmp_path, capture, binary, contacts):
+def model_sharer(tmp_path, capture, binary, contacts, *, seconds=120):
     """Start the public CLI, waiting for its atomically published one-file output."""
     trust = tmp_path / "sharing-trust.json"
     trust.write_bytes(encode_record(capture.trust))
@@ -155,7 +155,7 @@ def model_sharer(tmp_path, capture, binary, contacts):
         "--public-model",
         "--allow-private-peers",
         "--seconds",
-        "120",
+        str(seconds),
     ]
     for contact in contacts:
         arguments.extend(("--bootstrap-address", contact))
@@ -189,7 +189,22 @@ def model_sharer(tmp_path, capture, binary, contacts):
         while (repo / "api").exists() and time.monotonic() < end:
             time.sleep(0.05)
         assert not (repo / "api").exists(), "sharing stop left native work running"
-        assert process.returncode in (130, -9), output
+        assert process.returncode in (0, 130, -9), output
+
+
+def test_one_file_sharing_expiry_stops_without_deleting(
+    tmp_path, capture, native_binary
+):
+    with model_sharer(tmp_path, capture, native_binary, (), seconds=8) as (
+        process,
+        handoff,
+        repo,
+    ):
+        process.wait(timeout=25)
+        assert process.returncode == 0, process.communicate()
+        assert handoff.exists()
+        assert not (repo / "api").exists()
+        assert verify_store(capture.store, capture.identity, capture.trust)
 
 
 @pytest.mark.parametrize("publisher_lost", [False, True])

@@ -26,7 +26,7 @@ from .invitations import (
     fetch_invitation,
 )
 from .models import MAX_METADATA_BYTES, PreservationError, TrustProfile
-from .operations import OperationControl
+from .operations import DeadlineExceeded, OperationControl
 from .peer import (
     PeerSource,
     follow_peer_source,
@@ -389,13 +389,12 @@ def _share(args: HandoffArguments, control: OperationControl) -> dict[str, JsonV
                 flush=True,
             )
             control.phase("sharing")
-            started = time.monotonic()
-            while time.monotonic() - started < args.handoff_seconds:
+            while time.monotonic() < client.deadline:
                 control.checkpoint()
                 try:
                     if client.wire_usage() >= args.handoff_upload:
                         break
-                except OSError:
+                except (OSError, DeadlineExceeded):
                     break
                 time.sleep(0.2)
         return {

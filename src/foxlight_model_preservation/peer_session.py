@@ -77,7 +77,10 @@ def owned_peer(
                         repo,
                         binary,
                         allow_network=True,
-                        control=control,
+                        # A node's wire deadline must not expire its caller
+                        # while normal owned-process teardown is still draining.
+                        # Cancellation remains shared in both directions.
+                        control=control.fork(),
                         seconds=seconds,
                     )
                     _ = client.wire_usage()
