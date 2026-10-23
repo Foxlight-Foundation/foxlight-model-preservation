@@ -138,9 +138,10 @@ launcher with `--check` to inspect the actual owner API before use. Publishing
 and receiving retain separately reviewed, bounded HTTP/BitTorrent sessions with
 explicit stop and public-key/torrent downloads. The source-based Core preview
 builds native dependencies and is separate from stable/frozen distribution.
-Library 0.9 source preview adds reviewed peer source files, offline search,
-metadata review and bounded receive-only Core jobs, using separately installed
-Kubo 0.43.1. See [peer setup and receiving](capability/README.md#receive-through-peers).
+Library 0.10 source preview adds separately reviewed native setup to peer source
+following, offline search, metadata review and bounded receive-only Core jobs.
+Core owns installation, activity and stop/restart receipts; no manual PATH setup
+is needed on supported managed platforms. See [peer setup and receiving](capability/README.md#receive-through-peers).
 Standalone mirror/BitTorrent/peer tools remain independently usable; public
 reachability and custody are operator-owned.
 

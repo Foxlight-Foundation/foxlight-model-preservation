@@ -76,6 +76,16 @@ class PeerSetupInput(Contract):
     confirmed: bool
 
 
+class RuntimeStartInput(Contract):
+    """Select the exact Core-reviewed software build with a separate download grant."""
+
+    operation_id: str = Field(
+        min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9._:@-]+$"
+    )
+    plan_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    confirmed: bool
+
+
 class DiscoveryJobInput(Contract):
     """Observe or cancel only this client's retained metadata operation."""
 
@@ -93,6 +103,29 @@ async def discovery_control(
         setup = PeerSetupInput.model_validate(body)
         return await client.request(
             "POST", "discovery/peer", setup.model_dump(mode="json")
+        )
+    if action == "peer-runtime-read":
+        Contract.model_validate(body)
+        return await client.request(
+            "GET", f"discovery/peer/runtime?owner_id={client.discovery_owner_id}"
+        )
+    if action == "peer-runtime-start":
+        selection = RuntimeStartInput.model_validate(body)
+        if not selection.confirmed:
+            raise CoreRefused("peer_runtime_confirmation_required")
+        return await client.request(
+            "POST",
+            "discovery/peer/runtime/jobs",
+            {
+                **selection.model_dump(mode="json"),
+                "owner_id": client.discovery_owner_id,
+            },
+        )
+    if action == "peer-runtime-stop":
+        selection = DiscoveryJobInput.model_validate(body)
+        return await client.request(
+            "DELETE",
+            f"discovery/peer/runtime/jobs/{selection.job_id}?owner_id={client.discovery_owner_id}",
         )
     if action == "discovery-read":
         page = DiscoveryPageInput.model_validate(body)

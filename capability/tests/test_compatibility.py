@@ -59,3 +59,35 @@ async def test_compatibility_requires_a_real_available_store_owner() -> None:
         assert requests == ["/preservation/library"]
     finally:
         await client.close()
+
+
+async def test_native_setup_support_is_reported_separately_without_acquisition() -> (
+    None
+):
+    requests: list[str] = []
+    paths: dict[str, dict[str, object]] = {}
+    for name, pairs in GROUPS.items():
+        if name == "Peer software setup":
+            continue
+        for path, method in pairs:
+            paths.setdefault(path, {})[method] = {}
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request.method + " " + request.url.path)
+        return httpx.Response(
+            200,
+            json={"jobs": []}
+            if request.url.path == "/preservation/library"
+            else {"paths": paths, "info": {"version": "999.0.0"}},
+        )
+
+    client = CoreClient(
+        Settings(), "library-local", transport=httpx.MockTransport(respond)
+    )
+    try:
+        report = await check_core(client)
+        assert report["Library"] and report["Peer discovery"]
+        assert not report["Peer software setup"]
+        assert requests == ["GET /preservation/library", "GET /api/openapi.json"]
+    finally:
+        await client.close()

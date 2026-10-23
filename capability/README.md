@@ -320,10 +320,29 @@ Core's network address and requested metadata/artifact to their operators.
 ### Receive through peers
 
 The current source preview supports peer discovery and receiving in Library and
-Guided. It needs a compatible Core with the peer API and **Kubo 0.43.1 separately
-installed on that Core host's PATH**. The ordinary Library launcher still needs
-no managed SDK. Use `foxlight-preservation-library --check` to inspect actual
+Guided. Library 0.10 adds **Set up peer support** on a compatible Core. Review
+the official source and download size, explicitly allow installation, and start.
+Core installs its pinned Kubo 0.43.1 build privately, with no administrator or
+PATH changes. Supported managed targets are macOS/Linux ARM64 and AMD64; existing
+compatible installations remain supported. The ordinary Library launcher still
+needs no managed SDK. Use `foxlight-preservation-library --check` to inspect actual
 Core API support; this does not qualify the native runtime or start networking.
+
+Setup continues when Library closes. Reopening shows the same Core-owned receipt
+and a **Stop setup** action while active. Core restart marks interruption without
+another download. A new attempt needs a deliberate fresh authorization; an
+uncertain response reuses the original operation identity. Archive progress is
+conservative and can include abandoned attempts. Software setup does not enroll
+sources, configure peer contacts, accept model keys, enable code or start sharing.
+Finished installation leaves peer consent unchecked and retains unsaved contact
+edits. A local recheck handles a temporarily busy runtime observation. Managed
+setup retains at most 64 replay receipts and refuses further jobs at capacity.
+If the managed installation is later removed, the old successful receipt does
+not prevent a fresh, separately authorized setup attempt. Altered or incomplete
+managed directories still refuse and need operator inspection before another
+installation; setup does not silently overwrite suspect local software.
+The standalone [offline archive installation](../docs/peer-discovery.md#install-and-start-a-receiver)
+remains available independently of Skulk. Existing PATH installation also works.
 
 In **Find a model**, choose **Add a source** and import a trusted `.foxpeer` file.
 Review its source identity, enter up to eight numeric starting contacts supplied
