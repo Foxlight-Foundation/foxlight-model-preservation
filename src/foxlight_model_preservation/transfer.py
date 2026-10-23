@@ -35,7 +35,6 @@ from .operations import (
 from .signing import canonical_bytes, digest, verify_manifest
 from .storage import (
     CHUNK_SIZE,
-    atomic_bytes,
     directory,
     file_identity,
     manifest_path,
@@ -43,6 +42,7 @@ from .storage import (
     observe_objects,
     open_file,
     parent_directory,
+    publish_envelope,
     read_metadata,
     unique_objects,
     verify_object,
@@ -476,7 +476,7 @@ def fetch(
             for file in files:
                 verify_object(target, file, control=active)
             active.phase("publishing")
-            atomic_bytes(target, manifest_path(manifest_id), envelope)
+            publish_envelope(target, manifest_id, envelope)
             active.mark_committed()
         return manifest
 

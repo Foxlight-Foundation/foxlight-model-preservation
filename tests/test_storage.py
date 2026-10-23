@@ -185,3 +185,56 @@ def test_reuse_requires_valid_bytes_and_space_for_replacement(
         else:
             assert not target.exists()
     assert envelope.read_bytes() == previous_envelope
+
+
+def _second_signer(capture: Capture):
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    from foxlight_model_preservation.signing import public_record
+
+    key = Ed25519PrivateKey.generate()
+    trust = capture.trust.model_copy(update={"keys": (public_record(key),)})
+    return key, trust
+
+
+def test_resigning_the_same_capture_keeps_every_signer(capture: Capture) -> None:
+    from foxlight_model_preservation.storage import pack
+
+    key, trust = _second_signer(capture)
+    assert pack(capture.recipe, capture.sources, capture.store, (key,)) == (
+        capture.identity
+    )
+    verify_store(capture.store, capture.identity, capture.trust)
+    verify_store(capture.store, capture.identity, trust)
+    both = capture.trust.model_copy(
+        update={"keys": (*capture.trust.keys, *trust.keys), "threshold": 2}
+    )
+    verify_store(capture.store, capture.identity, both)
+
+
+def test_fetching_a_weaker_envelope_cannot_strip_existing_signatures(
+    capture: Capture, tmp_path: Path
+) -> None:
+    from foxlight_model_preservation.storage import pack
+    from foxlight_model_preservation.transfer import fetch
+
+    key, trust = _second_signer(capture)
+    mirror = tmp_path / "single-signer-mirror"
+    shutil.copytree(capture.store, mirror)
+    pack(capture.recipe, capture.sources, capture.store, (key,))
+    both = capture.trust.model_copy(
+        update={"keys": (*capture.trust.keys, *trust.keys), "threshold": 2}
+    )
+    fetch(capture.identity, capture.trust, (str(mirror),), capture.store)
+    verify_store(capture.store, capture.identity, both)
+
+
+def test_unrelated_or_corrupt_existing_envelope_is_replaced(capture: Capture) -> None:
+    from foxlight_model_preservation.storage import manifest_path, pack
+
+    (capture.store / manifest_path(capture.identity)).write_text("{not json")
+    key, trust = _second_signer(capture)
+    pack(capture.recipe, capture.sources, capture.store, (key,))
+    verify_store(capture.store, capture.identity, trust)
+    with pytest.raises(PreservationError, match="threshold"):
+        verify_store(capture.store, capture.identity, capture.trust)

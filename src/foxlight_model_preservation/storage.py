@@ -27,10 +27,12 @@ from .models import (
 )
 from .operations import OperationControl, OperationError, OperationPlan, RequestChanged
 from .signing import (
+    Envelope,
     canonical_bytes,
     digest,
     encode_record,
     sign_manifest,
+    strict_json,
     verify_manifest,
 )
 
@@ -128,6 +130,41 @@ def writer_lock(root: int) -> Generator[None]:
             yield
         finally:
             fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+
+
+def publish_envelope(root: int, manifest_id: str, envelope: bytes) -> None:
+    """Publish an authenticated envelope without discarding other signers.
+
+    When the store already holds a parseable envelope for the identical payload,
+    its signatures are retained after the new ones, so a re-signed capture or a
+    fetch under a different trust profile cannot strip another holder's
+    signatures. Unverifiable extra signatures are ignored by every verifier.
+    Anything unparseable, oversized or for a different payload is replaced.
+    """
+    path = manifest_path(manifest_id)
+    try:
+        with open_file(root, path) as stream:
+            existing = stream.read(MAX_METADATA_BYTES + 1)
+        retained = Envelope.model_validate_json(canonical_bytes(strict_json(existing)))
+    except (OSError, ValueError):
+        retained = None
+    if retained is not None:
+        incoming = Envelope.model_validate_json(canonical_bytes(strict_json(envelope)))
+        if (retained.payloadType, retained.payload) == (
+            incoming.payloadType,
+            incoming.payload,
+        ):
+            signatures = list(incoming.signatures)
+            signatures.extend(
+                item for item in retained.signatures if item not in signatures
+            )
+            if len(signatures) <= 32:
+                merged = encode_record(
+                    incoming.model_copy(update={"signatures": tuple(signatures)})
+                )
+                if len(merged) <= MAX_METADATA_BYTES:
+                    envelope = merged
+    atomic_bytes(root, path, envelope)
 
 
 def atomic_bytes(root: int, path: str, data: bytes) -> None:
@@ -469,7 +506,7 @@ def pack(
             for file in unique_objects(manifest):
                 verify_object(target, file, control=active)
             active.phase("publishing")
-            atomic_bytes(target, manifest_path(manifest_id), envelope)
+            publish_envelope(target, manifest_id, envelope)
             active.mark_committed()
         return manifest_id
 
