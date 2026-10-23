@@ -1070,6 +1070,8 @@ def main() -> int:
         "fetch-invitation",
         "restore",
         "fetch-catalog",
+        "kit-export",
+        "kit-import",
         "source-refresh",
         "source-fetch",
         "plan-pack",
@@ -1092,6 +1094,12 @@ def main() -> int:
             file=sys.stderr,
         )
         return 130 if isinstance(error, OperationCancelled) else 1
+    except KeyboardInterrupt:
+        # Uncontrolled commands have no cooperative stop; still exit cleanly.
+        print(
+            json.dumps({"error": "interrupted", "code": "cancelled"}), file=sys.stderr
+        )
+        return 130
     finally:
         if controlled:
             signal.signal(signal.SIGINT, previous)

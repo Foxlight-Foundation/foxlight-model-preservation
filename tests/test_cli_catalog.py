@@ -147,3 +147,17 @@ def test_fetch_deadline_is_an_explicit_bounded_option(
     assert "timeouts must be positive and bounded" in refused.stderr
     extended = command(*arguments, "--deadline-seconds", "86400")
     assert extended.returncode == 0, extended.stderr
+
+
+def test_interrupt_exits_cleanly_without_a_traceback(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from foxlight_model_preservation import cli
+
+    def interrupted(*_args: object, **_kwargs: object) -> object:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli, "run", interrupted)
+    monkeypatch.setattr(sys, "argv", ["model-preserve", "kit-inspect", "--kit", "x"])
+    assert cli.main() == 130
+    assert json.loads(capsys.readouterr().err)["code"] == "cancelled"
