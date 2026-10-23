@@ -96,9 +96,13 @@ Run subsequent commands in a second terminal while that bounded session runs.
 Use `--ipfs /absolute/path/to/ipfs` on native commands if Kubo is not on PATH.
 Initialization is offline. Starting the node is separate explicit network
 participation. No default Foxlight/IPFS bootstrap list, mDNS, HTTP retrieval,
-public gateway, delegated router or delegated IPNS publisher is enabled.
+public gateway, delegated router or delegated IPNS publisher is enabled. Owned
+nodes in either mode run no circuit-relay or AutoNAT service for other peers.
 Private/LAN contacts need `peer-init --allow-private-peers`, which also permits
-connections to private peer addresses discovered by the routing layer.
+connections to private peer addresses discovered by the routing layer. Without
+it, the node neither dials nor announces private/loopback addresses. Profiles
+created by earlier releases keep their recorded configuration; create a new
+profile to adopt these settings.
 
 A receive profile disables **both Bitswap block serving and provider
 advertisement**. It can retain blocks in its private native cache without
@@ -267,9 +271,11 @@ model-preserve peer-bootstrap-set --repo ./public-peer \
 This atomically changes only bounded contacts, preserves the native identity,
 pins and source trust, and refuses an active repository. An empty list is
 permitted for an isolated first routing node; it cannot find a network alone.
-Critical serving/privacy/identity config changes refuse. Existing API markers
-(including stale markers after an OS crash) refuse startup; investigate the
-owned repository/process before manually removing a confirmed stale marker.
+Critical serving/privacy/identity config changes refuse. A live API marker
+refuses startup and contact changes. Every owned node holds the repository's
+writer lock while it runs, so under that lock a loopback marker whose port
+refuses connections (left by a killed node or an OS crash) is cleared
+automatically. Any other marker still refuses; investigate before removing it.
 Never point the adapter at a user's existing IPFS repo.
 
 ## Privacy, resources and demonstrated limits

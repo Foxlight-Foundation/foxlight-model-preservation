@@ -27,9 +27,11 @@ signs with one key. No online root maintenance service is included.
 
 Offline receipts report the supplied trust snapshot's `as_of`. The label is
 operator supplied, not a trusted time attestation or a live revocation check.
-Offline clients cannot learn about later compromise. There is no TUF replacement,
-automatic catalog refresh, expiry override, or global removal switch. Independently
-retained, deliberately trusted exact bundles remain usable without a live signer.
+Offline clients cannot learn about later compromise. Bundle trust profiles have
+no automatic refresh, expiry override or global removal switch. The optional
+[followed sources](discovery.md) use TUF to update listings, but they never
+change or revoke your bundle trust. Independently retained, deliberately trusted
+exact bundles remain usable without a live signer.
 
 For a recovery kit, retain:
 
@@ -51,7 +53,8 @@ A consumer fetches directly from explicitly permitted endpoints, never advertise
 inventory, and never starts a seed server. HTTPS endpoints still see IP addresses
 and requested model identities; network observers may see destination/timing.
 Neither encryption nor signed content provides anonymity or prevents domain/IP
-blocking. This release has no P2P discovery or reviewed vulnerable-user privacy
+blocking. The optional [peer discovery](peer-discovery.md) exposes your network
+address to the peers you contact. There is no reviewed vulnerable-user privacy
 profile. Do not describe it as censorship resistant or anonymous.
 
 The supported threat boundary is untrusted transport, corrupted files, incomplete

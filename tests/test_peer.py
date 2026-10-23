@@ -281,10 +281,23 @@ def test_bootstrap_replacement_is_atomic_offline_and_preserves_identity(tmp_path
     with pytest.raises(PreservationError):
         set_bootstrap(repo, ("/dns/attacker.invalid/tcp/4001",))
     assert (repo / "config").read_bytes() == previous
-    (repo / "api").write_text("/ip4/127.0.0.1/tcp/9999")
+    import socket
+
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        port = listener.getsockname()[1]
+        (repo / "api").write_text(f"/ip4/127.0.0.1/tcp/{port}")
+        with pytest.raises(PreservationError, match="stop"):
+            set_bootstrap(repo, ())
+        assert (repo / "config").read_bytes() == previous
+    # The listener is gone: under the writer lock that marker is provably stale.
+    assert set_bootstrap(repo, ()) == ()
+    assert not (repo / "api").exists()
+    (repo / "api").write_text("/unix/elsewhere")
     with pytest.raises(PreservationError, match="stop"):
         set_bootstrap(repo, ())
-    assert (repo / "config").read_bytes() == previous
+    assert (repo / "api").exists()
 
 
 def test_model_trust_refuses_before_any_weight_read(tmp_path, capture):
@@ -344,3 +357,110 @@ def test_published_peer_schema_matches_installed_model():
         "resources/peer_source_v1.json"
     )
     assert json.loads(resource.read_bytes()) == PeerSource.model_json_schema()
+
+
+SECOND_CID = "bafkreiaw4p5cuelyea6zzd33mpjjx4aykemkpn6mkofqprdvgxbh54rjwu"
+
+
+class ModelTransport(Transport):
+    """Serve exact store paths under each CID; selected CIDs corrupt objects."""
+
+    def __init__(self, store, *, corrupt=frozenset()):
+        super().__init__(b"")
+        self.store = store
+        self.corrupt = corrupt
+
+    def cat(self, path, *, maximum, sink=None):
+        self.paths.append(path)
+        self.control.checkpoint()
+        _, _, cid, relative = path.split("/", 3)
+        data = (self.store / relative).read_bytes()
+        if cid in self.corrupt and relative.startswith("objects/"):
+            data = bytes([data[0] ^ 1]) + data[1:]
+        if len(data) > maximum:
+            raise PreservationError("too large")
+        self.exported_bytes += len(data)
+        if sink is None:
+            return data
+        sink.write(data)
+        return b""
+
+
+def model_source(tmp_path, capture):
+    producer, cache, source, _record, receiver = setup(tmp_path, capture)
+    producer.mirrors = ("ipfs://" + CID, "ipfs://" + SECOND_CID)
+    producer.publish(2)
+    refresh_source(cache, source)
+    refresh_peer_source(receiver, source, Transport(export_source(cache, source)))
+    return receiver, source
+
+
+def test_corrupt_first_peer_root_fails_over_to_the_next(tmp_path, capture):
+    from foxlight_model_preservation.peer import fetch_peer_model
+    from foxlight_model_preservation.storage import verify_store
+
+    receiver, source = model_source(tmp_path, capture)
+    transport = ModelTransport(capture.store, corrupt=frozenset({CID}))
+    manifest = fetch_peer_model(
+        receiver,
+        source,
+        "small_text",
+        capture.identity,
+        capture.trust,
+        tmp_path / "received",
+        transport,
+    )
+    assert manifest.name == "fixture"
+    assert any(SECOND_CID in path for path in transport.paths)
+    verify_store(tmp_path / "received", capture.identity, capture.trust)
+
+
+def test_cancelled_peer_receive_stops_instead_of_failing_over(tmp_path, capture):
+    from foxlight_model_preservation.peer import fetch_peer_model
+
+    receiver, source = model_source(tmp_path, capture)
+    transport = ModelTransport(capture.store, corrupt=frozenset({CID}))
+    transport.control.cancel()
+    with pytest.raises(OperationCancelled):
+        fetch_peer_model(
+            receiver,
+            source,
+            "small_text",
+            capture.identity,
+            capture.trust,
+            tmp_path / "received",
+            transport,
+        )
+    assert not any(SECOND_CID in path for path in transport.paths)
+    assert not (tmp_path / "received").exists()
+
+
+@pytest.mark.parametrize("allow_private", [False, True])
+@pytest.mark.parametrize("mode", ["receive", "mirror"])
+def test_owned_runtime_never_relays_or_announces_private_addresses(
+    tmp_path, mode, allow_private
+):
+    from foxlight_model_preservation.peer_runtime import (
+        PRIVATE_FILTERS,
+        initialize_peer,
+    )
+
+    fake = tmp_path / "ipfs"
+    fake.write_text(
+        f"#!{sys.executable}\n"
+        "import json, os\n"
+        "config = {'Identity': {'PeerID': 'fixture'},\n"
+        "          'Addresses': {'NoAnnounce': ['/ip4/10.0.0.0/ipcidr/8']},\n"
+        "          'Swarm': {'RelayService': {'Enabled': True}}}\n"
+        "with open(os.path.join(os.environ['IPFS_PATH'], 'config'), 'w') as f:\n"
+        "    json.dump(config, f)\n"
+    )
+    fake.chmod(0o700)
+    repo = tmp_path / "repo"
+    initialize_peer(repo, str(fake), mode=mode, allow_private_peers=allow_private)
+    config = json.loads((repo / "config").read_bytes())
+    assert config["Swarm"]["RelayService"] == {"Enabled": False}
+    assert config["AutoNAT"] == {"ServiceMode": "disabled"}
+    expected = [] if allow_private else list(PRIVATE_FILTERS)
+    assert config["Addresses"]["NoAnnounce"] == expected
+    assert config["Identity"] == {"PeerID": "fixture"}

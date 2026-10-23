@@ -106,8 +106,9 @@ To inspect a running Core without opening Library or creating storage:
 ```
 
 The check reads the actual Model Store owner and its bounded API description.
-It reports Library, folder storage, recovery-kit and publishing/receiving API
-availability. It does not qualify filesystem behavior, network reachability,
+It reports Library, peer discovery, peer software setup, source discovery,
+folder storage, recovery-kit and publishing/receiving API availability, and
+exits with status 2 when any group is missing. It does not qualify filesystem behavior, network reachability,
 engine execution or hardware. Current packaged Skulk 2.0.2 does not provide all
 these APIs. Existing compatible operators can install only Library and use its
 normal `--core-url` option.

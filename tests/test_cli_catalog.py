@@ -124,3 +124,40 @@ def test_malformed_cli_input_has_actionable_failure(tmp_path: Path) -> None:
     assert result.returncode == 1
     assert "JSON metadata" in result.stderr
     assert "Traceback" not in result.stderr
+
+
+@pytest.mark.parametrize("name", ["fetch", "plan-fetch"])
+def test_fetch_deadline_is_an_explicit_bounded_option(
+    capture: Capture, tmp_path: Path, name: str
+) -> None:
+    trust_file = tmp_path / "trust.json"
+    trust_file.write_bytes(encode_record(capture.trust))
+    arguments = (
+        name,
+        capture.identity,
+        "--trust",
+        str(trust_file),
+        "--mirror",
+        str(capture.store),
+        "--store",
+        str(tmp_path / name),
+    )
+    refused = command(*arguments, "--deadline-seconds", "86401")
+    assert refused.returncode == 1
+    assert "timeouts must be positive and bounded" in refused.stderr
+    extended = command(*arguments, "--deadline-seconds", "86400")
+    assert extended.returncode == 0, extended.stderr
+
+
+def test_interrupt_exits_cleanly_without_a_traceback(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from foxlight_model_preservation import cli
+
+    def interrupted(*_args: object, **_kwargs: object) -> object:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli, "run", interrupted)
+    monkeypatch.setattr(sys, "argv", ["model-preserve", "kit-inspect", "--kit", "x"])
+    assert cli.main() == 130
+    assert json.loads(capsys.readouterr().err)["code"] == "cancelled"

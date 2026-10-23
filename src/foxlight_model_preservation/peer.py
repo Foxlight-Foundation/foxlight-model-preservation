@@ -425,13 +425,15 @@ def fetch_peer_model(
                     atomic_bytes(root, manifest_path(expected_manifest), envelope)
                 # The private staging path comes from this function, never from
                 # a peer/catalog. Only the ordinary receiver publishes the store.
+                # Each attempt needs its own invocation control so a failed CID
+                # cannot block failover to the next one.
                 return fetch(
                     expected_manifest,
                     trust,
                     (str(stage),),
                     store,
                     TransferPolicy(max_bytes=maximum_bytes),
-                    control=client.control,
+                    control=client.control.fork(),
                 )
         except (OSError, ValueError) as error:
             # Cancellation is not mirror failover.

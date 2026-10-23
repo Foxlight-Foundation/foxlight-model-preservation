@@ -2,13 +2,55 @@
 
 ## Unreleased
 
-- Library 0.4.1 fixes navigation out of public import and adds Activity review and explicit cleanup of authenticated stopped sharing/import work. Saved copies, keys, kits and metainfo remain intact. Requires Core's temporary-files APIs.
+- Peer receiving fails over to the next IPFS content root after a root serves
+  bytes that fail verification; previously every later root failed at once.
+  `OperationControl.fork()` gives each nested attempt its own control while
+  sharing the parent's stop request and deadline.
+- `fetch`, `fetch-catalog`, `plan-fetch` and `source-fetch` accept
+  `--deadline-seconds` (default 3,600, at most 86,400). Rerunning resumes.
+- Pack and fetch keep an existing envelope's signatures for the identical
+  payload, so re-signing or a lower-threshold fetch cannot strip another signer.
+- Newly initialized peer profiles run no circuit-relay or AutoNAT service and
+  do not announce private/loopback addresses unless private peers are allowed.
+  Existing profiles keep their recorded configuration.
+- A provably stale Kubo API marker (dead loopback port, held writer lock) is
+  cleared instead of blocking `peer-run` and `peer-bootstrap-set`.
+- `kit-export`/`kit-import` stop cooperatively on Ctrl-C, and no command prints
+  a traceback when interrupted.
 
-- Library 0.4 preview connects public-only signed bundle import, explicit bounded
-  HTTP mirrors and opt-in BitTorrent to Core-owned jobs. It retains unknown card
-  metadata without model admission, offers metainfo/public-key downloads and
-  keeps the existing governed copy operation contract unchanged. Public serving
-  requires an updated Core; private-to-public publication remains a separate review.
+## 0.10.0
+
+- Add `peer-runtime-plan` and `peer-runtime-install`: pinned, verified Kubo
+  0.43.1 acquisition for macOS/Linux ARM64/AMD64 into a private directory, with
+  packaged archive/executable identities and no PATH or system changes.
+
+## 0.9.1
+
+- Add portable `.foxpeer-model` invitations, offline peer model review and
+  durable, resumable peer receiving into the selected store volume.
+
+## 0.9.0
+
+- Add optional IPFS/IPNS peer discovery (`peer` extra, separately installed Kubo):
+  `.foxpeer` source files, dedicated receive-only or mirror node profiles and
+  the same TUF and model trust as direct sources. No default bootstrap list.
+
+## 0.8.0
+
+- Add followed-source discovery: stock-TUF-authenticated listings over the
+  signed catalog, an owner-only offline cache, offline search, explicit refresh
+  with rollback floors, and the `source-*` commands. Following grants listing
+  authority only; model downloads still need independent bundle trust.
+
+## 0.7.1
+
+- Support PMF recovery kits (kit v2) and authenticated archive dispatch between
+  legacy v1 and PMF manifests. Legacy captures still export byte-identical v1 kits.
+
+## 0.7.0
+
+- Add the draft Portable Model Format 0.1 schema, local `pmf-*` pack/verify/restore
+  commands and a lossless round trip for existing preservation-v1/Skulk archives.
 
 ## 0.6.0
 

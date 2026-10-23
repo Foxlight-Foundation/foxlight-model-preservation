@@ -88,7 +88,11 @@ Pack and fetch write content to private temporary files, check the actual
 length/hash, fsync, and replace within the selected store. A nonblocking kernel
 writer lock fences concurrent writers. The envelope is published last, after
 all required objects pass read verification. Partial objects alone are not a
-complete generation. Verify always rehashes actual stored bytes. A previously
+complete generation. When the store already holds an envelope for the identical
+payload, pack and fetch keep its signatures after the new ones (within the
+32-signature and metadata limits), so re-signing a capture or fetching under a
+lower threshold cannot strip another signer. An unparseable or different
+envelope is replaced. Verify always rehashes actual stored bytes. A previously
 verified store can later be corrupted and must be checked again.
 
 Restore verifies the store, copies and verifies each declared file into a fresh

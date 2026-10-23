@@ -63,7 +63,9 @@ model-preserve restore MANIFEST_SHA256 --trust bundle-trust.json \
 Fetch checks signatures before requesting model bytes and checks every file
 before publishing completion. It resumes interrupted transfers, tries permitted
 alternate sources, and caps object transfers at 20 GiB by default (`--max-bytes`
-changes the cap). Fetching never starts sharing or advertises possession.
+changes the cap). Each invocation stops after one hour by default
+(`--deadline-seconds`, up to 24 hours); running the same command again resumes.
+Fetching never starts sharing or advertises possession.
 
 A local folder or mounted NAS can replace either mirror URL. Restore writes a new
 `members/<member-id>/` layout with the exact selected files; it refuses an existing

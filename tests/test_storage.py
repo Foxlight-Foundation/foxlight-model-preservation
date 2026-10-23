@@ -185,3 +185,89 @@ def test_reuse_requires_valid_bytes_and_space_for_replacement(
         else:
             assert not target.exists()
     assert envelope.read_bytes() == previous_envelope
+
+
+def _second_signer(capture: Capture):
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    from foxlight_model_preservation.signing import public_record
+
+    key = Ed25519PrivateKey.generate()
+    trust = capture.trust.model_copy(update={"keys": (public_record(key),)})
+    return key, trust
+
+
+def test_resigning_the_same_capture_keeps_every_signer(capture: Capture) -> None:
+    from foxlight_model_preservation.storage import pack
+
+    key, trust = _second_signer(capture)
+    assert pack(capture.recipe, capture.sources, capture.store, (key,)) == (
+        capture.identity
+    )
+    verify_store(capture.store, capture.identity, capture.trust)
+    verify_store(capture.store, capture.identity, trust)
+    both = capture.trust.model_copy(
+        update={"keys": (*capture.trust.keys, *trust.keys), "threshold": 2}
+    )
+    verify_store(capture.store, capture.identity, both)
+
+
+def test_fetching_a_weaker_envelope_cannot_strip_existing_signatures(
+    capture: Capture, tmp_path: Path
+) -> None:
+    from foxlight_model_preservation.storage import pack
+    from foxlight_model_preservation.transfer import fetch
+
+    key, trust = _second_signer(capture)
+    mirror = tmp_path / "single-signer-mirror"
+    shutil.copytree(capture.store, mirror)
+    pack(capture.recipe, capture.sources, capture.store, (key,))
+    both = capture.trust.model_copy(
+        update={"keys": (*capture.trust.keys, *trust.keys), "threshold": 2}
+    )
+    fetch(capture.identity, capture.trust, (str(mirror),), capture.store)
+    verify_store(capture.store, capture.identity, both)
+
+
+def test_unrelated_or_corrupt_existing_envelope_is_replaced(capture: Capture) -> None:
+    from foxlight_model_preservation.storage import manifest_path, pack
+
+    (capture.store / manifest_path(capture.identity)).write_text("{not json")
+    key, trust = _second_signer(capture)
+    pack(capture.recipe, capture.sources, capture.store, (key,))
+    verify_store(capture.store, capture.identity, trust)
+    with pytest.raises(PreservationError, match="threshold"):
+        verify_store(capture.store, capture.identity, capture.trust)
+
+
+def test_signers_survive_a_differently_encoded_identical_payload(
+    tmp_path: Path,
+) -> None:
+    import base64
+    import json
+
+    from foxlight_model_preservation.signing import canonical_bytes
+    from foxlight_model_preservation.storage import (
+        directory,
+        manifest_path,
+        publish_envelope,
+    )
+
+    payload = bytes([0xFB, 0xEF, 0xFF]) * 4
+    standard = base64.b64encode(payload).decode()
+    url_safe = base64.urlsafe_b64encode(payload).decode()
+    assert standard != url_safe
+
+    def envelope(encoded: str, key: str) -> bytes:
+        signature = {"keyid": "ed25519:" + key * 64, "sig": "A" * 86 + "=="}
+        return canonical_bytes(
+            {"payloadType": "t", "payload": encoded, "signatures": [signature]}
+        )
+
+    identity = "0" * 64
+    with directory(tmp_path, create=True) as root:
+        publish_envelope(root, identity, envelope(standard, "a"))
+        publish_envelope(root, identity, envelope(url_safe, "b"))
+    stored = json.loads((tmp_path / manifest_path(identity)).read_bytes())
+    assert stored["payload"] == url_safe
+    assert [item["keyid"][-1] for item in stored["signatures"]] == ["b", "a"]

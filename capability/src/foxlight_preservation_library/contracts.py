@@ -147,6 +147,10 @@ class CopyResult(Contract):
     member_count: int | None = Field(default=None, ge=1)
 
 
+BUNDLE_VERSION = "0.10.0"
+"""Managed bundle version; tests keep it equal to this package's version."""
+
+
 def build_manifest(*, executable: str, executable_sha256: str) -> Manifest:
     """Declare the separately packaged UI and governed durable-copy contract."""
     from skulk_capability_sdk.contracts import (
@@ -174,7 +178,7 @@ def build_manifest(*, executable: str, executable_sha256: str) -> Manifest:
     return Manifest(
         bundle_id="foxlight.model-preservation",
         skulk_requires=">=2.0.3,<3",
-        bundle_version="0.7.0",
+        bundle_version=BUNDLE_VERSION,
         executable=executable,
         executable_sha256=executable_sha256,
         arguments=(),
