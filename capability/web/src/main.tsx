@@ -175,7 +175,7 @@ function CopyRow({copy,label,enabled,checkLabel,onCheck,onKit,onPublish}:{copy:C
 
 /** Activity: Core-owned jobs, live work first. */
 function ActivityArea({page,busy,available,onCancel,onCheck,onReclaim,onRetry,onReceive,onSharing,onInspect}:{page:Page;busy:boolean;available:(locationId:string|undefined)=>boolean;onCancel:(job:Job)=>void;onCheck:(job:Job)=>void;onReclaim:(job:Job)=>void;onRetry:(job:Job)=>void;onReceive:(job:Job)=>void;onSharing:()=>void;onInspect:(job:Job)=>void}) {
-  const card=(job:Job)=>job.kind==='http_share'||job.kind==='torrent_share'?<SharingSession key={job.job_id} job={job} busy={busy} onStop={()=>onCancel(job)}/>:<JobCard key={job.job_id} job={job} page={page} busy={busy} available={available} onCancel={onCancel} onCheck={onCheck} onReclaim={onReclaim} onRetry={onRetry} onReceive={onReceive} onSharing={onSharing}/>;
+  const card=(job:Job)=>job.kind==='http_share'||job.kind==='torrent_share'||job.kind==='peer_share'?<SharingSession key={job.job_id} job={job} busy={busy} onStop={()=>onCancel(job)}/>:<JobCard key={job.job_id} job={job} page={page} busy={busy} available={available} onCancel={onCancel} onCheck={onCheck} onReclaim={onReclaim} onRetry={onRetry} onReceive={onReceive} onSharing={onSharing}/>;
   const live=page.jobs.filter(active),rest=page.jobs.filter(job=>!active(job));
   return <section aria-labelledby="activity-title">
     <div className="sk-page-head"><div><h1 id="activity-title">Activity</h1><p>Jobs run in Skulk Core. Closing this page doesn’t stop them.</p></div></div>

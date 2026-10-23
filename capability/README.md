@@ -5,6 +5,34 @@ everyday use, and Activity through Skulk Core's durable preservation host. It
 uses local HTTP; its optional managed adapter uses the capability authoring SDK. It includes no Skulk imports,
 private owner code, signing keys, verifier, artifact transfer or byte worker.
 
+Source preview 0.11 adds **Share with peers** and portable `.foxhandoff` files.
+From **Sharing**, choose **Share with someone** beside a verified public copy,
+then **Share with peers**. Review local contacts and network access, duration and
+the observed native upload threshold, then explicitly start the public session.
+Download the sharing file when preparation completes. It remains downloadable
+after reopening Library or stopping the session, using Core's retained job plan.
+
+Recipients choose **Receive shared model** and open that file. Core inspects the
+original signed reference offline. Contacts are unsaved suggestions; importing
+does not accept model keys, allow private addresses or authorize a connection.
+Independently authenticate the exact bundle, signature threshold and fingerprints,
+review and save any contact changes, then separately permit the download.
+Receiving keeps the complete copy; ordinary **Restore** recovers its companions,
+cards and signed provenance with the existing owner/code permissions.
+
+Closing Library leaves the reviewed Core job running. Stop waits for native
+serving to drain and retains the archive, file and native cache. Cache cleanup is
+an explicit stopped-job action; restart never resumes public serving. Native
+wire thresholds include routing overhead and can overshoot. These controls do
+not impose hard filesystem/network quotas, arrange reachability or provide
+anonymity. Persistent catalog mirroring is separate work.
+
+The same file works with the [standalone tools](../docs/handoffs.md), without
+Skulk or this capability. Standalone tools also wrap source references; **Add a
+source** accepts those files without changing their inner source/TUF identity.
+Older Core keeps the existing HTTP invitation workflow and does not offer the
+new peer-sharing action. Use the [current compatible preview](preview.md).
+
 Version 0.6 adds reviewed local/mounted-folder setup, a durable destination for
 new copies, independent availability for each saved copy, a pinned separate Core
 preview installer and `--check` API compatibility. See [compatible preview setup
@@ -88,11 +116,16 @@ network addresses to the serving operator/other peers; neither is anonymous.
 
 ## Send and receive a model
 
-For a kept public copy, **Share with someone** offers two paths:
+For a kept public copy, **Share with someone** offers three paths on current Core:
 
+- **Share with peers**: review starting contacts and a finite public session, then
+  send the `.foxhandoff` file. The recipient reviews its signed identity and
+  contact suggestions separately before connecting. A reachable retained provider
+  is needed; Skulk is optional for recipients.
 - **Prepare recovery kit for recipient**: save the complete `.foxkit`, then send
   it or put it on storage your recipient can access. No live mirror is needed.
-- **Download invitation file**: supply one or more reachable HTTP(S) mirror base
+- **Download sharing file** (or **Download invitation file** on older Core):
+  supply one or more reachable HTTP(S) mirror base
   addresses hosting this exact complete bundle. Download the small original-signed
   metadata file, attach it to a message and use the supplied recipient text.
   The message contains the exact bundle identity and candidate public fingerprints,

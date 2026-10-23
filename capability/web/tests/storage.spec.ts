@@ -1,4 +1,5 @@
 import {test,expect} from '@playwright/test';
+test.beforeEach(async({page})=>{await page.route('**/api/core-features',route=>route.fulfill({json:{'Portable handoffs':false}}));});
 const device={location_id:'device',label:'This device',purpose:'private',reachable:true,free_bytes:100000000,publisher_key_id:'capture-key'};
 const nas={...device,location_id:'folder_nas',label:'My NAS'};
 const model={model_id:'example/base',generation_id:'a'.repeat(64),size_bytes:100,verification:'custom'};

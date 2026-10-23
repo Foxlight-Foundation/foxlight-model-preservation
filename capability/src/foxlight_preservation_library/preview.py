@@ -25,7 +25,7 @@ import httpx
 import yaml
 
 # Updated only after the compatible Core candidate is integrated and verified.
-CORE_REVISION = "0863f0fefad2371a1fca0aaca306513059eb6366"
+CORE_REVISION = "293eccb2d7389ae91384cce3319feaef902c4922"
 CORE_INSTALLER_SHA256 = (
     "24cc7d0c3e33cb562883050def7a9f64c0e3abfdf15820bf8b21e8cc02c951b3"
 )
