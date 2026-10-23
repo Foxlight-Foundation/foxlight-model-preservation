@@ -14,7 +14,7 @@ test('completed actions bind the actual job copy and show its reviewed target',a
   await page.route('**/api/plan',async route=>{selected=route.request().postDataJSON();await route.fulfill({json:{plan_id:'a'.repeat(64),kind:'check',model_id:'example/beta',location_id:'device',size_bytes:100,members:['example/beta','example/companion'],member_count:2,expires_at:Math.floor(Date.now()/1000)+600}});});
   await page.goto('/');
   await page.getByRole('button',{name:'Activity',exact:true}).click();
-  const beta=page.locator('.mp-summary').filter({hasText:'example/beta'});
+  const beta=page.getByRole('article').filter({hasText:'example/beta'});
   await beta.getByRole('button',{name:'Check this copy'}).click();
   await expect(page.getByRole('heading',{name:'Verify the saved files'})).toBeVisible();
   expect(selected).toEqual({kind:'check',location_id:'device',copy_id:copies[1].copy_id});
@@ -76,8 +76,8 @@ test('fresh Core file restore requires separate capture and code consent',async(
   await restore.click();
   await expect(page.getByRole('heading',{name:'Activity',exact:true})).toBeVisible();
   await expect(page.getByText('Model and companions restored',{exact:true})).toBeVisible();
-  await page.getByRole('button',{name:'Your copies',exact:true}).click();
-  await expect(page.getByRole('heading',{name:'Your models, kept close.'})).toBeVisible();
+  await page.getByRole('button',{name:'Library',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Your models',exact:true})).toBeVisible();
   expect(started).toMatchObject({plan_id:recoveryPlan.plan_id,accept_owner_capture:true,allow_repository_code:true});
   expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
 });

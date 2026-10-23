@@ -13,7 +13,7 @@ test('public mirror review has fresh consent, preserves exact limits, and requir
   await page.getByRole('button',{name:'Sharing',exact:true}).click();
   expect(started).toBeNull();
   await page.getByRole('button',{name:'Set up HTTP mirror'}).click();
-  await expect(page.getByLabel('Network access')).toHaveValue('local');
+  await expect(page.getByRole('radio',{name:/Only this device/})).toBeChecked();
   await page.getByRole('button',{name:'Review sharing session'}).click();
   await expect(page.getByRole('heading',{name:'Start this HTTP mirror'})).toBeVisible();
   await expect(page.getByRole('button',{name:'Start reviewed session'})).toBeDisabled();
@@ -58,11 +58,11 @@ test('stop waits for owned completion and retained torrent download joins no swa
   await expect(page.getByRole('link',{name:'Download torrent'})).toHaveAttribute('href',new RegExp(`/api/torrent/${job.job_id}$`));
   await page.getByRole('button',{name:'Stop sharing',exact:true}).click();
   await expect(page.getByRole('button',{name:'Stopping…',exact:true})).toBeDisabled();
-  await expect(page.getByText('Only this device · preview · up to 3600 seconds')).toBeVisible();
+  await expect(page.getByText('Only this device · preview · up to 1 hour')).toBeVisible();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
 });
 
-for(const destination of ['Storage & keys','Activity','Your copies','Sharing'])test(`public import exits through ${destination}`,async({page})=>{
+for(const destination of ['Storage','Activity','Library','Sharing'])test(`public import exits through ${destination}`,async({page})=>{
   let starts=0;
   await page.route('**/api/library?offset=*',route=>route.fulfill({json:{locations:[{location_id:'private',label:'Private archive',purpose:'private',reachable:true,free_bytes:10000,publisher_key_id:'capture'}],models:[],copies:[],public_copies:[],jobs:[],uploads:[],next_offset:null,bittorrent_available:false}}));
   await page.route('**/api/start',route=>{starts++;return route.fulfill({json:{}});});
@@ -71,10 +71,10 @@ for(const destination of ['Storage & keys','Activity','Your copies','Sharing'])t
   await expect(page.getByLabel('Public bundle file')).toBeVisible();
   await page.getByRole('button',{name:destination,exact:true}).click();
   await expect(page.getByLabel('Public bundle file')).toHaveCount(0);
-  if(destination==='Storage & keys')await expect(page.getByRole('heading',{name:'Storage & keys',exact:true})).toBeVisible();
+  if(destination==='Storage')await expect(page.getByRole('heading',{name:'Storage & keys',exact:true})).toBeVisible();
   if(destination==='Activity')await expect(page.getByRole('heading',{name:'Activity',exact:true})).toBeVisible();
-  if(destination==='Your copies')await expect(page.getByRole('heading',{name:'Your models, kept close.'})).toBeVisible();
-  if(destination==='Sharing')await expect(page.getByRole('heading',{name:'Keep a community copy available.'})).toBeVisible();
+  if(destination==='Library')await expect(page.getByRole('heading',{name:'Your models',exact:true})).toBeVisible();
+  if(destination==='Sharing')await expect(page.getByRole('heading',{name:'Sharing',exact:true})).toBeVisible();
   expect(starts).toBe(0);
 });
 
@@ -134,7 +134,7 @@ for(const outcome of ['preview','error'])for(const destination of ['Sharing','Re
   await page.getByRole('button',{name:destination,exact:true}).click();
   const arrived=page.waitForResponse('**/api/work-preview');release();await(await arrived).finished();
   await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve()))));
-  if(destination==='Sharing')await expect(page.getByRole('heading',{name:'Keep a community copy available.'})).toBeVisible();
+  if(destination==='Sharing')await expect(page.getByRole('heading',{name:'Sharing',exact:true})).toBeVisible();
   else {
     await expect(page.getByRole('heading',{name:'Restore from a recovery kit'})).toBeVisible();
     await page.getByRole('button',{name:'Back to Library'}).click();

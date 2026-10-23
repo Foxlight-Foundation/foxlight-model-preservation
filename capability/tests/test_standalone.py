@@ -240,3 +240,77 @@ async def test_local_screen_does_not_require_reverse_dns(
     finally:
         await asyncio.to_thread(server.close)
         await client.close()
+
+
+async def test_screen_serves_exact_local_assets_with_explicit_font_types() -> None:
+    """Every built file is allowlisted, packaged, bounded and served locally."""
+    import re
+    import tomllib
+    from importlib.resources import files
+    from importlib.resources.abc import Traversable
+    from pathlib import Path
+
+    from foxlight_preservation_library.server import STATIC_ASSET_LIMIT, STATIC_ASSETS
+
+    static = files("foxlight_preservation_library").joinpath("static")
+    built: set[str] = set()
+
+    def walk(node: Traversable, prefix: str = "") -> None:
+        for child in node.iterdir():
+            if child.name.startswith("."):
+                continue
+            if child.is_dir():
+                walk(child, prefix + child.name + "/")
+            else:
+                built.add(prefix + child.name)
+
+    walk(static)
+    assert built == set(STATIC_ASSETS)
+    manifest = tomllib.loads(
+        (Path(__file__).parents[1] / "capability.toml").read_text(encoding="utf-8")
+    )
+    assert set(manifest["data_files"]) == {
+        "foxlight_preservation_library/static/" + name for name in STATIC_ASSETS
+    }
+    css = static.joinpath("assets/index.css").read_text(encoding="utf-8")
+    page = static.joinpath("index.html").read_text(encoding="utf-8")
+    referenced = {
+        "assets/" + item.strip("'\"").removeprefix("./")
+        for item in re.findall(r"url\(([^)]+)\)", css)
+    } | {
+        item.removeprefix("./")
+        for item in re.findall(r'(?:src|href)="(\./[^"]+)"', page)
+    }
+    assert {name for name in STATIC_ASSETS if name.endswith(".woff2")} <= referenced
+    assert referenced <= set(STATIC_ASSETS)
+    assert "@import" not in css and "//" not in "".join(
+        re.findall(r"url\(([^)]+)\)", css)
+    )
+
+    client = CoreClient(
+        Settings(),
+        "library-local",
+        transport=httpx.MockTransport(lambda request: httpx.Response(404)),
+    )
+    server = LibraryServer(None, client, asyncio.get_running_loop())
+    server.start()
+    try:
+        async with httpx.AsyncClient(trust_env=False) as browser:
+            for name, declared in STATIC_ASSETS.items():
+                reply = await browser.get(server.url + name)
+                assert reply.status_code == 200, name
+                assert 0 < len(reply.content) <= STATIC_ASSET_LIMIT
+                assert "default-src 'self'" in reply.headers["content-security-policy"]
+                if declared is not None:
+                    assert reply.headers["content-type"] == declared
+            for font in [name for name in STATIC_ASSETS if name.endswith(".woff2")]:
+                reply = await browser.get(server.url + font)
+                assert reply.headers["content-type"] == "font/woff2"
+                assert reply.content[:4] == b"wOF2"
+            assert (
+                await browser.get(server.url + "assets/other.woff2")
+            ).status_code == 404
+            assert (await browser.get(server.url + "assets/")).status_code == 404
+    finally:
+        await asyncio.to_thread(server.close)
+        await client.close()

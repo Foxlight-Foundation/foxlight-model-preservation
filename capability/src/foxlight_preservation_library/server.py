@@ -14,7 +14,7 @@ import socket
 import socketserver
 import threading
 from importlib.resources import files
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Final, cast
 from urllib.parse import urlsplit
 
 import httpx
@@ -33,6 +33,21 @@ from .contracts import (
     SharingInput,
 )
 from .discovery import discovery_control
+
+#: The exact built interface files this screen serves. A ``None`` type uses the
+#: platform registry; fonts are explicit because ``mimetypes`` may not know
+#: ``.woff2``. Every asset is local: the page makes no external requests.
+STATIC_ASSETS: Final[dict[str, str | None]] = {
+    "index.html": None,
+    "assets/library.js": None,
+    "assets/index.css": None,
+    "assets/instrument-sans-latin-wght-normal.woff2": "font/woff2",
+    "assets/jetbrains-mono-latin-wght-normal.woff2": "font/woff2",
+    "THIRD_PARTY_NOTICES.txt": None,
+    "LICENSE.txt": None,
+}
+#: Per-asset size bound; larger built files are refused rather than served.
+STATIC_ASSET_LIMIT: Final = 2 * 1024 * 1024
 
 
 class _Server(http.server.ThreadingHTTPServer):
@@ -487,13 +502,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         ):
             self._reply(404, b'{"error":"not_found"}')
             return
-        if name not in {
-            "index.html",
-            "assets/library.js",
-            "assets/index.css",
-            "THIRD_PARTY_NOTICES.txt",
-            "LICENSE.txt",
-        }:
+        if name not in STATIC_ASSETS:
             self._reply(404, b'{"error":"not_found"}')
             return
         path = app.static.joinpath(name)
@@ -501,11 +510,15 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             self._reply(404, b'{"error":"not_found"}')
             return
         data = path.read_bytes()
-        if len(data) > 2 * 1024 * 1024:
+        if len(data) > STATIC_ASSET_LIMIT:
             self._reply(413, b'{"error":"asset_too_large"}')
             return
         self._reply(
-            200, data, mimetypes.guess_type(name)[0] or "application/octet-stream"
+            200,
+            data,
+            STATIC_ASSETS[name]
+            or mimetypes.guess_type(name)[0]
+            or "application/octet-stream",
         )
 
     def do_POST(self) -> None:

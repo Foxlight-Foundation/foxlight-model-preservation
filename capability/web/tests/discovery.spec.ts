@@ -11,7 +11,7 @@ async function base(page:Page,sources:object[]=[source]) {
  await page.route('**/api/discovery-read',route=>route.fulfill({json:{sources,jobs:[],next_offset:null}}));
  await page.route('**/api/discovery-search',route=>route.fulfill({json:{results:sources.length?[result]:[],next_offset:null}}));
 }
-async function find(page:Page){await page.goto('/');await page.getByRole('button',{name:'Find a model',exact:true}).click();await expect(page.getByRole('heading',{name:'Find a model',exact:true})).toBeVisible();}
+async function find(page:Page){await page.goto('/');await page.getByRole('button',{name:'Find',exact:true}).click();await expect(page.getByRole('heading',{name:'Find a model',exact:true})).toBeVisible();}
 
 test('Guided adds a reviewed source with separate metadata grants and one durable refresh',async({page})=>{
  await base(page,[]);const effects:Record<string,unknown>[]=[];let removed=0;
@@ -25,7 +25,7 @@ test('Guided adds a reviewed source with separate metadata grants and one durabl
  await page.getByLabel('Source file',{exact:true}).setInputFiles({name:'archive.foxsource',mimeType:'application/json',buffer:Buffer.from('{}')});
  await expect(page.getByRole('heading',{name:source.name})).toBeVisible();expect(effects).toHaveLength(0);
  await expect(page.getByRole('button',{name:'Trust source and get listings'})).toBeDisabled();await page.getByLabel('I trust the supplier').check();
- await page.getByRole('button',{name:'Trust source and get listings'}).click();await expect(page.getByRole('heading',{name:'Find a model',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Trust source and get listings'}).click();await expect(page.getByRole('dialog')).toHaveCount(0);await expect(page.getByRole('heading',{name:'Find a model',exact:true})).toBeVisible();
  expect(effects[0]).toMatchObject({confirmed:true,allow_http:false,allow_private:false});expect(effects[1]).toMatchObject({kind:'refresh',source_id:sourceId});expect(removed).toBe(1);
 });
 

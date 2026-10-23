@@ -9,7 +9,7 @@ async function base(page:Page){
  await page.route('**/api/discovery-search',r=>r.fulfill({json:{results:[{manifest_id:mid,suppliers:[{source_id:sid,source_name:'Community peer source',entry_id:'model',name:'Preserved model',summary:'Complete companions',freshness:'fresh',model_keys_available:true,transport:'peer'}],supplier_count:1,next_supplier_offset:null}],next_offset:null}}));
  await page.route('**/api/peer-read',r=>r.fulfill({json:peer}));
 }
-async function open(page:Page){await page.goto('/');await page.getByRole('button',{name:'Find a model',exact:true}).click();}
+async function open(page:Page){await page.goto('/');await page.getByRole('button',{name:'Find',exact:true}).click();}
 
 test('setup survives reload and completion grants no peer access',async({page},info)=>{
  await base(page);let current={...native};let installed=false;const starts:Record<string,unknown>[]=[];let peerEffects=0;const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
@@ -19,7 +19,7 @@ test('setup survives reload and completion grants no peer access',async({page},i
  await page.route('**/api/discovery-start',r=>{peerEffects++;return r.fulfill({json:{}});});
  await open(page);await expect(page.getByRole('button',{name:'Set up peer support',exact:true})).toBeDisabled();expect(starts).toHaveLength(0);
  await page.getByLabel('Download and install this verified peer support on Core.').check();expect(starts).toHaveLength(0);await page.getByRole('button',{name:'Set up peer support',exact:true}).click();await expect(page.getByText('Setup is queued on Core.')).toBeVisible();expect(starts[0]).toMatchObject({plan_id:plan,confirmed:true});expect(Object.keys(starts[0]).sort()).toEqual(['confirmed','operation_id','plan_id']);
- await page.reload();await page.getByRole('button',{name:'Find a model',exact:true}).click();await expect(page.getByRole('button',{name:'Stop setup',exact:true})).toBeVisible();expect(starts).toHaveLength(1);expect(peerEffects).toBe(0);await page.screenshot({path:info.outputPath('native-setup-running.png'),fullPage:true});
+ await page.reload();await page.getByRole('button',{name:'Find',exact:true}).click();await expect(page.getByRole('button',{name:'Stop setup',exact:true})).toBeVisible();expect(starts).toHaveLength(1);expect(peerEffects).toBe(0);await page.screenshot({path:info.outputPath('native-setup-running.png'),fullPage:true});
  installed=true;current={...native,job:{...queued,state:'succeeded',bytes_copied:55000000}};
  await expect(page.getByRole('heading',{name:'Set up peer support',exact:true})).toHaveCount(0);await expect(page.getByLabel('Allow peer connections for the selected source update')).not.toBeChecked();await expect(page.getByRole('button',{name:'Review model',exact:true})).toBeDisabled();expect(peerEffects).toBe(0);expect(errors).toEqual([]);expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);await page.screenshot({path:info.outputPath('native-setup-complete.png'),fullPage:true});
 });

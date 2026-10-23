@@ -13,7 +13,7 @@ and **Review download resume** to the existing controls. Version 0.4 connected *
 **Save recovery kit**, **Download recovery kit**, **Restore** and **Stop job**.
 Preserve and restore review the complete supported companion selection. From a
 preserved copy, create and download a `.foxkit` to storage separate from Core.
-On a fresh Core, **Restore from recovery kit** works before archive setup. Choose
+On a fresh Core, the header's **Restore** works before archive setup. Choose
 the file, review model, companions, capture fingerprints and provenance limits,
 then confirm. Original Core storage, private signing keys and registry access are
 not prerequisites for restoring an owner capture. Original registry evidence is
@@ -42,7 +42,8 @@ immutable copy, retaining unknown card metadata without model admission. Review
 its exact manifest identity and candidate public fingerprints, then explicitly
 accept the copy. Importing starts no listener or swarm. Private kits are refused;
 create a separate public publication with **Publish** beside any saved private
-copy in **Your copies**, even after its original installation is gone. Review
+copy in **Library** (each copy's **⋯** menu holds **Publish** and
+**Save recovery kit**), even after its original installation is gone. Review
 every member’s license, terms reference, redistribution decision and required
 notices. Missing notice text can be supplied explicitly as publisher-supplied
 text; it never replaces an original notice or grants rights. **Set up publishing**
@@ -51,7 +52,7 @@ public manifest and confirm before Core checks bytes and signs the public copy.
 This does not start hosting or grant registry authority.
 
 For a public copy, choose **Set up HTTP mirror** or **Set up BitTorrent**. Review
-network access (default: only this device), port, duration up to 24 hours and upload
+who can connect (**Only this device** by default, or **Other devices**), port, duration up to 24 hours and upload
 allowance. The suggested finite allowance scales with the selected copy
 (three copies plus metadata/retry room; at least 16 MiB), with a 24-hour session
 suggestion. It resets when choosing a different copy. BitTorrent also has an upload-speed limit. Confirm the separate sharing
@@ -289,7 +290,7 @@ cut; the older 0.6 release link above retains its previous behavior.
 
 ## Follow sources and find preserved models (Library 0.8 source preview)
 
-Choose **Find a model**, or **Find a shared model** during Guided setup. Choose a
+Choose **Find**, or **Find a shared model** during Guided setup. Choose a
 small `.foxsource`/JSON bootstrap file from a supplier you trust. Core inspects
 it offline and shows the source identity and metadata endpoints. Confirm listing
 trust, then choose **Trust source and get listings**. No central source is
@@ -358,7 +359,7 @@ installation; setup does not silently overwrite suspect local software.
 The standalone [offline archive installation](../docs/peer-discovery.md#install-and-start-a-receiver)
 remains available independently of Skulk. Existing PATH installation also works.
 
-In **Find a model**, choose **Add a source** and import a trusted `.foxpeer` file.
+In **Find**, choose **Add a source** and import a trusted `.foxpeer` file.
 Review its source identity, enter up to eight numeric starting contacts supplied
 by your peer operator, and save the connection settings. Saving and browsing
 stay offline. Allow peer connections separately when getting listings or

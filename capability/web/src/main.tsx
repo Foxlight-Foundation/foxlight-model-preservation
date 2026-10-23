@@ -1,6 +1,6 @@
-import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
+import { StrictMode, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { api, bytes, errorText, kitDownload, type Copy, type Job, type Model, type Page, type Plan } from './client';
+import { api, bytes, errorText, kitDownload, type Copy, type Job, type Location, type Model, type Page, type Plan } from './client';
 import './style.css';
 import {UploadKit,ReviewPlan} from './recovery';
 import {Sharing,SharingReview,SharingSession} from './sharing';
@@ -8,11 +8,26 @@ import {Publish,Receive,DeliveryReview} from './delivery';
 import {Storage} from './storage';
 import {Find} from './discovery';
 import {TemporaryJobs,TemporaryFilesReview,type TemporaryWork} from './maintenance';
+import {Callout,Empty,Icon,Label,Menu,Monogram,PageBanner,Pill,Progress,SheetHost,SkulkMark,ago,initials,readTheme,useTheme,type IconName,type Tone} from './ui';
 
 type Area = 'library'|'storage'|'activity'|'sharing'|'find';
 type Review = {plan:Plan; operationId:string};
 const active = (job:Job) => ['queued','running','cancelling'].includes(job.state);
 const stoppedRecovery = (job:Job) => job.kind==='recover'&&['interrupted','failed','cancelled'].includes(job.state);
+const areas:{id:Area;label:string;icon:IconName}[] = [{id:'library',label:'Library',icon:'library'},{id:'find',label:'Find',icon:'search'},{id:'sharing',label:'Sharing',icon:'share'},{id:'activity',label:'Activity',icon:'activity'},{id:'storage',label:'Storage',icon:'storage'}];
+const kindLabel = (kind:string) => kind==='preserve'?'Preserve':kind==='recover'?'Restore':kind==='kit_export'?'Recovery kit':kind==='mirror_import'?'Public import':kind==='publish'?'Publish':kind==='receive'?'Receive':'Check';
+const liveLabel:Record<string,string> = {preserve:'preserving…',recover:'restoring…',kit_export:'saving kit…',mirror_import:'importing…',publish:'publishing…',receive:'downloading…',check:'checking…'};
+/** One honest status per job; amber only while Core is doing the work. */
+export function jobStatus(job:Job):[Tone,string] {
+  if(job.state==='cancelling')return ['live','stopping…'];
+  if(job.state==='queued')return ['live','queued'];
+  if(job.state==='running')return ['live',liveLabel[job.kind]??'running'];
+  if(job.state==='succeeded')return ['ok','done'];
+  if(job.state==='failed')return ['bad','failed'];
+  if(job.state==='cancelled')return ['muted','stopped'];
+  if(job.state==='interrupted')return ['info','interrupted'];
+  return ['muted',job.state.replaceAll('_',' ')];
+}
 
 /** Real Library/Guided interface; all effects begin with explicit reviewed controls. */
 function App() {
@@ -29,6 +44,7 @@ function App() {
   const [loadError,setLoadError] = useState('');
   const [notice,setNotice] = useState('');
   const [offset,setOffset] = useState(0);
+  const [theme,toggleTheme] = useTheme();
   const lastRead = useRef(0);
   const navigation = useRef(0);
   const refresh = useCallback(async () => {
@@ -70,18 +86,127 @@ function App() {
   const planOnline=review?.plan.location_id==='kit'||available(review?.plan.location_id)||page?.public_copies?.some(copy=>copy.location_id===review?.plan.location_id)===true;
   const online=Boolean(location?.reachable)&&!loadError;
   const count=page?.jobs.filter(active).length??0;
-  return <div id="preservation-concepts"><div className="mp-app">
-    <header className="mp-top"><span className="mp-brand">skulk</span><span className="mp-crumb">Capabilities / Model Preservation</span></header>
-    <main className="mp-main"><div className="mp-heading"><div><span className="mp-kicker">Your models. Within reach.</span><h1>Model Preservation</h1></div><div className="mp-actions"><button className="mp-button" onClick={()=>{navigate('library');setRestoreOpen(true);}}>Restore from recovery kit</button><button className="mp-button mp-quiet" onClick={()=>navigate('storage')}>Storage &amp; keys</button><button className="mp-button mp-quiet" onClick={()=>navigate('activity')}>Activity{count ? ` · ${count}`:''}</button></div></div>
-    <nav className="mp-tabs" aria-label="Preservation areas">{(['library','find','sharing'] as const).map(item=><button key={item} className="mp-tab" aria-current={area===item?'page':undefined} onClick={()=>navigate(item)}>{item==='library'?'Your copies':item==='find'?'Find a model':'Sharing'}</button>)}</nav>
-    {(error||loadError) && <div className="mp-notice mp-error" role="alert">{errorText(error||loadError)} <button className="mp-button mp-quiet" onClick={()=>void refresh()}>Refresh</button></div>}
-    {notice && <div className="mp-toast" role="status">{notice}</div>}
-    {!page ? <p className="mp-muted">{(error||loadError)?'Library unavailable.':'Opening your Library…'}</p> : publishCopy ? <Publish key={publishCopy.copy_id} copy={publishCopy} publisher={page.publishing} onBack={()=>navigate('library')} onReview={currentReview} onChange={refresh}/> : receiveOpen ? <Receive key={resumeJob?.job_id??'new'} resume={resumeJob} onBack={()=>navigate('sharing')} onReview={currentReview}/> : restoreOpen||publicImport ? <UploadKit publicImport={publicImport} uploads={page.uploads??[]} onChange={refresh} onReview={currentReview} onBack={()=>{setRestoreOpen(false);setPublicImport(false);}}/> : cleanup ? <TemporaryFilesReview key={cleanup.job.job_id} job={cleanup.job} report={cleanup.report} busy={busy} onBack={()=>setCleanup(null)} onClear={()=>void clearWork()}/> : review&&(review.plan.kind==='publish'||review.plan.kind==='receive') ? <DeliveryReview key={review.plan.plan_id} plan={review.plan} busy={busy} onBack={()=>navigate(review.plan.kind==='publish'?'library':'sharing')} onStart={(accept,participate)=>void start(accept,false,false,participate)}/> : review&&(review.plan.kind==='mirror_import'||review.plan.sharing) ? <SharingReview key={review.plan.plan_id} plan={review.plan} busy={busy} onBack={()=>{setReview(null);sessionStorage.removeItem('preservation-review-v1');setArea('sharing');}} onStart={(accept,participate)=>void start(accept,false,false,participate)}/> : review ? <ReviewPlan key={review.plan.plan_id} plan={review.plan} busy={busy} online={Boolean(planOnline)} storageLabel={page.locations.find(item=>item.location_id===review.plan.location_id)?.label} onBack={()=>{setReview(null);sessionStorage.removeItem('preservation-review-v1');}} onStart={(accept,code,removed)=>void start(accept,code,removed)}/> : area==='find' ? <Find onReview={currentReview} uploads={page.uploads??[]} onChange={refresh}/> : page.locations.length===0&&area==='library'&&!page.jobs.some(job=>job.kind==='recover') ? <section className="mp-flow"><span className="mp-kicker">Get started · 1 of 2</span><h2>Keep your models within reach.</h2><button className="mp-button" onClick={()=>navigate('find')}>Find a shared model</button><p className="mp-muted">Preserve a verified copy of an installed model, including the files it needs to work.</p><div className="mp-summary"><h3>Use this device</h3><p className="mp-muted">Skulk will create private storage and a protected signing identity on this model-store host.</p><p className="mp-small">Nothing is publicly hosted or shared by setup.</p></div><button className="mp-button mp-primary" disabled={busy} onClick={()=>void setup()}>{busy?'Preparing…':'Use this device'}</button><button className="mp-button" onClick={()=>navigate('storage')}>Use folder or NAS</button></section> : area==='library' ? <section aria-label="Your copies"><div className="mp-heading"><div><h2>Your models, kept close.</h2><p className="mp-muted">Preserve an installed model or check a saved copy. Required companion files come with it.</p><p className="mp-small">New copies go to {location?.label??'unavailable storage'} · <button className="mp-button mp-quiet" onClick={()=>navigate('storage')}>Change storage</button></p></div></div>{!online&&<div role="status" className="mp-notice mp-warn">{location?'Your storage is disconnected or has changed. Reconnect the enrolled archive to preserve or check files.':'Your recovered models are ready. Open Storage & keys to set up a private archive before preserving more copies.'}</div>}{page.models.length===0&&page.copies.length===0&&<div className="mp-summary"><h3>No installed models on this page</h3><p className="mp-muted">Install a model in the local Model Store, then return here. Only installations with a supported complete retained record can be preserved.</p></div>}{page.models.map(model=><ModelRow key={model.model_id} model={model} copies={page.copies.filter(copy=>copy.model_id===model.model_id)} disabled={busy||!online} onPreserve={()=>void plan('preserve',model)} copyAvailable={copy=>!busy&&available(copy.location_id)} onCheck={copy=>void plan('check',copy)} onKit={copy=>void plan('kit_export',copy)} onPublish={openPublish}/>)}{page.copies.filter(copy=>!page.models.some(model=>model.model_id===copy.model_id)).map(copy=><div className="mp-model" key={copy.copy_id}><div><h3>{copy.model_id}</h3><p className="mp-muted mp-small">Saved copy · {bytes(copy.size_bytes)}</p></div><span className="mp-status mp-ok">Files checked {new Date(copy.checked_at*1000).toLocaleDateString()}</span><button className="mp-button" disabled={busy||!available(copy.location_id)} onClick={()=>void plan('check',copy)}>Check files</button><button className="mp-button" disabled={busy||!available(copy.location_id)} onClick={()=>void plan('kit_export',copy)}>Save recovery kit</button><button className="mp-button" disabled={busy||!available(copy.location_id)} onClick={()=>openPublish(copy)}>Publish</button><button className="mp-button mp-primary" disabled={busy||!available(copy.location_id)} onClick={()=>void plan('recover',copy)}>Restore</button></div>)}</section> : area==='storage' ? <Storage locations={page.locations} defaultId={defaultId} busy={busy} onDevice={()=>void setup()} onChange={refresh}/> : area==='activity' ? <section><h2>Activity</h2><p className="mp-muted">Jobs belong to Skulk Core. Closing this page does not stop them.</p>{page.jobs.length===0&&<p>No jobs on this page.</p>}{page.jobs.map(job=>job.kind==='http_share'||job.kind==='torrent_share'?<SharingSession key={job.job_id} job={job} busy={busy} onStop={()=>void cancel(job)}/>:<div className="mp-summary" key={job.job_id}><div className="mp-line"><strong>{job.model_id}</strong><span>{job.kind==='preserve'?'Preserve':job.kind==='recover'?'Restore':job.kind==='kit_export'?'Recovery kit':job.kind==='mirror_import'?'Public import':job.kind==='publish'?'Publish':job.kind==='receive'?'Receive':'Check'} · {job.state}</span></div><p className="mp-muted">{job.stage.replaceAll('_',' ')} · {bytes(job.bytes_copied)} copied · {bytes(job.bytes_hashed)} read for checks</p>{job.error_code&&<p>{errorText(job.error_code)}</p>}<div className="mp-actions">{active(job)&&<button className="mp-button" disabled={busy||job.state==='cancelling'} onClick={()=>void cancel(job)}>{job.state==='cancelling'?'Stopping…':'Stop job'}</button>}{job.state==='interrupted'&&job.kind==='preserve'&&job.expected_manifest_id&&<button className="mp-button" disabled={busy||!available(job.location_id??'device')} onClick={()=>void plan('check',job)}>Check outcome</button>}{stoppedRecovery(job)&&<button className="mp-button" disabled={busy} onClick={()=>void reclaim(job)}>Clear unused restore files</button>}{(stoppedRecovery(job)||(job.kind==='kit_export'&&job.state==='interrupted'))&&<button className="mp-button" disabled={busy} onClick={()=>void retry(job)}>Review again</button>}{job.state==='succeeded'&&job.kind==='kit_export'&&<a className="mp-button mp-primary" href={kitDownload(job)} download>Download recovery kit</a>}{job.state==='succeeded'&&job.kind==='recover'&&<span className="mp-status mp-ok">Model and companions restored</span>}{job.kind==='receive'&&['failed','cancelled','interrupted'].includes(job.state)&&page.temporary_work_jobs?.includes(job.job_id)&&<button className="mp-button" disabled={busy} onClick={()=>openReceive(job)}>Review download resume</button>}{job.state==='succeeded'&&['publish','receive','mirror_import'].includes(job.kind)&&<button className="mp-button mp-primary" onClick={()=>navigate('sharing')}>Use or share this public copy</button>}{job.state==='succeeded'&&!['publish','receive','mirror_import'].includes(job.kind)&&job.copy_id&&<button className="mp-button" disabled={busy||!available(job.location_id??'device')} onClick={()=>void plan('check',job)}>Check this copy</button>}</div></div>)}<TemporaryJobs page={page} busy={busy} onReview={job=>void inspectWork(job)}/></section> : <Sharing page={page} busy={busy} onReceive={()=>openReceive()} onKit={copy=>void plan('kit_export',copy)} onRestore={copy=>void plan('recover',copy)} onImport={()=>{setPublicImport(true);setReview(null);}} onReview={currentReview} onStop={job=>void cancel(job)}/>}
-    {page&&!review&&<div className="mp-actions pagination">{offset>0&&<button className="mp-button" onClick={()=>setOffset(Math.max(0,offset-4))}>Previous page</button>}{page.next_offset!==null&&<button className="mp-button" onClick={()=>setOffset(page.next_offset!)}>Next page</button>}</div>}
-    <footer className="mp-footer"><span>Storage owner: this model-store host</span><span>Sharing always requires an explicit reviewed start.</span><a className="mp-small mp-muted" href="THIRD_PARTY_NOTICES.txt">Third-party notices</a></footer></main></div></div>;
+  const guided=Boolean(page)&&page!.locations.length===0&&area==='library'&&!page!.jobs.some(job=>job.kind==='recover');
+
+  // The same precedence as before decides which reviewed flow is open; it now slides over the area instead of replacing it.
+  const sheet:ReactNode = !page ? null : publishCopy ? <Publish key={publishCopy.copy_id} copy={publishCopy} publisher={page.publishing} onBack={()=>navigate('library')} onReview={currentReview} onChange={refresh}/> : receiveOpen ? <Receive key={resumeJob?.job_id??'new'} resume={resumeJob} onBack={()=>navigate('sharing')} onReview={currentReview}/> : restoreOpen||publicImport ? <UploadKit publicImport={publicImport} uploads={page.uploads??[]} onChange={refresh} onReview={currentReview} onBack={()=>{setRestoreOpen(false);setPublicImport(false);}}/> : cleanup ? <TemporaryFilesReview key={cleanup.job.job_id} job={cleanup.job} report={cleanup.report} busy={busy} onBack={()=>setCleanup(null)} onClear={()=>void clearWork()}/> : review&&(review.plan.kind==='publish'||review.plan.kind==='receive') ? <DeliveryReview key={review.plan.plan_id} plan={review.plan} busy={busy} onBack={()=>navigate(review.plan.kind==='publish'?'library':'sharing')} onStart={(accept,participate)=>void start(accept,false,false,participate)}/> : review&&(review.plan.kind==='mirror_import'||review.plan.sharing) ? <SharingReview key={review.plan.plan_id} plan={review.plan} busy={busy} onBack={()=>{setReview(null);sessionStorage.removeItem('preservation-review-v1');setArea('sharing');}} onStart={(accept,participate)=>void start(accept,false,false,participate)}/> : review ? <ReviewPlan key={review.plan.plan_id} plan={review.plan} busy={busy} online={Boolean(planOnline)} storageLabel={page.locations.find(item=>item.location_id===review.plan.location_id)?.label} back={`Back to ${areas.find(item=>item.id===area)?.label??'Library'}`} onBack={()=>{setReview(null);sessionStorage.removeItem('preservation-review-v1');}} onStart={(accept,code,removed)=>void start(accept,code,removed)}/> : null;
+
+  const banner = <>{(error||loadError) && <div className="sk-banner" data-tone="bad" role="alert"><Icon name="alert"/><span>{errorText(error||loadError)}</span><button className="sk-btn sk-quiet sk-sm" onClick={()=>void refresh()}><Icon name="refresh" size={14}/>Refresh</button></div>}
+    {notice && <div className="sk-banner" data-tone="ok" role="status"><Icon name="check"/><span>{notice}</span><button className="sk-icon-btn sk-sm" aria-label="Dismiss message" onClick={()=>setNotice('')}><Icon name="close" size={14}/></button></div>}</>;
+
+  return <SheetHost banner={banner}><div className="sk-app">
+    <a className="sk-skip" href="#library-main">Skip to content</a>
+    <header className="sk-header"><div className="sk-header-inner">
+      <span className="sk-brand"><SkulkMark/><span className="sk-wordmark">Skulk</span><span className="sk-product">Library</span></span>
+      <nav className="sk-nav" aria-label="Library areas">{areas.map(item=><button key={item.id} className="sk-nav-item" aria-current={area===item.id?'page':undefined} aria-describedby={item.id==='activity'&&count?'activity-count':undefined} onClick={()=>navigate(item.id)}><Icon name={item.icon} size={18}/><span>{item.label}</span>{item.id==='activity'&&count>0&&<span className="sk-count" aria-hidden="true">{count}</span>}</button>)}</nav>
+      {count>0&&<span id="activity-count" className="sk-sr">{count} {count===1?'job':'jobs'} in progress</span>}
+      <div className="sk-header-actions">
+        <button className="sk-btn sk-quiet sk-restore" aria-label="Restore from recovery kit" title="Restore from recovery kit" onClick={()=>{navigate('library');setRestoreOpen(true);}}><Icon name="restore"/><span>Restore</span></button>
+        <button className="sk-icon-btn" aria-label={theme==='night'?'Switch to Noon theme':'Switch to Night theme'} title={theme==='night'?'Switch to Noon':'Switch to Night'} onClick={toggleTheme}><Icon name={theme==='night'?'sun':'moon'} size={18}/></button>
+      </div>
+    </div></header>
+    <main id="library-main" className="sk-main" inert={Boolean(sheet)}>
+      <PageBanner/>
+      {!page ? <div className="sk-loading" aria-busy={!(error||loadError)}><SkulkMark size={40}/><p>{(error||loadError)?'Library unavailable.':'Opening your Library…'}</p></div>
+      : area==='find' ? <Find onReview={currentReview} uploads={page.uploads??[]} onChange={refresh}/>
+      : guided ? <Guided busy={busy} onDevice={()=>void setup()} onFolder={()=>navigate('storage')} onFind={()=>navigate('find')}/>
+      : area==='library' ? <LibraryArea page={page} location={location} online={online} busy={busy} available={available} onStorage={()=>navigate('storage')} onPlan={(kind,selection)=>void plan(kind,selection)} onPublish={openPublish}/>
+      : area==='storage' ? <Storage locations={page.locations} defaultId={defaultId} busy={busy} onDevice={()=>void setup()} onChange={refresh}/>
+      : area==='activity' ? <ActivityArea page={page} busy={busy} available={available} onCancel={job=>void cancel(job)} onCheck={job=>void plan('check',job)} onReclaim={job=>void reclaim(job)} onRetry={job=>void retry(job)} onReceive={openReceive} onSharing={()=>navigate('sharing')} onInspect={job=>void inspectWork(job)}/>
+      : <Sharing page={page} busy={busy} onReceive={()=>openReceive()} onKit={copy=>void plan('kit_export',copy)} onRestore={copy=>void plan('recover',copy)} onImport={()=>{setPublicImport(true);setReview(null);}} onReview={currentReview} onStop={job=>void cancel(job)}/>}
+      {page&&!review&&(offset>0||page.next_offset!==null)&&<div className="sk-pager">{offset>0&&<button className="sk-btn sk-outline" onClick={()=>setOffset(Math.max(0,offset-4))}>Previous page</button>}{page.next_offset!==null&&<button className="sk-btn sk-outline" onClick={()=>setOffset(page.next_offset!)}>Next page</button>}</div>}
+      <footer className="sk-footer"><span><Icon name="lock" size={14}/>Your storage belongs to this model-store host.</span><span>Nothing is shared until you review and start it.</span><a href="THIRD_PARTY_NOTICES.txt">Third-party notices</a></footer>
+    </main>
+    {sheet}
+  </div></SheetHost>;
 }
 
-/** Every row owns its exact model/copies; actions never depend on another selection. */
-function ModelRow({model,copies,disabled,copyAvailable,onPreserve,onCheck,onKit,onPublish}:{model:Model;copies:Copy[];disabled:boolean;copyAvailable:(copy:Copy)=>boolean;onPreserve:()=>void;onCheck:(copy:Copy)=>void;onKit:(copy:Copy)=>void;onPublish:(copy:Copy)=>void}) {return <div className="mp-model"><div className="mp-model-name"><span className="mp-monogram" aria-hidden="true">{model.model_id.split('/').pop()?.slice(0,2).toUpperCase()}</span><div><h3>{model.model_id}</h3><p className="mp-small mp-muted">Installed · {bytes(model.size_bytes)}</p></div></div><div className="mp-model-meta"><span className={`mp-status ${copies.length?'mp-ok':''}`}>{copies.length?`${copies.length} saved ${copies.length===1?'copy':'copies'}`:'No saved copy on this page'}</span><p className="mp-small mp-muted">{model.verification==='registry_verified'?'Installed record: registry verified':'Installed record: owner capture'}</p></div><div className="mp-actions"><button className="mp-button mp-primary" disabled={disabled} onClick={onPreserve}>Preserve</button>{copies.map(copy=><span className="mp-actions" key={copy.copy_id}><button className="mp-button" disabled={!copyAvailable(copy)} onClick={()=>onCheck(copy)}>Check copy</button><button className="mp-button" disabled={!copyAvailable(copy)} onClick={()=>onKit(copy)}>Save recovery kit</button><button className="mp-button" disabled={!copyAvailable(copy)} onClick={()=>onPublish(copy)}>Publish</button></span>)}</div></div>;}
+/** First run: two clear storage choices, plus finding a shared model. */
+function Guided({busy,onDevice,onFolder,onFind}:{busy:boolean;onDevice:()=>void;onFolder:()=>void;onFind:()=>void}) {
+  return <section className="sk-guided" aria-labelledby="guided-title">
+    <div className="sk-guided-hero"><span className="sk-guided-mark"><SkulkMark size={44}/></span><p className="sk-label">Get started · step 1 of 2</p><h1 id="guided-title">Keep your models within reach.</h1><p className="sk-lede">Preserve a verified copy of any installed model, together with the files it needs to work. First, choose where copies live.</p></div>
+    <div className="sk-choices">
+      <button className="sk-choice" disabled={busy} aria-labelledby="choice-device" aria-describedby="choice-device-note" onClick={onDevice}><span className="sk-choice-icon"><Icon name="device" size={22}/></span><span className="sk-choice-title" id="choice-device">Use this device</span><span className="sk-choice-note" id="choice-device-note">Skulk creates private storage and a protected signing key on this model-store host.</span><span className="sk-choice-go">{busy?'Preparing…':'Set up in one step'}<Icon name="arrow" size={14}/></span></button>
+      <button className="sk-choice" aria-labelledby="choice-folder" aria-describedby="choice-folder-note" onClick={onFolder}><span className="sk-choice-icon"><Icon name="folder" size={22}/></span><span className="sk-choice-title" id="choice-folder">Use a folder or NAS</span><span className="sk-choice-note" id="choice-folder-note">Pick a dedicated folder on a connected drive. You review it before anything is created.</span><span className="sk-choice-go">Choose a folder<Icon name="storage" size={14}/></span></button>
+    </div>
+    <p className="sk-guided-note"><Icon name="lock" size={14}/>Setup never hosts or shares anything.</p>
+    <div className="sk-guided-alt"><span>Looking for a model someone shared?</span><button className="sk-btn sk-outline" onClick={onFind}><Icon name="search"/>Find a shared model</button></div>
+  </section>;
+}
 
+/** Library: installed models with their saved copies, plus copies whose model is no longer installed. */
+function LibraryArea({page,location,online,busy,available,onStorage,onPlan,onPublish}:{page:Page;location:Location|undefined;online:boolean;busy:boolean;available:(locationId:string|undefined)=>boolean;onStorage:()=>void;onPlan:(kind:'preserve'|'check'|'kit_export'|'recover',selection:Model|Copy)=>void;onPublish:(copy:Copy)=>void}) {
+  const orphans=page.copies.filter(copy=>!page.models.some(model=>model.model_id===copy.model_id));
+  const label=(id:string)=>page.locations.find(item=>item.location_id===id)?.label??'Unavailable storage';
+  return <section aria-labelledby="library-title">
+    <div className="sk-page-head"><div><h1 id="library-title">Your models</h1><p>Preserve installed models with everything they need, and keep their copies checked.</p></div>
+      <p className="sk-destination"><Icon name={location?.location_id==='device'?'device':'folder'} size={14}/><span>New copies go to {location?.label??'unavailable storage'}</span><button className="sk-link" onClick={onStorage}>Change</button></p></div>
+    {!online&&<Callout tone="warn" role="status">{location?'Your storage is disconnected or has changed. Reconnect it to preserve or check files.':'Your recovered models are ready. Set up private storage in Storage before preserving more.'}</Callout>}
+    {page.models.length===0&&page.copies.length===0&&<Empty icon="package" title="No installed models yet">Install a model in Skulk’s Model Store, then come back to preserve it. Only installations with a complete supported record can be preserved.</Empty>}
+    <div className="sk-cards">
+      {page.models.map(model=><ModelCard key={model.model_id} model={model} jobs={page.jobs.filter(job=>job.model_id===model.model_id)} copies={page.copies.filter(copy=>copy.model_id===model.model_id)} label={label} disabled={busy||!online} onPreserve={()=>onPlan('preserve',model)} copyAvailable={copy=>!busy&&available(copy.location_id)} onCheck={copy=>onPlan('check',copy)} onKit={copy=>onPlan('kit_export',copy)} onPublish={onPublish}/>)}
+      {orphans.map(copy=>{const enabled=!busy&&available(copy.location_id);return <article className="sk-card sk-model" key={copy.copy_id} aria-label={copy.model_id}>
+        <div className="sk-model-head"><Monogram text={initials(copy.model_id)}/><div className="sk-model-title"><h2><ModelName id={copy.model_id}/></h2><p className="sk-meta">Saved copy · <span className="sk-num">{bytes(copy.size_bytes)}</span> · model not installed</p></div><div className="sk-model-side"><Pill tone="ok">verified</Pill><button className="sk-btn sk-outline" disabled={!enabled} onClick={()=>onPlan('recover',copy)}><Icon name="restore"/>Restore</button></div></div>
+        <ul className="sk-copies"><CopyRow copy={copy} label={label(copy.location_id)} enabled={enabled} checkLabel="Check files" onCheck={()=>onPlan('check',copy)} onKit={()=>onPlan('kit_export',copy)} onPublish={()=>onPublish(copy)}/></ul>
+      </article>;})}
+    </div>
+  </section>;
+}
+
+function ModelName({id}:{id:string}) {const slash=id.lastIndexOf('/');return slash<0?<>{id}</>:<><span className="sk-owner">{id.slice(0,slash+1)}</span>{id.slice(slash+1)}</>;}
+
+/** Every card owns its exact model/copies; actions never depend on another selection. */
+function ModelCard({model,jobs,copies,label,disabled,copyAvailable,onPreserve,onCheck,onKit,onPublish}:{model:Model;jobs:Job[];copies:Copy[];label:(id:string)=>string;disabled:boolean;copyAvailable:(copy:Copy)=>boolean;onPreserve:()=>void;onCheck:(copy:Copy)=>void;onKit:(copy:Copy)=>void;onPublish:(copy:Copy)=>void}) {
+  const working=jobs.find(job=>active(job)&&['preserve','check','kit_export','recover'].includes(job.kind));
+  const unresolved=jobs.some(job=>job.kind==='preserve'&&job.state==='interrupted'&&job.expected_manifest_id);
+  const [tone,status]:[Tone,string]=working?['live',liveLabel[working.kind]??'working…']:unresolved?['info','needs check']:copies.length?['ok','verified']:['muted','not preserved'];
+  return <article className="sk-card sk-model" data-live={working?'true':undefined} aria-label={model.model_id}>
+    <div className="sk-model-head"><Monogram text={initials(model.model_id)}/><div className="sk-model-title"><h2><ModelName id={model.model_id}/></h2><p className="sk-meta">Installed · <span className="sk-num">{bytes(model.size_bytes)}</span> · {model.verification==='registry_verified'?'registry verified':'owner capture'}</p></div><div className="sk-model-side"><Pill tone={tone}>{status}</Pill><button className="sk-btn sk-outline" disabled={disabled} onClick={onPreserve}><Icon name="shield"/>Preserve</button></div></div>
+    {working&&<Progress label={`${model.model_id} ${liveLabel[working.kind]??'working'}`}/>}
+    {copies.length>0?<><Label>Saved copies · {copies.length}</Label><ul className="sk-copies">{copies.map(copy=><CopyRow key={copy.copy_id} copy={copy} label={label(copy.location_id)} enabled={copyAvailable(copy)} checkLabel="Check copy" onCheck={()=>onCheck(copy)} onKit={()=>onKit(copy)} onPublish={()=>onPublish(copy)}/>)}</ul></>
+    :<p className="sk-hint">{unresolved?'An earlier preserve was interrupted. Check its outcome in Activity.':'No saved copy yet. Preserve keeps a verified copy, including required companion files.'}</p>}
+  </article>;
+}
+
+function CopyRow({copy,label,enabled,checkLabel,onCheck,onKit,onPublish}:{copy:Copy;label:string;enabled:boolean;checkLabel:string;onCheck:()=>void;onKit:()=>void;onPublish:()=>void}) {
+  return <li className="sk-copy-row"><span className="sk-copy-where"><Icon name="storage" size={14}/><span>{label}</span></span><span className="sk-copy-meta"><span className="sk-num">{bytes(copy.size_bytes)}</span><span>{copy.member_count} {copy.member_count===1?'member':'members'}</span><span title={new Date(copy.checked_at*1000).toLocaleString()}>checked {ago(copy.checked_at)}</span></span>
+    <span className="sk-copy-actions"><button className="sk-btn sk-quiet" disabled={!enabled} onClick={onCheck}><Icon name="check"/>{checkLabel}</button><Menu label={`More actions for the copy on ${label}`} items={[{label:'Save recovery kit',icon:'download',disabled:!enabled,onSelect:onKit},{label:'Publish',icon:'globe',disabled:!enabled,onSelect:onPublish}]}/></span></li>;
+}
+
+/** Activity: Core-owned jobs, live work first. */
+function ActivityArea({page,busy,available,onCancel,onCheck,onReclaim,onRetry,onReceive,onSharing,onInspect}:{page:Page;busy:boolean;available:(locationId:string|undefined)=>boolean;onCancel:(job:Job)=>void;onCheck:(job:Job)=>void;onReclaim:(job:Job)=>void;onRetry:(job:Job)=>void;onReceive:(job:Job)=>void;onSharing:()=>void;onInspect:(job:Job)=>void}) {
+  const card=(job:Job)=>job.kind==='http_share'||job.kind==='torrent_share'?<SharingSession key={job.job_id} job={job} busy={busy} onStop={()=>onCancel(job)}/>:<JobCard key={job.job_id} job={job} page={page} busy={busy} available={available} onCancel={onCancel} onCheck={onCheck} onReclaim={onReclaim} onRetry={onRetry} onReceive={onReceive} onSharing={onSharing}/>;
+  const live=page.jobs.filter(active),rest=page.jobs.filter(job=>!active(job));
+  return <section aria-labelledby="activity-title">
+    <div className="sk-page-head"><div><h1 id="activity-title">Activity</h1><p>Jobs run in Skulk Core. Closing this page doesn’t stop them.</p></div></div>
+    {page.jobs.length===0&&<Empty icon="activity" title="Nothing running">Jobs you start appear here, and keep going even if you close this page.</Empty>}
+    {live.length>0&&<><Label as="h2">In progress · {live.length}</Label><div className="sk-cards">{live.map(card)}</div></>}
+    {rest.length>0&&<><Label as="h2">Earlier</Label><div className="sk-cards">{rest.map(card)}</div></>}
+    <TemporaryJobs page={page} busy={busy} onReview={onInspect}/>
+  </section>;
+}
+
+function JobCard({job,page,busy,available,onCancel,onCheck,onReclaim,onRetry,onReceive,onSharing}:{job:Job;page:Page;busy:boolean;available:(locationId:string|undefined)=>boolean;onCancel:(job:Job)=>void;onCheck:(job:Job)=>void;onReclaim:(job:Job)=>void;onRetry:(job:Job)=>void;onReceive:(job:Job)=>void;onSharing:()=>void}) {
+  const [tone,status]=jobStatus(job);
+  return <article className="sk-card sk-job" data-live={active(job)?'true':undefined} aria-label={`${kindLabel(job.kind)} ${job.model_id}`}>
+    <div className="sk-job-head"><span className="sk-job-kind"><Icon name={job.kind==='preserve'?'shield':job.kind==='recover'?'restore':job.kind==='kit_export'?'download':job.kind==='receive'?'download':job.kind==='publish'||job.kind==='mirror_import'?'globe':'search'}/></span><div className="sk-model-title"><h3><ModelName id={job.model_id}/></h3><p className="sk-meta">{kindLabel(job.kind)} · {job.stage.replaceAll('_',' ')} · started {ago(job.created_at)}</p></div><Pill tone={tone}>{status}</Pill></div>
+    {active(job)?<Progress label={`${kindLabel(job.kind)} ${job.model_id}`}/>:job.state==='succeeded'?<Progress value={1} max={1} tone="ok" label={`${kindLabel(job.kind)} ${job.model_id} finished`}/>:null}
+    <p className="sk-readout"><span className="sk-num">{bytes(job.bytes_copied)}</span> copied<span className="sk-sep">·</span><span className="sk-num">{bytes(job.bytes_hashed)}</span> read for checks</p>
+    {job.error_code&&<Callout tone="bad">{errorText(job.error_code)}</Callout>}
+    {job.state==='succeeded'&&job.kind==='recover'&&<p className="sk-done"><Icon name="check"/><span>Model and companions restored</span></p>}
+    <div className="sk-actions">
+      {job.state==='succeeded'&&job.kind==='kit_export'&&<a className="sk-btn sk-outline" href={kitDownload(job)} download><Icon name="download"/>Download recovery kit</a>}
+      {job.state==='interrupted'&&job.kind==='preserve'&&job.expected_manifest_id&&<button className="sk-btn sk-outline" disabled={busy||!available(job.location_id??'device')} onClick={()=>onCheck(job)}><Icon name="check"/>Check outcome</button>}
+      {(stoppedRecovery(job)||(job.kind==='kit_export'&&job.state==='interrupted'))&&<button className="sk-btn sk-outline" disabled={busy} onClick={()=>onRetry(job)}><Icon name="refresh"/>Review again</button>}
+      {stoppedRecovery(job)&&<button className="sk-btn sk-quiet" disabled={busy} onClick={()=>onReclaim(job)}><Icon name="trash"/>Clear unused restore files</button>}
+      {job.kind==='receive'&&['failed','cancelled','interrupted'].includes(job.state)&&page.temporary_work_jobs?.includes(job.job_id)&&<button className="sk-btn sk-outline" disabled={busy} onClick={()=>onReceive(job)}><Icon name="download"/>Review download resume</button>}
+      {job.state==='succeeded'&&['publish','receive','mirror_import'].includes(job.kind)&&<button className="sk-btn sk-outline" onClick={onSharing}><Icon name="share"/>Use or share this public copy</button>}
+      {job.state==='succeeded'&&!['publish','receive','mirror_import'].includes(job.kind)&&job.copy_id&&<button className="sk-btn sk-quiet" disabled={busy||!available(job.location_id??'device')} onClick={()=>onCheck(job)}><Icon name="check"/>Check this copy</button>}
+      {active(job)&&<button className="sk-btn sk-quiet" disabled={busy||job.state==='cancelling'} onClick={()=>onCancel(job)}><Icon name="stop"/>{job.state==='cancelling'?'Stopping…':'Stop job'}</button>}
+    </div>
+  </article>;
+}
+
+// Apply a remembered theme before the first paint of the app shell.
+{const saved=readTheme();if(saved)document.documentElement.dataset.theme=saved;}
 createRoot(document.getElementById('root')!).render(<StrictMode><App/></StrictMode>);
