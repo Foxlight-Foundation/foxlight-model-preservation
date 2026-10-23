@@ -154,7 +154,8 @@ foxlight-preservation-library
 That is the latest tagged release (0.6.0). PMF, followed sources and peer
 receiving (0.7–0.10) are source previews; see the
 [PMF section](#pmf-source-preview-library-07) for the source install command and
-[CHANGELOG.md](CHANGELOG.md) for what each version added.
+[CHANGELOG.md](CHANGELOG.md) for what each version added. To check a release file
+before installing it, see [verifying a release](../docs/releases.md).
 
 The launcher checks the local Core and opens a private browser link. Use `--check`
 for a read-only report of the actual owner and required API surfaces. If Core is

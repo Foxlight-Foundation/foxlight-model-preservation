@@ -1,7 +1,8 @@
 # Trust and recovery
 
 Obtain the verifier and its dependencies through an authenticated software channel.
-Obtain the public trust profile and expected manifest/catalog IDs through a
+Release files carry checksums and build-provenance attestations; [verifying a
+release](releases.md) explains what they establish. Obtain the public trust profile and expected manifest/catalog IDs through a
 separately authenticated reference: an already enrolled owner, a verified contact,
 or recovery material retained before loss. Check the **entire** public-key
 fingerprint. A peer supplying its own verifier, key and checksums cannot establish
@@ -40,6 +41,7 @@ For a recovery kit, retain:
    independent fingerprint verification procedure.
 3. This protocol, verifier source/wheel, and platform-compatible dependency wheels
    from an authenticated distribution. A wheel alone does not contain dependencies.
+   Keep the release's `SHA256SUMS` and [attestation bundles](releases.md#keep-offline-evidence).
 4. Required inference engines and their separate licenses/install instructions if
    actual offline inference is needed. Model preservation alone does not provision them.
 

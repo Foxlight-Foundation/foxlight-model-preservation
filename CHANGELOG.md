@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Releases are built, checked and attested by `.github/workflows/release.yml`
+  from the pushed `v*` or `library-v*` tag. GitHub build-provenance attestations
+  cover the wheel, sdist and `SHA256SUMS`; see [verifying a release](docs/releases.md).
+  PyPI Trusted Publishing is prepared but not enabled.
 - Peer receiving fails over to the next IPFS content root after a root serves
   bytes that fail verification; previously every later root failed at once.
   `OperationControl.fork()` gives each nested attempt its own control while
