@@ -40,7 +40,7 @@ export function UploadKit({uploads,onReview,onBack,onChange,publicImport=false}:
 }
 
 /** Capture trust, historical evidence and code permission are separate decisions. */
-export function ReviewPlan({plan,busy,online,storageLabel,onBack,onStart}:{plan:Plan;busy:boolean;online:boolean;storageLabel?:string;onBack:()=>void;onStart:(accept:boolean,code:boolean,removed:boolean)=>void}) {
+export function ReviewPlan({plan,busy,online,storageLabel,back='Back to Library',onBack,onStart}:{plan:Plan;busy:boolean;online:boolean;storageLabel?:string;back?:string;onBack:()=>void;onStart:(accept:boolean,code:boolean,removed:boolean)=>void}) {
   const [accept,setAccept]=useState(false),[code,setCode]=useState(false),[removed,setRemoved]=useState(false);
   const recovering=plan.kind==='recover';
   const title=plan.kind==='preserve'?'Keep a verified copy':plan.kind==='kit_export'?'Save a recovery kit':recovering?'Recover this model':'Verify the saved files';
@@ -60,7 +60,7 @@ export function ReviewPlan({plan,busy,online,storageLabel,onBack,onStart}:{plan:
     {(plan.existing_companions?.length??0)>0&&<Callout>Matching companions already installed: {plan.existing_companions?.join(', ')}. Recovery prepares the complete verified generation and keeps the existing files intact for running readers.</Callout>}
     {plan.kind==='kit_export'&&<Callout tone="warn">Download the finished kit and keep it on separate storage. A kit left only on this Core can’t protect you if this Core’s storage is lost.</Callout>}
   </>;
-  return <Sheet kicker={recovering?'Review recovery':plan.kind==='kit_export'?'Portable backup':plan.kind==='preserve'?'Preserve a model':'Check a copy'} title={title} subtitle={plan.model_id} back="Back to Library" onClose={onBack}
+  return <Sheet kicker={recovering?'Review recovery':plan.kind==='kit_export'?'Portable backup':plan.kind==='preserve'?'Preserve a model':'Check a copy'} title={title} subtitle={plan.model_id} back={back} onClose={onBack}
     footer={<><span className="sk-foot-note">{note}</span><button className="sk-btn sk-solid" disabled={Boolean(blocked)} onClick={()=>onStart(accept,code,removed)}>{busy?'Starting…':recovering?'Restore model':plan.kind==='kit_export'?'Create recovery kit':plan.kind==='preserve'?'Preserve model':'Check files'}</button></>}>
     {recovering?<>
       <Step n={1} title="What’s included">{contents}</Step>

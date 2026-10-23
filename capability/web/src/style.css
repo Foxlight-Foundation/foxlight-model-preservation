@@ -439,6 +439,8 @@ main[inert] .sk-scrim {opacity:0;}
   .sk-guided .sk-lede {font-size:15px;margin-bottom:22px;}
   .sk-guided-alt {padding:14px;}
   .sk-supplier {grid-template-columns:minmax(0,1fr);}
+  .sk-share-actions {display:grid;grid-template-columns:minmax(0,1fr);gap:6px;}
+  .sk-share-actions .sk-quiet {justify-content:flex-start;}
   .sk-supplier > .sk-btn {justify-self:start;}
   .sk-sheet {width:100%!important;border-left:0;animation-name:sk-rise;}
   .sk-sheet-head {padding:16px 12px 14px 16px;}
