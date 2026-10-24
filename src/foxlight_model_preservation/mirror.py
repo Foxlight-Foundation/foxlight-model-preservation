@@ -17,7 +17,7 @@ from pydantic import JsonValue
 
 from .discovery import follow_source, refresh_source, search_sources
 from .mirror_models import HeldModel, MirrorObservation, MirrorState, SourceGrant
-from .mirror_native import NativeMirrors
+from .mirror_native import NativeMirrors, PeerSessionRunner
 from .mirror_state import (
     HEADROOM,
     MirrorLedger,
@@ -627,6 +627,7 @@ def run_mirror(
     ready: Callable[[int], None] | None = None,
     prepared: Callable[[int | None], None] | None = None,
     observe: Callable[[MirrorObservation], None] | None = None,
+    native_peer_runner: PeerSessionRunner | None = None,
 ) -> dict[str, JsonValue]:
     """Own selected mirror transports until stop, pause/leave or grant expiry.
 
@@ -639,6 +640,9 @@ def run_mirror(
     Optional synchronous observations report owned activity at most once per
     second plus a drained final status. A failing observer stops and drains the
     controller; observers must remain short and must not grant any authority.
+    A trusted embedding host may select a native peer runner under its own
+    dedicated process owner; ordinary callers retain the standalone supervisor.
+    The adapter does not bypass profile, trust, upload or session permission.
     """
     if public == resume or not 1 <= seconds <= 86400:
         raise PreservationError(
@@ -714,7 +718,7 @@ def run_mirror(
                     return
 
         background = threading.Thread(target=worker)
-        native = NativeMirrors(ledger, authorized)
+        native = NativeMirrors(ledger, authorized, peer_runner=native_peer_runner)
         if web is not None:
             web.start()
         background.start()

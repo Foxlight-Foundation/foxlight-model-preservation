@@ -172,7 +172,10 @@ def _command(
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
-        start_new_session=True,
+        # Native command helpers must remain in their caller's owned group.
+        # They have a bounded PID owner below; detaching would let a killed
+        # embedding host report stopped while a helper still uses its API.
+        start_new_session=False,
     )
     output = bytearray()
     received = 0

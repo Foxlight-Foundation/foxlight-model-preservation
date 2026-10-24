@@ -13,6 +13,7 @@ import time
 from collections.abc import Callable, Generator
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
+from typing import Protocol
 
 from .handoffs import Handoff, peer_contacts
 from .mirror_models import MirrorState, NativeModel, NativePolicy
@@ -37,6 +38,30 @@ from .torrent_binding import torrent_engine
 
 _custody_lock = threading.RLock()
 _publication_lock = threading.Lock()
+
+
+class PeerSessionRunner(Protocol):
+    """Trusted host adapter for one finite, explicitly approved native session.
+
+    A host may supply ``serve_peer`` only when its own dedicated process group
+    and EOF fence own the complete mirror lifetime. The default ``run_peer``
+    supplies its own subprocess supervisor for ordinary standalone callers.
+    This is programmatic composition, never an archive or discovery property.
+    """
+
+    def __call__(
+        self,
+        repo: Path,
+        binary: str,
+        *,
+        allow_network: bool,
+        share_public: bool,
+        seconds: int,
+        max_upload_bytes: int,
+        control: OperationControl,
+    ) -> object:
+        """Run and drain the selected session without extending its authority."""
+        ...
 
 
 def _model_name(manifest: str, name: str | None) -> str:
@@ -247,7 +272,12 @@ def _prepare(ledger: MirrorLedger, manifest: str, control: OperationControl) -> 
 
 
 def _ipfs(
-    ledger: MirrorLedger, manifest: str, policy: NativePolicy, control: OperationControl
+    ledger: MirrorLedger,
+    manifest: str,
+    policy: NativePolicy,
+    control: OperationControl,
+    *,
+    peer_runner: PeerSessionRunner | None = None,
 ) -> None:
     with native_area(ledger, manifest):
         home = (
@@ -288,7 +318,7 @@ def _ipfs(
 
     def run() -> None:
         try:
-            run_peer(
+            (run_peer if peer_runner is None else peer_runner)(
                 repo,
                 binary,
                 allow_network=True,
@@ -425,9 +455,16 @@ class _Session:
 class NativeMirrors:
     """Supervise bounded isolated native sessions under the existing mirror owner."""
 
-    def __init__(self, ledger: MirrorLedger, authorized: Callable[[MirrorState], bool]):
+    def __init__(
+        self,
+        ledger: MirrorLedger,
+        authorized: Callable[[MirrorState], bool],
+        *,
+        peer_runner: PeerSessionRunner | None = None,
+    ):
         self.ledger = ledger
         self.authorized = authorized
+        self.peer_runner = peer_runner
         self.sessions: dict[tuple[str, str], _Session] = {}
         self.failures: list[Exception] = []
         self._usage_at = float("-inf")
@@ -529,9 +566,18 @@ class NativeMirrors:
                 last_started=int(time.time()),
                 session_started=kind,
             )
-            (_ipfs if kind == "ipfs" else _torrent)(
-                self.ledger, manifest, policy, control
-            )
+            if kind == "ipfs" and self.peer_runner is not None:
+                _ipfs(
+                    self.ledger,
+                    manifest,
+                    policy,
+                    control,
+                    peer_runner=self.peer_runner,
+                )
+            else:
+                (_ipfs if kind == "ipfs" else _torrent)(
+                    self.ledger, manifest, policy, control
+                )
         except OperationCancelled:
             pass
         except Exception as error:
