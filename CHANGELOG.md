@@ -1,5 +1,15 @@
 # Changes
 
+## 0.15.1
+
+- Bound mirror network writes separately from disk reads so continuously
+  progressing slow HTTP receivers can complete and resume byte ranges without
+  draining a 1 MiB write inside a single socket timeout. Request/concurrency
+  limits and full-response upload reservations remain unchanged.
+- Recheck persistent mirror serving authority during slow writes. Revocation
+  interrupts transfer, a stalled receiver still times out, and interruptions
+  never refund a conservatively reserved response.
+
 ## 0.15.0
 
 - Add explicit receive-only I2P HTTP catalog refresh and trusted legacy archive
