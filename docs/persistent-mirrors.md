@@ -202,3 +202,21 @@ Do not attach an unmanaged static server directly to `public/` if you expect the
 controller's live pause/grant/budget enforcement. A static host supplies its own
 policy and quotas. Retain the complete state/software/trust and test recovery on
 your actual filesystem. Ordinary HTTP hosting is visible and non-anonymous.
+
+## Slow recipients and upload reservations
+
+The HTTP mirror reads storage in bounded chunks and writes the network in
+16 KiB segments. A slow recipient can continue making progress without having
+to drain a 1 MiB socket write within the 30-second socket timeout. A stalled
+write still times out; worker concurrency stays bounded. During a slow transfer,
+the handler rechecks serving authority between writes at least every 0.1 seconds
+of active processing and at each disk-chunk boundary. A blocked write can delay
+that check until it finishes or times out; controller Stop also interrupts owned
+connections. There is no guarantee that bytes already buffered in the transport
+can be recalled.
+
+Each response reserves its full body allowance before any body is sent. A
+disconnected, paused or revoked response retains that reservation; range retries
+need allowance for their own remaining response. The counter is conservative
+budget usage, not actual peer receipt or wire traffic. None of these events
+deletes retained models.

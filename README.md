@@ -17,13 +17,13 @@ durable and deletion stays with the operator. Skulk is optional.
 ## Install
 
 Python 3.11+ on Linux or macOS, with an authenticated Python/uv toolchain. Use the
-[0.15.0 installation archive](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/v0.15.0)
+[0.15.1 installation archive](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/v0.15.1)
 and its detached attestation bundle. [Verify it first](docs/installation.md),
 extract it, then install into a new directory:
 
 ```sh
-python3 install.py --directory "$HOME/sovereign-0.15.0"
-"$HOME/sovereign-0.15.0/bin/model-preserve" --help
+python3 install.py --directory "$HOME/sovereign-0.15.1"
+"$HOME/sovereign-0.15.1/bin/model-preserve" --help
 ```
 
 The archive contains the exact package wheel, source, hash-locked dependencies

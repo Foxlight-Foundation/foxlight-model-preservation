@@ -9,6 +9,7 @@ import socket
 import socketserver
 import ssl
 import threading
+import time
 from pathlib import Path
 from typing import BinaryIO, cast
 
@@ -221,5 +222,17 @@ class SeedHandler(http.server.BaseHTTPRequestHandler):
             if not chunk:
                 self.close_connection = True
                 return
-            self.wfile.write(chunk)
+            # SocketWriter uses sendall: its timeout covers the entire write,
+            # even when the receiver keeps making progress. Bound network writes
+            # separately from disk reads so a slow route need not drain 1 MiB
+            # within one timeout. Keep the original socket/concurrency limits.
+            view = memoryview(chunk)
+            next_check = time.monotonic() + 0.1
+            for start in range(0, len(view), 16 * 1024):
+                if time.monotonic() >= next_check:
+                    if not self.seed.can_send(self.path):
+                        self.close_connection = True
+                        return
+                    next_check = time.monotonic() + 0.1
+                self.wfile.write(view[start : start + 16 * 1024])
             remaining -= len(chunk)
