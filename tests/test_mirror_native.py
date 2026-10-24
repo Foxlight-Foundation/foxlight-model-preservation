@@ -18,7 +18,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from test_mirror import cycle, mirror
 
 from foxlight_model_preservation.handoffs import read_handoff
-from foxlight_model_preservation.mirror import model_action, run_mirror
+from foxlight_model_preservation.mirror import configure_http, model_action, run_mirror
 from foxlight_model_preservation.mirror_native import (
     NativeMirrors,
     configure,
@@ -422,6 +422,134 @@ def native_binary():
     if not selected:
         pytest.skip("set KUBO_BINARY for actual isolated Kubo acceptance")
     return selected
+
+
+@pytest.mark.parametrize("transport", ["torrent", "ipfs"])
+def test_native_only_controller_receives_without_http_and_retains_after_stop(
+    tmp_path, capture, monkeypatch, transport
+):
+    from test_mirror_intake import local_grant, local_mirror
+
+    from foxlight_model_preservation.mirror_intake import retain_local
+
+    binary = native_binary() if transport == "ipfs" else None
+    if transport == "torrent":
+        pytest.importorskip("libtorrent")
+    else:
+        pytest.importorskip("multiformats")
+    ledger = local_mirror(tmp_path)
+    original = (capture.store / manifest_path(capture.identity)).read_bytes()
+    retain_local(ledger, capture.store, capture.identity, local_grant(capture))
+    configure_http(ledger, enabled=False)
+    configure(
+        ledger,
+        torrent=transport == "torrent",
+        ipfs_binary=binary,
+        ipfs_sha256=hashlib.sha256(Path(binary).read_bytes()).hexdigest()
+        if binary
+        else None,
+        allow_private_peers=transport == "ipfs",
+        session_seconds=120,
+    )
+    shutil.rmtree(capture.store)
+    prepared = threading.Event()
+    failures = []
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("native-only controller constructed HTTP")
+
+    monkeypatch.setattr("foxlight_model_preservation.mirror.MirrorServer", forbidden)
+
+    def run():
+        try:
+            run_mirror(
+                ledger,
+                public=True,
+                seconds=120,
+                ready=forbidden,
+                prepared=lambda _port: prepared.set(),
+            )
+        except BaseException as error:
+            failures.append(error)
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    receiver = handle = None
+    received = tmp_path / "native-only-recipient"
+    try:
+        assert prepared.wait(10)
+        if transport == "torrent":
+            engine = torrent_engine()
+            await_condition(
+                lambda: bool(
+                    ledger.read().native_models.get(capture.identity)
+                    and ledger.read().native_models[capture.identity].last_torrent_port
+                )
+            )
+            record = ledger.read().native_models[capture.identity]
+            metadata = export_reference(ledger, capture.identity, "torrent")
+            received.mkdir()
+            receiver = engine.session(
+                {
+                    "listen_interfaces": "127.0.0.1:0",
+                    "enable_dht": False,
+                    "enable_lsd": False,
+                    "enable_upnp": False,
+                    "enable_natpmp": False,
+                    "alert_mask": 0,
+                }
+            )
+            handle = receiver.add_torrent(
+                {
+                    "ti": engine.torrent_info(engine.bdecode(metadata)),
+                    "save_path": str(received),
+                    "flags": 0,
+                }
+            )
+            handle.connect_peer(("127.0.0.1", record.last_torrent_port))
+            selected_handle = handle
+            await_condition(lambda: selected_handle.status().is_seeding)
+            archive = received / capture.identity
+        else:
+            from test_peer_native import node
+
+            await_condition(
+                lambda: bool(
+                    ledger.read().native_models.get(capture.identity)
+                    and ledger.read().native_models[capture.identity].cid
+                    and ledger.read().native_models[capture.identity].contacts
+                )
+            )
+            record = ledger.read().native_models[capture.identity]
+            handoff = read_handoff(export_reference(ledger, capture.identity, "peer"))
+            with node(
+                tmp_path, "native-only-receiver", binary, bootstrap=record.contacts
+            ) as (_, client, _):
+                assert isinstance(handoff.reference, PeerInvitation)
+                fetch_peer_invitation(
+                    handoff.reference,
+                    capture.trust,
+                    received,
+                    client,
+                    maximum_bytes=10**6,
+                )
+            archive = received
+        assert verify_store(archive, capture.identity, capture.trust)
+        assert (archive / manifest_path(capture.identity)).read_bytes() == original
+        ledger.update(lambda state: state.model_copy(update={"paused": True}))
+        thread.join(20)
+        assert not thread.is_alive() and not failures and not ledger.running()
+        assert verify_store(ledger.path / "store", capture.identity, capture.trust)
+        assert (archive / manifest_path(capture.identity)).read_bytes() == original
+    finally:
+        ledger.update(lambda state: state.model_copy(update={"paused": True}))
+        thread.join(30)
+        if receiver is not None:
+            if handle is not None:
+                receiver.remove_torrent(handle)
+            receiver.pause()
+        del handle
+        del receiver
 
 
 def test_torrent_export_receipt_interruption_retries_without_deleting_copy(

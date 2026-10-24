@@ -5,6 +5,12 @@ selected public models through Kubo/IPFS and libtorrent/BitTorrent as well as
 HTTP. Skulk, its SDK, GPUs and a Foxlight service/account are not prerequisites.
 Ordinary model receiving still starts neither hosting nor a peer network.
 
+HTTP is independent. Use `mirror http --disable` while stopped for native-only
+hosting; it clears standing restart permission and opens no listener. Select the
+native transport separately below. Re-enable HTTP only when desired. This explicit
+choice uses owner-state v4; native configuration and local-copy admission preserve
+it. Older v1/v2/v3 state and restart identities remain readable unchanged.
+
 ## Select software and public transport policy offline
 
 Use the optional `peer` Python extra for IPFS, `bittorrent` for BitTorrent, or

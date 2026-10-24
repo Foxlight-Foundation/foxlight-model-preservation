@@ -1,0 +1,203 @@
+{
+  "generated_with": "attested v0.16.0 / 4c27b11c1134a04ef719f80e9f5b75d3752cbf99",
+  "records": [
+    {
+      "state": {
+        "bind": "127.0.0.1",
+        "clock_floor": 0,
+        "day": "",
+        "disk_bytes": 2147483648,
+        "egress_daily": 1073741824,
+        "egress_day_used": 0,
+        "egress_month_used": 0,
+        "egress_monthly": 1073741824,
+        "identity": {
+          ".": [
+            1,
+            100
+          ],
+          "discovery": [
+            1,
+            103
+          ],
+          "public": [
+            1,
+            102
+          ],
+          "scratch": [
+            1,
+            104
+          ],
+          "store": [
+            1,
+            101
+          ]
+        },
+        "ingress_daily": 1073741824,
+        "ingress_used": 0,
+        "last_cycle": null,
+        "last_error": null,
+        "left": false,
+        "models": {},
+        "month": "",
+        "name": "synthetic legacy policy",
+        "paused": false,
+        "port": 8080,
+        "refresh_seconds": 21600,
+        "reserved_operations": [],
+        "restart": null,
+        "salt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "schema_version": "foxlight.mirror-state.v1",
+        "serve_end": 0,
+        "serve_start": 0,
+        "sources": {}
+      },
+      "policy_id": "8751ab33b0ab93e319f2b1517fd0b96176490b55c6e53d6c8524968956dc2134"
+    },
+    {
+      "state": {
+        "bind": "127.0.0.1",
+        "clock_floor": 0,
+        "day": "",
+        "disk_bytes": 2147483648,
+        "egress_daily": 1073741824,
+        "egress_day_used": 0,
+        "egress_month_used": 0,
+        "egress_monthly": 1073741824,
+        "identity": {
+          ".": [
+            1,
+            100
+          ],
+          "discovery": [
+            1,
+            103
+          ],
+          "public": [
+            1,
+            102
+          ],
+          "scratch": [
+            1,
+            104
+          ],
+          "store": [
+            1,
+            101
+          ]
+        },
+        "ingress_daily": 1073741824,
+        "ingress_used": 0,
+        "last_cycle": null,
+        "last_error": null,
+        "left": false,
+        "models": {},
+        "month": "",
+        "name": "synthetic legacy policy",
+        "paused": false,
+        "port": 8080,
+        "refresh_seconds": 21600,
+        "reserved_operations": [],
+        "restart": null,
+        "salt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "schema_version": "foxlight.mirror-state.v2",
+        "serve_end": 0,
+        "serve_start": 0,
+        "sources": {}
+      },
+      "policy_id": "c5222bff781652fcc48098eb1b08c29af11cfdd5406e1342115486d39e43cf17"
+    },
+    {
+      "state": {
+        "bind": "127.0.0.1",
+        "clock_floor": 0,
+        "day": "",
+        "disk_bytes": 2147483648,
+        "egress_daily": 1073741824,
+        "egress_day_used": 0,
+        "egress_month_used": 0,
+        "egress_monthly": 1073741824,
+        "identity": {
+          ".": [
+            1,
+            100
+          ],
+          "discovery": [
+            1,
+            103
+          ],
+          "public": [
+            1,
+            102
+          ],
+          "scratch": [
+            1,
+            104
+          ],
+          "store": [
+            1,
+            101
+          ]
+        },
+        "ingress_daily": 1073741824,
+        "ingress_used": 0,
+        "last_cycle": null,
+        "last_error": null,
+        "left": false,
+        "models": {
+          "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc": {
+            "blocked": false,
+            "entry_id": null,
+            "envelope_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "error": null,
+            "grant": {
+              "allow_http": false,
+              "allow_local": false,
+              "allow_private": false,
+              "max_bytes": 21474836480,
+              "terms": [
+                {
+                  "license_id": "test-only",
+                  "terms_reference": "LICENSE"
+                }
+              ],
+              "trust": {
+                "as_of": "2026-10-22T00:00:00Z",
+                "keys": [
+                  {
+                    "key_id": "ed25519:ba0a99d6007076febfdadd4fd5564e7a8f9901af240353bf0381e4efd4122918",
+                    "public_key": "xf6KGWVWevKGPXS1CHysTWV6WfM94UX3Fhc3x0zHvAs="
+                  }
+                ],
+                "revoked_keys": [],
+                "schema_version": "foxlight.model-preservation.trust.v1",
+                "threshold": 1
+              }
+            },
+            "mirrors": [],
+            "operation_id": "legacy",
+            "origin": "local",
+            "pinned": false,
+            "source_id": null,
+            "state": "pending",
+            "transfer_bytes": null,
+            "verified_at": null
+          }
+        },
+        "month": "",
+        "name": "synthetic legacy policy",
+        "paused": false,
+        "port": 8080,
+        "refresh_seconds": 21600,
+        "reserved_operations": [],
+        "restart": null,
+        "salt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "schema_version": "foxlight.mirror-state.v3",
+        "serve_end": 0,
+        "serve_start": 0,
+        "sources": {}
+      },
+      "policy_id": "11d0e6ab500e6ae5c97a8332cbb3ad6bc88baa13a655037433a3b73da0c10955"
+    }
+  ]
+}

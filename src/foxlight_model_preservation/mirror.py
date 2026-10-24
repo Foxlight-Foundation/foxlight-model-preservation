@@ -16,7 +16,7 @@ from typing import cast
 from pydantic import JsonValue
 
 from .discovery import follow_source, refresh_source, search_sources
-from .mirror_models import HeldModel, MirrorState, SourceGrant
+from .mirror_models import HeldModel, MirrorObservation, MirrorState, SourceGrant
 from .mirror_native import NativeMirrors
 from .mirror_state import (
     HEADROOM,
@@ -113,6 +113,25 @@ def model_action(ledger: MirrorLedger, manifest_id: str, action: str) -> MirrorS
         raise PreservationError("unsupported mirror model action")
     update = cast(dict[str, object], changes[action])
     return record_model(ledger, manifest_id, update)
+
+
+def configure_http(ledger: MirrorLedger, *, enabled: bool) -> MirrorState:
+    """Choose HTTP serving offline, retaining copies and clearing restart consent.
+
+    This neither binds a listener nor changes selected native transports. An
+    active controller must be stopped first. The explicit v4 owner profile
+    prevents an older mirror from silently ignoring a disabled HTTP transport.
+    """
+    with ledger.service_lock():
+        return ledger.update(
+            lambda state: state.model_copy(
+                update={
+                    "schema_version": "foxlight.mirror-state.v4",
+                    "http_enabled": enabled,
+                    "restart": None,
+                }
+            )
+        )
 
 
 def record_model(
@@ -606,12 +625,20 @@ def run_mirror(
     seconds: int = 3600,
     control: OperationControl | None = None,
     ready: Callable[[int], None] | None = None,
+    prepared: Callable[[int | None], None] | None = None,
+    observe: Callable[[MirrorObservation], None] | None = None,
 ) -> dict[str, JsonValue]:
-    """Own a persistent HTTP controller until stop, pause/leave policy or grant expiry.
+    """Own selected mirror transports until stop, pause/leave or grant expiry.
 
     Manual runs require a fresh explicit public grant and expire within 24 hours.
     Service-manager runs require the separate exact-policy restart grant. Stop
     joins byte work and actual HTTP handlers; no retention is deleted or replayed.
+    The ready callback reports only an enabled HTTP listener's actual port.
+    Prepared reports controller startup with the owned HTTP port or None when
+    disabled, not native publication, public reachability or a new serving grant.
+    Optional synchronous observations report owned activity at most once per
+    second plus a drained final status. A failing observer stops and drains the
+    controller; observers must remain short and must not grant any authority.
     """
     if public == resume or not 1 <= seconds <= 86400:
         raise PreservationError(
@@ -619,9 +646,7 @@ def run_mirror(
         )
     active = control or OperationControl()
     stop = threading.Event()
-    state = ledger.read()
     deadline = time.monotonic() + seconds if public else float("inf")
-    pinned_policy = policy_id(state)
 
     def authorized(current: MirrorState) -> bool:
         return (
@@ -633,18 +658,27 @@ def run_mirror(
             and (not resume or restart_allowed(current))
         )
 
-    if not authorized(state):
-        raise PreservationError(
-            "mirror is paused/left or lacks current restart authority"
-        )
     with ledger.service_lock():
+        state = ledger.read()
+        if not state.http_enabled and not (
+            state.native_policy
+            and (state.native_policy.ipfs_binary or state.native_policy.torrent)
+        ):
+            raise PreservationError("select at least one mirror serving transport")
+        pinned_policy = policy_id(state)
+        if not authorized(state):
+            raise PreservationError(
+                "mirror is paused/left or lacks current restart authority"
+            )
         if (ledger.path / "prune.json").exists():
             raise PreservationError(
                 "finish the interrupted operator prune before serving"
             )
-        server = MirrorServer(ledger, authorized)
-        web = threading.Thread(
-            target=server.serve_forever, kwargs={"poll_interval": 0.1}
+        server = MirrorServer(ledger, authorized) if state.http_enabled else None
+        web = (
+            threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.1})
+            if server is not None
+            else None
         )
         error: list[BaseException] = []
 
@@ -654,13 +688,15 @@ def run_mirror(
                     # Recover the completed intent before any source lookup.
                     recover_completed(ledger, active.fork())
                     # Retained copies remain useful even when all sources are gone.
-                    server.allowed, server.owners = public_selection(
-                        ledger, active.fork()
-                    )
+                    if server is not None:
+                        server.allowed, server.owners = public_selection(
+                            ledger, active.fork()
+                        )
                     reconcile(ledger, active.fork())
-                    server.allowed, server.owners = public_selection(
-                        ledger, active.fork()
-                    )
+                    if server is not None:
+                        server.allowed, server.owners = public_selection(
+                            ledger, active.fork()
+                        )
                 except OperationCancelled:
                     return
                 except (ValueError, OSError) as failure:
@@ -679,26 +715,49 @@ def run_mirror(
 
         background = threading.Thread(target=worker)
         native = NativeMirrors(ledger, authorized)
-        web.start()
+        if web is not None:
+            web.start()
         background.start()
         try:
-            if ready:
+            if prepared:
+                prepared(server.server_port if server is not None else None)
+            if ready and server is not None:
                 ready(server.server_port)
+            next_observation = 0.0
             while time.monotonic() < deadline and not error:
                 active.checkpoint()
                 if not authorized(ledger.read()):
                     break
                 native.tick()
+                if observe is not None and time.monotonic() >= next_observation:
+                    observe(
+                        MirrorObservation(
+                            running=True,
+                            http_port=server.server_port
+                            if server is not None
+                            else None,
+                            native_workers=sum(
+                                session.thread.is_alive()
+                                for session in native.sessions.values()
+                            ),
+                        )
+                    )
+                    next_observation = time.monotonic() + 1
                 stop.wait(0.1)
         finally:
             stop.set()
             active.cancel()
             native.close()
-            server.close_connections()
-            server.shutdown()
+            if server is not None:
+                server.close_connections()
+                server.shutdown()
             background.join()
-            server.server_close()
-            web.join()
+            if server is not None:
+                server.server_close()
+            if web is not None:
+                web.join()
+            if observe is not None:
+                observe(MirrorObservation(running=False, native_workers=0))
         if error:
             raise error[0]
     return {"stopped": True, "retained": True, "network_started": True}

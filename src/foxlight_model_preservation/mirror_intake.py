@@ -137,7 +137,10 @@ def retain_local(
                         def select(current: MirrorState) -> MirrorState:
                             return current.model_copy(
                                 update={
-                                    "schema_version": "foxlight.mirror-state.v3",
+                                    "schema_version": "foxlight.mirror-state.v4"
+                                    if current.schema_version
+                                    == "foxlight.mirror-state.v4"
+                                    else "foxlight.mirror-state.v3",
                                     "models": dict(
                                         current.models, **{manifest_id: held}
                                     ),

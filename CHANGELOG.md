@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## 0.17.0
+
+- Choose HTTP serving independently of persistent IPFS/BitTorrent sessions with
+  `mirror http --enable` or `--disable`. Disabled HTTP constructs no listener;
+  native-only sessions keep their existing trust, budgets, Stop and retention.
+- Bind the choice into explicit owner-state v4 and clear restart permission when
+  it changes. Older v1/v2/v3 state and restart policy identities remain unchanged;
+  local admission and native configuration preserve v4 without downgrading it.
+- Native-only startup reports no HTTP port. It does not grant an unconfigured
+  native transport, change outbound source permissions or start a router. A run
+  with no selected serving transport refuses before worker/network effects.
+- Read startup policy under the owner lock. Add optional typed live activity
+  observations and `mirror run --observe`, with bounded events and a final
+  drained status. Worker/listener activity is not public reachability evidence.
+
 ## 0.16.0
 
 - Admit an independently trusted exact public copy into a persistent mirror

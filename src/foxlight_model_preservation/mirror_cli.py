@@ -10,9 +10,9 @@ from pathlib import Path
 
 from pydantic import JsonValue, TypeAdapter
 
-from .mirror import follow, model_action, plan, run_mirror
+from .mirror import configure_http, follow, model_action, plan, run_mirror
 from .mirror_intake import retain_local
-from .mirror_models import SourceGrant, Terms
+from .mirror_models import MirrorObservation, SourceGrant, Terms
 from .mirror_native import configure, export_reference, write_reference
 from .mirror_prune import prune
 from .mirror_state import MAX_STATE, MirrorLedger, grant_restart
@@ -43,6 +43,8 @@ class MirrorArguments(argparse.Namespace):
     terms_file: Path
     confirm_redistribution: bool
     confirm_reintake: bool
+    http_enabled: bool
+    observe_mirror: bool
     allow_http: bool
     allow_private: bool
     allow_local: bool
@@ -77,6 +79,7 @@ def register_mirror_commands(
         "init",
         "follow",
         "retain",
+        "http",
         "plan",
         "status",
         "run",
@@ -96,6 +99,10 @@ def register_mirror_commands(
     ):
         command = actions.add_parser(name)
         command.add_argument("--dir", dest="mirror_dir", type=Path, required=True)
+        if name == "http":
+            http = command.add_mutually_exclusive_group(required=True)
+            http.add_argument("--enable", dest="http_enabled", action="store_true")
+            http.add_argument("--disable", dest="http_enabled", action="store_false")
         if name == "export":
             command.add_argument(
                 "--kind", dest="export_kind", choices=["peer", "torrent"], required=True
@@ -177,6 +184,12 @@ def register_mirror_commands(
                 help="require the separate standing resume grant",
             )
             command.add_argument("--seconds", type=int, default=3600)
+            command.add_argument(
+                "--observe",
+                dest="observe_mirror",
+                action="store_true",
+                help="emit bounded live controller activity without peer history",
+            )
         if name in (
             "pin",
             "unpin",
@@ -209,6 +222,22 @@ def _input(path: Path) -> bytes:
     return data
 
 
+def _observation(status: MirrorObservation) -> None:
+    print(
+        json.dumps(
+            {"event": "mirror_status", "status": status.model_dump(mode="json")}
+        ),
+        flush=True,
+    )
+
+
+def _prepared(port: int | None) -> None:
+    receipt: dict[str, JsonValue] = {"ready": True, "port": port, "anonymous": False}
+    if port is None:
+        receipt["http_enabled"] = False
+    print(json.dumps(receipt), flush=True)
+
+
 def run_mirror_command(
     arguments: MirrorArguments, control: OperationControl
 ) -> dict[str, JsonValue]:
@@ -232,6 +261,13 @@ def run_mirror_command(
     ledger = MirrorLedger(arguments.mirror_dir)
     if action in ("plan", "status"):
         return plan(ledger)
+    if action == "http":
+        state = configure_http(ledger, enabled=arguments.http_enabled)
+        return {
+            "http_enabled": state.http_enabled,
+            "network_started": False,
+            "restart_grant_invalidated": True,
+        }
     if action == "retain":
         manifest = retain_local(
             ledger,
@@ -283,10 +319,8 @@ def run_mirror_command(
             resume=arguments.resume,
             seconds=arguments.seconds,
             control=control,
-            ready=lambda port: print(
-                json.dumps({"ready": True, "port": port, "anonymous": False}),
-                flush=True,
-            ),
+            prepared=_prepared,
+            observe=_observation if arguments.observe_mirror else None,
         )
     if action == "transports":
         configure(

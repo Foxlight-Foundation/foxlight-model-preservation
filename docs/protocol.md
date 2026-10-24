@@ -153,6 +153,11 @@ no fabricated source identity and grants no network retry route. New selections
 invalidate standing restart permission; existing v1/v2 policy identities remain
 unchanged. This owner-state extension does not extend the signed v1 transport
 domain or flatten PMF into it.
+The optional owner-state v4 profile separately binds HTTP serving enablement.
+Disabling it opens no HTTP listener and grants no native participation. Its
+configuration clears restart permission; legacy v1/v2/v3 wire state and policy
+identities remain unchanged. This does not change outbound source permissions,
+signed archive domains or the explicit native sharing/retention boundary.
 Public binding additionally requires every member's audience to be `public`.
 An ordinary read-only static HTTPS server is the preferred durable hosting path.
 
