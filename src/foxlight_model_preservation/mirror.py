@@ -625,7 +625,7 @@ def run_mirror(
     seconds: int = 3600,
     control: OperationControl | None = None,
     ready: Callable[[int], None] | None = None,
-    prepared: Callable[[], None] | None = None,
+    prepared: Callable[[int | None], None] | None = None,
     observe: Callable[[MirrorObservation], None] | None = None,
 ) -> dict[str, JsonValue]:
     """Own selected mirror transports until stop, pause/leave or grant expiry.
@@ -634,8 +634,8 @@ def run_mirror(
     Service-manager runs require the separate exact-policy restart grant. Stop
     joins byte work and actual HTTP handlers; no retention is deleted or replayed.
     The ready callback reports only an enabled HTTP listener's actual port.
-    Prepared reports controller startup with or without HTTP, not native model
-    publication, public reachability or a new serving grant.
+    Prepared reports controller startup with the owned HTTP port or None when
+    disabled, not native publication, public reachability or a new serving grant.
     Optional synchronous observations report owned activity at most once per
     second plus a drained final status. A failing observer stops and drains the
     controller; observers must remain short and must not grant any authority.
@@ -720,7 +720,7 @@ def run_mirror(
         background.start()
         try:
             if prepared:
-                prepared()
+                prepared(server.server_port if server is not None else None)
             if ready and server is not None:
                 ready(server.server_port)
             next_observation = 0.0

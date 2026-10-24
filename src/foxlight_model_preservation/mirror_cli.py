@@ -231,6 +231,13 @@ def _observation(status: MirrorObservation) -> None:
     )
 
 
+def _prepared(port: int | None) -> None:
+    receipt: dict[str, JsonValue] = {"ready": True, "port": port, "anonymous": False}
+    if port is None:
+        receipt["http_enabled"] = False
+    print(json.dumps(receipt), flush=True)
+
+
 def run_mirror_command(
     arguments: MirrorArguments, control: OperationControl
 ) -> dict[str, JsonValue]:
@@ -306,32 +313,13 @@ def run_mirror_command(
             "model_authority": "mirror only",
         }
     if action == "run":
-        http_enabled = ledger.read().http_enabled
         return run_mirror(
             ledger,
             public=arguments.public,
             resume=arguments.resume,
             seconds=arguments.seconds,
             control=control,
-            ready=lambda port: print(
-                json.dumps({"ready": True, "port": port, "anonymous": False}),
-                flush=True,
-            ),
-            prepared=lambda: (
-                None
-                if http_enabled
-                else print(
-                    json.dumps(
-                        {
-                            "ready": True,
-                            "port": None,
-                            "http_enabled": False,
-                            "anonymous": False,
-                        }
-                    ),
-                    flush=True,
-                )
-            ),
+            prepared=_prepared,
             observe=_observation if arguments.observe_mirror else None,
         )
     if action == "transports":

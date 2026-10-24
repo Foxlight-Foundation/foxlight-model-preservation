@@ -463,7 +463,11 @@ def test_native_only_controller_receives_without_http_and_retains_after_stop(
     def run():
         try:
             run_mirror(
-                ledger, public=True, seconds=120, ready=forbidden, prepared=prepared.set
+                ledger,
+                public=True,
+                seconds=120,
+                ready=forbidden,
+                prepared=lambda _port: prepared.set(),
             )
         except BaseException as error:
             failures.append(error)

@@ -14,6 +14,7 @@ import pytest
 from test_mirror_intake import local_grant, local_mirror
 
 from foxlight_model_preservation.mirror import configure_http, run_mirror
+from foxlight_model_preservation.mirror_cli import MirrorArguments, run_mirror_command
 from foxlight_model_preservation.mirror_intake import retain_local
 from foxlight_model_preservation.mirror_models import MirrorState
 from foxlight_model_preservation.mirror_native import configure
@@ -24,6 +25,7 @@ from foxlight_model_preservation.mirror_state import (
     restart_allowed,
 )
 from foxlight_model_preservation.models import PreservationError
+from foxlight_model_preservation.operations import OperationCancelled, OperationControl
 
 
 def test_released_legacy_state_and_restart_identity_vectors():
@@ -88,6 +90,65 @@ def test_startup_reads_policy_only_after_acquiring_owner_lock(tmp_path, monkeypa
     assert not ledger.running() and not ledger.read().http_enabled
 
 
+@pytest.mark.parametrize("enabled", [False, True])
+def test_cli_first_receipt_uses_locked_policy_after_configuration_race(
+    tmp_path, monkeypatch, capsys, enabled
+):
+    import foxlight_model_preservation.mirror_cli as cli
+
+    ledger = local_mirror(tmp_path)
+    configure_http(ledger, enabled=not enabled)
+    monkeypatch.setattr(
+        "foxlight_model_preservation.mirror_native.torrent_engine", lambda: None
+    )
+    configure(ledger, torrent=True)
+    service_lock = ledger.service_lock
+
+    @contextmanager
+    def startup_lock():
+        monkeypatch.setattr(ledger, "service_lock", service_lock)
+        configure_http(ledger, enabled=enabled)
+        with service_lock():
+            yield
+
+    monkeypatch.setattr(ledger, "service_lock", startup_lock)
+    monkeypatch.setattr(cli, "MirrorLedger", lambda path: ledger)
+    control = OperationControl()
+    observation = cli._observation
+
+    def observe(status):
+        observation(status)
+        if status.running:
+            control.cancel()
+
+    monkeypatch.setattr(cli, "_observation", observe)
+    arguments = MirrorArguments(
+        mirror_action="run",
+        mirror_dir=ledger.path,
+        public=True,
+        resume=False,
+        seconds=60,
+        observe_mirror=True,
+    )
+    with pytest.raises(OperationCancelled):
+        run_mirror_command(arguments, control)
+    records = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert len(records) == 3 and records[0]["ready"] is True
+    if enabled:
+        assert 1 <= records[0]["port"] <= 65535
+        assert "http_enabled" not in records[0]  # Preserve released HTTP receipt.
+    else:
+        assert records[0]["port"] is None and records[0]["http_enabled"] is False
+    assert records[1]["event"] == records[2]["event"] == "mirror_status"
+    assert records[1]["status"]["http_port"] == records[0]["port"]
+    assert records[2]["status"] == {
+        "running": False,
+        "http_port": None,
+        "native_workers": 0,
+    }
+    assert not ledger.running()
+
+
 @pytest.mark.parametrize("observer_failure", [False, True])
 def test_native_only_owner_never_constructs_http_listener_and_drains_on_pause(
     tmp_path, capture, monkeypatch, observer_failure
@@ -129,7 +190,7 @@ def test_native_only_owner_never_constructs_http_listener_and_drains_on_pause(
             run_mirror(
                 ledger,
                 resume=True,
-                prepared=prepared.set,
+                prepared=lambda _port: prepared.set(),
                 ready=forbidden,
                 observe=observe,
             )
