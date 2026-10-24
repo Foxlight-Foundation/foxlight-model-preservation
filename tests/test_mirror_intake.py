@@ -373,8 +373,74 @@ def test_complete_crash_intent_recovers_offline_and_prune_does_not_readmit(
     prune(ledger, capture.identity, capture.identity)
     reconcile(ledger, OperationControl())
     assert ledger.read().models[capture.identity].state == "removed"
-    with pytest.raises(PreservationError, match="explicit mirror retry"):
+    with pytest.raises(PreservationError, match="explicit reintake confirmation"):
         retain_local(ledger, capture.store, capture.identity, local_grant(capture))
+
+
+def test_removed_local_retry_cannot_wedge_prune_and_reintake_needs_fresh_consent(
+    tmp_path, capture
+):
+    ledger = local_mirror(tmp_path)
+    first = capture.identity
+    other = pack(
+        capture.recipe.model_copy(update={"name": "other selected model"}),
+        capture.sources,
+        capture.store,
+        (capture.key,),
+    )
+    grant = local_grant(capture)
+    for identity in (first, other):
+        retain_local(ledger, capture.store, identity, grant)
+        model_action(ledger, identity, "block")
+    prune(ledger, first, first)
+    with pytest.raises(PreservationError, match="confirm-reintake"):
+        model_action(ledger, first, "retry")
+    assert ledger.read().models[first].state == "removed"
+    prune(ledger, other, other)
+    assert not (ledger.path / "prune.json").exists()
+    grant_restart(ledger, int(time.time()) + 600)
+    with pytest.raises(PreservationError, match="explicit reintake confirmation"):
+        retain_local(ledger, capture.store, first, grant)
+    retain_local(ledger, capture.store, first, grant, confirm_reintake=True)
+    held = ledger.read().models[first]
+    assert held.state == "retained" and held.blocked
+    assert ledger.read().restart is None
+    with pytest.raises(PreservationError, match="needs a removed"):
+        retain_local(ledger, capture.store, first, grant, confirm_reintake=True)
+
+
+@pytest.mark.parametrize("committed", [False, True])
+def test_selection_crash_always_retains_signed_metadata_before_owned_objects(
+    tmp_path, capture, monkeypatch, committed
+):
+    ledger = local_mirror(tmp_path)
+    original = ledger.update
+
+    def interrupted(action):
+        private = ledger.path / "scratch/local-intake" / (capture.identity + ".json")
+        assert (
+            private.read_bytes()
+            == (capture.store / manifest_path(capture.identity)).read_bytes()
+        )
+        if committed:
+            original(action)
+        raise KeyboardInterrupt("selection commit interrupted")
+
+    with monkeypatch.context() as interruption:
+        interruption.setattr(ledger, "update", interrupted)
+        with pytest.raises(KeyboardInterrupt):
+            retain_local(ledger, capture.store, capture.identity, local_grant(capture))
+    assert not (ledger.path / "store/objects").exists()
+    if committed:
+        model_action(ledger, capture.identity, "block")
+        prune(ledger, capture.identity, capture.identity)
+        assert ledger.read().models[capture.identity].state == "removed"
+    else:
+        assert not ledger.read().models
+        # Unselected metadata grants no custody or sharing. A deliberate retry
+        # can authenticate that same selection and complete it normally.
+        retain_local(ledger, capture.store, capture.identity, local_grant(capture))
+        assert ledger.read().models[capture.identity].state == "retained"
 
 
 def test_signed_wrapper_drift_is_not_silently_reinterpreted(tmp_path, capture):

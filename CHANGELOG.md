@@ -17,6 +17,10 @@
   operator prune of interrupted local copies after input loss while protecting
   shared objects. Explicit retry can restore a damaged wrapper only from the
   independently authenticated, originally pinned bytes.
+- Keep removed local selections as tombstones. Re-admission requires separate
+  `--confirm-reintake`, keeps their block/accounting and clears restart consent.
+  Persist signed metadata before ledger selection so interrupted admission or
+  removed-copy retry cannot wedge deletion of another retained model.
 
 - Add bounded private per-attempt client/origin observations to the explicit
   synthetic public I2P drill. Controlled faults distinguish header/body timeouts,

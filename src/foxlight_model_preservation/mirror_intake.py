@@ -32,13 +32,15 @@ def retain_local(
     grant: SourceGrant,
     *,
     control: OperationControl | None = None,
+    confirm_reintake: bool = False,
 ) -> Manifest:
     """Copy one exact public selection offline without following a source or serving.
 
     The caller supplies independently accepted model keys, the exact manifest ID
     and reviewed terms for every member. Existing selection authority cannot be
-    replaced. A new write-ahead selection invalidates standing restart consent;
-    failed or interrupted copies retain their bytes and need explicit retry.
+    replaced. Re-admitting a removed selection needs separate confirmation and
+    preserves its block/accounting. A new write-ahead selection invalidates
+    restart consent; failed copies retain bytes and need explicit retry.
     Original envelope bytes are committed only after every object is copied and
     verified. No signing, network, runtime admission or deletion occurs.
 
@@ -77,13 +79,27 @@ def retain_local(
                     raise PreservationError(
                         "existing selection keeps its original authority"
                     )
-                if previous.state == "removed" or previous.error:
+                if previous.state == "removed" and not confirm_reintake:
+                    raise PreservationError(
+                        "removed local selection needs explicit reintake confirmation"
+                    )
+                if previous.error:
                     raise PreservationError(
                         "explicit mirror retry is required before local intake"
                     )
-                held = previous
+                held = (
+                    previous.model_copy(
+                        update={"state": "pending", "verified_at": None}
+                    )
+                    if previous.state == "removed"
+                    else previous
+                )
             elif len(state.models) >= 1000:
                 raise PreservationError("mirror selection ledger at capacity")
+            if confirm_reintake and (previous is None or previous.state != "removed"):
+                raise PreservationError(
+                    "reintake confirmation needs a removed local selection"
+                )
 
             with ledger.child("store") as target, writer_lock(target):
                 try:
@@ -108,26 +124,28 @@ def retain_local(
                 ):
                     raise PreservationError("mirror disk admission budget exhausted")
                 active.checkpoint()
-                if previous is None:
-
-                    def select(current: MirrorState) -> MirrorState:
-                        return current.model_copy(
-                            update={
-                                "schema_version": "foxlight.mirror-state.v3",
-                                "models": dict(current.models, **{manifest_id: held}),
-                                "restart": None,
-                            }
-                        )
-
-                    ledger.update(select)
                 try:
-                    # Retain signed selection metadata before copying. It is a
-                    # private intent, never a published complete generation, and
-                    # lets explicit prune identify partial bytes after input loss.
+                    # Persist signed metadata before the selection and any object
+                    # copy. A crash can leave unselected private metadata, never
+                    # an admitted partial without its authenticated file table.
                     with ledger.child("scratch") as scratch:
                         atomic_bytes(
                             scratch, "local-intake/" + manifest_id + ".json", envelope
                         )
+                    if previous is None or previous.state == "removed":
+
+                        def select(current: MirrorState) -> MirrorState:
+                            return current.model_copy(
+                                update={
+                                    "schema_version": "foxlight.mirror-state.v3",
+                                    "models": dict(
+                                        current.models, **{manifest_id: held}
+                                    ),
+                                    "restart": None,
+                                }
+                            )
+
+                        ledger.update(select)
                     for file in files:
                         copy_verified_object(
                             source,
@@ -154,6 +172,10 @@ def retain_local(
                     )
                     active.mark_committed()
                 except (ValueError, OSError) as error:
-                    record_model(ledger, manifest_id, {"error": failure_code(error)})
+                    selected = ledger.read().models.get(manifest_id)
+                    if selected is not None and selected.state != "removed":
+                        record_model(
+                            ledger, manifest_id, {"error": failure_code(error)}
+                        )
                     raise
     return manifest

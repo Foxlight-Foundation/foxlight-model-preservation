@@ -114,6 +114,17 @@ archive or an HTTP route. It permits explicit prune of partial local custody
 after input loss. Prune rechecks its exact hash, signatures and terms and protects
 objects shared by other complete or partial local selections. Its write-ahead
 deletion journal remains resumable if removal is interrupted.
+The signed metadata is durable before the selection enters the ledger, so a
+crash can leave unselected private metadata but no admitted partial selection
+without its authenticated file table. Unselected metadata owns no model objects,
+cannot be served, and counts toward disk usage.
+
+A removed local selection stays a tombstone: ordinary `mirror retry` refuses
+instead of turning it into a partial copy without metadata. To deliberately
+copy it again, repeat its original `mirror retain` command with the separate
+`--confirm-reintake` flag. The original keys, terms, wrapper, block and accounting
+remain; restart consent is cleared. Unblock and grant serving separately if
+desired. Retrying one removed selection cannot prevent pruning a different model.
 
 This direct local adapter accepts the existing preservation-v1 public transport
 profile. PMF network transport remains separate: a PMF envelope refuses before

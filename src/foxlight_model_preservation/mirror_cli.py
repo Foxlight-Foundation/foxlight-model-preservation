@@ -42,6 +42,7 @@ class MirrorArguments(argparse.Namespace):
     mirror_trust: Path
     terms_file: Path
     confirm_redistribution: bool
+    confirm_reintake: bool
     allow_http: bool
     allow_private: bool
     allow_local: bool
@@ -158,6 +159,11 @@ def register_mirror_commands(
             command.add_argument(
                 "--store", dest="local_store", type=Path, required=True
             )
+            command.add_argument(
+                "--confirm-reintake",
+                action="store_true",
+                help="separately authorize copying a removed exact selection again",
+            )
         if name == "run":
             choice = command.add_mutually_exclusive_group(required=True)
             choice.add_argument(
@@ -239,6 +245,7 @@ def run_mirror_command(
                 max_bytes=arguments.max_bytes,
             ),
             control=control,
+            confirm_reintake=arguments.confirm_reintake,
         )
         return {
             "manifest": arguments.mirror_manifest,

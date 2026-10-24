@@ -136,6 +136,14 @@ def record_model(
         selected_changes = dict(changes)
         if (
             changes.get("state") == "pending"
+            and state.models[manifest_id].origin == "local"
+            and state.models[manifest_id].state == "removed"
+        ):
+            raise PreservationError(
+                "removed local selection needs mirror retain --confirm-reintake"
+            )
+        if (
+            changes.get("state") == "pending"
             and (record := state.native_models.get(manifest_id)) is not None
             and record.error
             and state.models[manifest_id].state == "retained"
