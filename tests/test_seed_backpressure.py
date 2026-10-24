@@ -35,6 +35,8 @@ def slow_peer(capture, tmp_path, *, size=512 * 1024):
             self.request.settimeout(0.25)
 
     class ControlledSeed(SeedServer):
+        finished_at: float | None = None
+
         def can_send(self, path):
             return not revoked.is_set()
 
@@ -42,6 +44,7 @@ def slow_peer(capture, tmp_path, *, size=512 * 1024):
             try:
                 super().process_request_thread(request, client_address)
             finally:
+                self.finished_at = time.monotonic()
                 finished.set()
 
     server = ControlledSeed(("127.0.0.1", 0), store, (identity,), capture.trust)
@@ -123,12 +126,14 @@ def test_revocation_interrupts_slow_body_without_refunding_upload(capture, tmp_p
         incoming = client.getresponse()
         assert incoming.status == 200
         body = bytearray(incoming.read(1024))
-        revoked.set()
         started = time.monotonic()
+        revoked.set()
         while chunk := incoming.read(1024):
             body.extend(chunk)
             time.sleep(0.005)
         assert len(body) < len(payload)
         assert finished.wait(2)
-        assert time.monotonic() - started < 5
+        # Buffered TCP bytes may drain slowly after the worker has stopped.
+        assert server.finished_at is not None
+        assert 0 <= server.finished_at - started < 5
         assert server.reserved_upload_bytes == len(payload)
