@@ -208,3 +208,4 @@ def test_generated_zip_has_a_complete_checked_installation_closure(
         assert all("/" not in name for name in archive.namelist())
         archive.extractall(extracted)
     install_release.validate_assets(extracted, "requirements-peer.lock")
+    install_release.validate_assets(extracted, "requirements-mirror.lock")

@@ -2,11 +2,54 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
-from .models import Digest, Identifier, Record, TrustProfile
+from .models import Digest, Identifier, PreservationError, Record, TrustProfile
+from .torrent import TorrentExport
+
+NativeCustodyName = Annotated[str, Field(pattern=r"^[a-f0-9]{64}-[a-f0-9]{24}$")]
+
+
+class NativePolicy(Record):
+    """Explicit public native transports and finite, durably reserved sessions."""
+
+    identity: tuple[int, int]
+    ipfs_binary: str | None = None
+    ipfs_sha256: Digest | None = None
+    bootstrap: tuple[str, ...] = Field(default=(), max_length=8)
+    allow_private_peers: bool = False
+    torrent: bool = False
+    max_active: int = Field(default=2, ge=1, le=4)
+    session_seconds: int = Field(default=3600, ge=1, le=86400)
+    session_bytes: int = Field(default=64 * 1024**2, ge=1, le=2**53 - 1)
+    upload_rate: int = Field(default=1024**2, ge=1024, le=100 * 1024**2)
+
+
+class NativeModel(Record):
+    """Local custody or refusal receipt; a receipt alone never implies bytes."""
+
+    identity: tuple[int, int] | None = None
+    custody_name: NativeCustodyName | None = None
+    pending_custody: tuple[NativeCustodyName, ...] = Field(default=(), max_length=256)
+    ipfs_identity: tuple[int, int] | None = None
+    ipfs_repo: str = Field(default="ipfs", pattern=r"^ipfs(?:-[a-f0-9]{24})?$")
+    torrent: TorrentExport | None = None
+    torrent_directory: str = Field(
+        default="torrent", pattern=r"^torrent(?:-[a-f0-9]{24})?$"
+    )
+    cid: str | None = None
+    error: str | None = None
+    last_started: int | None = None
+    last_stopped: int | None = None
+    disk_reservation: int = Field(default=0, ge=0)
+    contacts: tuple[str, ...] = Field(default=(), max_length=8)
+    last_torrent_port: int = Field(default=0, ge=0, le=65535)
+    publications: int = Field(default=0, ge=0)
+    session_counts: dict[Literal["ipfs", "torrent"], int] = Field(
+        default_factory=dict, max_length=2
+    )
 
 
 class Terms(Record):
@@ -53,7 +96,9 @@ class RestartGrant(Record):
 class MirrorState(Record):
     """One atomic owner-only policy/ledger with conservative durable reservations."""
 
-    schema_version: Literal["foxlight.mirror-state.v1"] = "foxlight.mirror-state.v1"
+    schema_version: Literal["foxlight.mirror-state.v1", "foxlight.mirror-state.v2"] = (
+        "foxlight.mirror-state.v1"
+    )
     identity: dict[str, tuple[int, int]]
     name: str = Field(min_length=1, max_length=200)
     salt: Digest
@@ -80,3 +125,18 @@ class MirrorState(Record):
     reserved_operations: tuple[Identifier, ...] = Field(default=(), max_length=2000)
     last_cycle: int | None = None
     last_error: str | None = None
+    native_policy: NativePolicy | None = None
+    native_models: dict[Digest, NativeModel] = Field(
+        default_factory=dict, max_length=1000
+    )
+
+    @model_validator(mode="after")
+    def native_profile_version(self) -> MirrorState:
+        """Native custody needs the explicit v2 profile, not a reinterpreted v1."""
+        if (
+            self.native_policy or self.native_models
+        ) and self.schema_version != "foxlight.mirror-state.v2":
+            raise PreservationError("native mirror policy requires state v2")
+        if self.native_models and self.native_policy is None:
+            raise PreservationError("native custody requires its enrolled policy")
+        return self

@@ -17,6 +17,7 @@ from pydantic import JsonValue
 
 from .discovery import follow_source, refresh_source, search_sources
 from .mirror_models import HeldModel, MirrorState, SourceGrant
+from .mirror_native import NativeMirrors
 from .mirror_state import (
     HEADROOM,
     MirrorLedger,
@@ -121,10 +122,24 @@ def _record(
         if manifest_id not in state.models:
             raise PreservationError("unknown retained mirror selection")
         models = dict(state.models)
+        selected_changes = dict(changes)
+        if (
+            changes.get("state") == "pending"
+            and (record := state.native_models.get(manifest_id)) is not None
+            and record.error
+            and state.models[manifest_id].state == "retained"
+            and not state.models[manifest_id].error
+        ):
+            # Retrying native admission need not wait for a new catalog refresh
+            # or make a complete healthy HTTP copy disappear.
+            selected_changes["state"] = "retained"
         models[manifest_id] = HeldModel.model_validate(
-            state.models[manifest_id].model_copy(update=changes).model_dump()
+            state.models[manifest_id].model_copy(update=selected_changes).model_dump()
         )
-        return state.model_copy(update={"models": models})
+        native = dict(state.native_models)
+        if changes.get("state") == "pending" and manifest_id in native:
+            native[manifest_id] = native[manifest_id].model_copy(update={"error": None})
+        return state.model_copy(update={"models": models, "native_models": native})
 
     return ledger.update(apply)
 
@@ -150,9 +165,10 @@ def _policy(grant: SourceGrant, maximum: int | None = None) -> TransferPolicy:
     )
 
 
-def _verified(
+def verify_retained(
     root: int, identity: str, held: HeldModel, control: OperationControl
 ) -> Manifest:
+    """Verify original model trust, public terms and every retained object."""
     manifest = verify_manifest(
         read_metadata(root, manifest_path(identity)), held.grant.trust, identity
     )
@@ -173,7 +189,7 @@ def recover_completed(ledger: MirrorLedger, control: OperationControl) -> None:
             continue
         try:
             with ledger.child("store") as store:
-                _verified(store, identity, held, control.fork())
+                verify_retained(store, identity, held, control.fork())
         except OperationCancelled:
             raise
         except (ValueError, OSError):
@@ -320,7 +336,7 @@ def reconcile(ledger: MirrorLedger, control: OperationControl) -> None:
                     expected_directory=ledger.read().identity["store"],
                 )
             with ledger.child("store") as store:
-                _verified(store, identity, held, control.fork())
+                verify_retained(store, identity, held, control.fork())
             _record(
                 ledger,
                 identity,
@@ -388,6 +404,7 @@ def public_selection(
     owners: dict[str, set[str]] = {}
     state = ledger.read()
     with (
+        ledger.content_lock(),
         ledger.child("store") as source,
         writer_lock(source),
         ledger.child("public") as target,
@@ -396,7 +413,7 @@ def public_selection(
             if held.blocked or held.error or held.state != "retained":
                 continue
             try:
-                manifest = _verified(source, identity, held, control.fork())
+                manifest = verify_retained(source, identity, held, control.fork())
                 _terms(manifest, held.grant)
                 paths = {
                     object_path(f.sha256): f.size for f in unique_objects(manifest)
@@ -629,6 +646,7 @@ def run_mirror(
                     return
 
         background = threading.Thread(target=worker)
+        native = NativeMirrors(ledger, authorized)
         web.start()
         background.start()
         try:
@@ -638,10 +656,12 @@ def run_mirror(
                 active.checkpoint()
                 if not authorized(ledger.read()):
                     break
+                native.tick()
                 stop.wait(0.1)
         finally:
             stop.set()
             active.cancel()
+            native.close()
             server.close_connections()
             server.shutdown()
             background.join()

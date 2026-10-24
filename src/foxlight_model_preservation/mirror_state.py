@@ -16,7 +16,7 @@ from typing import TypeVar
 
 from .mirror_models import MirrorState, RestartGrant
 from .models import PreservationError
-from .signing import digest, encode_record, strict_json
+from .signing import digest, strict_json
 from .storage import atomic_bytes, directory, open_file, writer_lock
 
 T = TypeVar("T")
@@ -25,13 +25,31 @@ HEADROOM = 256 * 1024**2
 DIRECTORIES = (".", "store", "public", "discovery", "scratch")
 
 
+def encode_state(state: MirrorState) -> bytes:
+    """Keep legacy HTTP state bytes free of optional native-profile fields."""
+    value = state.model_dump(mode="json")
+    if state.native_policy is None and not state.native_models:
+        value.pop("native_policy")
+        value.pop("native_models")
+    from .signing import canonical_bytes
+
+    return canonical_bytes(value)
+
+
 class MirrorLedger:
     """Bound a controller to enrolled directory identities and an atomic ledger."""
 
     def __init__(self, path: Path):
         self.path = path.absolute()
         self._mutex = threading.RLock()
+        self._content_mutex = threading.RLock()
         self._identity = self.read().identity
+
+    @contextmanager
+    def content_lock(self) -> Generator[None]:
+        """Serialize this owner's ctime-sensitive reads and public hardlink writes."""
+        with self._content_mutex:
+            yield
 
     @staticmethod
     def initialize(path: Path, **config: object) -> MirrorLedger:
@@ -52,7 +70,7 @@ class MirrorLedger:
                     clock_floor=int(time.time()),
                 )
             )
-            atomic_bytes(root, "mirror.json", encode_record(state))
+            atomic_bytes(root, "mirror.json", encode_state(state))
         return MirrorLedger(path)
 
     @contextmanager
@@ -112,7 +130,7 @@ class MirrorLedger:
         """Fsync a complete transaction; contention refuses safely."""
         with self._mutex, self.root() as root, writer_lock(root):
             state = MirrorState.model_validate(action(self.read()).model_dump())
-            raw = encode_record(state)
+            raw = encode_state(state)
             if len(raw) > MAX_STATE:
                 raise PreservationError("mirror state exceeds its bound")
             atomic_bytes(root, "mirror.json", raw)
@@ -163,10 +181,28 @@ class MirrorLedger:
                     count += 1
                     if count > 200000:
                         raise PreservationError("mirror tree exceeds inventory bound")
-                    info = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                    try:
+                        info = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                    except FileNotFoundError:
+                        # Owned exporters remove stages concurrently. Missing
+                        # files consume no current disk; verification is separate.
+                        continue
                     if stat.S_ISDIR(info.st_mode):
-                        child = os.open(name, os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
                         try:
+                            child = os.open(
+                                name, os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd
+                            )
+                        except FileNotFoundError:
+                            continue
+                        try:
+                            pinned = os.fstat(child)
+                            if (pinned.st_dev, pinned.st_ino) != (
+                                info.st_dev,
+                                info.st_ino,
+                            ):
+                                raise PreservationError(
+                                    "mirror inventory directory changed"
+                                )
                             walk(child, depth + 1)
                         finally:
                             os.close(child)
@@ -256,7 +292,7 @@ def serving_hour(state: MirrorState, hour: int) -> bool:
 def policy_id(state: MirrorState) -> str:
     """Bind restart authority to directory, sources, model trust and resource policy."""
     return digest(
-        encode_record(
+        encode_state(
             state.model_copy(
                 update={
                     "models": {},
@@ -272,6 +308,7 @@ def policy_id(state: MirrorState) -> str:
                     "reserved_operations": (),
                     "last_cycle": None,
                     "last_error": None,
+                    "native_models": {},
                 }
             )
         )

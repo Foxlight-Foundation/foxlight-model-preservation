@@ -12,6 +12,7 @@ from pydantic import JsonValue, TypeAdapter
 
 from .mirror import follow, model_action, plan, run_mirror
 from .mirror_models import SourceGrant, Terms
+from .mirror_native import configure, export_reference, write_reference
 from .mirror_prune import prune
 from .mirror_state import MAX_STATE, MirrorLedger, grant_restart
 from .models import PreservationError
@@ -50,6 +51,17 @@ class MirrorArguments(argparse.Namespace):
     confirm_manifest: str
     resume_expires: int
     confirm_resume: bool
+    ipfs_binary: str | None
+    ipfs_sha256: str | None
+    torrent: bool
+    bootstrap: list[str]
+    allow_private_peers: bool
+    max_active: int
+    session_seconds: int
+    session_bytes: int
+    upload_rate: int
+    export_kind: str
+    export_output: Path
 
 
 def register_mirror_commands(
@@ -75,9 +87,31 @@ def register_mirror_commands(
         "unblock",
         "retry",
         "prune",
+        "transports",
+        "export",
     ):
         command = actions.add_parser(name)
         command.add_argument("--dir", dest="mirror_dir", type=Path, required=True)
+        if name == "export":
+            command.add_argument(
+                "--kind", dest="export_kind", choices=["peer", "torrent"], required=True
+            )
+            command.add_argument(
+                "--output", dest="export_output", type=Path, required=True
+            )
+        if name == "transports":
+            command.add_argument("--ipfs", dest="ipfs_binary")
+            command.add_argument("--ipfs-sha256")
+            command.add_argument("--torrent", action="store_true")
+            command.add_argument("--bootstrap", action="append", default=[])
+            command.add_argument("--allow-private-peers", action="store_true")
+            command.add_argument("--max-active", type=int, default=2)
+            command.add_argument("--session-seconds", type=int, default=3600)
+            command.add_argument("--session-bytes", type=int, default=64 * 1024**2)
+            command.add_argument("--upload-rate", type=int, default=1024**2)
+            command.add_argument(
+                "--confirm-public-transports", action="store_true", required=True
+            )
         if name == "init":
             command.add_argument("--name", required=True)
             for flag, default in (
@@ -129,7 +163,7 @@ def register_mirror_commands(
                 help="require the separate standing resume grant",
             )
             command.add_argument("--seconds", type=int, default=3600)
-        if name in ("pin", "unpin", "block", "unblock", "retry", "prune"):
+        if name in ("pin", "unpin", "block", "unblock", "retry", "prune", "export"):
             command.add_argument("--manifest", dest="mirror_manifest", required=True)
         if name == "prune":
             command.add_argument("--confirm-manifest", required=True)
@@ -209,6 +243,30 @@ def run_mirror_command(
                 flush=True,
             ),
         )
+    if action == "transports":
+        configure(
+            ledger,
+            ipfs_binary=arguments.ipfs_binary,
+            ipfs_sha256=arguments.ipfs_sha256,
+            torrent=arguments.torrent,
+            bootstrap=tuple(arguments.bootstrap),
+            allow_private_peers=arguments.allow_private_peers,
+            max_active=arguments.max_active,
+            session_seconds=arguments.session_seconds,
+            session_bytes=arguments.session_bytes,
+            upload_rate=arguments.upload_rate,
+        )
+        return {
+            "configured": True,
+            "network_started": False,
+            "restart_grant_invalidated": True,
+        }
+    if action == "export":
+        data = export_reference(
+            ledger, arguments.mirror_manifest, arguments.export_kind
+        )
+        write_reference(arguments.export_output, data)
+        return {"exported": True, "network_started": False, "grants_imported": False}
     if action == "grant-resume":
         grant_restart(ledger, arguments.resume_expires)
     elif action == "revoke-resume":
