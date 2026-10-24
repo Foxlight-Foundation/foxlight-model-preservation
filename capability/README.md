@@ -419,3 +419,47 @@ Activity and downloads belong to Core and survive closing Library. Stop drains
 the actual native session; Core restart interrupts work without replaying it.
 Peer publishing/sharing controls and direct PMF peer transport are separate
 features. Standalone operator tools remain available without Skulk.
+
+
+## I2P source and receiving controls
+
+**Source preview:** these controls are not part of the published Library 0.11.0
+cohort. They require the compatible Core source with I2P job contracts and the
+retained receiving-policy preview. Library checks actual OpenAPI fields rather
+than inferring support from a version or an existing route. An older Core keeps
+its direct/peer workflows; protected sources and I2P-only references cannot
+silently become direct requests.
+
+In **Find → Add a source**, choose a trusted source file, then **I2P only** under
+Source connection. Review canonical `http://…b32.i2p` metadata endpoints and an
+already configured numeric loopback HTTP proxy on the **Core host**, which may
+be a different device from the browser. Trusting the source for listings and
+allowing its I2P connections are separate choices. Confirming starts one durable
+metadata update; opening Find or searching saved listings contacts no supplier.
+The source retains its local I2P-only policy across page/Core restarts. Refresh
+and model-detail actions bind that exact policy and refuse drift before effects.
+
+Reviewing model details does not download weights. The model download has its
+own proxy/connection consent, finite allowance and exact-copy review. Direct
+HTTP(S) references can select I2P only when they contain supported I2P model
+mirrors. Unsupported hints are excluded, with no direct/outproxy fallback.
+Independent model-key/identity acceptance, registry provenance and repository-code
+permission retain their existing separate boundaries. Downloading starts no
+sharing, installation or model execution.
+
+Activity owns progress and Stop. Resume displays the saved original local proxy,
+requires fresh I2P confirmation and retains the same job, partials, trust and
+remaining cumulative allowance. It cannot edit the proxy or refill the budget.
+A Core restart never automatically replays the operation. Stop drains the owned
+request worker; an independently operated router keeps its own lifecycle.
+Retained copies and original evidence remain recoverable with the standalone
+preservation tools after the original Core/source/proxy are gone.
+
+This is a functional pilot, not an anonymity guarantee or a global Core privacy
+mode. Mirrors see requested content and timing and may recognize the I2P client
+destination; the selected proxy/router is a separately trusted dependency. Other
+Core communications keep their existing settings. Library neither installs nor
+authenticates a router, and broader public privacy/performance qualification
+remains separate. The public Library launcher remains SDK-optional and uses Core
+for its durable jobs; the standalone command-line preservation core needs neither
+Skulk nor the SDK.

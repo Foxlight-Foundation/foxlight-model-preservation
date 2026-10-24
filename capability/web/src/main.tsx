@@ -7,6 +7,7 @@ import {Sharing,SharingReview,SharingSession} from './sharing';
 import {Publish,Receive,DeliveryReview} from './delivery';
 import {Storage} from './storage';
 import {Find} from './discovery';
+import {useI2PAvailability} from './i2p';
 import {TemporaryJobs,TemporaryFilesReview,type TemporaryWork} from './maintenance';
 import {Callout,Empty,Icon,Label,Menu,Monogram,PageBanner,Pill,Progress,SheetHost,SkulkMark,ago,initials,readTheme,useTheme,type IconName,type Tone} from './ui';
 
@@ -31,6 +32,7 @@ export function jobStatus(job:Job):[Tone,string] {
 
 /** Real Library/Guided interface; all effects begin with explicit reviewed controls. */
 function App() {
+  const i2pAvailable=useI2PAvailability();
   const [page,setPage] = useState<Page|null>(null);
   const [area,setArea] = useState<Area>('library');
   const [review,setReview] = useState<Review|null>(null);
@@ -89,7 +91,7 @@ function App() {
   const guided=Boolean(page)&&page!.locations.length===0&&area==='library'&&!page!.jobs.some(job=>job.kind==='recover');
 
   // The same precedence as before decides which reviewed flow is open; it now slides over the area instead of replacing it.
-  const sheet:ReactNode = !page ? null : publishCopy ? <Publish key={publishCopy.copy_id} copy={publishCopy} publisher={page.publishing} onBack={()=>navigate('library')} onReview={currentReview} onChange={refresh}/> : receiveOpen ? <Receive key={resumeJob?.job_id??'new'} resume={resumeJob} onBack={()=>navigate('sharing')} onReview={currentReview}/> : restoreOpen||publicImport ? <UploadKit publicImport={publicImport} uploads={page.uploads??[]} onChange={refresh} onReview={currentReview} onBack={()=>{setRestoreOpen(false);setPublicImport(false);}}/> : cleanup ? <TemporaryFilesReview key={cleanup.job.job_id} job={cleanup.job} report={cleanup.report} busy={busy} onBack={()=>setCleanup(null)} onClear={()=>void clearWork()}/> : review&&(review.plan.kind==='publish'||review.plan.kind==='receive') ? <DeliveryReview key={review.plan.plan_id} plan={review.plan} busy={busy} onBack={()=>navigate(review.plan.kind==='publish'?'library':'sharing')} onStart={(accept,participate)=>void start(accept,false,false,participate)}/> : review&&(review.plan.kind==='mirror_import'||review.plan.sharing) ? <SharingReview key={review.plan.plan_id} plan={review.plan} busy={busy} onBack={()=>{setReview(null);sessionStorage.removeItem('preservation-review-v1');setArea('sharing');}} onStart={(accept,participate)=>void start(accept,false,false,participate)}/> : review ? <ReviewPlan key={review.plan.plan_id} plan={review.plan} busy={busy} online={Boolean(planOnline)} storageLabel={page.locations.find(item=>item.location_id===review.plan.location_id)?.label} back={`Back to ${areas.find(item=>item.id===area)?.label??'Library'}`} onBack={()=>{setReview(null);sessionStorage.removeItem('preservation-review-v1');}} onStart={(accept,code,removed)=>void start(accept,code,removed)}/> : null;
+  const sheet:ReactNode = !page ? null : publishCopy ? <Publish key={publishCopy.copy_id} copy={publishCopy} publisher={page.publishing} onBack={()=>navigate('library')} onReview={currentReview} onChange={refresh}/> : receiveOpen ? <Receive i2pAvailable={i2pAvailable} key={resumeJob?.job_id??'new'} resume={resumeJob} onBack={()=>navigate('sharing')} onReview={currentReview}/> : restoreOpen||publicImport ? <UploadKit publicImport={publicImport} uploads={page.uploads??[]} onChange={refresh} onReview={currentReview} onBack={()=>{setRestoreOpen(false);setPublicImport(false);}}/> : cleanup ? <TemporaryFilesReview key={cleanup.job.job_id} job={cleanup.job} report={cleanup.report} busy={busy} onBack={()=>setCleanup(null)} onClear={()=>void clearWork()}/> : review&&(review.plan.kind==='publish'||review.plan.kind==='receive') ? <DeliveryReview key={review.plan.plan_id} plan={review.plan} busy={busy} onBack={()=>navigate(review.plan.kind==='publish'?'library':'sharing')} onStart={(accept,participate)=>void start(accept,false,false,participate)}/> : review&&(review.plan.kind==='mirror_import'||review.plan.sharing) ? <SharingReview key={review.plan.plan_id} plan={review.plan} busy={busy} onBack={()=>{setReview(null);sessionStorage.removeItem('preservation-review-v1');setArea('sharing');}} onStart={(accept,participate)=>void start(accept,false,false,participate)}/> : review ? <ReviewPlan key={review.plan.plan_id} plan={review.plan} busy={busy} online={Boolean(planOnline)} storageLabel={page.locations.find(item=>item.location_id===review.plan.location_id)?.label} back={`Back to ${areas.find(item=>item.id===area)?.label??'Library'}`} onBack={()=>{setReview(null);sessionStorage.removeItem('preservation-review-v1');}} onStart={(accept,code,removed)=>void start(accept,code,removed)}/> : null;
 
   const banner = <>{(error||loadError) && <div className="sk-banner" data-tone="bad" role="alert"><Icon name="alert"/><span>{errorText(error||loadError)}</span><button className="sk-btn sk-quiet sk-sm" onClick={()=>void refresh()}><Icon name="refresh" size={14}/>Refresh</button></div>}
     {notice && <div className="sk-banner" data-tone="ok" role="status"><Icon name="check"/><span>{notice}</span><button className="sk-icon-btn sk-sm" aria-label="Dismiss message" onClick={()=>setNotice('')}><Icon name="close" size={14}/></button></div>}</>;
@@ -108,7 +110,7 @@ function App() {
     <main id="library-main" className="sk-main" inert={Boolean(sheet)}>
       <PageBanner/>
       {!page ? <div className="sk-loading" aria-busy={!(error||loadError)}><SkulkMark size={40}/><p>{(error||loadError)?'Library unavailable.':'Opening your Library…'}</p></div>
-      : area==='find' ? <Find onReview={currentReview} uploads={page.uploads??[]} onChange={refresh}/>
+      : area==='find' ? <Find i2pAvailable={i2pAvailable} onReview={currentReview} uploads={page.uploads??[]} onChange={refresh}/>
       : guided ? <Guided busy={busy} onDevice={()=>void setup()} onFolder={()=>navigate('storage')} onFind={()=>navigate('find')}/>
       : area==='library' ? <LibraryArea page={page} location={location} online={online} busy={busy} available={available} onStorage={()=>navigate('storage')} onPlan={(kind,selection)=>void plan(kind,selection)} onPublish={openPublish}/>
       : area==='storage' ? <Storage locations={page.locations} defaultId={defaultId} busy={busy} onDevice={()=>void setup()} onChange={refresh}/>

@@ -86,4 +86,23 @@ async def check_core(client: CoreClient) -> dict[str, bool]:
             methods = paths.get(path)
             supported = supported and isinstance(methods, dict) and method in methods
         report[name] = supported
+    # Existing paths alone cannot establish I2P support or safe Resume display.
+    components = value.get("components") if isinstance(value, dict) else None
+    schemas = components.get("schemas") if isinstance(components, dict) else None
+    required_fields = {
+        "SourceConfirmation": {"allow_i2p", "i2p_proxy", "i2p_endpoints"},
+        "DiscoveryRequest": {"allow_i2p", "i2p_policy_id"},
+        "ReceivingPolicy": {"allow_i2p", "i2p_proxy"},
+        "InvitationPreview": {"receiving"},
+    }
+    supported_i2p = report["Source discovery"] and report["Publishing and receiving"]
+    for name, fields in required_fields.items():
+        schema = schemas.get(name) if isinstance(schemas, dict) else None
+        properties = schema.get("properties") if isinstance(schema, dict) else None
+        supported_i2p = (
+            supported_i2p
+            and isinstance(properties, dict)
+            and fields.issubset(properties)
+        )
+    report["I2P preservation jobs"] = supported_i2p
     return report

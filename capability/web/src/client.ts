@@ -21,6 +21,12 @@ export function bytes(value:number):string {return value < 1024 ? `${value} B` :
 /** Stable codes are translated here; raw exceptions never become product copy. */
 export function errorText(code:string):string {
   const labels:Record<string,string> = {
+    source_i2p_policy_changed:'This source’s saved I2P policy changed. Reopen Sources and review its current settings.',
+    source_i2p_policy_invalid:'This source’s protected I2P policy cannot be verified. Connections are blocked; retained evidence is kept.',
+    i2p_metadata_mirror_required:'Provide a supported I2P metadata mirror from this source’s operator. No direct connection was attempted.',
+    i2p_model_mirror_required:'This reference has no supported I2P model mirror. Ask for an I2P reference or use a recovery kit.',
+    i2p_confirmation_required:'Review and allow I2P connections for this operation.',
+    receive_resume_i2p_policy_required:'Resume requires the original I2P proxy. Update Core if the saved policy is unavailable, then confirm it again.',
     peer_runtime_confirmation_required:'Review the software source and explicitly allow this installation.',
     peer_runtime_plan_changed:'The peer support build changed. Check setup again and review its current plan.',
     peer_runtime_setup_failed:'Peer support could not be installed. Check Core’s connection and free storage, then review another attempt.',
@@ -36,7 +42,7 @@ export function errorText(code:string):string {
     peer_busy_try_again:'A peer operation is finishing. Wait for it to stop before changing connection settings.',
     peer_ipfs_model_hint_required:'This source has no supported peer model reference. Ask its operator for a peer invitation or recovery kit.',
     source_transport_changed:'This source was reviewed for a different transport. Reopen it and review its current connection settings.',
-    source_transport_switch_unavailable:'This authority is retained as a peer source. Keep its peer source file; changing the same authority back to HTTP is not supported yet.',
+    source_transport_switch_unavailable:'This source has a retained connection policy. Reopen its original transport; changing it to direct HTTP is not supported yet.',
     source_document_too_large:'Choose a source bootstrap file up to 256 KB. Import complete offline caches with the standalone tools.',
     source_bootstrap_required:'Choose the source bootstrap file. Historical cache interchange is available in the standalone tools.',
     source_review_missing_or_expired:'This source review expired. Choose its file and review again.',
@@ -112,8 +118,9 @@ export interface Upload {upload_id:string; size_bytes:number; offset:number; com
 
 export interface PublicationMember {member_id:string;role:string;repository:string;revision:string;format:string;size_bytes:number;file_count:number;license_id:string;terms_reference:string;notice_paths:string[]}
 export interface PublicationSource {copy_id:string;manifest_id:string;name:string;workloads:string[];runtime_requirements:string[];members:PublicationMember[]}
-export interface InvitationPreview {contacts?:string[];transport?:'http'|'peer';manifest_id:string;name:string;size_bytes:number;member_count:number;members:string[];publisher_key_ids:string[];threshold:number;mirrors:string[]}
-export interface ReceivingPolicy {transport?:'http'|'peer';allow_peer_network?:boolean;peer_private?:boolean;mirrors:string[];max_bytes:number;deadline_seconds:number;allow_http:boolean;allow_private:boolean}
+export interface I2PProxy {host:'127.0.0.1'|'::1';port:number}
+export interface InvitationPreview {receiving?:ReceivingPolicy|null;contacts?:string[];transport?:'http'|'peer';manifest_id:string;name:string;size_bytes:number;member_count:number;members:string[];publisher_key_ids:string[];threshold:number;mirrors:string[]}
+export interface ReceivingPolicy {transport?:'http'|'peer'|'i2p';allow_i2p?:boolean;i2p_proxy?:I2PProxy|null;allow_peer_network?:boolean;peer_private?:boolean;mirrors:string[];max_bytes:number;deadline_seconds:number;allow_http:boolean;allow_private:boolean}
 
 /** Metadata is bounded separately from weights and ordinary control JSON. */
 export async function uploadMetadata(content:Blob,purpose:'invitation'|'publication'|'source'):Promise<Upload> {
@@ -157,7 +164,7 @@ export function torrentDownload(job:Job):string{return new URL(`api/torrent/${jo
 export function trustDownload(copy:Copy):string{return new URL(`api/trust/${copy.copy_id}`,new URL('.',location.href)).href;}
 
 /** Cached metadata-source state; freshness never establishes registry trust. */
-export interface ModelSource {transport?:'http'|'peer';snapshot_count?:number;source_id:string;name:string;enabled:boolean;freshness:'empty'|'fresh'|'retained'|'stale'|'imported'|'superseded-root'|'invalid';accepted_at:string|null;expires:string|null;last_error:string|null;root_version:number|null;catalog_id:string|null;bootstrap_id:string|null}
+export interface ModelSource {transport?:'http'|'peer'|'i2p';i2p_policy_id?:string;i2p_proxy?:I2PProxy;snapshot_count?:number;source_id:string;name:string;enabled:boolean;freshness:'empty'|'fresh'|'retained'|'stale'|'imported'|'superseded-root'|'invalid';accepted_at:string|null;expires:string|null;last_error:string|null;root_version:number|null;catalog_id:string|null;bootstrap_id:string|null}
 /** A metadata-only job remains owned by Core across page closure. */
 export interface DiscoveryJob {job_id:string;owner_id:string;kind:'refresh'|'model_metadata';source_id:string;manifest_id:string|null;state:string;created_at:number;updated_at:number;error_code:string|null;upload_id:string|null}
 /** Local source/activity read, with no refresh or supplier query. */
@@ -165,7 +172,7 @@ export interface DiscoveryPage {sources:ModelSource[];jobs:DiscoveryJob[];next_o
 /** Exact file review performed offline before source enrollment. */
 export interface SourceReview {contacts?:string[];transport?:'http'|'peer';ipns_name?:string|null;snapshot_count?:number;review_id:string;source_id:string;bootstrap_id:string;name:string;endpoints:string[];expires_at:number}
 /** One attributed statement; original signed data stays in Core. */
-export interface ModelSupplier {transport?:'http'|'peer';source_id:string;source_name:string;entry_id:string;name:string;summary:string;freshness:string;model_keys_available:boolean}
+export interface ModelSupplier {transport?:'http'|'peer'|'i2p';source_id:string;source_name:string;entry_id:string;name:string;summary:string;freshness:string;model_keys_available:boolean}
 /** Exact identity grouping keeps conflicting source statements separate. */
 export interface FoundModel {manifest_id:string;suppliers:ModelSupplier[];supplier_count:number;next_supplier_offset:number|null}
 export interface DiscoveryResults {results:FoundModel[];next_offset:number|null}
