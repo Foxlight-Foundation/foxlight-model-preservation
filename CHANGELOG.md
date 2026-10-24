@@ -1,5 +1,12 @@
 # Changes
 
+## Unreleased
+
+- Add bounded private per-attempt client/origin observations to the explicit
+  synthetic public I2P drill. Controlled faults distinguish header/body timeouts,
+  short bodies and invalid resume ranges without URL or exception-text logging.
+  Ordinary transfers and immutable 0.15.1 artifacts remain unchanged.
+
 ## 0.15.1
 
 - Bound mirror network writes separately from disk reads so continuously

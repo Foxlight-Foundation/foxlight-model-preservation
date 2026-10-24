@@ -167,3 +167,29 @@ routers share one test host, so this is not separate-host/NAT or independent
 custody qualification. A small or moderate synthetic transfer is not a complete
 large-model performance claim. Raw router logs, addresses and generated keys
 stay private; publish only reviewed, scoped observations.
+
+
+The development harness also writes a private `transfer-events.jsonl`, limited
+to 512 events by default. It records per-attempt prefix lengths, requested range
+offsets, numeric response status/length/range, safe failure categories and bounded
+exception frame locations. The real mirror handler records completed body-write
+bytes, write duration and whether a failed write leaves additional bytes unknown.
+Completed writes are not proof of peer receipt or wire usage. A 16 KiB write
+that raises can have sent some bytes; the observer never guesses that count.
+
+The event file is created exclusively with mode 0600 inside the new private
+evidence directory. It excludes routing URLs, original headers, model hashes,
+exception messages and local variables. Only bounded aggregate event/error
+counts enter `report.json`; review all evidence before publishing it. Native
+logs and bootstrap/router activity retain their separate exposure. A dropped
+event count means the detailed record is incomplete. Individual event timestamps
+and prefix progress are diagnostic observations, not anonymity or throughput
+qualification. Ordinary receiving/mirror operation enables none of this logging.
+
+Keep the exact harness source revision with its evidence. These diagnostic
+additions are development source after 0.15.1; that release's immutable source
+archive retains the earlier harness. The controlled loopback fault tests cover
+header/body timeouts, truncated bodies and inconsistent ranges, with successful
+trusted retry and unchanged original signed evidence. They start no public
+router. The diagnostic wrapper changes no transfer authority, retry/socket
+bounds, route selection, consent, retention or deletion behavior.
