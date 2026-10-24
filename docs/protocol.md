@@ -113,6 +113,12 @@ Mounted NAS support depends on those semantics; there is no automatic mount or
 volume-sentinel management. Use an explicit verified mount. Restore uses copies,
 not links back into a mutable source.
 
+The separate optional [I2P pilot](i2p.md) wraps one unchanged signed recovery
+kit in a bounded unsigned I2P-only offer. Independent model trust and exact
+original envelope/closure verification still apply. Receiving can upload and
+requires separate explicit I2P and payload-sharing grants; no existing download
+implicitly starts this transport. No model or catalog signing domain changes.
+
 ## Transfer and serving
 
 Fetch authenticates the exact manifest before requesting model bytes. It tries

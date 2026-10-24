@@ -126,6 +126,7 @@ def export_kit(
     trust: TrustProfile,
     destination: Path,
     *,
+    expected_envelope: bytes | None = None,
     control: OperationControl | None = None,
 ) -> KitInspection:
     """Write only the selected signed closure and public trust to a new kit.
@@ -140,6 +141,10 @@ def export_kit(
         directory(destination.parent) as parent,
     ):
         envelope = read_metadata(source, manifest_path(manifest_id))
+        if expected_envelope is not None and envelope != expected_envelope:
+            raise PreservationError(
+                "source differs from the selected original envelope"
+            )
         manifest = verify_archive_manifest(envelope, trust, manifest_id)
         magic = PMF_MAGIC if isinstance(manifest, PMFManifest) else MAGIC
         trust_bytes = encode_record(trust)
@@ -226,6 +231,7 @@ def import_kit(
     trust: TrustProfile | None = None,
     expected_manifest_id: str,
     accept_kit_key: bool = False,
+    expected_envelope: bytes | None = None,
     control: OperationControl | None = None,
 ) -> KitInspection:
     """Verify a complete kit into a new portable store, then publish atomically.
@@ -233,6 +239,8 @@ def import_kit(
     Selecting a local kit and deliberately accepting its candidate key grants
     capture verification only, never registry authority or code execution.
     Independently enrolled trust is preferable when it remains available.
+    An optional expected_envelope additionally pins its exact original wrapper,
+    including retained signatures and whitespace, before reading model bytes.
     """
     active = control or OperationControl()
     with (
@@ -241,6 +249,8 @@ def import_kit(
         directory(destination.parent) as parent,
     ):
         info, envelope = _header(stream)
+        if expected_envelope is not None and envelope != expected_envelope:
+            raise PreservationError("kit differs from the selected original envelope")
         if info.manifest_id != expected_manifest_id:
             raise PreservationError("selected kit manifest changed")
         if trust is None:
