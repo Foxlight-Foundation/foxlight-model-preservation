@@ -33,6 +33,7 @@ from .invitations import (
     read_invitation,
 )
 from .kits import export_kit, import_kit, inspect_kit
+from .mirror_cli import MirrorArguments, register_mirror_commands, run_mirror_command
 from .models import MAX_METADATA_BYTES, Catalog, PreservationError, Recipe, TrustProfile
 from .operations import OperationCancelled, OperationControl, Progress, failure_code
 from .peer_cli import PeerArguments, register_peer_commands, run_peer_command
@@ -66,7 +67,7 @@ from .torrent import TorrentExport, TorrentSeeder, TorrentSeedPolicy, export_tor
 from .transfer import TransferPolicy, fetch, plan_fetch
 
 
-class Arguments(DiscoveryArguments, PeerArguments, HandoffArguments):
+class Arguments(DiscoveryArguments, PeerArguments, HandoffArguments, MirrorArguments):
     """Typed parser output; each command uses only its declared arguments."""
 
     kit: Path
@@ -189,6 +190,7 @@ def argument_parser() -> argparse.ArgumentParser:
     register_commands(commands.add_parser)
     register_peer_commands(commands.add_parser)
     register_handoff_commands(commands.add_parser)
+    register_mirror_commands(commands.add_parser)
     for name in (
         "pmf-pack",
         "pmf-verify",
@@ -588,6 +590,8 @@ def run(
     arguments: Arguments, *, control: OperationControl | None = None
 ) -> dict[str, JsonValue]:
     """Execute exactly the selected operation and return a bounded safe receipt."""
+    if arguments.command == "mirror":
+        return run_mirror_command(arguments, control or OperationControl())
     if arguments.command in HANDOFF_COMMANDS:
         return run_handoff_command(arguments, control or OperationControl())
     if arguments.command.startswith("peer-"):
@@ -1092,6 +1096,10 @@ def main() -> int:
         "torrent-export",
         "torrent-seed",
     } or arguments.command.startswith(("pmf-", "peer-", "handoff-"))
+    controlled = controlled or arguments.command == "mirror"
+    previous_term = signal.getsignal(signal.SIGTERM)
+    if arguments.command == "mirror":
+        signal.signal(signal.SIGTERM, lambda _number, _frame: control.cancel())
     previous = signal.getsignal(signal.SIGINT)
     if controlled:
         signal.signal(signal.SIGINT, lambda _number, _frame: control.cancel())
@@ -1110,6 +1118,8 @@ def main() -> int:
         )
         return 130
     finally:
+        if arguments.command == "mirror":
+            signal.signal(signal.SIGTERM, previous_term)
         if controlled:
             signal.signal(signal.SIGINT, previous)
     print(json.dumps(receipt, sort_keys=True))

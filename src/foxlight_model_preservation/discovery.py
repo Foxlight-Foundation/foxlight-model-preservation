@@ -203,9 +203,19 @@ def inspect_source(data: bytes) -> dict[str, JsonValue]:
 
 
 @contextmanager
-def _cache(path: Path, *, create: bool = False) -> Generator[int]:
-    with directory(path, create=create) as root:
+def _cache(
+    path: Path,
+    *,
+    create: bool = False,
+    expected_directory: tuple[int, int] | None = None,
+) -> Generator[int]:
+    with directory(path, create=create and expected_directory is None) as root:
         info = os.fstat(root)
+        if (
+            expected_directory is not None
+            and (info.st_dev, info.st_ino) != expected_directory
+        ):
+            raise PreservationError("discovery directory identity changed")
         if info.st_uid != os.getuid() or info.st_mode & 0o077:
             raise PreservationError("discovery cache must be an owner-only directory")
         yield root
@@ -405,6 +415,7 @@ def follow_source(
     allow_private: bool | None = None,
     allow_http: bool | None = None,
     allow_local: bool | None = None,
+    expected_directory: tuple[int, int] | None = None,
 ) -> SourceStatus:
     """Enroll an independently authenticated source, without connecting or fetching.
 
@@ -425,7 +436,10 @@ def follow_source(
         if isinstance(record, DiscoveryCacheBundle)
         else SourceState(bootstrap=bootstrap)
     )
-    with _cache(cache, create=True) as root, writer_lock(root):
+    with (
+        _cache(cache, create=True, expected_directory=expected_directory) as root,
+        writer_lock(root),
+    ):
         identities = _identities(root)
         if source_id in identities:
             state = _read(root, source_id)
@@ -753,14 +767,25 @@ def _collect_metadata(stage: Path, state: SourceState) -> SourceState:
 
 
 def refresh_source(
-    cache: Path, source_id: str, *, control: DiscoveryControl | None = None
+    cache: Path,
+    source_id: str,
+    *,
+    control: DiscoveryControl | None = None,
+    stage_parent: Path | None = None,
+    expected_directory: tuple[int, int] | None = None,
 ) -> SourceStatus:
     """Refresh with stock TUF and bounded endpoint failover; preserve last-good cache.
 
     Verified update metadata is retained even if a later step fails. No model
     weights, source recommendations, bundle keys or executable code are fetched.
     """
-    return _refresh_source(cache, source_id, control=control)
+    return _refresh_source(
+        cache,
+        source_id,
+        control=control,
+        stage_parent=stage_parent,
+        expected_directory=expected_directory,
+    )
 
 
 def refresh_source_from_directory(
@@ -790,10 +815,15 @@ def _refresh_source(
     *,
     control: DiscoveryControl | None = None,
     metadata_directory: Path | None = None,
+    stage_parent: Path | None = None,
+    expected_directory: tuple[int, int] | None = None,
 ) -> SourceStatus:
     control = control or OperationControl()
     budget = _Budget(time.monotonic() + 120)
-    with _cache(cache) as root, writer_lock(root):
+    with (
+        _cache(cache, expected_directory=expected_directory) as root,
+        writer_lock(root),
+    ):
         state = _read(root, source_id)
         if not state.enabled:
             raise PreservationError("source is no longer followed")
@@ -817,7 +847,9 @@ def _refresh_source(
         )
         for endpoint in endpoints:
             control.checkpoint()
-            with tempfile.TemporaryDirectory(prefix="model-discovery-") as temporary:
+            with tempfile.TemporaryDirectory(
+                prefix="model-discovery-", dir=stage_parent
+            ) as temporary:
                 stage = Path(temporary)
                 _stage_metadata(stage, state)
                 accepted = False
