@@ -130,6 +130,7 @@ class MirrorState(Record):
         "foxlight.mirror-state.v1",
         "foxlight.mirror-state.v2",
         "foxlight.mirror-state.v3",
+        "foxlight.mirror-state.v4",
     ] = "foxlight.mirror-state.v1"
     identity: dict[str, tuple[int, int]]
     name: str = Field(min_length=1, max_length=200)
@@ -140,6 +141,7 @@ class MirrorState(Record):
     egress_monthly: int = Field(ge=1, le=2**53 - 1)
     bind: Literal["127.0.0.1", "0.0.0.0"] = "127.0.0.1"  # noqa: S104
     port: int = Field(default=8080, ge=0, le=65535)
+    http_enabled: bool = True
     serve_start: int = Field(default=0, ge=0, le=23)
     serve_end: int = Field(default=0, ge=0, le=23)
     refresh_seconds: int = Field(default=21600, ge=60, le=86400)
@@ -164,16 +166,20 @@ class MirrorState(Record):
 
     @model_validator(mode="after")
     def native_profile_version(self) -> MirrorState:
-        """Native custody needs v2 or later; direct local selection requires v3."""
+        """Require native v2, local v3 and independent HTTP v4 policy or later."""
         if (
             self.native_policy or self.native_models
         ) and self.schema_version == "foxlight.mirror-state.v1":
             raise PreservationError("native mirror policy requires state v2")
         if self.native_models and self.native_policy is None:
             raise PreservationError("native custody requires its enrolled policy")
-        if (
-            any(held.origin == "local" for held in self.models.values())
-            and self.schema_version != "foxlight.mirror-state.v3"
-        ):
+        if any(
+            held.origin == "local" for held in self.models.values()
+        ) and self.schema_version not in {
+            "foxlight.mirror-state.v3",
+            "foxlight.mirror-state.v4",
+        }:
             raise PreservationError("local mirror selection requires state v3")
+        if not self.http_enabled and self.schema_version != "foxlight.mirror-state.v4":
+            raise PreservationError("separate HTTP transport policy requires state v4")
         return self

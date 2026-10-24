@@ -1,4 +1,4 @@
-# Run a persistent HTTP mirror
+# Run a persistent mirror
 
 A mirror is a separately chosen public role. It follows operator-selected signed
 sources, admits complete public models under independently supplied model keys
@@ -6,7 +6,7 @@ and reviewed terms, retains their original signed data, and serves verified
 copies. It needs Python 3.11+ on Linux/macOS, ordinary POSIX filesystem semantics
 and the standalone package. Skulk, its SDK, GPUs and hosted accounts are optional.
 
-This implementation supplies the HTTP controller and a Linux service recipe.
+This implementation supplies a controller and a Linux service recipe.
 The 0.13 source preview adds separately opted-in
 [persistent IPFS/BitTorrent sessions](persistent-peers.md). Generic PMF network
 transport and delegated mirror discovery remain separate work. Existing finite
@@ -133,6 +133,24 @@ PMF's existing offline kit/restore tools remain available.
 
 ## Run manually, then choose restart permission separately
 
+HTTP serving is a separate choice from native peer transports. It remains enabled
+for existing mirrors. To run IPFS/BitTorrent without an HTTP listener, stop the
+controller and choose:
+
+```sh
+model-preserve mirror http --dir /srv/sovereign/example --disable
+```
+
+Then explicitly configure at least one native transport as described in
+[persistent peers](persistent-peers.md). HTTP can be restored with `--enable`.
+Either change is offline, retains copies/caches/accounting and clears standing
+restart permission. It upgrades owner state to v4; older tools refuse rather
+than ignoring a disabled transport. Existing v1/v2/v3 state and its policy
+identities remain unchanged until this explicit configuration is selected.
+Disabling HTTP serving changes no source-update/download permissions, starts no
+router, and is not a privacy mode. It cannot stop an independently operated
+static server or recall copies another operator retained.
+
 ```sh
 model-preserve mirror run --dir /srv/sovereign/example --public --seconds 3600
 ```
@@ -151,6 +169,10 @@ local pending capture can be recovered after a crash without the publisher.
 
 The `ready` receipt identifies a local listening port; it does not mean models
 have finished downloading or that the port is publicly reachable. Use status.
+With HTTP disabled, startup reports `port: null` and `http_enabled: false` for
+the owned controller, without constructing an HTTP listener. Native publication
+readiness remains a separate observation. Running with neither HTTP nor a
+selected native transport refuses before starting byte workers or networking.
 Every cycle re-verifies retained closures, publishes objects before envelopes,
 and serves only exact manifest/object paths. There is no upload, directory
 listing, admin HTTP endpoint, request-history log or implicit proxy. Public

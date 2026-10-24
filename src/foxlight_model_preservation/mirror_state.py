@@ -26,12 +26,14 @@ DIRECTORIES = (".", "store", "public", "discovery", "scratch")
 
 
 def encode_state(state: MirrorState) -> bytes:
-    """Keep legacy HTTP state bytes free of optional native-profile fields."""
+    """Preserve released legacy wire state while encoding explicit owner profiles."""
     value = state.model_dump(mode="json")
-    if state.schema_version != "foxlight.mirror-state.v3":
+    if state.schema_version in {"foxlight.mirror-state.v1", "foxlight.mirror-state.v2"}:
         for held in value["models"].values():
             held.pop("origin")
             held.pop("envelope_sha256")
+    if state.schema_version != "foxlight.mirror-state.v4":
+        value.pop("http_enabled")
     if state.native_policy is None and not state.native_models:
         value.pop("native_policy")
         value.pop("native_models")
