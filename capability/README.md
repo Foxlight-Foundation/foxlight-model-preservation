@@ -5,7 +5,12 @@ everyday use, and Activity through Skulk Core's durable preservation host. It
 uses local HTTP; its optional managed adapter uses the capability authoring SDK. It includes no Skulk imports,
 private owner code, signing keys, verifier, artifact transfer or byte worker.
 
-Library 0.11 adds **Share with peers** and portable `.foxhandoff` files.
+Library 0.12.0 includes explicit [I2P HTTP source and receiving controls](#i2p-source-and-receiving-controls)
+with its pinned compatible Core, alongside the peer setup, PMF and one-file
+sharing workflows below. These are public previews with separate networking and
+trust decisions, not a qualified anonymity mode.
+
+Library 0.11 introduced **Share with peers** and portable `.foxhandoff` files.
 From **Sharing**, choose **Share with someone** beside a verified public copy,
 then **Share with peers**. Review local contacts and network access, duration and
 the observed native upload threshold, then explicitly start the public session.
@@ -111,8 +116,12 @@ so interrupted cleanup can be explicitly retried after restart. Older work needs
 its matching host-authored request. Missing custody evidence, changed directory
 identity, unsafe links and active jobs refuse deletion. Cleanup never restarts
 sharing or imports models. This control requires Core's temporary-files APIs.
-Tor/I2P remain under evaluation. Ordinary public mirrors and BitTorrent expose
-network addresses to the serving operator/other peers; neither is anonymous.
+Ordinary public mirrors and BitTorrent expose network addresses to the serving
+operator/other peers; neither is anonymous. Library 0.12.0 separately supports
+[I2P HTTP source updates and receiving](#i2p-source-and-receiving-controls)
+through an explicitly chosen local proxy. It is a functional pilot without
+qualified anonymity, not a routing mode for other Library/Core traffic. The
+standalone I2PSnark recovery-kit pilot remains separate from Library.
 
 ## Send and receive a model
 

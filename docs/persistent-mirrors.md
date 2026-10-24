@@ -7,7 +7,7 @@ copies. It needs Python 3.11+ on Linux/macOS, ordinary POSIX filesystem semantic
 and the standalone package. Skulk, its SDK, GPUs and hosted accounts are optional.
 
 This implementation supplies a controller and a Linux service recipe.
-The 0.13 source preview adds separately opted-in
+Standalone 0.13 and later include separately opted-in
 [persistent IPFS/BitTorrent sessions](persistent-peers.md). Generic PMF network
 transport and delegated mirror discovery remain separate work. Existing finite
 peer/BitTorrent tools remain usable. It makes no anonymity or censorship-resistance
