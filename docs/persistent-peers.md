@@ -59,6 +59,10 @@ Each retained model gets isolated native custody beneath
 closure. IPFS uses a dedicated per-model repo, pins the same verified closure
 and lets maintained Kubo renew its provider advertisements. The controller does
 not use an unpin, garbage collection or cache deletion to stop sharing.
+An interrupted offline Kubo initialization leaves its private generation
+retained. Explicit retry initializes a fresh named generation rather than
+adopting or deleting the partial repo. Partial generations count toward disk
+usage and remain until the operator explicitly prunes that model's native tree.
 Kubo's provider selection and Bitswap serving are distinct
 [configuration controls](https://github.com/ipfs/kubo/blob/v0.43.1/docs/config.md).
 Isolation lets a blocked model's daemon stop while other models remain served.
@@ -70,7 +74,9 @@ over their independently allowed HTTP routes. Expiring sessions rotate toward
 models that have waited longest; this is bounded availability, not simultaneous
 peer hosting of every archived model. Each session lasts at most 24 hours and
 spends its full selected upload allowance durably before startup. Crash, retry,
-stop or prune never refunds that allowance. A later session needs new credit
+stop or prune never refunds that allowance. Publication capacity is acquired
+before starting the finite Kubo daemon, so waiting for another publisher cannot
+consume that daemon's serving lifetime. A later session needs new credit
 from the same UTC daily/monthly ledger. DHT overhead, IPFS wire observation and
 torrent payload counters differ: native thresholds can overshoot and are not
 hard total-wire quotas. The torrent upload-rate cap does not impose an IPFS rate.

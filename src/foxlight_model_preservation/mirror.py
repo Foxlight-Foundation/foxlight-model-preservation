@@ -404,6 +404,7 @@ def public_selection(
     owners: dict[str, set[str]] = {}
     state = ledger.read()
     with (
+        ledger.content_lock(),
         ledger.child("store") as source,
         writer_lock(source),
         ledger.child("public") as target,

@@ -9,6 +9,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -39,6 +40,15 @@ from foxlight_model_preservation.peer_invitations import (
 from foxlight_model_preservation.signing import public_record
 from foxlight_model_preservation.storage import manifest_path, pack, verify_store
 from foxlight_model_preservation.torrent_binding import torrent_engine
+
+
+def ipfs_home(ledger, manifest):
+    return (
+        ledger.path
+        / "scratch/native"
+        / manifest
+        / ledger.read().native_models[manifest].ipfs_repo
+    )
 
 
 def await_condition(check, timeout=25):
@@ -330,6 +340,159 @@ def native_binary():
     return selected
 
 
+def test_interrupted_ipfs_init_retries_new_generation_and_retains_partial(
+    tmp_path, capture, monkeypatch
+):
+    from foxlight_model_preservation import mirror_native as native
+
+    binary = native_binary()
+    ledger, _ = mirror(tmp_path, capture)
+    cycle(ledger)
+    configure(
+        ledger,
+        ipfs_binary=binary,
+        ipfs_sha256=hashlib.sha256(Path(binary).read_bytes()).hexdigest(),
+        allow_private_peers=True,
+        session_seconds=60,
+    )
+    original = native.initialize_peer
+    attempts = []
+
+    def interrupted(repo, *args, **kwargs):
+        attempts.append(repo)
+        if len(attempts) == 1:
+            repo.mkdir(mode=0o700)
+            (repo / "partial").write_bytes(b"unfinished initialization")
+            raise OSError("interrupted initialization")
+        return original(repo, *args, **kwargs)
+
+    monkeypatch.setattr(native, "initialize_peer", interrupted)
+    manager = NativeMirrors(ledger, lambda s: True)
+    try:
+        manager.tick()
+        await_condition(
+            lambda: (
+                bool(ledger.read().native_models.get(capture.identity))
+                and bool(ledger.read().native_models[capture.identity].error)
+            )
+        )
+        manager.close()
+        assert ledger.read().native_models[capture.identity].ipfs_identity is None
+        model_action(ledger, capture.identity, "retry")
+        manager = NativeMirrors(ledger, lambda s: True)
+        manager.tick()
+        await_condition(lambda: bool(ledger.read().native_models[capture.identity].cid))
+        record = ledger.read().native_models[capture.identity]
+        assert not record.error and record.ipfs_identity
+        assert attempts[0] != attempts[1] == ipfs_home(ledger, capture.identity)
+        assert (attempts[0] / "partial").read_bytes() == b"unfinished initialization"
+        assert verify_store(ledger.path / "store", capture.identity, capture.trust)
+    finally:
+        manager.close()
+
+
+def test_queued_ipfs_session_starts_daemon_only_after_publication_capacity(
+    tmp_path, capture, monkeypatch
+):
+    from foxlight_model_preservation import mirror_native as native
+
+    binary = native_binary()
+    ledger, _ = mirror(tmp_path, capture)
+    cycle(ledger)
+    configure(
+        ledger,
+        ipfs_binary=binary,
+        ipfs_sha256=hashlib.sha256(Path(binary).read_bytes()).hexdigest(),
+        allow_private_peers=True,
+        session_seconds=60,
+    )
+    started = threading.Event()
+    original = native.run_peer
+
+    def observed(*args, **kwargs):
+        started.set()
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(native, "run_peer", observed)
+    manager = NativeMirrors(ledger, lambda s: True)
+    native._publication_lock.acquire()
+    try:
+        manager.tick()
+        await_condition(
+            lambda: (
+                bool(ledger.read().native_models.get(capture.identity))
+                and bool(ledger.read().native_models[capture.identity].ipfs_identity)
+            )
+        )
+        assert not started.is_set()
+        assert not ledger.read().native_models[capture.identity].error
+    finally:
+        native._publication_lock.release()
+    try:
+        await_condition(lambda: bool(ledger.read().native_models[capture.identity].cid))
+        assert started.is_set()
+        assert not ledger.read().native_models[capture.identity].error
+    finally:
+        manager.close()
+
+
+def test_native_verification_serializes_http_link_publication(
+    tmp_path, capture, monkeypatch
+):
+    from foxlight_model_preservation import mirror as http
+
+    ledger, _ = mirror(tmp_path, capture)
+    cycle(ledger)
+    monkeypatch.setattr(
+        "foxlight_model_preservation.mirror_native.torrent_engine", lambda: None
+    )
+    monkeypatch.setattr(
+        "foxlight_model_preservation.mirror_native._torrent", lambda *args: None
+    )
+    configure(ledger, torrent=True)
+    hashing, release_hash, publishing, published = (threading.Event() for _ in range(4))
+    original = http.verify_object
+    failures = []
+
+    def held_hash(*args, **kwargs):
+        if threading.current_thread().name == "mirror-native-session":
+            hashing.set()
+            if not release_hash.wait(10):
+                raise AssertionError("HTTP/native verification barrier deadline")
+        return original(*args, **kwargs)
+
+    def publish():
+        from foxlight_model_preservation.operations import OperationControl
+
+        publishing.set()
+        try:
+            http.public_selection(ledger, OperationControl())
+        except Exception as error:
+            failures.append(error)
+        finally:
+            published.set()
+
+    monkeypatch.setattr(http, "verify_object", held_hash)
+    manager = NativeMirrors(ledger, lambda s: True)
+    worker = threading.Thread(target=publish)
+    try:
+        manager.tick()
+        assert hashing.wait(10)
+        worker.start()
+        assert publishing.wait(10)
+        assert not published.wait(0.05)
+        release_hash.set()
+        worker.join(10)
+        assert published.is_set() and not failures
+    finally:
+        release_hash.set()
+        if worker.ident is not None:
+            worker.join()
+        manager.close()
+    assert not ledger.read().native_models[capture.identity].error
+    assert not ledger.read().models[capture.identity].error
+
+
 def test_ipfs_mirror_restart_after_publisher_loss_and_independent_receive(
     tmp_path, capture
 ):
@@ -391,7 +554,7 @@ def test_ipfs_mirror_restart_after_publisher_loss_and_independent_receive(
         model_action(ledger, capture.identity, "block")
         manager.tick()
         manager.close()
-        assert (ledger.path / "scratch/native" / capture.identity / "ipfs").is_dir()
+        assert ipfs_home(ledger, capture.identity).is_dir()
     finally:
         manager.close()
 
@@ -431,7 +594,7 @@ def test_crashed_mirror_controller_drains_actual_native_child(tmp_path, capture)
                 and ledger.read().native_models[capture.identity].cid
             )
         )
-        api = ledger.path / "scratch/native" / capture.identity / "ipfs/api"
+        api = ipfs_home(ledger, capture.identity) / "api"
         port = int(api.read_text().strip().rsplit("/", 1)[-1])
         before = ledger.read().egress_month_used
         process.kill()
@@ -445,7 +608,7 @@ def test_crashed_mirror_controller_drains_actual_native_child(tmp_path, capture)
         assert not ledger.running() and ledger.read().egress_month_used >= before
         with pytest.raises(PreservationError, match="restart"):
             run_mirror(ledger, resume=True)
-        assert (ledger.path / "scratch/native" / capture.identity / "ipfs").is_dir()
+        assert ipfs_home(ledger, capture.identity).is_dir()
     finally:
         if process.poll() is None:
             process.terminate()
@@ -592,7 +755,7 @@ def test_ipfs_model_isolation_allows_block_without_deleting_another_copy(
                 and all(r.cid for r in ledger.read().native_models.values())
             )
         )
-        first = ledger.path / "scratch/native" / capture.identity / "ipfs"
+        first = ipfs_home(ledger, capture.identity)
         first_port = int((first / "api").read_text().strip().rsplit("/", 1)[-1])
         model_action(ledger, capture.identity, "block")
         manager.tick()
@@ -602,7 +765,7 @@ def test_ipfs_model_isolation_allows_block_without_deleting_another_copy(
                 return probe.connect_ex(("127.0.0.1", first_port)) != 0
 
         await_condition(first_closed, 12)
-        second = ledger.path / "scratch/native" / other / "ipfs"
+        second = ipfs_home(ledger, other)
         assert PeerClient(second, binary, allow_network=True).wire_usage() >= 0
         assert first.is_dir() and second.is_dir()
         assert verify_store(ledger.path / "store", other, capture.trust)

@@ -42,7 +42,14 @@ class MirrorLedger:
     def __init__(self, path: Path):
         self.path = path.absolute()
         self._mutex = threading.RLock()
+        self._content_mutex = threading.RLock()
         self._identity = self.read().identity
+
+    @contextmanager
+    def content_lock(self) -> Generator[None]:
+        """Serialize this owner's ctime-sensitive reads and public hardlink writes."""
+        with self._content_mutex:
+            yield
 
     @staticmethod
     def initialize(path: Path, **config: object) -> MirrorLedger:

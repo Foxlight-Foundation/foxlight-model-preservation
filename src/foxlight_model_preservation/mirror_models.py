@@ -30,6 +30,7 @@ class NativeModel(Record):
 
     identity: tuple[int, int] | None = None
     ipfs_identity: tuple[int, int] | None = None
+    ipfs_repo: str = Field(default="ipfs", pattern=r"^ipfs(?:-[a-f0-9]{24})?$")
     torrent: TorrentExport | None = None
     cid: str | None = None
     error: str | None = None
