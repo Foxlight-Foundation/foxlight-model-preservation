@@ -69,6 +69,7 @@ covers what each check proves, offline evidence and installing a verified wheel.
 | Host a copy for others | [Mirror guide](docs/mirrors.md) |
 | Follow sources, search offline and fetch an exact model | [Standalone discovery](docs/discovery.md) |
 | Find source updates and model providers without a central service | [Optional IPFS/IPNS peer discovery](docs/peer-discovery.md) |
+| Look up a PirateFace candidate and verify an existing repository download | [Standalone PirateFace interoperability](docs/pirateface.md) |
 | Set up optional peer support without a system installer | [Pinned native acquisition, including offline setup](docs/peer-discovery.md#install-and-start-a-receiver) |
 | Send or receive a public model with an offline preview | [Public invitations](docs/invitations.md) |
 | Share one exact public copy and receive using one file | [Portable handoffs and finite peer sharing](docs/handoffs.md) |

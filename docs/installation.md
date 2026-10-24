@@ -84,6 +84,12 @@ This locks the Python peer adapter; native Kubo installation and network use
 still require their existing separate explicit grants. Persistent HTTP mirrors
 need only the default profile. See [mirror operation](persistent-mirrors.md).
 
+PirateFace lookup uses the default core in 0.14.0 and later. Offline repository
+torrent import also needs libtorrent: choose `--requirements
+requirements-mirror.lock` from that core's archive for its hash-locked optional
+dependencies. Installing this profile starts no peer runtime or sharing session.
+See [PirateFace interoperability](pirateface.md) for the separate offline workflow.
+
 For Library, use the corresponding archive and target directory, then run
 `bin/foxlight-preservation-library` against your compatible local Core. Existing
 Core API/trust checks remain in place. A separate new Core can be prepared with

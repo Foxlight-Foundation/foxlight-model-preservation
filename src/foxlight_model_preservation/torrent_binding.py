@@ -34,10 +34,19 @@ class TorrentCreatorFactory(Protocol):
     ) -> TorrentCreator: ...
 
 
+class TorrentHashes(Protocol):
+    """Native routing hashes; these never authenticate a model signer."""
+
+    v1: object
+
+    def has_v1(self) -> bool: ...
+
+
 class TorrentInfo(Protocol):
     """Parsed native metainfo, independently checked against the signed selection."""
 
     def files(self) -> TorrentFiles: ...
+    def info_hashes(self) -> TorrentHashes: ...
 
 
 class TorrentError(Protocol):

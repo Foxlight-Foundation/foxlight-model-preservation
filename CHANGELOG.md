@@ -1,6 +1,16 @@
 # Changes
 
-## 0.13.0 (source preview)
+## 0.14.0 (source preview)
+
+- Explicit PirateFace exact-repository lookup records bounded untrusted routing
+  candidates without rescue requests, hooks, account enrollment or peer sessions.
+- Offline original-repository torrent intake authenticates the original legacy
+  or PMF capture under independent trust and verifies every file, companion and
+  source document before publishing a new complete archive. Signatures and card
+  data stay unchanged; nothing uploads, executes, deletes inputs or grants trust.
+  See [PirateFace interoperability](docs/pirateface.md) for workflow and limits.
+
+## 0.13.0
 
 - Explicit persistent IPFS/BitTorrent mirrors use isolated per-model native
   custody, bounded rotating sessions and durable upload reservations. Public

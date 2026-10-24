@@ -1,0 +1,71 @@
+{
+  "additionalProperties": false,
+  "description": "A bounded lookup observation; no signer, execution or sharing grants.",
+  "properties": {
+    "authority": {
+      "const": "untrusted-candidate",
+      "default": "untrusted-candidate",
+      "title": "Authority",
+      "type": "string"
+    },
+    "infohash": {
+      "pattern": "^[0-9a-f]{40}$",
+      "title": "Infohash",
+      "type": "string"
+    },
+    "magnet": {
+      "maxLength": 80,
+      "title": "Magnet",
+      "type": "string"
+    },
+    "observed_at": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "title": "Observed At",
+      "type": "integer"
+    },
+    "repo_id": {
+      "title": "Repo Id",
+      "type": "string"
+    },
+    "response_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Response Sha256",
+      "type": "string"
+    },
+    "revision_hint": {
+      "anyOf": [
+        {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Revision Hint"
+    },
+    "schema_version": {
+      "const": "foxlight.pirateface-candidate.v1",
+      "default": "foxlight.pirateface-candidate.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source_base": {
+      "title": "Source Base",
+      "type": "string"
+    }
+  },
+  "required": [
+    "repo_id",
+    "source_base",
+    "infohash",
+    "magnet",
+    "response_sha256",
+    "observed_at"
+  ],
+  "title": "PirateFaceCandidate",
+  "type": "object"
+}

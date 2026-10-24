@@ -37,6 +37,11 @@ from .mirror_cli import MirrorArguments, register_mirror_commands, run_mirror_co
 from .models import MAX_METADATA_BYTES, Catalog, PreservationError, Recipe, TrustProfile
 from .operations import OperationCancelled, OperationControl, Progress, failure_code
 from .peer_cli import PeerArguments, register_peer_commands, run_peer_command
+from .pirateface_cli import (
+    PirateFaceArguments,
+    register_pirateface_commands,
+    run_pirateface_command,
+)
 from .pmf import load_pmf, pack_pmf, restore_pmf, verify_pmf
 from .pmf_preservation import export_preservation, import_preservation
 from .publication import PublicationRequest, plan_publication, publish_public
@@ -67,7 +72,13 @@ from .torrent import TorrentExport, TorrentSeeder, TorrentSeedPolicy, export_tor
 from .transfer import TransferPolicy, fetch, plan_fetch
 
 
-class Arguments(DiscoveryArguments, PeerArguments, HandoffArguments, MirrorArguments):
+class Arguments(
+    DiscoveryArguments,
+    PeerArguments,
+    HandoffArguments,
+    MirrorArguments,
+    PirateFaceArguments,
+):
     """Typed parser output; each command uses only its declared arguments."""
 
     kit: Path
@@ -191,6 +202,7 @@ def argument_parser() -> argparse.ArgumentParser:
     register_peer_commands(commands.add_parser)
     register_handoff_commands(commands.add_parser)
     register_mirror_commands(commands.add_parser)
+    register_pirateface_commands(commands.add_parser)
     for name in (
         "pmf-pack",
         "pmf-verify",
@@ -590,6 +602,8 @@ def run(
     arguments: Arguments, *, control: OperationControl | None = None
 ) -> dict[str, JsonValue]:
     """Execute exactly the selected operation and return a bounded safe receipt."""
+    if arguments.command == "pirateface":
+        return run_pirateface_command(arguments, control or OperationControl())
     if arguments.command == "mirror":
         return run_mirror_command(arguments, control or OperationControl())
     if arguments.command in HANDOFF_COMMANDS:
@@ -1096,7 +1110,7 @@ def main() -> int:
         "torrent-export",
         "torrent-seed",
     } or arguments.command.startswith(("pmf-", "peer-", "handoff-"))
-    controlled = controlled or arguments.command == "mirror"
+    controlled = controlled or arguments.command in {"mirror", "pirateface"}
     previous_term = signal.getsignal(signal.SIGTERM)
     if arguments.command == "mirror":
         signal.signal(signal.SIGTERM, lambda _number, _frame: control.cancel())
