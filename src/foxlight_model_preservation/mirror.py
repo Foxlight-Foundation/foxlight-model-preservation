@@ -177,15 +177,22 @@ def _policy(grant: SourceGrant, maximum: int | None = None) -> TransferPolicy:
     )
 
 
-def verify_retained(
-    root: int, identity: str, held: HeldModel, control: OperationControl
-) -> Manifest:
-    """Verify original model trust, public terms and every retained object."""
-    envelope = read_metadata(root, manifest_path(identity))
+def selection_manifest(envelope: bytes, identity: str, held: HeldModel) -> Manifest:
+    """Authenticate a selected wrapper and terms without claiming complete bytes."""
     if held.origin == "local" and digest(envelope) != held.envelope_sha256:
         raise PreservationError("local selection's original signed wrapper changed")
     manifest = verify_manifest(envelope, held.grant.trust, identity)
     require_terms(manifest, held.grant)
+    return manifest
+
+
+def verify_retained(
+    root: int, identity: str, held: HeldModel, control: OperationControl
+) -> Manifest:
+    """Verify original model trust, public terms and every retained object."""
+    manifest = selection_manifest(
+        read_metadata(root, manifest_path(identity)), identity, held
+    )
     for file in unique_objects(manifest):
         verify_object(root, file, control=control)
     return manifest

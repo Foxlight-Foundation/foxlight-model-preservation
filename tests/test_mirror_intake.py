@@ -278,6 +278,73 @@ def test_partial_copy_needs_operator_retry_and_never_fetches(
     assert ledger.read().models[capture.identity].state == "retained"
 
 
+@pytest.mark.parametrize("shared", [False, True])
+def test_partial_local_copy_can_be_pruned_after_input_loss_without_losing_shared_bytes(
+    tmp_path, capture, monkeypatch, shared
+):
+    import foxlight_model_preservation.mirror_intake as intake
+
+    ledger = local_mirror(tmp_path)
+    first = capture.identity
+    selected = first
+    if shared:
+        retain_local(ledger, capture.store, first, local_grant(capture))
+        selected = pack(
+            capture.recipe.model_copy(update={"name": "separate signed selection"}),
+            capture.sources,
+            capture.store,
+            (capture.key,),
+        )
+    original = intake.copy_verified_object
+
+    def interrupted(*args, **kwargs):
+        original(*args, **kwargs)
+        raise OSError("copy interruption after first complete object")
+
+    with monkeypatch.context() as interruption:
+        interruption.setattr(intake, "copy_verified_object", interrupted)
+        with pytest.raises(OSError, match="copy interruption"):
+            retain_local(ledger, capture.store, selected, local_grant(capture))
+    assert ledger.read().models[selected].state == "pending"
+    assert not (ledger.path / "store" / manifest_path(selected)).exists()
+    private = ledger.path / "scratch/local-intake" / (selected + ".json")
+    assert private.is_file()
+    shutil.rmtree(capture.store)
+    if shared:
+        model_action(ledger, first, "block")
+        prune(ledger, first, first)
+        # Pending local custody still has an authenticated claim on the shared
+        # objects even though it has never published its complete envelope.
+        assert any((ledger.path / "store/objects/sha256").iterdir())
+    model_action(ledger, selected, "block")
+    prune(ledger, selected, selected)
+    assert ledger.read().models[selected].state == "removed"
+    assert not private.exists()
+    assert not list((ledger.path / "store/objects/sha256").iterdir())
+
+
+def test_partial_local_prune_rechecks_original_signed_intent(
+    tmp_path, capture, monkeypatch
+):
+    import foxlight_model_preservation.mirror_intake as intake
+
+    ledger = local_mirror(tmp_path)
+
+    def interrupted(*args, **kwargs):
+        raise OSError("before object copy")
+
+    monkeypatch.setattr(intake, "copy_verified_object", interrupted)
+    with pytest.raises(OSError):
+        retain_local(ledger, capture.store, capture.identity, local_grant(capture))
+    private = ledger.path / "scratch/local-intake" / (capture.identity + ".json")
+    private.write_bytes(private.read_bytes() + b"\n")
+    model_action(ledger, capture.identity, "block")
+    with pytest.raises(PreservationError, match="original signed wrapper changed"):
+        prune(ledger, capture.identity, capture.identity)
+    assert ledger.read().models[capture.identity].state == "pending"
+    assert private.is_file()
+
+
 def test_complete_crash_intent_recovers_offline_and_prune_does_not_readmit(
     tmp_path, capture, monkeypatch
 ):
@@ -324,6 +391,33 @@ def test_signed_wrapper_drift_is_not_silently_reinterpreted(tmp_path, capture):
         "original signed wrapper changed"
         in ledger.read().models[capture.identity].error
     )
+    # Explicit deletion still authenticates the privately retained original
+    # selection rather than trusting the damaged complete-envelope file.
+    model_action(ledger, capture.identity, "block")
+    prune(ledger, capture.identity, capture.identity)
+    assert ledger.read().models[capture.identity].state == "removed"
+
+
+@pytest.mark.parametrize("damage", [b"invalid wrapper", b"\n"])
+def test_explicit_retry_repairs_wrapper_only_from_the_pinned_original(
+    tmp_path, capture, damage
+):
+    ledger = local_mirror(tmp_path)
+    retain_local(ledger, capture.store, capture.identity, local_grant(capture))
+    target = ledger.path / "store" / manifest_path(capture.identity)
+    original = target.read_bytes()
+    target.write_bytes(original + damage)
+    assert not public_selection(ledger, OperationControl())[0]
+    assert ledger.read().models[capture.identity].error
+    model_action(ledger, capture.identity, "pin")
+    model_action(ledger, capture.identity, "block")
+    model_action(ledger, capture.identity, "retry")
+    before = policy_id(ledger.read())
+    retain_local(ledger, capture.store, capture.identity, local_grant(capture))
+    assert target.read_bytes() == original
+    held = ledger.read().models[capture.identity]
+    assert held.state == "retained" and held.pinned and held.blocked
+    assert held.error is None and policy_id(ledger.read()) == before
 
 
 def test_active_controller_and_interrupted_deletion_fence_local_intake(

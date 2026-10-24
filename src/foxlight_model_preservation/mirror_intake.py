@@ -93,12 +93,15 @@ def retain_local(
                 except FileNotFoundError:
                     pass
                 else:
-                    if existing_envelope != envelope:
+                    if existing_envelope != envelope and previous is None:
                         raise PreservationError(
                             "retained original signed wrapper differs"
                         )
+                    # An existing selection already pinned and reauthenticated
+                    # this exact input wrapper above. An explicit retry may
+                    # restore those original bytes after destination damage.
                 missing, _reused, _partial = observe_objects(target, files, active)
-                additional = sum(file.size for file in missing) + len(envelope)
+                additional = sum(file.size for file in missing) + 2 * len(envelope)
                 if (
                     ledger.usage() + additional + HEADROOM > state.disk_bytes
                     or shutil.disk_usage(target).free < additional + HEADROOM
@@ -118,6 +121,13 @@ def retain_local(
 
                     ledger.update(select)
                 try:
+                    # Retain signed selection metadata before copying. It is a
+                    # private intent, never a published complete generation, and
+                    # lets explicit prune identify partial bytes after input loss.
+                    with ledger.child("scratch") as scratch:
+                        atomic_bytes(
+                            scratch, "local-intake/" + manifest_id + ".json", envelope
+                        )
                     for file in files:
                         copy_verified_object(
                             source,

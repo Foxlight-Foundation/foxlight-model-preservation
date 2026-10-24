@@ -13,6 +13,10 @@
   authority. The owner-state v3 profile preserves legacy v1/v2 policy identities;
   unchanged HTTP/IPFS/BitTorrent sessions can serve the retained public v1 copy.
   PMF network transport remains separate and fails closed before local admission.
+- Retain signed intake metadata privately before copying, permitting exact
+  operator prune of interrupted local copies after input loss while protecting
+  shared objects. Explicit retry can restore a damaged wrapper only from the
+  independently authenticated, originally pinned bytes.
 
 - Add bounded private per-attempt client/origin observations to the explicit
   synthetic public I2P drill. Controlled faults distinguish header/body timeouts,

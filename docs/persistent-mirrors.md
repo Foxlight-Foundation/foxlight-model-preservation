@@ -101,10 +101,19 @@ Stop the controller before admission. Disk limits include retained and partial
 copies; local copying spends no network ingress allowance. A failed copy stays
 unserved and needs `mirror retry --manifest ...` followed by the same `mirror
 retain` command. The original remaining limits and deletion tombstones stay in
-place. A complete selected closure interrupted immediately before its receipt
+place. The same explicit retry can repair a damaged destination wrapper only
+from bytes matching the originally pinned wrapper hash and accepted authority.
+A complete selected closure interrupted immediately before its receipt
 can recover offline; incomplete local custody never acquires a catalog/network
 repair route. Source loss never deletes this copy. Ordinary block/pin/pause and
 explicit stopped-owner prune still apply.
+
+Before copying, the owner privately retains the authenticated wrapper under
+`scratch/local-intake/`. This is selection metadata, not a published complete
+archive or an HTTP route. It permits explicit prune of partial local custody
+after input loss. Prune rechecks its exact hash, signatures and terms and protects
+objects shared by other complete or partial local selections. Its write-ahead
+deletion journal remains resumable if removal is interrupted.
 
 This direct local adapter accepts the existing preservation-v1 public transport
 profile. PMF network transport remains separate: a PMF envelope refuses before
