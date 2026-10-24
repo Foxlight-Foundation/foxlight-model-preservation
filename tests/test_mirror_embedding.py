@@ -8,14 +8,71 @@ import signal
 import socket
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
 from test_mirror import cycle, mirror
 from test_mirror_native import await_condition, ipfs_home, native_binary
 
-from foxlight_model_preservation.mirror_native import configure
+from foxlight_model_preservation.mirror_native import NativeMirrors, configure
+from foxlight_model_preservation.peer_runtime import serve_peer
 from foxlight_model_preservation.storage import manifest_path, verify_store
+
+
+def test_direct_runner_normal_expiry_and_slow_stop_allow_next_session(
+    tmp_path, capture, monkeypatch
+):
+    from foxlight_model_preservation import peer_runtime
+
+    binary = native_binary()
+    ledger, _ = mirror(tmp_path, capture)
+    cycle(ledger)
+    configure(
+        ledger,
+        ipfs_binary=binary,
+        ipfs_sha256=hashlib.sha256(Path(binary).read_bytes()).hexdigest(),
+        allow_private_peers=True,
+        session_seconds=2,
+    )
+    original_stop = peer_runtime._stop
+
+    def slow_daemon_stop(process):
+        if isinstance(process.args, list) and process.args[1:2] == ["daemon"]:
+            # Normal daemon teardown can outlast its data client's deadline.
+            # The session controller still owns that teardown and must not
+            # persist a permanent native error for an ordinary finite expiry.
+            time.sleep(0.4)
+        original_stop(process)
+
+    monkeypatch.setattr(peer_runtime, "_stop", slow_daemon_stop)
+    manager = NativeMirrors(ledger, lambda state: True, peer_runner=serve_peer)
+    try:
+        manager.tick()
+        await_condition(
+            lambda: bool(
+                ledger.read().native_models.get(capture.identity)
+                and ledger.read().native_models[capture.identity].last_stopped
+            )
+        )
+        first = ledger.read().native_models[capture.identity]
+        assert first.error is None, first.error
+        assert first.session_counts["ipfs"] == 1
+        assert verify_store(ledger.path / "store", capture.identity, capture.trust)
+
+        def next_session():
+            manager.tick()
+            return (
+                ledger.read()
+                .native_models[capture.identity]
+                .session_counts.get("ipfs", 0)
+                >= 2
+            )
+
+        await_condition(next_session)
+        assert ledger.read().native_models[capture.identity].error is None
+    finally:
+        manager.close()
 
 
 def group_members(identity: int) -> tuple[tuple[int, str], ...]:

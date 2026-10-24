@@ -325,7 +325,9 @@ def _ipfs(
                 share_public=True,
                 seconds=policy.session_seconds,
                 max_upload_bytes=policy.session_bytes,
-                control=control,
+                # A direct runner's client applies its own data deadline.
+                # Cleanup may outlast it; do not expire the session controller.
+                control=control.fork(),
             )
         except Exception as error:
             failures.append(error)
