@@ -190,6 +190,7 @@ def test_observed_fetch_preserves_verification_and_distinguishes_failures(
     )
     events = [json.loads(line) for line in raw.splitlines()]
     errors = [item for item in events if item["event"] == "client_error"]
+    assert len(errors) == 1
     assert errors[0]["category"] == category
     assert errors[0]["phase"] == phase
     assert summary["events_dropped"] == 0
@@ -247,3 +248,84 @@ def test_diagnostic_close_drains_origin_or_reports_incomplete_evidence(
     if not finish:
         observations.record("origin_end", request=1, completed_write_bytes=100)
         assert summary["observed_origin_evidence_complete"] is False
+
+
+@pytest.mark.parametrize(
+    "fault,category,phase",
+    [
+        ("headers", "socket_timeout", "response_headers"),
+        ("body", "socket_timeout", "body_read"),
+        ("status", "http_status", "response_status"),
+        ("protocol", "http_protocol", "response_headers"),
+    ],
+)
+def test_manifest_response_failures_remain_observable(
+    capture, tmp_path, fault, category, phase
+):
+    import json
+    import threading
+    import time
+
+    from foxlight_model_preservation import transfer
+    from foxlight_model_preservation.i2p_http import I2PHTTPProxy
+    from foxlight_model_preservation.models import PreservationError
+    from foxlight_model_preservation.seed import SeedHandler, SeedServer
+    from foxlight_model_preservation.transfer import I2PTransferPolicy
+
+    observations = observations_module().HTTPObservations(tmp_path)
+
+    class FailedManifest(SeedHandler):
+        def do_GET(self):
+            if fault == "headers":
+                time.sleep(0.8)
+                return
+            if fault == "protocol":
+                self.connection.sendall(b"PRIVATE_INVALID_STATUS\r\n\r\n")
+                return
+            self.send_response(503 if fault == "status" else 200)
+            self.send_header("Content-Length", "0" if fault == "status" else "10")
+            self.end_headers()
+            if fault == "body":
+                time.sleep(0.8)
+
+    server = SeedServer(
+        ("127.0.0.1", 0), capture.store, (capture.identity,), capture.trust
+    )
+    server.RequestHandlerClass = FailedManifest
+    thread = threading.Thread(target=lambda: server.serve_forever(poll_interval=0.02))
+    thread.start()
+    original = transfer.response
+    target = tmp_path / "not-published"
+    try:
+        host = base64.b32encode(b"i" * 32).decode().rstrip("=").lower()
+        with (
+            observations.client(),
+            pytest.raises(PreservationError, match="no authenticated manifest"),
+        ):
+            transfer.fetch(
+                capture.identity,
+                capture.trust,
+                (f"http://{host}.b32.i2p",),
+                target,
+                I2PTransferPolicy(
+                    proxy=I2PHTTPProxy(port=server.server_port), timeout=0.2
+                ),
+            )
+        assert transfer.response is original
+        assert not target.exists()
+    finally:
+        server.shutdown()
+        thread.join(3)
+        server.server_close()
+        summary = observations.close()
+    raw = (tmp_path / "transfer-events.jsonl").read_text()
+    assert "PRIVATE_INVALID_STATUS" not in raw and ".b32.i2p" not in raw
+    errors = [
+        json.loads(s)
+        for s in raw.splitlines()
+        if json.loads(s)["event"] == "client_error"
+    ]
+    assert len(errors) == 1
+    assert errors[0]["kind"] == "manifest" and errors[0]["request"] == 1
+    assert errors[0]["category"] == category and errors[0]["phase"] == phase
+    assert summary["error_categories"][category] == 1

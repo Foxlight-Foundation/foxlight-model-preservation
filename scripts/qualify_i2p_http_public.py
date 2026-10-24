@@ -93,6 +93,8 @@ class HTTPObservations:
         self.counts = Counter()
         self.errors = Counter()
         self.written = self.dropped = self.attempt = self.origin = 0
+        self.client_request = 0
+        self.active_request: int | None = None
 
     def record(self, event: str, **fields) -> None:
         """Append one bounded safe event; a failed diagnostic write stops the drill."""
@@ -163,6 +165,8 @@ class HTTPObservations:
             if "_bounded_copy" in names
             else "response_headers"
             if names & {"getresponse", "_read_status", "begin"}
+            else "body_read"
+            if "_metadata" in names
             else "other"
         )
         if category in {"range_mismatch", "length_mismatch", "unsupported_framing"}:
@@ -193,6 +197,7 @@ class HTTPObservations:
 
         def observed_download(source, file, target, policy, deadline, budget, control):
             self.attempt += 1
+            self.active_request = None
             attempt = self.attempt
             before = transfer._partial_size(target, file)
             self.record("client_start", attempt=attempt, prefix=before, size=file.size)
@@ -201,7 +206,13 @@ class HTTPObservations:
                 download(source, file, target, policy, deadline, budget, control)
                 complete = True
             except BaseException as error:
-                self.record("client_error", attempt=attempt, **self.failure(error))
+                self.record(
+                    "client_error",
+                    attempt=attempt,
+                    request=self.active_request,
+                    kind="object",
+                    **self.failure(error),
+                )
                 raise
             finally:
                 self.record(
@@ -215,25 +226,49 @@ class HTTPObservations:
 
         @contextmanager
         def observed_response(source, relative, policy, *, offset=0):
-            self.record("client_request", attempt=self.attempt, offset=offset)
-            with response(source, relative, policy, offset=offset) as incoming:
-                length = incoming.getheader("Content-Length", "")
-                content_range = incoming.getheader("Content-Range", "")
-                matched = re.fullmatch(
-                    r"bytes ([0-9]{1,16})-([0-9]{1,16})/([0-9]{1,16})", content_range
-                )
-                self.record(
-                    "client_response",
-                    attempt=self.attempt,
-                    status=incoming.status,
-                    content_length=int(length)
-                    if re.fullmatch(r"[0-9]{1,16}", length)
-                    else None,
-                    content_range=[int(x) for x in matched.groups()]
-                    if matched
-                    else None,
-                )
-                yield incoming
+            self.client_request += 1
+            request = self.client_request
+            self.active_request = request
+            kind = "manifest" if relative.startswith("manifests/") else "object"
+            self.record(
+                "client_request",
+                attempt=self.attempt,
+                request=request,
+                kind=kind,
+                offset=offset,
+            )
+            try:
+                with response(source, relative, policy, offset=offset) as incoming:
+                    length = incoming.getheader("Content-Length", "")
+                    content_range = incoming.getheader("Content-Range", "")
+                    matched = re.fullmatch(
+                        r"bytes ([0-9]{1,16})-([0-9]{1,16})/([0-9]{1,16})",
+                        content_range,
+                    )
+                    self.record(
+                        "client_response",
+                        attempt=self.attempt,
+                        request=request,
+                        kind=kind,
+                        status=incoming.status,
+                        content_length=int(length)
+                        if re.fullmatch(r"[0-9]{1,16}", length)
+                        else None,
+                        content_range=[int(x) for x in matched.groups()]
+                        if matched
+                        else None,
+                    )
+                    yield incoming
+            except BaseException as error:
+                if kind == "manifest":
+                    self.record(
+                        "client_error",
+                        attempt=0,
+                        request=request,
+                        kind=kind,
+                        **self.failure(error),
+                    )
+                raise
 
         with (
             patch.object(transfer, "_download", observed_download),
