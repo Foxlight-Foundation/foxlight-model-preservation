@@ -341,20 +341,26 @@ def _torrent(
 ) -> None:
     with native_area(ledger, manifest):
         home = ledger.path / "scratch" / "native" / manifest
-    expected = ledger.read().native_models[manifest].torrent
+    record = ledger.read().native_models[manifest]
+    expected = record.torrent
+    export = home / record.torrent_directory
     trust = ledger.read().models[manifest].grant.trust
     if expected is None:
+        # A published directory can survive a crash before its receipt commits.
+        # Retry a fresh journaled generation; preserve every prior generation.
+        export = home / ("torrent-" + secrets.token_hex(12))
+        _record(ledger, manifest, torrent_directory=export.name)
         with ledger.content_lock():
             expected = export_torrent(
                 ledger.path / "store",
                 manifest,
                 trust,
-                home / "torrent",
+                export,
                 control=control.fork(),
             )
         _record(ledger, manifest, torrent=expected)
     seeder = TorrentSeeder(
-        home / "torrent",
+        export,
         expected,
         trust,
         TorrentSeedPolicy(
@@ -535,7 +541,9 @@ def export_reference(ledger: MirrorLedger, manifest: str, kind: str) -> bytes:
         return encode_record(Handoff(reference=invitation, contacts=record.contacts))
     if kind == "torrent" and record.torrent:
         with native_area(ledger, manifest) as root:
-            raw = read_metadata(root, "torrent/" + manifest + ".torrent")
+            raw = read_metadata(
+                root, record.torrent_directory + "/" + manifest + ".torrent"
+            )
         if digest(raw) != record.torrent.metainfo_sha256:
             raise PreservationError("retained torrent metadata changed")
         return raw

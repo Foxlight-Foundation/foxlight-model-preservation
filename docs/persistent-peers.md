@@ -59,10 +59,11 @@ Each retained model gets isolated native custody beneath
 closure. IPFS uses a dedicated per-model repo, pins the same verified closure
 and lets maintained Kubo renew its provider advertisements. The controller does
 not use an unpin, garbage collection or cache deletion to stop sharing.
-An interrupted offline Kubo initialization leaves its private generation
-retained. Explicit retry initializes a fresh named generation rather than
-adopting or deleting the partial repo. Partial generations count toward disk
-usage and remain until the operator explicitly prunes that model's native tree.
+An interrupted offline Kubo initialization or torrent export leaves its private
+generation retained. If no completion receipt was committed, explicit retry
+creates a fresh named generation rather than adopting or deleting that tree.
+Partial and unreceipted complete generations count toward disk usage and remain
+until the operator explicitly prunes that model's native tree.
 Kubo's provider selection and Bitswap serving are distinct
 [configuration controls](https://github.com/ipfs/kubo/blob/v0.43.1/docs/config.md).
 Isolation lets a blocked model's daemon stop while other models remain served.

@@ -340,6 +340,61 @@ def native_binary():
     return selected
 
 
+def test_torrent_export_receipt_interruption_retries_without_deleting_copy(
+    tmp_path, capture, monkeypatch
+):
+    pytest.importorskip("libtorrent")
+    from foxlight_model_preservation import mirror_native as native
+
+    ledger, _ = mirror(tmp_path, capture)
+    cycle(ledger)
+    configure(ledger, torrent=True, session_seconds=60)
+    original = native.export_torrent
+    exports = []
+
+    def interrupted(store, manifest, trust, destination, **kwargs):
+        result = original(store, manifest, trust, destination, **kwargs)
+        exports.append(destination)
+        if len(exports) == 1:
+            raise OSError("export committed before receipt interruption")
+        return result
+
+    monkeypatch.setattr(native, "export_torrent", interrupted)
+    manager = NativeMirrors(ledger, lambda s: True)
+    try:
+        manager.tick()
+        await_condition(
+            lambda: (
+                bool(ledger.read().native_models.get(capture.identity))
+                and bool(ledger.read().native_models[capture.identity].error)
+            )
+        )
+        manager.close()
+        assert ledger.read().native_models[capture.identity].torrent is None
+        first_metainfo = (exports[0] / (capture.identity + ".torrent")).read_bytes()
+        model_action(ledger, capture.identity, "retry")
+        manager = NativeMirrors(ledger, lambda s: True)
+        manager.tick()
+        await_condition(
+            lambda: bool(
+                ledger.read().native_models[capture.identity].last_torrent_port
+            )
+        )
+        record = ledger.read().native_models[capture.identity]
+        assert not record.error and record.torrent
+        assert exports[0] != exports[1]
+        assert record.torrent_directory == exports[1].name
+        assert export_reference(ledger, capture.identity, "torrent") == first_metainfo
+        assert (exports[0] / (capture.identity + ".torrent")).read_bytes() == (
+            first_metainfo
+        )
+        assert verify_store(
+            exports[0] / capture.identity, capture.identity, capture.trust
+        )
+    finally:
+        manager.close()
+
+
 def test_interrupted_ipfs_init_retries_new_generation_and_retains_partial(
     tmp_path, capture, monkeypatch
 ):
