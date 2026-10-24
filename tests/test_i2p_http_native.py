@@ -1,6 +1,7 @@
 """Stock I2P HTTP proxy/server and three-hop authenticated recovery on private I2P."""
 
 import os
+import re
 import socket
 import subprocess
 from functools import partial
@@ -23,7 +24,12 @@ from foxlight_model_preservation.discovery import (
 )
 from foxlight_model_preservation.i2p_http import I2PHTTPProxy, i2p_http_response
 from foxlight_model_preservation.signing import encode_record
-from foxlight_model_preservation.storage import manifest_path, restore
+from foxlight_model_preservation.storage import (
+    manifest_path,
+    object_path,
+    restore,
+    verify_store,
+)
 from foxlight_model_preservation.transfer import I2PTransferPolicy
 
 TUNNEL_JAR = os.environ.get("SOVEREIGN_I2P_TUNNEL_JAR")
@@ -56,6 +62,16 @@ def test_stock_i2p_http_updates_and_full_recovery(capture, native_network, tmp_p
     )
     original_envelope = (capture.store / manifest_path(capture.identity)).read_bytes()
     tokenizer = (capture.sources["tokenizer"] / "model.bin").read_bytes()
+    file = max(
+        verify_store(capture.store, capture.identity, capture.trust).members[0].files,
+        key=lambda item: item.size,
+    )
+    partial_directory = tmp_path / "received/.partial"
+    partial_directory.mkdir(parents=True)
+    (partial_directory / file.sha256).write_bytes(
+        (capture.store / object_path(file.sha256)).read_bytes()[:500]
+    )
+    range_requests = []
     publisher = Publisher(tmp_path / "publisher", capture)
     # One read-only backend exposes metadata and the synthetic archive objects.
     root = tmp_path / "http-root"
@@ -64,7 +80,34 @@ def test_stock_i2p_http_updates_and_full_recovery(capture, native_network, tmp_p
 
     shutil.copytree(publisher.path, root / "source")
     shutil.copytree(capture.store, root / "model")
-    handler = partial(SimpleHTTPRequestHandler, directory=str(root))
+
+    class RangeHandler(SimpleHTTPRequestHandler):
+        def do_GET(self):
+            requested = self.headers.get("Range")
+            if requested is None:
+                return super().do_GET()
+            if not re.fullmatch(
+                r"/model/objects/sha256/[a-f0-9]{64}", self.path
+            ) or not re.fullmatch(r"bytes=[0-9]{1,16}-", requested):
+                self.send_error(416)
+                return
+            data = (root / self.path.lstrip("/")).read_bytes()
+            start = int(requested[6:-1])
+            if not 0 <= start < len(data):
+                self.send_error(416)
+                return
+            range_requests.append(requested)
+            self.send_response(206)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(len(data) - start))
+            self.send_header("Accept-Ranges", "bytes")
+            self.send_header(
+                "Content-Range", f"bytes {start}-{len(data) - 1}/{len(data)}"
+            )
+            self.end_headers()
+            self.wfile.write(data[start:])
+
+    handler = partial(RangeHandler, directory=str(root))
     backend = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     thread = Thread(target=backend.serve_forever, daemon=True)
     thread.start()
@@ -146,6 +189,7 @@ def test_stock_i2p_http_updates_and_full_recovery(capture, native_network, tmp_p
             tmp_path / "received",
             I2PTransferPolicy(proxy=proxy, timeout=60),
         )
+        assert range_requests == ["bytes=500-"]
         assert (
             tmp_path / "received" / manifest_path(capture.identity)
         ).read_bytes() == original_envelope
