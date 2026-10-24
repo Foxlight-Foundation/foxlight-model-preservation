@@ -25,6 +25,8 @@ Operation = Literal[
     "seed",
     "kit_export",
     "kit_import",
+    "pirateface_lookup",
+    "pirateface_import",
 ]
 Stage = Literal[
     "starting",

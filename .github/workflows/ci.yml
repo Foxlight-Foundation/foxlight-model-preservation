@@ -26,7 +26,7 @@ jobs:
       - name: Qualify optional BitTorrent with real local peers
         run: |
           uv sync --locked --dev --extra bittorrent
-          uv run --extra bittorrent pytest tests/test_torrent.py tests/test_mirror_native.py
+          uv run --extra bittorrent pytest tests/test_torrent.py tests/test_mirror_native.py tests/test_pirateface_native.py
       - run: uv build
       - name: Qualify the hash-locked public installation bundle
         env:
