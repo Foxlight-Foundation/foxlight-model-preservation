@@ -26,9 +26,9 @@ class NativePolicy(Record):
 
 
 class NativeModel(Record):
-    """Local per-model custody; stopping publication never removes these bytes."""
+    """Local custody or refusal receipt; a receipt alone never implies bytes."""
 
-    identity: tuple[int, int]
+    identity: tuple[int, int] | None = None
     ipfs_identity: tuple[int, int] | None = None
     torrent: TorrentExport | None = None
     cid: str | None = None
@@ -39,6 +39,9 @@ class NativeModel(Record):
     contacts: tuple[str, ...] = Field(default=(), max_length=8)
     last_torrent_port: int = Field(default=0, ge=0, le=65535)
     publications: int = Field(default=0, ge=0)
+    session_counts: dict[Literal["ipfs", "torrent"], int] = Field(
+        default_factory=dict, max_length=2
+    )
 
 
 class Terms(Record):

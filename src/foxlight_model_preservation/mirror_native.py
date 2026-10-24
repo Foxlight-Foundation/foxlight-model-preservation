@@ -62,6 +62,18 @@ def configure(
     No software is downloaded, daemon started, source trusted or model deleted.
     Reconfiguration retains existing isolated caches and their original identities.
     """
+    template = NativePolicy(
+        identity=(0, 0),
+        ipfs_binary=ipfs_binary,
+        ipfs_sha256=ipfs_sha256,
+        torrent=torrent,
+        bootstrap=bootstrap,
+        allow_private_peers=allow_private_peers,
+        max_active=max_active,
+        session_seconds=session_seconds,
+        session_bytes=session_bytes,
+        upload_rate=upload_rate,
+    )
     if ipfs_binary:
         ipfs_binary = str(Path(ipfs_binary).resolve(strict=True))
         if _binary_hash(ipfs_binary) != ipfs_sha256:
@@ -83,17 +95,12 @@ def configure(
         identity = info.st_dev, info.st_ino
         if not stat.S_ISDIR(info.st_mode) or (old and old.identity != identity):
             raise PreservationError("native mirror directory identity changed")
-        policy = NativePolicy(
-            identity=identity,
-            ipfs_binary=ipfs_binary,
-            ipfs_sha256=ipfs_sha256,
-            torrent=torrent,
-            bootstrap=contacts,
-            allow_private_peers=allow_private_peers,
-            max_active=max_active,
-            session_seconds=session_seconds,
-            session_bytes=session_bytes,
-            upload_rate=upload_rate,
+        policy = template.model_copy(
+            update={
+                "identity": identity,
+                "ipfs_binary": ipfs_binary,
+                "bootstrap": contacts,
+            }
         )
         return ledger.update(
             lambda state: state.model_copy(
@@ -122,7 +129,7 @@ def native_area(ledger: MirrorLedger, manifest: str | None = None) -> Generator[
                 raise PreservationError("native mirror directory identity changed")
             if manifest is not None:
                 record = state.native_models.get(manifest)
-                if record is None:
+                if record is None or record.identity is None:
                     raise PreservationError("unknown native model custody")
                 child = os.open(manifest, os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
                 info = os.fstat(child)
@@ -137,11 +144,23 @@ def native_area(ledger: MirrorLedger, manifest: str | None = None) -> Generator[
             os.close(fd)
 
 
-def _record(ledger: MirrorLedger, manifest: str, **changes: object) -> None:
+def _record(
+    ledger: MirrorLedger,
+    manifest: str,
+    *,
+    session_started: str | None = None,
+    **changes: object,
+) -> None:
     def update(state: MirrorState) -> MirrorState:
         records = dict(state.native_models)
+        current = records.get(manifest, NativeModel())
+        if session_started is not None:
+            counts = dict(current.session_counts)
+            kind = "ipfs" if session_started == "ipfs" else "torrent"
+            counts[kind] = counts.get(kind, 0) + 1
+            changes["session_counts"] = counts
         records[manifest] = NativeModel.model_validate(
-            records[manifest].model_copy(update=changes).model_dump()
+            current.model_copy(update=changes).model_dump()
         )
         return state.model_copy(update={"native_models": records})
 
@@ -157,7 +176,8 @@ def _prepare(ledger: MirrorLedger, manifest: str, control: OperationControl) -> 
     with _custody_lock:
         # Existing adapters copy an export and Kubo keeps blocks. Reserve both
         # plus metadata headroom; ongoing allocation is observed, not a quota.
-        if manifest in ledger.read().native_models:
+        existing = ledger.read().native_models.get(manifest)
+        if existing is not None and existing.identity is not None:
             with native_area(ledger, manifest):
                 return ledger.path / "scratch" / "native" / manifest
         reserved = sum(x.disk_reservation for x in ledger.read().native_models.values())
@@ -390,45 +410,50 @@ class NativeMirrors:
         if at_capacity:
             return
 
-        def priority(manifest: str) -> tuple[int, str]:
+        def priority(pair: tuple[str, str]) -> tuple[int, int, str]:
+            manifest, kind = pair
             record = state.native_models.get(manifest)
             return (
+                record.session_counts.get("ipfs" if kind == "ipfs" else "torrent", 0)
+                if record
+                else 0,
                 (record.last_stopped or 0) if record else 0,
-                digest((state.salt + manifest).encode()),
+                digest((state.salt + manifest + kind).encode()),
             )
 
-        for manifest in sorted(state.models, key=priority):
-            if not self._allowed(state, manifest):
-                continue
+        candidates = [
+            (manifest, kind)
+            for manifest in state.models
             for kind, enabled in (
                 ("ipfs", bool(policy.ipfs_binary)),
                 ("torrent", policy.torrent),
+            )
+            if enabled
+        ]
+        for manifest, kind in sorted(candidates, key=priority):
+            if not self._allowed(state, manifest):
+                continue
+            key = manifest, kind
+            if key in self.sessions or len(self.sessions) >= policy.max_active:
+                continue
+            # Native upload thresholds are observed and can overshoot. The
+            # whole allowance is spent before startup, never refunded/reset.
+            if not self.ledger.reserve(
+                policy.session_bytes,
+                authorized=lambda current, identity=manifest: self._allowed(
+                    current, identity
+                ),
             ):
-                key = manifest, kind
-                if (
-                    not enabled
-                    or key in self.sessions
-                    or len(self.sessions) >= policy.max_active
-                ):
-                    continue
-                # Native upload thresholds are observed and can overshoot. The
-                # whole allowance is spent before startup, never refunded/reset.
-                if not self.ledger.reserve(
-                    policy.session_bytes,
-                    authorized=lambda current, identity=manifest: self._allowed(
-                        current, identity
-                    ),
-                ):
-                    continue
-                control = OperationControl()
-                session = _Session(
-                    lambda identity=manifest, transport=kind, active=control: self._run(
-                        identity, transport, policy, active
-                    ),
-                    control,
-                )
-                self.sessions[key] = session
-                session.thread.start()
+                continue
+            control = OperationControl()
+            session = _Session(
+                lambda identity=manifest, transport=kind, active=control: self._run(
+                    identity, transport, policy, active
+                ),
+                control,
+            )
+            self.sessions[key] = session
+            session.thread.start()
 
     def _run(
         self, manifest: str, kind: str, policy: NativePolicy, control: OperationControl
@@ -436,7 +461,12 @@ class NativeMirrors:
         try:
             # Serialize first custody creation before either adapter uses it.
             _prepare(self.ledger, manifest, control)
-            _record(self.ledger, manifest, last_started=int(time.time()))
+            _record(
+                self.ledger,
+                manifest,
+                last_started=int(time.time()),
+                session_started=kind,
+            )
             (_ipfs if kind == "ipfs" else _torrent)(
                 self.ledger, manifest, policy, control
             )
@@ -444,10 +474,9 @@ class NativeMirrors:
             pass
         except Exception as error:
             try:
-                if manifest in self.ledger.read().native_models:
-                    _record(self.ledger, manifest, error=str(error)[:400])
-                else:
-                    self.failures.append(error)
+                # A refused new cache is not a reason to shut down healthy HTTP
+                # or another model. A receipt without identity owns no tree.
+                _record(self.ledger, manifest, error=str(error)[:400])
             except (ValueError, OSError) as failure:
                 self.failures.append(failure)
         finally:

@@ -174,10 +174,28 @@ class MirrorLedger:
                     count += 1
                     if count > 200000:
                         raise PreservationError("mirror tree exceeds inventory bound")
-                    info = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                    try:
+                        info = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                    except FileNotFoundError:
+                        # Owned exporters remove stages concurrently. Missing
+                        # files consume no current disk; verification is separate.
+                        continue
                     if stat.S_ISDIR(info.st_mode):
-                        child = os.open(name, os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
                         try:
+                            child = os.open(
+                                name, os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd
+                            )
+                        except FileNotFoundError:
+                            continue
+                        try:
+                            pinned = os.fstat(child)
+                            if (pinned.st_dev, pinned.st_ino) != (
+                                info.st_dev,
+                                info.st_ino,
+                            ):
+                                raise PreservationError(
+                                    "mirror inventory directory changed"
+                                )
                             walk(child, depth + 1)
                         finally:
                             os.close(child)

@@ -50,6 +50,124 @@ def await_condition(check, timeout=25):
     raise AssertionError("native condition deadline")
 
 
+def test_invalid_configuration_can_be_corrected_without_custody_cleanup(
+    tmp_path, capture
+):
+    ledger, _ = mirror(tmp_path, capture)
+    with pytest.raises(ValueError):
+        configure(ledger, max_active=0)
+    assert not (ledger.path / "scratch/native").exists()
+    assert ledger.read().native_policy is None
+    configure(ledger, max_active=1)
+    assert ledger.read().native_policy.max_active == 1
+
+
+def test_one_slot_alternates_selected_transports_across_restart(
+    tmp_path, capture, monkeypatch
+):
+    ledger, _ = mirror(tmp_path, capture)
+    cycle(ledger)
+    monkeypatch.setattr(
+        "foxlight_model_preservation.mirror_native.torrent_engine", lambda: None
+    )
+    monkeypatch.setattr(
+        "foxlight_model_preservation.mirror_native._binary_hash", lambda _: "a" * 64
+    )
+    monkeypatch.setattr(
+        "foxlight_model_preservation.mirror_native.executable", lambda value: value
+    )
+    started = []
+    monkeypatch.setattr(
+        "foxlight_model_preservation.mirror_native._ipfs",
+        lambda *args: started.append("ipfs"),
+    )
+    monkeypatch.setattr(
+        "foxlight_model_preservation.mirror_native._torrent",
+        lambda *args: started.append("torrent"),
+    )
+    configure(
+        ledger,
+        ipfs_binary=sys.executable,
+        ipfs_sha256="a" * 64,
+        torrent=True,
+        max_active=1,
+        session_bytes=100,
+    )
+    for _ in range(3):
+        manager = NativeMirrors(MirrorLedger(ledger.path), lambda s: True)
+        try:
+            target = len(started) + 2
+
+            def next_sessions(owner=manager, count=target):
+                owner.tick()
+                return len(started) >= count
+
+            await_condition(next_sessions)
+        finally:
+            manager.close()
+    assert set(started[:2]) == {"ipfs", "torrent"}
+    counts = ledger.read().native_models[capture.identity].session_counts
+    assert counts["ipfs"] >= 3 and counts["torrent"] >= 3
+    assert abs(counts["ipfs"] - counts["torrent"]) <= 1
+
+
+@pytest.mark.parametrize("mutation", ["file", "directory", "replacement"])
+def test_inventory_handles_stage_retirement_and_refuses_replacement(
+    tmp_path, capture, monkeypatch, mutation
+):
+    ledger, _ = mirror(tmp_path, capture)
+    area = ledger.path / "store/.peer-export"
+    area.mkdir(mode=0o700)
+    stage = area / "stage-gone"
+    stage.mkdir(mode=0o700)
+    (stage / "payload").write_bytes(b"retained test bytes")
+    original_stat, original_open = os.stat, os.open
+    changed = False
+
+    def stat_entry(name, *args, **kwargs):
+        nonlocal changed
+        if (
+            mutation == "file"
+            and name == "payload"
+            and kwargs.get("dir_fd") is not None
+            and not changed
+        ):
+            changed = True
+            os.unlink(name, dir_fd=kwargs["dir_fd"])
+        return original_stat(name, *args, **kwargs)
+
+    def open_entry(name, *args, **kwargs):
+        nonlocal changed
+        if (
+            mutation != "file"
+            and name == "stage-gone"
+            and kwargs.get("dir_fd") is not None
+            and not changed
+        ):
+            changed = True
+            if mutation == "directory":
+                shutil.rmtree(name, dir_fd=kwargs["dir_fd"])
+            else:
+                os.rename(
+                    name,
+                    "kept-stage",
+                    src_dir_fd=kwargs["dir_fd"],
+                    dst_dir_fd=kwargs["dir_fd"],
+                )
+                os.mkdir(name, 0o700, dir_fd=kwargs["dir_fd"])
+        return original_open(name, *args, **kwargs)
+
+    monkeypatch.setattr(os, "stat", stat_entry)
+    monkeypatch.setattr(os, "open", open_entry)
+    if mutation == "replacement":
+        with pytest.raises(PreservationError, match="directory changed"):
+            ledger.usage()
+        assert (area / "kept-stage/payload").read_bytes() == b"retained test bytes"
+    else:
+        assert ledger.usage() >= 0
+    assert changed
+
+
 def test_configure_is_offline_invalidates_resume_and_preserves_legacy_policy(
     tmp_path, capture, monkeypatch
 ):
@@ -400,12 +518,42 @@ def test_wrong_model_trust_never_starts_native_transport(
     manager = NativeMirrors(ledger, lambda s: True)
     try:
         manager.tick()
-        await_condition(lambda: bool(manager.failures))
-        with pytest.raises(PreservationError):
-            manager.tick()
+        await_condition(
+            lambda: bool(
+                ledger.read().native_models.get(capture.identity)
+                and ledger.read().native_models[capture.identity].error
+            )
+        )
+        manager.tick()
+        assert not manager.failures
     finally:
         manager.close()
-    assert not ledger.read().native_models
+    assert ledger.read().native_models[capture.identity].identity is None
+
+
+def test_native_disk_refusal_keeps_http_owner_and_operator_pin(
+    tmp_path, capture, monkeypatch
+):
+    from foxlight_model_preservation.mirror_state import HEADROOM
+
+    ledger, _ = mirror(tmp_path, capture)
+    cycle(ledger)
+    monkeypatch.setattr(
+        "foxlight_model_preservation.mirror_native.torrent_engine", lambda: None
+    )
+    configure(ledger, torrent=True)
+    ledger.update(lambda s: s.model_copy(update={"disk_bytes": HEADROOM + 1}))
+    model_action(ledger, capture.identity, "pin")
+    result = run_mirror(ledger, public=True, seconds=1)
+    assert result["stopped"] and result["retained"]
+    record = ledger.read().native_models[capture.identity]
+    assert record.identity is None and "disk admission" in record.error
+    assert ledger.read().models[capture.identity].pinned
+    assert ledger.read().models[capture.identity].state == "retained"
+    assert verify_store(ledger.path / "store", capture.identity, capture.trust)
+    model_action(ledger, capture.identity, "retry")
+    assert ledger.read().native_models[capture.identity].error is None
+    assert ledger.read().models[capture.identity].state == "retained"
 
 
 def test_ipfs_model_isolation_allows_block_without_deleting_another_copy(

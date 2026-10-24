@@ -122,8 +122,19 @@ def _record(
         if manifest_id not in state.models:
             raise PreservationError("unknown retained mirror selection")
         models = dict(state.models)
+        selected_changes = dict(changes)
+        if (
+            changes.get("state") == "pending"
+            and (record := state.native_models.get(manifest_id)) is not None
+            and record.error
+            and state.models[manifest_id].state == "retained"
+            and not state.models[manifest_id].error
+        ):
+            # Retrying native admission need not wait for a new catalog refresh
+            # or make a complete healthy HTTP copy disappear.
+            selected_changes["state"] = "retained"
         models[manifest_id] = HeldModel.model_validate(
-            state.models[manifest_id].model_copy(update=changes).model_dump()
+            state.models[manifest_id].model_copy(update=selected_changes).model_dump()
         )
         native = dict(state.native_models)
         if changes.get("state") == "pending" and manifest_id in native:
