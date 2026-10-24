@@ -508,8 +508,21 @@ def test_native_only_controller_receives_without_http_and_retains_after_stop(
             )
             handle.connect_peer(("127.0.0.1", record.last_torrent_port))
             selected_handle = handle
-            await_condition(lambda: selected_handle.status().is_seeding)
             archive = received / capture.identity
+
+            def complete():
+                if not selected_handle.status().is_seeding:
+                    return False
+                # Native piece completion can precede asynchronous disk writes.
+                # Our independent verifier, rather than that transient status,
+                # establishes the recipient's actual complete signed archive.
+                try:
+                    verify_store(archive, capture.identity, capture.trust)
+                except (FileNotFoundError, PreservationError):
+                    return False
+                return True
+
+            await_condition(complete)
         else:
             from test_peer_native import node
 

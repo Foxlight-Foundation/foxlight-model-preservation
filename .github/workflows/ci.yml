@@ -103,7 +103,7 @@ jobs:
       - name: Qualify the real native mesh without public bootstrap services
         env:
           KUBO_BINARY: /tmp/preservation-runtime/kubo-0.43.1-linux-amd64/ipfs
-        run: uv run --extra peer pytest tests/test_peer.py tests/test_peer_invitations.py tests/test_peer_native.py tests/test_handoffs.py tests/test_mirror_native.py
+        run: uv run --extra peer pytest tests/test_peer.py tests/test_peer_invitations.py tests/test_peer_native.py tests/test_handoffs.py tests/test_mirror_native.py tests/test_mirror_embedding.py
 
   i2p:
     name: Isolated native I2P recovery pilot

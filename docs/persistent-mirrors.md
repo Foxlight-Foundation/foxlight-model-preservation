@@ -222,6 +222,17 @@ reachability evidence. The Python `run_mirror` API exposes the same typed feed
 through its optional `observe` callback. Callbacks run synchronously, must be
 short, and confer no permission; a callback failure stops and drains the role.
 
+A trusted Python embedding host can supply `native_peer_runner=serve_peer` from
+`foxlight_model_preservation.peer_runtime` to `run_mirror`. That host must own a
+dedicated process group, provide its own parent-EOF lifetime fence, and confirm
+the whole group has drained before reporting Stop. The adapter runs the qualified
+native executable directly, so a frozen application need not emulate Python's
+`-m` module launch. Native command helpers stay in their caller's group. This
+programmatic choice is never read from cards, archives or source listings and
+does not change explicit participation, profile checks, finite limits, original
+evidence or operator retention/deletion. Ordinary callers retain the default
+standalone subprocess supervisor; no Skulk dependency is introduced.
+
 ```sh
 model-preserve mirror status --dir /srv/sovereign/example
 model-preserve mirror pause --dir /srv/sovereign/example

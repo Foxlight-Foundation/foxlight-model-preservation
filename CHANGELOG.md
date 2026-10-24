@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.17.1
+
+- Allow a trusted embedding process owner to select the direct native peer
+  session adapter without a nested Python module launcher. Qualified native
+  command helpers remain in the caller's owned process group; standalone callers
+  keep their default EOF-fenced supervisor. No model, network or restart
+  authority is added by this programmatic adapter.
+- Isolate a direct runner's data deadline from its controller while sharing
+  cancellation, so normal expiry and slow daemon teardown allow the next
+  finite native session without marking the retained model failed.
+
 ## 0.17.0
 
 - Choose HTTP serving independently of persistent IPFS/BitTorrent sessions with
