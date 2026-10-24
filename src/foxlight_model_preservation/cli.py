@@ -26,6 +26,11 @@ from .handoff_cli import (
     run_handoff_command,
 )
 from .i2p_cli import I2PArguments, register_i2p_commands, run_i2p_command
+from .i2p_http_cli import (
+    I2PHTTPArguments,
+    register_i2p_http_commands,
+    run_i2p_http_command,
+)
 from .invitations import (
     accept_invitation_keys,
     authenticate_invitation,
@@ -74,6 +79,7 @@ from .transfer import TransferPolicy, fetch, plan_fetch
 
 
 class Arguments(
+    I2PHTTPArguments,
     DiscoveryArguments,
     PeerArguments,
     HandoffArguments,
@@ -206,6 +212,7 @@ def argument_parser() -> argparse.ArgumentParser:
     register_mirror_commands(commands.add_parser)
     register_pirateface_commands(commands.add_parser)
     register_i2p_commands(commands.add_parser)
+    register_i2p_http_commands(commands.add_parser)
     for name in (
         "pmf-pack",
         "pmf-verify",
@@ -605,6 +612,8 @@ def run(
     arguments: Arguments, *, control: OperationControl | None = None
 ) -> dict[str, JsonValue]:
     """Execute exactly the selected operation and return a bounded safe receipt."""
+    if arguments.command == "i2p-http":
+        return run_i2p_http_command(arguments, control or OperationControl())
     if arguments.command == "i2p":
         return run_i2p_command(arguments, control or OperationControl())
     if arguments.command == "pirateface":
@@ -1115,7 +1124,12 @@ def main() -> int:
         "torrent-export",
         "torrent-seed",
     } or arguments.command.startswith(("pmf-", "peer-", "handoff-"))
-    controlled = controlled or arguments.command in {"mirror", "pirateface", "i2p"}
+    controlled = controlled or arguments.command in {
+        "mirror",
+        "pirateface",
+        "i2p",
+        "i2p-http",
+    }
     previous_term = signal.getsignal(signal.SIGTERM)
     if arguments.command == "mirror":
         signal.signal(signal.SIGTERM, lambda _number, _frame: control.cancel())

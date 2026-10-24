@@ -55,6 +55,7 @@ from .discovery_models import (
     SourceState,
     SourceStatus,
 )
+from .i2p_http import I2PHTTPProxy, i2p_http_endpoint
 from .models import (
     MAX_METADATA_BYTES,
     Catalog,
@@ -69,6 +70,7 @@ from .signing import verify_catalog as verify_signed_catalog
 from .storage import atomic_bytes, directory, open_file, writer_lock
 from .transfer import (
     DEFAULT_POLICY,
+    I2PTransferPolicy,
     MirrorHTTPError,
     MirrorProtocolError,
     TransferPolicy,
@@ -621,7 +623,9 @@ class _Fetcher(FetcherInterface):
         state: SourceState,
         budget: _Budget,
         control: DiscoveryControl,
+        i2p_policy: I2PTransferPolicy | None = None,
     ):
+        self.i2p_policy = i2p_policy
         self.endpoint, self.state, self.budget, self.control = (
             endpoint,
             state,
@@ -678,10 +682,17 @@ class _Fetcher(FetcherInterface):
             parsed = urlsplit(self.endpoint)
             if parsed.scheme not in {"https", "http"}:
                 raise PreservationError("metadata source must use HTTPS")
-            policy = TransferPolicy(
-                timeout=min(10.0, remaining),
-                allow_http=self.state.allow_http,
-                allow_private=self.state.allow_private,
+            policy = (
+                I2PTransferPolicy(
+                    timeout=min(self.i2p_policy.timeout, remaining),
+                    proxy=self.i2p_policy.proxy,
+                )
+                if self.i2p_policy is not None
+                else TransferPolicy(
+                    timeout=min(10.0, remaining),
+                    allow_http=self.state.allow_http,
+                    allow_private=self.state.allow_private,
+                )
             )
             try:
                 with response(self.endpoint, relative, policy) as incoming:
@@ -788,6 +799,42 @@ def refresh_source(
     )
 
 
+def refresh_source_i2p(
+    cache: Path,
+    source_id: str,
+    *,
+    proxy: I2PHTTPProxy | None = None,
+    endpoints: tuple[str, ...] | None = None,
+    allow_i2p: bool = False,
+    control: DiscoveryControl | None = None,
+    stage_parent: Path | None = None,
+    expected_directory: tuple[int, int] | None = None,
+) -> SourceStatus:
+    """Refresh signed source metadata only over explicit I2P HTTP routes.
+
+    Optional replacement locators do not change the enrolled TUF root or floors.
+    Every locator must be hash-addressed I2P; a mixed or unavailable route never
+    falls back to direct networking. No source/model keys are enrolled here.
+    """
+    if not allow_i2p:
+        raise PreservationError("I2P source updates require explicit participation")
+    policy = I2PTransferPolicy(proxy=proxy or I2PHTTPProxy(), deadline_seconds=300)
+    policy.validate()
+    if endpoints is not None and (
+        not 1 <= len(endpoints) <= 8 or len(set(endpoints)) != len(endpoints)
+    ):
+        raise PreservationError("supply a bounded unique I2P metadata endpoint list")
+    return _refresh_source(
+        cache,
+        source_id,
+        control=control,
+        stage_parent=stage_parent,
+        expected_directory=expected_directory,
+        i2p_policy=policy,
+        i2p_endpoints=endpoints,
+    )
+
+
 def refresh_source_from_directory(
     cache: Path,
     source_id: str,
@@ -817,9 +864,13 @@ def _refresh_source(
     metadata_directory: Path | None = None,
     stage_parent: Path | None = None,
     expected_directory: tuple[int, int] | None = None,
+    i2p_policy: I2PTransferPolicy | None = None,
+    i2p_endpoints: tuple[str, ...] | None = None,
 ) -> SourceStatus:
     control = control or OperationControl()
-    budget = _Budget(time.monotonic() + 120)
+    budget = _Budget(
+        time.monotonic() + (i2p_policy.deadline_seconds if i2p_policy else 120)
+    )
     with (
         _cache(cache, expected_directory=expected_directory) as root,
         writer_lock(root),
@@ -827,6 +878,9 @@ def _refresh_source(
         state = _read(root, source_id)
         if not state.enabled:
             raise PreservationError("source is no longer followed")
+        if i2p_policy is not None:
+            for hint in i2p_endpoints or state.bootstrap.endpoints:
+                i2p_http_endpoint(hint)
         if len(state.roots) >= MAX_ROOTS:
             raise PreservationError(
                 "source root-history bound reached; retain/export evidence "
@@ -843,7 +897,7 @@ def _refresh_source(
         endpoints = (
             (str(metadata_directory),)
             if metadata_directory is not None
-            else state.bootstrap.endpoints
+            else i2p_endpoints or state.bootstrap.endpoints
         )
         for endpoint in endpoints:
             control.checkpoint()
@@ -865,6 +919,7 @@ def _refresh_source(
                             else state.model_copy(update={"allow_local": True}),
                             budget,
                             control,
+                            i2p_policy,
                         ),
                         bootstrap=decode_base64(
                             (state.bootstrap.root, *state.roots)[-1]

@@ -128,12 +128,16 @@ jobs:
       - name: Build the pinned native sources without starting a public router
         run: |
           python scripts/build_i2p_runtime.py --directory /tmp/sovereign-i2p-build --java-home "$JAVA_HOME" --ant /tmp/apache-ant-1.10.18/bin/ant --allow-source-download
+      - name: Build the stock I2P HTTP proxy/server for isolated conformance
+        working-directory: /tmp/sovereign-i2p-build/i2p
+        run: /tmp/apache-ant-1.10.18/bin/ant -q -Drequire.gettext=false buildI2PTunnelJars
       - name: Transfer synthetic PMF through private I2P DHT and check crash fencing
         env:
           SOVEREIGN_I2P_RUNTIME: /tmp/sovereign-i2p-build/runtime
           SOVEREIGN_I2P_JAVA_HOME: ${{ env.JAVA_HOME }}
           SOVEREIGN_I2P_ROUTER_JAR: /tmp/sovereign-i2p-build/i2p/build/router.jar
-        run: uv run --extra bittorrent pytest tests/test_i2p.py tests/test_i2p_runtime.py tests/test_i2p_native.py --basetemp=/tmp/sovereign-i2p-conformance
+          SOVEREIGN_I2P_TUNNEL_JAR: /tmp/sovereign-i2p-build/i2p/build/i2ptunnel.jar
+        run: uv run --extra bittorrent pytest tests/test_i2p.py tests/test_i2p_runtime.py tests/test_i2p_native.py tests/test_i2p_http.py tests/test_i2p_http_native.py --basetemp=/tmp/sovereign-i2p-conformance
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
