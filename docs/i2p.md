@@ -1,4 +1,4 @@
-# Standalone I2P recovery pilot (source preview)
+# Standalone I2P recovery pilot
 
 This optional pilot exports an original signed recovery kit as one I2P-only
 BitTorrent archive, hosts it for an explicit finite session, and receives it into

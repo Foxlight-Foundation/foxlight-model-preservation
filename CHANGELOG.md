@@ -1,6 +1,6 @@
 # Changes
 
-## 0.14.0 (source preview)
+## 0.14.0
 
 - Add an optional standalone I2PSnark recovery-kit pilot: offline I2P-only offers,
   independently authenticated receiving and finite opt-in hosting, with original
