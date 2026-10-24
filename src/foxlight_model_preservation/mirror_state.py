@@ -16,13 +16,24 @@ from typing import TypeVar
 
 from .mirror_models import MirrorState, RestartGrant
 from .models import PreservationError
-from .signing import digest, encode_record, strict_json
+from .signing import digest, strict_json
 from .storage import atomic_bytes, directory, open_file, writer_lock
 
 T = TypeVar("T")
 MAX_STATE = 16 * 1024**2
 HEADROOM = 256 * 1024**2
 DIRECTORIES = (".", "store", "public", "discovery", "scratch")
+
+
+def encode_state(state: MirrorState) -> bytes:
+    """Keep legacy HTTP state bytes free of optional native-profile fields."""
+    value = state.model_dump(mode="json")
+    if state.native_policy is None and not state.native_models:
+        value.pop("native_policy")
+        value.pop("native_models")
+    from .signing import canonical_bytes
+
+    return canonical_bytes(value)
 
 
 class MirrorLedger:
@@ -52,7 +63,7 @@ class MirrorLedger:
                     clock_floor=int(time.time()),
                 )
             )
-            atomic_bytes(root, "mirror.json", encode_record(state))
+            atomic_bytes(root, "mirror.json", encode_state(state))
         return MirrorLedger(path)
 
     @contextmanager
@@ -112,7 +123,7 @@ class MirrorLedger:
         """Fsync a complete transaction; contention refuses safely."""
         with self._mutex, self.root() as root, writer_lock(root):
             state = MirrorState.model_validate(action(self.read()).model_dump())
-            raw = encode_record(state)
+            raw = encode_state(state)
             if len(raw) > MAX_STATE:
                 raise PreservationError("mirror state exceeds its bound")
             atomic_bytes(root, "mirror.json", raw)
@@ -256,7 +267,7 @@ def serving_hour(state: MirrorState, hour: int) -> bool:
 def policy_id(state: MirrorState) -> str:
     """Bind restart authority to directory, sources, model trust and resource policy."""
     return digest(
-        encode_record(
+        encode_state(
             state.model_copy(
                 update={
                     "models": {},
@@ -272,6 +283,7 @@ def policy_id(state: MirrorState) -> str:
                     "reserved_operations": (),
                     "last_cycle": None,
                     "last_error": None,
+                    "native_models": {},
                 }
             )
         )

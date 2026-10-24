@@ -8,7 +8,8 @@ from typing import Literal
 from pydantic import Field
 
 from .mirror_models import HeldModel
-from .mirror_state import MAX_STATE, MirrorLedger
+from .mirror_native import prune_native
+from .mirror_state import MAX_STATE, MirrorLedger, encode_state
 from .models import Digest, PreservationError, Record
 from .signing import encode_record, strict_json, verify_manifest
 from .storage import (
@@ -29,6 +30,7 @@ class PruneIntent(Record):
     schema_version: Literal["foxlight.mirror-prune.v1"] = "foxlight.mirror-prune.v1"
     manifest: Digest
     objects: tuple[Digest, ...] = Field(max_length=100000)
+    native_identity: tuple[int, int] | None = None
 
 
 def _unlink(root: int, path: str) -> None:
@@ -78,6 +80,9 @@ def prune(ledger: MirrorLedger, manifest: str, confirmation: str) -> dict[str, o
                 intent = PruneIntent(
                     manifest=manifest,
                     objects=tuple(f.sha256 for f in unique_objects(original)),
+                    native_identity=state.native_models[manifest].identity
+                    if manifest in state.native_models
+                    else None,
                 )
                 atomic_bytes(root, "prune.json", encode_record(intent))
             references: set[str] = set()
@@ -111,6 +116,8 @@ def prune(ledger: MirrorLedger, manifest: str, confirmation: str) -> dict[str, o
                 for identity in intent.objects:
                     if identity not in references:
                         _unlink(public, object_path(identity))
+            if intent.native_identity is not None:
+                prune_native(ledger, manifest, intent.native_identity)
             _unlink(store, manifest_path(manifest))
             removed = 0
             for identity in intent.objects:
@@ -125,8 +132,12 @@ def prune(ledger: MirrorLedger, manifest: str, confirmation: str) -> dict[str, o
                     update={"state": "removed", "error": None, "verified_at": None}
                 ).model_dump()
             )
-            final = state.model_copy(update={"models": models})
-            atomic_bytes(root, "mirror.json", encode_record(final))
+            native_models = dict(state.native_models)
+            native_models.pop(manifest, None)
+            final = state.model_copy(
+                update={"models": models, "native_models": native_models}
+            )
+            atomic_bytes(root, "mirror.json", encode_state(final))
             _unlink(root, "prune.json")
     return {
         "manifest": manifest,

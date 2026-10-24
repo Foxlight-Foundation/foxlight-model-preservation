@@ -66,6 +66,12 @@ def generate(project: Path, destination: Path, revision: str) -> None:
     profiles = {"requirements.lock": []}
     if name == "foxlight-model-preservation":
         profiles["requirements-peer.lock"] = ["--extra", "peer"]
+        profiles["requirements-mirror.lock"] = [
+            "--extra",
+            "peer",
+            "--extra",
+            "bittorrent",
+        ]
     for filename, extra in profiles.items():
         command = [
             os.environ.get("UV_BIN", "uv"),

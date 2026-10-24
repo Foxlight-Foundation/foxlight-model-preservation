@@ -1,0 +1,462 @@
+"""Persistent native sessions retain operator custody across stop and publisher loss."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import shutil
+import socket
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+import pytest
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from test_mirror import cycle, mirror
+
+from foxlight_model_preservation.handoffs import read_handoff
+from foxlight_model_preservation.mirror import model_action, run_mirror
+from foxlight_model_preservation.mirror_native import (
+    NativeMirrors,
+    configure,
+    export_reference,
+)
+from foxlight_model_preservation.mirror_prune import prune
+from foxlight_model_preservation.mirror_state import (
+    MirrorLedger,
+    encode_state,
+    grant_restart,
+    policy_id,
+    restart_allowed,
+)
+from foxlight_model_preservation.models import PreservationError
+from foxlight_model_preservation.peer_invitations import (
+    PeerInvitation,
+    fetch_peer_invitation,
+)
+from foxlight_model_preservation.signing import public_record
+from foxlight_model_preservation.storage import manifest_path, pack, verify_store
+from foxlight_model_preservation.torrent_binding import torrent_engine
+
+
+def await_condition(check, timeout=25):
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        if check():
+            return
+        time.sleep(0.05)
+    raise AssertionError("native condition deadline")
+
+
+def test_configure_is_offline_invalidates_resume_and_preserves_legacy_policy(
+    tmp_path, capture, monkeypatch
+):
+    ledger, _ = mirror(tmp_path, capture)
+    original = policy_id(ledger.read())
+    grant_restart(ledger, int(time.time()) + 600)
+    assert restart_allowed(MirrorLedger(ledger.path).read())
+    raw = json.loads(encode_state(ledger.read()))
+    assert "native_policy" not in raw and "native_models" not in raw
+    assert policy_id(MirrorLedger(ledger.path).read()) == original
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("offline configuration connected")
+
+    monkeypatch.setattr(socket.socket, "connect", forbidden)
+    configure(ledger)  # Explicitly select no native transports.
+    assert ledger.read().schema_version == "foxlight.mirror-state.v2"
+    assert ledger.read().restart is None and not ledger.read().native_models
+    with pytest.raises(PreservationError, match="restart"):
+        run_mirror(ledger, resume=True)
+
+
+def test_native_budget_is_spent_before_start_and_block_retains_custody(
+    tmp_path, capture, monkeypatch
+):
+    ledger, _ = mirror(tmp_path, capture)
+    cycle(ledger)
+    monkeypatch.setattr(
+        "foxlight_model_preservation.mirror_native.torrent_engine", lambda: None
+    )
+    started = []
+
+    def transport(ledger, manifest, policy, control):
+        assert ledger.read().egress_month_used >= policy.session_bytes
+        started.append(manifest)
+        while True:
+            control.checkpoint()
+            time.sleep(0.01)
+
+    monkeypatch.setattr("foxlight_model_preservation.mirror_native._torrent", transport)
+    configure(ledger, torrent=True, session_bytes=100)
+    ledger.update(
+        lambda s: s.model_copy(update={"egress_daily": 100, "egress_monthly": 100})
+    )
+    manager = NativeMirrors(ledger, lambda s: not s.paused and not s.left)
+    try:
+        manager.tick()
+        await_condition(lambda: bool(started))
+        model_action(ledger, capture.identity, "pin")
+        model_action(ledger, capture.identity, "block")
+        manager.tick()
+    finally:
+        manager.close()
+    assert ledger.read().native_models[capture.identity].last_stopped
+    assert verify_store(ledger.path / "store", capture.identity, capture.trust)
+    assert (ledger.path / "scratch/native" / capture.identity).is_dir()
+    model_action(ledger, capture.identity, "unblock")
+    again = NativeMirrors(MirrorLedger(ledger.path), lambda s: True)
+    try:
+        again.tick()
+        assert not again.sessions
+    finally:
+        again.close()
+    assert len(started) == 1 and ledger.read().egress_month_used == 100
+
+
+def test_torrent_mirror_receives_stops_and_prunes_only_on_operator_request(
+    tmp_path, capture
+):
+    pytest.importorskip("libtorrent")
+    ledger, _ = mirror(tmp_path, capture)
+    cycle(ledger)
+    configure(ledger, torrent=True, session_seconds=60)
+    manager = NativeMirrors(ledger, lambda s: True)
+    engine = torrent_engine()
+    receiver = None
+    handle = None
+    try:
+        manager.tick()
+        await_condition(
+            lambda: bool(
+                ledger.read().native_models.get(capture.identity)
+                and ledger.read().native_models[capture.identity].last_torrent_port
+            )
+        )
+        record = ledger.read().native_models[capture.identity]
+        assert not record.error
+        metainfo = export_reference(ledger, capture.identity, "torrent")
+        received = tmp_path / "received"
+        received.mkdir()
+        receiver = engine.session(
+            {
+                "listen_interfaces": "127.0.0.1:0",
+                "enable_dht": False,
+                "enable_lsd": False,
+                "enable_upnp": False,
+                "enable_natpmp": False,
+                "alert_mask": 0,
+            }
+        )
+        handle = receiver.add_torrent(
+            {
+                "ti": engine.torrent_info(engine.bdecode(metainfo)),
+                "save_path": str(received),
+                "flags": 0,
+            }
+        )
+        handle.connect_peer(("127.0.0.1", record.last_torrent_port))
+
+        selected_handle = handle
+
+        def complete():
+            if not selected_handle.status().is_seeding:
+                return False
+            try:
+                return bool(
+                    verify_store(
+                        received / capture.identity, capture.identity, capture.trust
+                    )
+                )
+            except (ValueError, OSError):
+                return False
+
+        await_condition(complete)
+        assert (
+            verify_store(received / capture.identity, capture.identity, capture.trust)
+            .members[0]
+            .retained_card
+            == capture.recipe.members[0].retained_card
+        )
+        model_action(ledger, capture.identity, "block")
+        manager.tick()
+        manager.close()
+        assert export_reference(ledger, capture.identity, "torrent") == metainfo
+        with socket.socket() as probe:
+            assert probe.connect_ex(("127.0.0.1", record.last_torrent_port)) != 0
+        model_action(ledger, capture.identity, "pin")
+        with pytest.raises(PreservationError):
+            prune(ledger, capture.identity, capture.identity)
+        model_action(ledger, capture.identity, "unpin")
+        prune(ledger, capture.identity, capture.identity)
+        assert not (ledger.path / "scratch/native" / capture.identity).exists()
+        assert verify_store(
+            received / capture.identity, capture.identity, capture.trust
+        )
+    finally:
+        manager.close()
+        if receiver:
+            if handle:
+                receiver.remove_torrent(handle)
+            receiver.pause()
+        del handle
+        del receiver
+
+
+def native_binary():
+    selected = os.environ.get("KUBO_BINARY")
+    if not selected:
+        pytest.skip("set KUBO_BINARY for actual isolated Kubo acceptance")
+    return selected
+
+
+def test_ipfs_mirror_restart_after_publisher_loss_and_independent_receive(
+    tmp_path, capture
+):
+    pytest.importorskip("multiformats")
+    from test_peer_native import node
+
+    binary = native_binary()
+    ledger, publisher = mirror(tmp_path, capture)
+    cycle(ledger)
+    configure(
+        ledger,
+        ipfs_binary=binary,
+        ipfs_sha256=hashlib.sha256(Path(binary).read_bytes()).hexdigest(),
+        allow_private_peers=True,
+        session_seconds=60,
+    )
+    manager = NativeMirrors(ledger, lambda s: True)
+    try:
+        manager.tick()
+        await_condition(
+            lambda: bool(
+                ledger.read().native_models.get(capture.identity)
+                and ledger.read().native_models[capture.identity].cid
+            )
+        )
+        first = ledger.read().native_models[capture.identity]
+        manager.close()
+        shutil.rmtree(publisher.path)
+        shutil.rmtree(capture.store)
+        manager = NativeMirrors(MirrorLedger(ledger.path), lambda s: True)
+        manager.tick()
+
+        def refreshed():
+            r = ledger.read().native_models[capture.identity]
+            return r.contacts and not r.error and r.publications > first.publications
+
+        await_condition(refreshed)
+        reference = read_handoff(export_reference(ledger, capture.identity, "peer"))
+        assert reference.reference.manifest_id == capture.identity
+        record = ledger.read().native_models[capture.identity]
+        assert record.cid == first.cid
+        with node(tmp_path, "receiver", binary, bootstrap=record.contacts) as (
+            _,
+            client,
+            _,
+        ):
+            received = tmp_path / "received"
+            assert isinstance(reference.reference, PeerInvitation)
+            fetch_peer_invitation(
+                reference.reference,
+                capture.trust,
+                received,
+                client,
+                maximum_bytes=10**6,
+            )
+            assert (received / manifest_path(capture.identity)).read_bytes() == (
+                ledger.path / "store" / manifest_path(capture.identity)
+            ).read_bytes()
+        model_action(ledger, capture.identity, "block")
+        manager.tick()
+        manager.close()
+        assert (ledger.path / "scratch/native" / capture.identity / "ipfs").is_dir()
+    finally:
+        manager.close()
+
+
+def test_crashed_mirror_controller_drains_actual_native_child(tmp_path, capture):
+    pytest.importorskip("multiformats")
+    binary = native_binary()
+    ledger, _ = mirror(tmp_path, capture)
+    cycle(ledger)
+    configure(
+        ledger,
+        ipfs_binary=binary,
+        ipfs_sha256=hashlib.sha256(Path(binary).read_bytes()).hexdigest(),
+        allow_private_peers=True,
+        session_seconds=60,
+    )
+    process = subprocess.Popen(  # noqa: S603 - own interpreter and fixed CLI, no shell
+        [
+            sys.executable,
+            "-m",
+            "foxlight_model_preservation.cli",
+            "mirror",
+            "run",
+            "--dir",
+            str(ledger.path),
+            "--public",
+            "--seconds",
+            "60",
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        await_condition(
+            lambda: bool(
+                ledger.read().native_models.get(capture.identity)
+                and ledger.read().native_models[capture.identity].cid
+            )
+        )
+        api = ledger.path / "scratch/native" / capture.identity / "ipfs/api"
+        port = int(api.read_text().strip().rsplit("/", 1)[-1])
+        before = ledger.read().egress_month_used
+        process.kill()
+        process.wait(timeout=5)
+
+        def closed():
+            with socket.socket() as probe:
+                return probe.connect_ex(("127.0.0.1", port)) != 0
+
+        await_condition(closed, 12)
+        assert not ledger.running() and ledger.read().egress_month_used >= before
+        with pytest.raises(PreservationError, match="restart"):
+            run_mirror(ledger, resume=True)
+        assert (ledger.path / "scratch/native" / capture.identity / "ipfs").is_dir()
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            process.wait(timeout=12)
+
+
+def test_substituted_native_custody_refuses_prune_and_retains_selected_store(
+    tmp_path, capture, monkeypatch
+):
+    ledger, _ = mirror(tmp_path, capture)
+    cycle(ledger)
+    monkeypatch.setattr(
+        "foxlight_model_preservation.mirror_native.torrent_engine", lambda: None
+    )
+
+    def transport(ledger, manifest, policy, control):
+        while True:
+            control.checkpoint()
+            time.sleep(0.01)
+
+    monkeypatch.setattr("foxlight_model_preservation.mirror_native._torrent", transport)
+    configure(ledger, torrent=True)
+    manager = NativeMirrors(ledger, lambda s: True)
+    try:
+        manager.tick()
+        await_condition(lambda: bool(ledger.read().native_models))
+    finally:
+        manager.close()
+    original = ledger.path / "scratch/native" / capture.identity
+    original.rename(original.with_name("retained-original"))
+    original.mkdir(mode=0o700)
+    (original / "operator-file").write_bytes(b"keep")
+    model_action(ledger, capture.identity, "block")
+    with pytest.raises(PreservationError, match="custody changed"):
+        prune(ledger, capture.identity, capture.identity)
+    assert (original / "operator-file").read_bytes() == b"keep"
+    assert verify_store(ledger.path / "store", capture.identity, capture.trust)
+    assert (ledger.path / "prune.json").exists()
+
+
+def test_wrong_model_trust_never_starts_native_transport(
+    tmp_path, capture, monkeypatch
+):
+    ledger, _ = mirror(tmp_path, capture)
+    cycle(ledger)
+    monkeypatch.setattr(
+        "foxlight_model_preservation.mirror_native.torrent_engine", lambda: None
+    )
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("untrusted model served")
+
+    monkeypatch.setattr("foxlight_model_preservation.mirror_native._torrent", forbidden)
+    configure(ledger, torrent=True)
+    held = ledger.read().models[capture.identity]
+    bad = held.grant.trust.model_copy(
+        update={"keys": (public_record(Ed25519PrivateKey.generate()),)}
+    )
+    ledger.update(
+        lambda s: s.model_copy(
+            update={
+                "models": {
+                    capture.identity: held.model_copy(
+                        update={"grant": held.grant.model_copy(update={"trust": bad})}
+                    )
+                }
+            }
+        )
+    )
+    manager = NativeMirrors(ledger, lambda s: True)
+    try:
+        manager.tick()
+        await_condition(lambda: bool(manager.failures))
+        with pytest.raises(PreservationError):
+            manager.tick()
+    finally:
+        manager.close()
+    assert not ledger.read().native_models
+
+
+def test_ipfs_model_isolation_allows_block_without_deleting_another_copy(
+    tmp_path, capture
+):
+    pytest.importorskip("multiformats")
+    from foxlight_model_preservation.peer_runtime import PeerClient
+
+    binary = native_binary()
+    ledger, _ = mirror(tmp_path, capture)
+    cycle(ledger)
+    other = pack(
+        capture.recipe.model_copy(update={"name": "second"}),
+        capture.sources,
+        ledger.path / "store",
+        (capture.key,),
+    )
+    held = ledger.read().models[capture.identity]
+    ledger.update(
+        lambda s: s.model_copy(update={"models": dict(s.models, **{other: held})})
+    )
+    configure(
+        ledger,
+        ipfs_binary=binary,
+        ipfs_sha256=hashlib.sha256(Path(binary).read_bytes()).hexdigest(),
+        allow_private_peers=True,
+        session_seconds=60,
+        max_active=2,
+    )
+    manager = NativeMirrors(ledger, lambda s: True)
+    try:
+        manager.tick()
+        await_condition(
+            lambda: (
+                len(ledger.read().native_models) == 2
+                and all(r.cid for r in ledger.read().native_models.values())
+            )
+        )
+        first = ledger.path / "scratch/native" / capture.identity / "ipfs"
+        first_port = int((first / "api").read_text().strip().rsplit("/", 1)[-1])
+        model_action(ledger, capture.identity, "block")
+        manager.tick()
+
+        def first_closed():
+            with socket.socket() as probe:
+                return probe.connect_ex(("127.0.0.1", first_port)) != 0
+
+        await_condition(first_closed, 12)
+        second = ledger.path / "scratch/native" / other / "ipfs"
+        assert PeerClient(second, binary, allow_network=True).wire_usage() >= 0
+        assert first.is_dir() and second.is_dir()
+        assert verify_store(ledger.path / "store", other, capture.trust)
+    finally:
+        manager.close()

@@ -71,6 +71,11 @@ def validate_assets(root: Path, selected: str) -> dict[str, object]:
         if project == "foxlight-model-preservation"
         else ["requirements.lock"]
     )
+    if project == "foxlight-model-preservation" and record["requirements"] == [
+        *locks,
+        "requirements-mirror.lock",
+    ]:
+        locks.append("requirements-mirror.lock")
     if record["requirements"] != locks or selected not in locks:
         raise ValueError("unsupported runtime dependency profile")
     wheel = record["wheel"]

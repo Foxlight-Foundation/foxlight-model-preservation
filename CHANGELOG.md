@@ -1,5 +1,18 @@
 # Changes
 
+## 0.13.0 (source preview)
+
+- Explicit persistent IPFS/BitTorrent mirrors use isolated per-model native
+  custody, bounded rotating sessions and durable upload reservations. Public
+  transport configuration invalidates restart consent; receive-only defaults,
+  independently supplied model/terms policy and original signed evidence remain.
+- Block/pause/expiry and abrupt controller loss stop native serving while keeping
+  caches/pins. Journaled exact operator prune includes selected native custody.
+  Offline exports provide standard torrents and original-evidence peer handoffs.
+- A combined optional `requirements-mirror.lock` covers peer/BitTorrent Python
+  dependencies without Skulk; native Kubo software remains separately selected.
+  See [persistent peer mirrors](docs/persistent-peers.md) for bounds and exposure.
+
 ## 0.12.0
 
 - Release installation archives include exact runtime versions/hashes, the wheel,

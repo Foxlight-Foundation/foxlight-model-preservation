@@ -26,7 +26,7 @@ jobs:
       - name: Qualify optional BitTorrent with real local peers
         run: |
           uv sync --locked --dev --extra bittorrent
-          uv run --extra bittorrent pytest tests/test_torrent.py
+          uv run --extra bittorrent pytest tests/test_torrent.py tests/test_mirror_native.py
       - run: uv build
       - name: Qualify the hash-locked public installation bundle
         env:
@@ -103,4 +103,4 @@ jobs:
       - name: Qualify the real native mesh without public bootstrap services
         env:
           KUBO_BINARY: /tmp/preservation-runtime/kubo-0.43.1-linux-amd64/ipfs
-        run: uv run --extra peer pytest tests/test_peer.py tests/test_peer_invitations.py tests/test_peer_native.py tests/test_handoffs.py
+        run: uv run --extra peer pytest tests/test_peer.py tests/test_peer_invitations.py tests/test_peer_native.py tests/test_handoffs.py tests/test_mirror_native.py
