@@ -17,6 +17,7 @@ from typing import BinaryIO
 from urllib.parse import urlsplit
 
 from . import __version__
+from .i2p_http import I2PHTTPProxy, i2p_http_response
 from .ledger import TransferBudget, receipt_path
 from .models import (
     MAX_METADATA_BYTES,
@@ -69,6 +70,27 @@ class TransferPolicy:
             raise PreservationError("timeouts must be positive and bounded")
         if not 1 <= self.max_sources <= 64:
             raise PreservationError("source limit must be between one and 64")
+
+
+@dataclass(frozen=True)
+class I2PTransferPolicy(TransferPolicy):
+    """Explicit I2P-only HTTP receiving; never enables public routes or seeding.
+
+    A caller selecting this policy authorizes requests through the selected
+    separately operated local proxy. CLI callers require an explicit I2P grant.
+    Ordinary TransferPolicy serialization and existing receipt IDs are unchanged.
+    """
+
+    proxy: I2PHTTPProxy = I2PHTTPProxy()
+
+    def validate(self) -> None:
+        """Validate inherited bounds and the separately selected local proxy."""
+        super().validate()
+        self.proxy.validate()
+        if self.allow_http or self.allow_private:
+            raise PreservationError(
+                "I2P receiving cannot grant direct HTTP/private routes"
+            )
 
 
 DEFAULT_POLICY = TransferPolicy()
@@ -132,7 +154,25 @@ def response(
     source: str, relative: str, policy: TransferPolicy, *, offset: int = 0
 ) -> Generator[http.client.HTTPResponse]:
     """Request fixed paths without credentials, redirects, proxies or telemetry."""
+    if isinstance(policy, I2PTransferPolicy):
+        policy.validate()
+        try:
+            with i2p_http_response(
+                source, relative, policy.proxy, policy.timeout, offset=offset
+            ) as received:
+                if received.status not in {200, 206}:
+                    raise MirrorHTTPError(received.status)
+                yield received
+        except http.client.HTTPException as error:
+            raise MirrorProtocolError("I2P HTTP response framing failed") from error
+        return
     parsed = urlsplit(source)
+    if parsed.hostname and parsed.hostname.rstrip(".").lower().endswith(
+        (".i2p", ".i2p.alt", ".onion")
+    ):
+        raise PreservationError(
+            "private-network names require their explicit transport"
+        )
     if (
         parsed.scheme not in {"https", "http"}
         or parsed.hostname is None

@@ -8,6 +8,9 @@ not start a listener, advertise possession, seed a torrent or send search terms
 and installed-model inventories to suppliers. The separate optional
 [IPFS/IPNS peer adapter](peer-discovery.md) adds peer routing with explicit
 network participation, keeping this offline search and TUF authority unchanged.
+The [I2P HTTP pilot](i2p-http.md) can refresh the same enrolled source through
+explicit protected locators without joining a payload swarm. Ordinary refresh
+never resolves I2P names directly; use the explicit transport command.
 
 ## Follow and search
 
@@ -25,8 +28,8 @@ model-preserve source-search 'offline writing'
 model-preserve source-list
 ```
 
-First-contact enrollment does not connect. `source-refresh` is the only metadata
-network action. Refresh all enabled sources, or use `--source SOURCE_ID` for one.
+First-contact enrollment does not connect. `source-refresh` and explicit
+transport refresh commands are the metadata network actions. Refresh all enabled sources, or use `--source SOURCE_ID` for one.
 A failed source does not prevent healthy sources from updating or remaining
 searchable. A refresh returns a nonzero exit status if any selected source fails;
 its JSON result includes per-source failures. Search and listing make no network

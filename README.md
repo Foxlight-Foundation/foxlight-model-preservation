@@ -17,13 +17,13 @@ durable and deletion stays with the operator. Skulk is optional.
 ## Install
 
 Python 3.11+ on Linux or macOS, with an authenticated Python/uv toolchain. Use the
-[0.14.0 installation archive](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/v0.14.0)
+[0.15.0 installation archive](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/v0.15.0)
 and its detached attestation bundle. [Verify it first](docs/installation.md),
 extract it, then install into a new directory:
 
 ```sh
-python3 install.py --directory "$HOME/sovereign-0.14.0"
-"$HOME/sovereign-0.14.0/bin/model-preserve" --help
+python3 install.py --directory "$HOME/sovereign-0.15.0"
+"$HOME/sovereign-0.15.0/bin/model-preserve" --help
 ```
 
 The archive contains the exact package wheel, source, hash-locked dependencies
@@ -72,6 +72,7 @@ covers what each check proves, offline evidence and installing a verified wheel.
 | Look up a PirateFace candidate and verify an existing repository download | [Standalone PirateFace interoperability](docs/pirateface.md) |
 | Pilot an explicitly opted-in I2P-only recovery-kit transfer | [Standalone I2P pilot and its limits](docs/i2p.md) |
 | Set up optional peer support without a system installer | [Pinned native acquisition, including offline setup](docs/peer-discovery.md#install-and-start-a-receiver) |
+| Refresh signed sources or receive over I2P HTTP | [I2P HTTP pilot](docs/i2p-http.md) |
 | Send or receive a public model with an offline preview | [Public invitations](docs/invitations.md) |
 | Share one exact public copy and receive using one file | [Portable handoffs and finite peer sharing](docs/handoffs.md) |
 | Create a public-only publication or opt in to BitTorrent seeding | [Public sharing](docs/public-sharing.md) |

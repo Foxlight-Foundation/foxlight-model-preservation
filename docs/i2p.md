@@ -12,6 +12,10 @@ large-model performance have not been qualified. Library/Guided integration is
 not present. Existing direct downloads and public mirrors retain their existing
 network behavior; this command never falls back to them.
 
+The separate [I2P HTTP pilot](i2p-http.md) refreshes authenticated catalogs and
+receives legacy archive files without payload-swarm uploads. It uses an explicit
+local HTTP proxy and retains separate public-network/privacy qualification.
+
 ## Software and consent
 
 Use an independently installed and operated I2P router with I2CP listening on

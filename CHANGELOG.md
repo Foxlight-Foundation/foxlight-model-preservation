@@ -1,5 +1,17 @@
 # Changes
 
+## 0.15.0
+
+- Add explicit receive-only I2P HTTP catalog refresh and trusted legacy archive
+  downloads through a selected numeric loopback proxy. Hash-addressed I2P routes
+  only; no DNS, redirects, address helpers, ambient proxies or direct fallback.
+- Preserve enrolled TUF authority, root/version floors, last-good offline search,
+  independent model trust, exact envelopes, companion completeness, byte budgets
+  and range recovery. Ordinary transfer receipt identities remain unchanged.
+- Direct transports refuse I2P/onion names before DNS. This is a pilot boundary,
+  not qualified public-network anonymity. The separately operated router can
+  relay other traffic; see [I2P HTTP](docs/i2p-http.md).
+
 ## 0.14.0
 
 - Add an optional standalone I2PSnark recovery-kit pilot: offline I2P-only offers,
