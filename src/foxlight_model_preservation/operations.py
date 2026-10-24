@@ -31,6 +31,7 @@ Operation = Literal[
     "i2p_export",
     "i2p_receive",
     "i2p_share",
+    "mirror_retain",
 ]
 Stage = Literal[
     "starting",

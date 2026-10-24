@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.16.0
+
+- Admit an independently trusted exact public copy into a persistent mirror
+  offline, without creating or following a catalog. `mirror retain` copies and
+  verifies complete companions and original card/provenance bytes, pins the exact
+  signed wrapper, and preserves operator pin/block/deletion policy.
+- New local selections invalidate standing restart consent and require explicit
+  serving grants. Partial failures retain bytes but acquire no network repair
+  authority. The owner-state v3 profile preserves legacy v1/v2 policy identities;
+  unchanged HTTP/IPFS/BitTorrent sessions can serve the retained public v1 copy.
+  PMF network transport remains separate and fails closed before local admission.
+
 - Add bounded private per-attempt client/origin observations to the explicit
   synthetic public I2P drill. Controlled faults distinguish header/body timeouts,
   short bodies and invalid resume ranges without URL or exception-text logging.

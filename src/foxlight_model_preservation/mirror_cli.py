@@ -11,6 +11,7 @@ from pathlib import Path
 from pydantic import JsonValue, TypeAdapter
 
 from .mirror import follow, model_action, plan, run_mirror
+from .mirror_intake import retain_local
 from .mirror_models import SourceGrant, Terms
 from .mirror_native import configure, export_reference, write_reference
 from .mirror_prune import prune
@@ -36,6 +37,7 @@ class MirrorArguments(argparse.Namespace):
     serve_end: int
     refresh_seconds: int
     source_file: Path
+    local_store: Path
     expected_bootstrap_id: str
     mirror_trust: Path
     terms_file: Path
@@ -73,6 +75,7 @@ def register_mirror_commands(
     for name in (
         "init",
         "follow",
+        "retain",
         "plan",
         "status",
         "run",
@@ -137,9 +140,7 @@ def register_mirror_commands(
                 help="UTC hour exclusive; equal means all day",
             )
             command.add_argument("--refresh-seconds", type=int, default=21600)
-        if name == "follow":
-            command.add_argument("--source-file", type=Path, required=True)
-            command.add_argument("--expected-bootstrap-id", required=True)
+        if name in ("follow", "retain"):
             command.add_argument(
                 "--bundle-trust", dest="mirror_trust", type=Path, required=True
             )
@@ -147,9 +148,16 @@ def register_mirror_commands(
             command.add_argument(
                 "--confirm-redistribution", action="store_true", required=True
             )
+            command.add_argument("--max-bytes", type=int, default=20 * 1024**3)
+        if name == "follow":
+            command.add_argument("--source-file", type=Path, required=True)
+            command.add_argument("--expected-bootstrap-id", required=True)
             for flag in ("allow-http", "allow-private", "allow-local"):
                 command.add_argument("--" + flag, action="store_true")
-            command.add_argument("--max-bytes", type=int, default=20 * 1024**3)
+        if name == "retain":
+            command.add_argument(
+                "--store", dest="local_store", type=Path, required=True
+            )
         if name == "run":
             choice = command.add_mutually_exclusive_group(required=True)
             choice.add_argument(
@@ -163,7 +171,16 @@ def register_mirror_commands(
                 help="require the separate standing resume grant",
             )
             command.add_argument("--seconds", type=int, default=3600)
-        if name in ("pin", "unpin", "block", "unblock", "retry", "prune", "export"):
+        if name in (
+            "pin",
+            "unpin",
+            "block",
+            "unblock",
+            "retry",
+            "prune",
+            "export",
+            "retain",
+        ):
             command.add_argument("--manifest", dest="mirror_manifest", required=True)
         if name == "prune":
             command.add_argument("--confirm-manifest", required=True)
@@ -209,6 +226,27 @@ def run_mirror_command(
     ledger = MirrorLedger(arguments.mirror_dir)
     if action in ("plan", "status"):
         return plan(ledger)
+    if action == "retain":
+        manifest = retain_local(
+            ledger,
+            arguments.local_store,
+            arguments.mirror_manifest,
+            SourceGrant(
+                trust=load_trust(_input(arguments.mirror_trust)),
+                terms=TypeAdapter(tuple[Terms, ...]).validate_json(
+                    _input(arguments.terms_file)
+                ),
+                max_bytes=arguments.max_bytes,
+            ),
+            control=control,
+        )
+        return {
+            "manifest": arguments.mirror_manifest,
+            "members": len(manifest.members),
+            "retained": True,
+            "network_started": False,
+            "grants_imported": False,
+        }
     if action == "follow":
         terms = TypeAdapter(tuple[Terms, ...]).validate_json(
             _input(arguments.terms_file)

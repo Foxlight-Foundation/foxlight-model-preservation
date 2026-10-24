@@ -5,7 +5,7 @@ optional separate application that connects to a compatible Skulk Core. Installi
 software does not follow sources, trust model keys, set up Core, download models,
 install native peer software or grant public serving.
 
-The `v0.15.1` core and `library-v0.12.0` Library pre-releases provide one installation
+The `v0.16.0` core and `library-v0.12.0` Library pre-releases provide one installation
 archive each, plus `release.sigstore.json`, a detached build-attestation bundle.
 The archive contains a wheel, source distribution, `INSTALL.json`, hash-locked
 runtime requirements, `install.py` and inner checksums. An optional standalone
@@ -19,15 +19,15 @@ Choose the standalone core, or the optional Library with Python 3.13+:
 
 | Role | Tag | Archive |
 | --- | --- | --- |
-| Standalone | `v0.15.1` | `foxlight-model-preservation-0.15.1-install.zip` |
+| Standalone | `v0.16.0` | `foxlight-model-preservation-0.16.0-install.zip` |
 | Optional Library | `library-v0.12.0` | `foxlight-preservation-library-0.12.0-install.zip` |
 
 Download the archive and `release.sigstore.json` from the same chosen release.
 Public asset downloads need no account. For the standalone core:
 
 ```sh
-base=https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/v0.15.1
-curl --fail --location --proto '=https' -O "$base/foxlight-model-preservation-0.15.1-install.zip"
+base=https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/v0.16.0
+curl --fail --location --proto '=https' -O "$base/foxlight-model-preservation-0.16.0-install.zip"
 curl --fail --location --proto '=https' -O "$base/release.sigstore.json"
 ```
 
@@ -37,11 +37,11 @@ authenticated archive hash is another bootstrap path; same-source checksums
 alone do not identify a publisher.
 
 ```sh
-gh attestation verify foxlight-model-preservation-0.15.1-install.zip \
+gh attestation verify foxlight-model-preservation-0.16.0-install.zip \
   --bundle release.sigstore.json \
   --repo Foxlight-Foundation/foxlight-model-preservation \
   --signer-workflow Foxlight-Foundation/foxlight-model-preservation/.github/workflows/release.yml \
-  --source-ref refs/tags/v0.15.1 --deny-self-hosted-runners
+  --source-ref refs/tags/v0.16.0 --deny-self-hosted-runners
 ```
 
 Use the corresponding archive/tag for Library. Pin `--source-digest COMMIT` as
@@ -58,10 +58,10 @@ Use Python 3.11+ for standalone or Python 3.13+ for Library and an authenticated
 binaries separately for offline use; this helper never acquires Python for you.
 
 ```sh
-unzip foxlight-model-preservation-0.15.1-install.zip -d sovereign-install
+unzip foxlight-model-preservation-0.16.0-install.zip -d sovereign-install
 cd sovereign-install
-python3 install.py --directory "$HOME/sovereign-0.15.1"
-"$HOME/sovereign-0.15.1/bin/model-preserve" --help
+python3 install.py --directory "$HOME/sovereign-0.16.0"
+"$HOME/sovereign-0.16.0/bin/model-preserve" --help
 ```
 
 The parent must exist and the target must be new. The helper verifies every

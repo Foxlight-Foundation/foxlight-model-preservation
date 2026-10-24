@@ -64,6 +64,53 @@ stored grant includes all these choices. Re-following changes policy, preserves
 source floors and invalidates any standing restart grant. Stop the controller
 before changing sources; pause/block/pin are separate live local controls.
 
+## Retain a public copy you already have
+
+`mirror retain` copies one exact public preservation-v1 archive into this mirror
+without a catalog, registry, source publisher or network connection. Supply the
+exact manifest, independently accepted model keys, and terms you reviewed for
+every member:
+
+```sh
+model-preserve mirror retain --dir /srv/sovereign/example \
+  --store /path/to/verified-public-archive --manifest MANIFEST_SHA256 \
+  --bundle-trust model-trust.json --terms-file terms.json \
+  --confirm-redistribution
+model-preserve mirror status --dir /srv/sovereign/example
+```
+
+A public kit can first be imported using the ordinary independently trusted
+`kit-import` workflow. The input must already declare every member public; this
+command does not turn a private capture into a public publication or establish
+redistribution rights. It authenticates the selected manifest and terms, copies
+and verifies all required objects, and keeps the exact original signed wrapper,
+cards and companions. It neither starts sharing nor imports a source's keys or
+network permissions. Later HTTP/IPFS/BitTorrent sessions use the same retained
+selection and require their normal explicit serving policy.
+
+Local admission upgrades owner state to `foxlight.mirror-state.v3`; older tools
+refuse that profile. Existing v1/v2 state remains readable without migration.
+The selection records local custody rather than inventing a source identity. Its
+original wrapper hash and independently accepted keys/terms are immutable. A new
+selection clears standing restart permission; grant it again deliberately after
+review. Repeating the same completed selection preserves its pin, block and
+existing policy. Changed keys, terms or wrapper bytes cannot replace its accepted
+authority silently.
+
+Stop the controller before admission. Disk limits include retained and partial
+copies; local copying spends no network ingress allowance. A failed copy stays
+unserved and needs `mirror retry --manifest ...` followed by the same `mirror
+retain` command. The original remaining limits and deletion tombstones stay in
+place. A complete selected closure interrupted immediately before its receipt
+can recover offline; incomplete local custody never acquires a catalog/network
+repair route. Source loss never deletes this copy. Ordinary block/pin/pause and
+explicit stopped-owner prune still apply.
+
+This direct local adapter accepts the existing preservation-v1 public transport
+profile. PMF network transport remains separate: a PMF envelope refuses before
+selection or copying rather than being translated into a different identity.
+PMF's existing offline kit/restore tools remain available.
+
 ## Run manually, then choose restart permission separately
 
 ```sh

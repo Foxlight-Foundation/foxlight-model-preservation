@@ -28,6 +28,10 @@ DIRECTORIES = (".", "store", "public", "discovery", "scratch")
 def encode_state(state: MirrorState) -> bytes:
     """Keep legacy HTTP state bytes free of optional native-profile fields."""
     value = state.model_dump(mode="json")
+    if state.schema_version != "foxlight.mirror-state.v3":
+        for held in value["models"].values():
+            held.pop("origin")
+            held.pop("envelope_sha256")
     if state.native_policy is None and not state.native_models:
         value.pop("native_policy")
         value.pop("native_models")
@@ -295,7 +299,22 @@ def policy_id(state: MirrorState) -> str:
         encode_state(
             state.model_copy(
                 update={
-                    "models": {},
+                    # Source grants already bind dynamic catalog intake. Local
+                    # selections instead bind their exact identity and accepted
+                    # policy; live block/pin/verification receipts grant nothing.
+                    "models": {
+                        identity: held.model_copy(
+                            update={
+                                "pinned": False,
+                                "blocked": False,
+                                "state": "pending",
+                                "error": None,
+                                "verified_at": None,
+                            }
+                        )
+                        for identity, held in state.models.items()
+                        if held.origin == "local"
+                    },
                     "restart": None,
                     "paused": False,
                     "left": False,

@@ -73,10 +73,12 @@ class SourceGrant(Record):
 class HeldModel(Record):
     """Retained exact selection and original policy, independent of catalog churn."""
 
-    source_id: Digest
-    entry_id: str = Field(min_length=1, max_length=200)
+    origin: Literal["source", "local"] = "source"
+    envelope_sha256: Digest | None = None
+    source_id: Digest | None = None
+    entry_id: str | None = Field(default=None, min_length=1, max_length=200)
     grant: SourceGrant
-    mirrors: tuple[str, ...] = Field(min_length=1, max_length=16)
+    mirrors: tuple[str, ...] = Field(default=(), max_length=16)
     operation_id: Identifier
     transfer_bytes: int | None = Field(default=None, ge=1, le=2**53 - 1)
     pinned: bool = False
@@ -84,6 +86,34 @@ class HeldModel(Record):
     state: Literal["pending", "retained", "removed"] = "pending"
     error: str | None = None
     verified_at: int | None = None
+
+    @model_validator(mode="after")
+    def selection_authority(self) -> HeldModel:
+        """Local custody cannot invent source authority or a network retry route."""
+        if self.origin == "source":
+            if (
+                self.source_id is None
+                or self.entry_id is None
+                or not self.mirrors
+                or self.envelope_sha256 is not None
+            ):
+                raise PreservationError(
+                    "source selection needs its original source and mirrors"
+                )
+        elif (
+            self.envelope_sha256 is None
+            or self.source_id is not None
+            or self.entry_id is not None
+            or self.mirrors
+            or self.transfer_bytes is not None
+            or self.grant.allow_http
+            or self.grant.allow_private
+            or self.grant.allow_local
+        ):
+            raise PreservationError(
+                "local selection needs an exact wrapper and no network authority"
+            )
+        return self
 
 
 class RestartGrant(Record):
@@ -96,9 +126,11 @@ class RestartGrant(Record):
 class MirrorState(Record):
     """One atomic owner-only policy/ledger with conservative durable reservations."""
 
-    schema_version: Literal["foxlight.mirror-state.v1", "foxlight.mirror-state.v2"] = (
-        "foxlight.mirror-state.v1"
-    )
+    schema_version: Literal[
+        "foxlight.mirror-state.v1",
+        "foxlight.mirror-state.v2",
+        "foxlight.mirror-state.v3",
+    ] = "foxlight.mirror-state.v1"
     identity: dict[str, tuple[int, int]]
     name: str = Field(min_length=1, max_length=200)
     salt: Digest
@@ -132,11 +164,16 @@ class MirrorState(Record):
 
     @model_validator(mode="after")
     def native_profile_version(self) -> MirrorState:
-        """Native custody needs the explicit v2 profile, not a reinterpreted v1."""
+        """Native custody needs v2 or later; direct local selection requires v3."""
         if (
             self.native_policy or self.native_models
-        ) and self.schema_version != "foxlight.mirror-state.v2":
+        ) and self.schema_version == "foxlight.mirror-state.v1":
             raise PreservationError("native mirror policy requires state v2")
         if self.native_models and self.native_policy is None:
             raise PreservationError("native custody requires its enrolled policy")
+        if (
+            any(held.origin == "local" for held in self.models.values())
+            and self.schema_version != "foxlight.mirror-state.v3"
+        ):
+            raise PreservationError("local mirror selection requires state v3")
         return self
