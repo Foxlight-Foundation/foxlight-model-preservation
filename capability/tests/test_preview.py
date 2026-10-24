@@ -425,3 +425,68 @@ def test_unpublished_direct_or_index_install_refuses_before_new_profile(
     with pytest.raises(preview.PreviewRefused, match="immutable public Library"):
         preview.setup(root, resume=False, with_dashboard=False)
     assert not root.exists()
+
+
+@pytest.mark.parametrize("tamper", ["none", "wheel", "package", "identity", "receipt"])
+def test_retained_release_continuity_requires_exact_installed_bytes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tamper: str,
+) -> None:
+    import zipfile
+
+    root = tmp_path / "environment"
+    root.mkdir(mode=0o700)
+    evidence = root / "sovereign-release"
+    evidence.mkdir(mode=0o700)
+    package = root / "site/foxlight_preservation_library"
+    package.mkdir(parents=True)
+    source = package / "preview.py"
+    source.write_bytes(b"original installed library")
+    wheel = evidence / "foxlight_preservation_library-0.11.0-py3-none-any.whl"
+    with zipfile.ZipFile(wheel, "w") as archive:
+        archive.writestr(
+            "foxlight_preservation_library/preview.py", source.read_bytes()
+        )
+    receipt = {
+        "schema_version": "foxlight.software-install.v1",
+        "project": "foxlight-preservation-library",
+        "version": "0.11.0",
+        "source_revision": "a" * 40,
+        "wheel": wheel.name,
+        "wheel_sha256": hashlib.sha256(wheel.read_bytes()).hexdigest(),
+    }
+    (evidence / "INSTALL.json").write_text(json.dumps(receipt))
+    if tamper == "receipt":
+        receipt["source_revision"] = "b" * 40
+    if tamper == "identity":
+        receipt["source_revision"] = "main"
+    (root / "sovereign-install.json").write_text(json.dumps(receipt))
+    if tamper == "wheel":
+        wheel.write_bytes(b"changed release")
+    if tamper == "package":
+        source.write_bytes(b"changed installation")
+
+    class Installed:
+        version = "0.11.0"
+
+        def read_text(self, name: str) -> str | None:
+            return None
+
+        def locate_file(self, name: str) -> Path:
+            return root / "site" / name
+
+    monkeypatch.setattr(preview.sys, "prefix", str(root))
+    monkeypatch.setattr(preview, "distribution", lambda _: Installed())
+    if tamper == "none":
+        assert (
+            preview._library_source()
+            == "git+"
+            + preview.PUBLIC_REPOSITORY
+            + "@"
+            + "a" * 40
+            + "#subdirectory=capability"
+        )
+    else:
+        with pytest.raises(preview.PreviewRefused, match="evidence changed"):
+            preview._library_source()

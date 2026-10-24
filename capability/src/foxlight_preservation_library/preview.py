@@ -15,10 +15,11 @@ import socket
 import stat
 import subprocess
 import sys
+import zipfile
 from collections.abc import Generator
 from contextlib import contextmanager
-from importlib.metadata import distribution
-from pathlib import Path
+from importlib.metadata import Distribution, distribution
+from pathlib import Path, PurePosixPath
 from typing import cast
 
 import httpx
@@ -38,14 +39,130 @@ class PreviewRefused(ValueError):
     """Actionable local setup refusal without deleting existing software or state."""
 
 
+def _local_release_source(installed: Distribution) -> str | None:
+    """Reuse retained hash-checked release evidence without forging a download URL.
+
+    The operator authenticates release assets before running their installer.
+    This local continuity check binds the retained wheel to installed package
+    bytes; it does not mint software, model or registry signing authority.
+    """
+    root = Path(sys.prefix)
+    receipt = root / "sovereign-install.json"
+    if not receipt.exists():
+        return None
+    try:
+        info = root.lstat()
+        if (
+            not stat.S_ISDIR(info.st_mode)
+            or info.st_uid != os.getuid()
+            or info.st_mode & 0o022
+        ):
+            raise ValueError("unsafe installed release directory")
+        if receipt.is_symlink() or receipt.stat().st_size > 65536:
+            raise ValueError("unsafe installed release receipt")
+        raw_value: object = json.loads(receipt.read_text())
+        if not isinstance(raw_value, dict):
+            raise ValueError("invalid installed release receipt")
+        value = cast(dict[str, object], raw_value)
+        if value.get("project") != "foxlight-preservation-library":
+            return None
+        version, revision, wheel_hash = (
+            value.get("version"),
+            value.get("source_revision"),
+            value.get("wheel_sha256"),
+        )
+        if (
+            value.get("schema_version") != "foxlight.software-install.v1"
+            or version != installed.version
+            or not isinstance(revision, str)
+            or re.fullmatch(r"[a-f0-9]{40}", revision) is None
+            or not isinstance(wheel_hash, str)
+            or re.fullmatch(r"[a-f0-9]{64}", wheel_hash) is None
+        ):
+            raise ValueError("invalid installed release receipt")
+        wheel_name = (
+            "foxlight_preservation_library-" + str(version) + "-py3-none-any.whl"
+        )
+        if value.get("wheel") != wheel_name:
+            raise ValueError("unexpected release wheel")
+        evidence = root / "sovereign-release"
+        if evidence.is_symlink() or not evidence.is_dir():
+            raise ValueError("missing retained release evidence")
+        original = evidence / "INSTALL.json"
+        if (
+            original.is_symlink()
+            or not original.is_file()
+            or original.stat().st_size > 65536
+        ):
+            raise ValueError("missing retained installation record")
+        original_value: object = json.loads(original.read_text())
+        if not isinstance(original_value, dict):
+            raise ValueError("invalid retained installation record")
+        original_record = cast(dict[str, object], original_value)
+        fields = (
+            "schema_version",
+            "project",
+            "version",
+            "source_revision",
+            "wheel",
+            "wheel_sha256",
+        )
+        if any(value.get(field) != original_record.get(field) for field in fields):
+            raise ValueError("installation continuity record changed")
+        wheel = evidence / wheel_name
+        if (
+            wheel.is_symlink()
+            or not wheel.is_file()
+            or wheel.stat().st_size > 64 * 1024**2
+        ):
+            raise ValueError("unsafe retained release wheel")
+        if hashlib.sha256(wheel.read_bytes()).hexdigest() != wheel_hash:
+            raise ValueError("retained release wheel changed")
+        with zipfile.ZipFile(wheel) as archive:
+            entries = [
+                entry
+                for entry in archive.infolist()
+                if entry.filename.startswith("foxlight_preservation_library/")
+                and not entry.is_dir()
+            ]
+            if (
+                not entries
+                or len(entries) > 512
+                or sum(entry.file_size for entry in entries) > 64 * 1024**2
+                or "foxlight_preservation_library/preview.py"
+                not in [entry.filename for entry in entries]
+            ):
+                raise ValueError("invalid retained package closure")
+            for entry in entries:
+                relative = PurePosixPath(entry.filename)
+                if ".." in relative.parts or relative.is_absolute():
+                    raise ValueError("unsafe retained package path")
+                actual = Path(str(installed.locate_file(entry.filename)))
+                if (
+                    actual.is_symlink()
+                    or not actual.is_file()
+                    or actual.read_bytes() != archive.read(entry)
+                ):
+                    raise ValueError("installed release package changed")
+        return "git+" + PUBLIC_REPOSITORY + "@" + revision + "#subdirectory=capability"
+    except (OSError, ValueError, zipfile.BadZipFile) as error:
+        raise PreviewRefused(
+            "Retained Library release evidence changed; keep it for inspection "
+            "and reinstall the authenticated cohort."
+        ) from error
+
+
 def _library_source() -> str:
     """Reuse a resolved public Git commit or the actually installed release URL.
 
-    Version numbers do not prove a published artifact exists. Local, editable
-    and index installs remain usable with an existing Core, but cannot supply
-    a reproducible public cohort for isolated preview setup.
+    Version numbers alone do not establish a public cohort. The release helper
+    can retain verified wheel evidence; ordinary local/editable/index installs
+    remain usable with an existing Core without adopting an unknown cohort.
     """
     installed = distribution("foxlight-preservation-library")
+    retained = _local_release_source(installed)
+    if retained is not None:
+        return retained
     record = installed.read_text("direct_url.json")
     refusal = (
         "Preview setup needs an immutable public Library install. "

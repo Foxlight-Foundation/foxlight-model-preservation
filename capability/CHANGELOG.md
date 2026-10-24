@@ -4,7 +4,11 @@ Skulk Library is versioned separately from the portable core. Releases are
 tagged `library-v*`; versions without a tag are source previews installed from
 `main` (see [README](README.md)).
 
-## 0.11.0 (source preview)
+## 0.11.0
+
+- Include a hash-locked public installation archive and exact source evidence.
+  Local release installs can reuse the authenticated cohort for separate Core
+  preview setup after checking retained wheel and actual installed bytes.
 
 - Share an exact public copy through a finite Core-owned peer session and send
   one `.foxhandoff` file. Download remains available after reload or Stop.

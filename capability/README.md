@@ -5,7 +5,7 @@ everyday use, and Activity through Skulk Core's durable preservation host. It
 uses local HTTP; its optional managed adapter uses the capability authoring SDK. It includes no Skulk imports,
 private owner code, signing keys, verifier, artifact transfer or byte worker.
 
-Source preview 0.11 adds **Share with peers** and portable `.foxhandoff` files.
+Library 0.11 adds **Share with peers** and portable `.foxhandoff` files.
 From **Sharing**, choose **Share with someone** beside a verified public copy,
 then **Share with peers**. Review local contacts and network access, duration and
 the observed native upload threshold, then explicitly start the public session.
@@ -180,15 +180,16 @@ Core on the same model-store host. Its wheel includes the interface; Node.js,
 Skulk's Python package and the managed SDK are not installation dependencies.
 
 ```sh
-uv tool install https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.6.0/foxlight_preservation_library-0.6.0-py3-none-any.whl
+uv tool install https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.11.0/foxlight_preservation_library-0.11.0-py3-none-any.whl
 foxlight-preservation-library
 ```
 
-That is the latest tagged release (0.6.0). PMF, followed sources and peer
-receiving (0.7–0.10) are source previews; see the
-[PMF section](#pmf-source-preview-library-07) for the source install command and
-[CHANGELOG.md](CHANGELOG.md) for what each version added. To check a release file
-before installing it, see [verifying a release](../docs/releases.md).
+The 0.11.0 pre-release includes PMF, followed sources, peer receiving/native setup
+and one-file sharing. For exact dependency versions and offline retention, use
+the [hash-locked installation archive](../docs/installation.md) instead of an
+unconstrained tool install. [Verify the release](../docs/releases.md) before
+executing its installer. These are public software artifacts for a development
+cohort; the compatible Core remains a separately installed pinned source preview.
 
 The launcher checks the local Core and opens a private browser link. Use `--check`
 for a read-only report of the actual owner and required API surfaces. If Core is
@@ -318,8 +319,9 @@ installation use [the source preview setup](preview.md). Source setup reuses the
 exact resolved Library commit from the installed package; it does not replace
 this version with an older released wheel. Local-source/local-wheel installs
 remain usable with an existing Core; preview setup requires the public Git
-installation command or an actual official release URL. The 0.7 release has not been
-cut; the older 0.6 release link above retains its previous behavior.
+installation command, an official release URL, or the release helper's retained
+wheel/installation evidence. The 0.11.0 release includes the PMF behavior
+introduced in the earlier 0.7 source preview.
 
 
 ## Follow sources and find preserved models (Library 0.8 source preview)
@@ -360,16 +362,14 @@ metadata remains in Core's cache. Offline cache export/import and local-file
 sources are available through standalone tools; Library accepts bootstrap files
 up to 256 KiB, not full cache interchange.
 
-Use the public source installation command above and a compatible Core preview.
-This is source integration, not a published Library 0.8 release or a claim of
-independent community operators, anonymous retrieval, peer discovery or
-censorship-resistance qualification. Direct source and mirror requests expose
+These source-following controls are included in Library 0.11.0 with its compatible
+Core preview. Software delivery does not establish independent community custody,
+anonymous retrieval or censorship-resistance qualification. Direct source and mirror requests expose
 Core's network address and requested metadata/artifact to their operators.
 
 ## Receive through peers (Library 0.9–0.10 source preview)
 
-The current source preview supports peer discovery and receiving in Library and
-Guided. Library 0.10 adds **Set up peer support** on a compatible Core. Review
+Library 0.11.0 includes peer discovery and receiving in Library and Guided. Library 0.10 adds **Set up peer support** on a compatible Core. Review
 the official source and download size, explicitly allow installation, and start.
 Core installs its pinned Kubo 0.43.1 build privately, with no administrator or
 PATH changes. Supported managed targets are macOS/Linux ARM64 and AMD64; existing

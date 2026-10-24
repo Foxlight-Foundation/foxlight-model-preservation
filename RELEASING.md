@@ -7,7 +7,7 @@ provenance. Users verify releases as described in [docs/releases.md](docs/releas
 
 | Tag | Project | Version | Changelog |
 | --- | --- | --- | --- |
-| `vX.Y.Z` | Core | `pyproject.toml` | `CHANGELOG.md` |
+| `vX.Y.Z` | Standalone preservation | `pyproject.toml` | `CHANGELOG.md` |
 | `library-vX.Y.Z` | Library | `capability/pyproject.toml` | `capability/CHANGELOG.md` |
 
 The tag must be the prefix plus the project's `version`, exactly (`v0.11.0` for
@@ -17,11 +17,15 @@ way.
 
 The workflow runs four jobs. **Build** checks the tag against the version,
 rebuilds the Library interface and requires it to match the committed `static/`
-(Library only), runs `uv build`, checks the built name and version and writes
-`SHA256SUMS`. **Provenance** attests the wheel, sdist and `SHA256SUMS`; it runs
+(Library only), runs `uv build`, checks the built name/version, exports public runtime hash locks from committed
+project locks, and builds installation records/helpers and one ZIP. No private
+SDK/source requirement is allowed in public default locks. It writes outer
+`SHA256SUMS`; the archive retains its own inner inventory. **Provenance** attests the distributions, locks, installer, record, archive and
+outer `SHA256SUMS`, and retains the detached verification bundle; it runs
 no build code and, with **PyPI**, is the only job that can request an OIDC token.
 **GitHub release**
-creates the pre-release with generated notes and a verification block. **PyPI**
+verifies the retained bundle against the exact tag/source/workflow before it
+creates the pre-release with all installation assets and that bundle. **PyPI**
 uploads the wheel and sdist when enabled. Each later job re-checks the files
 against `SHA256SUMS` and the digest the build job recorded.
 
@@ -30,7 +34,10 @@ against `SHA256SUMS` and the digest the build job recorded.
 1. On a branch, set `version` in `pyproject.toml` and run `uv lock`. The lock
    records the project version; `uv sync --locked` fails until it is updated.
 2. In `CHANGELOG.md`, move the `Unreleased` entries under `## X.Y.Z`.
-3. Open a ready pull request and merge it once CI passes.
+3. Build/generate and qualify both the normal and offline hash-locked install
+   outside the checkout. Preserve the default SDK/Skulk-free gate, installer
+   refusal cases and exact archive/source evidence. Open a ready pull request
+   and merge it once review threads and CI pass.
 4. Tag the merged commit on `main` and push only that tag:
 
    ```sh

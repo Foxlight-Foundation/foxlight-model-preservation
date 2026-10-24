@@ -7,11 +7,15 @@ installation: it downloads native prerequisites and builds the pinned public
 Core source. This is a development preview, not a frozen or stable desktop
 release.
 
-## Current source preview
+## Current development cohort
 
-Portable handoffs, finite peer sharing and peer receiving are in Library source
-version 0.11.0 and its pinned Core. The released wheel below remains an earlier
-cohort. To use current source:
+Portable handoffs, finite peer sharing, PMF and peer receiving are included in
+Library 0.11.0 and its immutable compatible Core pin. Install the verified
+[hash-locked release archive](../docs/installation.md), then explicitly run
+`foxlight-preservation-preview setup` from that environment. The installer retains
+the source record and original wheel; preview setup checks those against installed
+package bytes. It does not rewrite local download history into a public URL.
+For a public Git source install instead:
 
 ```sh
 uv tool install --python 3.13 'git+https://github.com/Foxlight-Foundation/foxlight-model-preservation.git@main#subdirectory=capability'
@@ -38,7 +42,7 @@ recovery kits do not contain the runtime and its dependencies; retain those
 separately for offline recovery.
 
 ```sh
-uv tool install --python 3.13 https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.6.0/foxlight_preservation_library-0.6.0-py3-none-any.whl
+uv tool install --python 3.13 https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.11.0/foxlight_preservation_library-0.11.0-py3-none-any.whl
 foxlight-preservation-preview setup
 ```
 

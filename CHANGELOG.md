@@ -1,6 +1,11 @@
 # Changes
 
-## Unreleased
+## 0.12.0
+
+- Release installation archives include exact runtime versions/hashes, the wheel,
+  source, source-revision record and an installer that starts no services. The
+  workflow attests the archive and retained verification bundle; offline install
+  uses a retained wheelhouse without indexes/cache fallback. Skulk remains optional.
 
 - Persistent standalone HTTP mirrors follow authenticated sources under separate
   model keys and exact reviewed terms. Explicit manual serving and a distinct
