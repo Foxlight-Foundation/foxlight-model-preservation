@@ -182,7 +182,11 @@ evidence directory. It excludes routing URLs, original headers, model hashes,
 exception messages and local variables. Only bounded aggregate event/error
 counts enter `report.json`; review all evidence before publishing it. Native
 logs and bootstrap/router activity retain their separate exposure. A dropped
-event count means the detailed record is incomplete. Individual event timestamps
+event count means the detailed record is incomplete. After native clients and
+the HTTP accept loop stop, the observer waits up to 35 seconds for tracked
+origin bodies to finish. Any remaining request IDs are reported explicitly and
+`observed_origin_evidence_complete` is false; the drain never establishes that
+unobserved HTTP handlers or router packets were measured. Individual event timestamps
 and prefix progress are diagnostic observations, not anonymity or throughput
 qualification. Ordinary receiving/mirror operation enables none of this logging.
 

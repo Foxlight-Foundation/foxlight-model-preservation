@@ -213,3 +213,37 @@ def test_observations_are_bounded_and_exception_values_are_never_recorded(tmp_pa
     assert len([json.loads(line) for line in raw.splitlines()]) == 2
     assert summary["events_dropped"] == 1
     assert (tmp_path / "transfer-events.jsonl").stat().st_mode & 0o777 == 0o600
+
+
+@pytest.mark.parametrize("finish", [True, False])
+def test_diagnostic_close_drains_origin_or_reports_incomplete_evidence(
+    tmp_path, finish
+):
+    import json
+    import threading
+    import time
+
+    observations = observations_module().HTTPObservations(tmp_path)
+    observations.record("origin_start", request=1, expected_bytes=100)
+    worker = None
+    if finish:
+
+        def complete():
+            time.sleep(0.05)
+            observations.record("origin_end", request=1, completed_write_bytes=100)
+
+        worker = threading.Thread(target=complete)
+        worker.start()
+    summary = observations.close(wait_seconds=1 if finish else 0)
+    if worker is not None:
+        worker.join(2)
+    assert summary["observed_origin_evidence_complete"] is finish
+    assert summary["unfinished_origin_requests"] == ([] if finish else [1])
+    events = [
+        json.loads(s)
+        for s in (tmp_path / "transfer-events.jsonl").read_text().splitlines()
+    ]
+    assert any(e["event"] == "origin_end" for e in events) is finish
+    if not finish:
+        observations.record("origin_end", request=1, completed_write_bytes=100)
+        assert summary["observed_origin_evidence_complete"] is False

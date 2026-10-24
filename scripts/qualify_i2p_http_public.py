@@ -84,6 +84,8 @@ class HTTPObservations:
         self.started = time.monotonic()
         self.limit = limit
         self.lock = threading.Lock()
+        self.changed = threading.Condition(self.lock)
+        self.active_origins: set[int] = set()
         descriptor = os.open(
             root / "transfer-events.jsonl", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
         )
@@ -97,6 +99,11 @@ class HTTPObservations:
         with self.lock:
             if self.output.closed:
                 return
+            if event == "origin_start":
+                self.active_origins.add(fields["request"])
+            elif event == "origin_end":
+                self.active_origins.discard(fields["request"])
+                self.changed.notify_all()
             self.counts[event] += 1
             if "category" in fields:
                 self.errors[fields["category"]] += 1
@@ -284,15 +291,33 @@ class HTTPObservations:
 
         return ObservedSeedHandler
 
-    def close(self) -> dict:
-        """Close private evidence and return only bounded aggregate diagnostics."""
-        with self.lock:
+    def close(self, *, wait_seconds: float = 35) -> dict[str, object]:
+        """Drain observed bodies within a fixed window or mark evidence incomplete.
+
+        Called after stopping the owned native clients and HTTP accept loop.
+        The default outlasts a single unchanged 30-second socket write. Never
+        infer that unobserved HTTP handlers or router packets were measured.
+        """
+        if not 0 <= wait_seconds <= 35:
+            raise ValueError("diagnostic drain must be between zero and 35 seconds")
+        started = time.monotonic()
+        deadline = started + wait_seconds
+        with self.changed:
+            while self.active_origins:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self.changed.wait(remaining)
             self.output.close()
             return {
                 "events_written": self.written,
                 "events_dropped": self.dropped,
                 "event_counts": dict(self.counts),
                 "error_categories": dict(self.errors),
+                "unfinished_origin_requests": sorted(self.active_origins),
+                "observed_origin_evidence_complete": not self.active_origins
+                and self.dropped == 0,
+                "origin_drain_seconds": time.monotonic() - started,
             }
 
 
