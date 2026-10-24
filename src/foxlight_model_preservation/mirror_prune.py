@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import Field
 
-from .mirror_models import HeldModel
+from .mirror_models import HeldModel, NativeCustodyName
 from .mirror_native import prune_native
 from .mirror_state import MAX_STATE, MirrorLedger, encode_state
 from .models import Digest, PreservationError, Record
@@ -31,6 +31,8 @@ class PruneIntent(Record):
     manifest: Digest
     objects: tuple[Digest, ...] = Field(max_length=100000)
     native_identity: tuple[int, int] | None = None
+    native_custody: NativeCustodyName | None = None
+    pending_custody: tuple[NativeCustodyName, ...] = Field(default=(), max_length=256)
 
 
 def _unlink(root: int, path: str) -> None:
@@ -83,6 +85,12 @@ def prune(ledger: MirrorLedger, manifest: str, confirmation: str) -> dict[str, o
                     native_identity=state.native_models[manifest].identity
                     if manifest in state.native_models
                     else None,
+                    native_custody=state.native_models[manifest].custody_name
+                    if manifest in state.native_models
+                    else None,
+                    pending_custody=state.native_models[manifest].pending_custody
+                    if manifest in state.native_models
+                    else (),
                 )
                 atomic_bytes(root, "prune.json", encode_record(intent))
             references: set[str] = set()
@@ -116,8 +124,14 @@ def prune(ledger: MirrorLedger, manifest: str, confirmation: str) -> dict[str, o
                 for identity in intent.objects:
                     if identity not in references:
                         _unlink(public, object_path(identity))
-            if intent.native_identity is not None:
-                prune_native(ledger, manifest, intent.native_identity)
+            if intent.native_identity is not None or intent.pending_custody:
+                prune_native(
+                    ledger,
+                    manifest,
+                    intent.native_identity,
+                    custody_name=intent.native_custody,
+                    pending_custody=intent.pending_custody,
+                )
             _unlink(store, manifest_path(manifest))
             removed = 0
             for identity in intent.objects:

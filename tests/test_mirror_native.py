@@ -44,11 +44,13 @@ from foxlight_model_preservation.torrent_binding import torrent_engine
 
 def ipfs_home(ledger, manifest):
     return (
-        ledger.path
-        / "scratch/native"
-        / manifest
-        / ledger.read().native_models[manifest].ipfs_repo
+        custody_home(ledger, manifest) / ledger.read().native_models[manifest].ipfs_repo
     )
+
+
+def custody_home(ledger, manifest):
+    record = ledger.read().native_models[manifest]
+    return ledger.path / "scratch/native" / (record.custody_name or manifest)
 
 
 def await_condition(check, timeout=25):
@@ -70,6 +72,75 @@ def test_invalid_configuration_can_be_corrected_without_custody_cleanup(
     assert ledger.read().native_policy is None
     configure(ledger, max_active=1)
     assert ledger.read().native_policy.max_active == 1
+
+
+@pytest.mark.parametrize("foreign_contents", [False, True])
+def test_interrupted_custody_creation_retries_and_only_prunes_empty_intents(
+    tmp_path, capture, monkeypatch, foreign_contents
+):
+    ledger, _ = mirror(tmp_path, capture)
+    cycle(ledger)
+    monkeypatch.setattr(
+        "foxlight_model_preservation.mirror_native.torrent_engine", lambda: None
+    )
+    started = threading.Event()
+    monkeypatch.setattr(
+        "foxlight_model_preservation.mirror_native._torrent",
+        lambda *args: started.set(),
+    )
+    configure(ledger, torrent=True)
+    native_identity = ledger.read().native_policy.identity
+    original = os.fsync
+    interrupted = False
+
+    def failed_sync(fd):
+        nonlocal interrupted
+        info = os.fstat(fd)
+        if not interrupted and (info.st_dev, info.st_ino) == native_identity:
+            interrupted = True
+            raise OSError("interrupted custody directory sync")
+        return original(fd)
+
+    monkeypatch.setattr(os, "fsync", failed_sync)
+    manager = NativeMirrors(ledger, lambda s: True)
+    try:
+        manager.tick()
+        await_condition(
+            lambda: (
+                bool(ledger.read().native_models.get(capture.identity))
+                and bool(ledger.read().native_models[capture.identity].error)
+            )
+        )
+        manager.close()
+        failed = ledger.read().native_models[capture.identity]
+        assert interrupted and failed.identity is None and not started.is_set()
+        assert len(failed.pending_custody) == 1
+        pending = ledger.path / "scratch/native" / failed.pending_custody[0]
+        assert pending.is_dir() and not list(pending.iterdir())
+        if foreign_contents:
+            (pending / "operator-file").write_bytes(b"preserve unknown contents")
+        model_action(ledger, capture.identity, "retry")
+        manager = NativeMirrors(ledger, lambda s: True)
+        manager.tick()
+        await_condition(started.is_set)
+        manager.close()
+        active = custody_home(ledger, capture.identity)
+        assert active != pending and pending.is_dir()
+        assert not ledger.read().native_models[capture.identity].error
+        model_action(ledger, capture.identity, "block")
+        if foreign_contents:
+            with pytest.raises(PreservationError, match="custody is not empty"):
+                prune(ledger, capture.identity, capture.identity)
+            assert (
+                pending / "operator-file"
+            ).read_bytes() == b"preserve unknown contents"
+            assert active.is_dir()
+            assert verify_store(ledger.path / "store", capture.identity, capture.trust)
+        else:
+            prune(ledger, capture.identity, capture.identity)
+            assert not pending.exists() and not active.exists()
+    finally:
+        manager.close()
 
 
 def test_one_slot_alternates_selected_transports_across_restart(
@@ -233,7 +304,7 @@ def test_native_budget_is_spent_before_start_and_block_retains_custody(
         manager.close()
     assert ledger.read().native_models[capture.identity].last_stopped
     assert verify_store(ledger.path / "store", capture.identity, capture.trust)
-    assert (ledger.path / "scratch/native" / capture.identity).is_dir()
+    assert custody_home(ledger, capture.identity).is_dir()
     model_action(ledger, capture.identity, "unblock")
     again = NativeMirrors(MirrorLedger(ledger.path), lambda s: True)
     try:
@@ -319,7 +390,10 @@ def test_torrent_mirror_receives_stops_and_prunes_only_on_operator_request(
             prune(ledger, capture.identity, capture.identity)
         model_action(ledger, capture.identity, "unpin")
         prune(ledger, capture.identity, capture.identity)
-        assert not (ledger.path / "scratch/native" / capture.identity).exists()
+        assert not any(
+            p.name.startswith(capture.identity)
+            for p in (ledger.path / "scratch/native").iterdir()
+        )
         assert verify_store(
             received / capture.identity, capture.identity, capture.trust
         )
@@ -692,7 +766,7 @@ def test_substituted_native_custody_refuses_prune_and_retains_selected_store(
         await_condition(lambda: bool(ledger.read().native_models))
     finally:
         manager.close()
-    original = ledger.path / "scratch/native" / capture.identity
+    original = custody_home(ledger, capture.identity)
     original.rename(original.with_name("retained-original"))
     original.mkdir(mode=0o700)
     (original / "operator-file").write_bytes(b"keep")

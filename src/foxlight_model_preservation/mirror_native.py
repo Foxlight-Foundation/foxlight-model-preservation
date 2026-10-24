@@ -39,6 +39,12 @@ _custody_lock = threading.RLock()
 _publication_lock = threading.Lock()
 
 
+def _model_name(manifest: str, name: str | None) -> str:
+    if name is not None and not name.startswith(manifest + "-"):
+        raise PreservationError("native custody belongs to a different model")
+    return name or manifest
+
+
 @contextmanager
 def _publication_capacity(control: OperationControl) -> Generator[None]:
     while not _publication_lock.acquire(timeout=0.1):
@@ -143,7 +149,11 @@ def native_area(ledger: MirrorLedger, manifest: str | None = None) -> Generator[
                 record = state.native_models.get(manifest)
                 if record is None or record.identity is None:
                     raise PreservationError("unknown native model custody")
-                child = os.open(manifest, os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                child = os.open(
+                    _model_name(manifest, record.custody_name),
+                    os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=fd,
+                )
                 info = os.fstat(child)
                 if (info.st_dev, info.st_ino) != record.identity:
                     raise PreservationError("native model directory identity changed")
@@ -191,39 +201,57 @@ def _prepare(ledger: MirrorLedger, manifest: str, control: OperationControl) -> 
         existing = ledger.read().native_models.get(manifest)
         if existing is not None and existing.identity is not None:
             with native_area(ledger, manifest):
-                return ledger.path / "scratch" / "native" / manifest
-        reserved = sum(x.disk_reservation for x in ledger.read().native_models.values())
+                return (
+                    ledger.path
+                    / "scratch/native"
+                    / _model_name(manifest, existing.custody_name)
+                )
+        reserved = sum(
+            x.disk_reservation
+            for key, x in ledger.read().native_models.items()
+            if key != manifest
+        )
         required = 3 * model.total_bytes + HEADROOM
         if ledger.usage() + reserved + required > state.disk_bytes:
             raise PreservationError("native export/cache disk admission exhausted")
+        name = manifest + "-" + secrets.token_hex(12)
+        previous = existing.pending_custody if existing else ()
+        # Commit intent before mkdir. No contents are written until the exact
+        # inode is committed, so interrupted unreceipted generations stay empty.
+        _record(
+            ledger,
+            manifest,
+            pending_custody=(*previous, name),
+            disk_reservation=required,
+        )
         with native_area(ledger) as area:
-            os.mkdir(manifest, 0o700, dir_fd=area)
-            info = os.stat(manifest, dir_fd=area, follow_symlinks=False)
+            os.mkdir(name, 0o700, dir_fd=area)
+            info = os.stat(name, dir_fd=area, follow_symlinks=False)
             os.fsync(area)
-        ledger.update(
-            lambda current: current.model_copy(
-                update={
-                    "native_models": dict(
-                        current.native_models,
-                        **{
-                            manifest: NativeModel(
-                                identity=(info.st_dev, info.st_ino),
-                                disk_reservation=required,
-                            )
-                        },
-                    )
-                }
-            )
+        _record(
+            ledger,
+            manifest,
+            identity=(info.st_dev, info.st_ino),
+            custody_name=name,
+            pending_custody=previous,
         )
     with native_area(ledger, manifest):
-        return ledger.path / "scratch" / "native" / manifest
+        return (
+            ledger.path
+            / "scratch/native"
+            / _model_name(manifest, ledger.read().native_models[manifest].custody_name)
+        )
 
 
 def _ipfs(
     ledger: MirrorLedger, manifest: str, policy: NativePolicy, control: OperationControl
 ) -> None:
     with native_area(ledger, manifest):
-        home = ledger.path / "scratch" / "native" / manifest
+        home = (
+            ledger.path
+            / "scratch/native"
+            / _model_name(manifest, ledger.read().native_models[manifest].custody_name)
+        )
     binary = policy.ipfs_binary
     if binary is None or _binary_hash(binary) != policy.ipfs_sha256:
         raise PreservationError("selected Kubo executable changed")
@@ -340,7 +368,11 @@ def _torrent(
     ledger: MirrorLedger, manifest: str, policy: NativePolicy, control: OperationControl
 ) -> None:
     with native_area(ledger, manifest):
-        home = ledger.path / "scratch" / "native" / manifest
+        home = (
+            ledger.path
+            / "scratch/native"
+            / _model_name(manifest, ledger.read().native_models[manifest].custody_name)
+        )
     record = ledger.read().native_models[manifest]
     expected = record.torrent
     export = home / record.torrent_directory
@@ -569,7 +601,12 @@ def write_reference(destination: Path, data: bytes) -> None:
 
 
 def prune_native(
-    ledger: MirrorLedger, manifest: str, expected: tuple[int, int]
+    ledger: MirrorLedger,
+    manifest: str,
+    expected: tuple[int, int] | None,
+    *,
+    custody_name: str | None = None,
+    pending_custody: tuple[str, ...] = (),
 ) -> None:
     """Delete only a journal-selected native model tree under the stopped owner.
 
@@ -578,11 +615,40 @@ def prune_native(
     a substituted root refuses rather than deleting another operator directory.
     """
     with native_area(ledger) as parent:
-        try:
-            info = os.stat(manifest, dir_fd=parent, follow_symlinks=False)
-        except FileNotFoundError:
-            return
-        if not stat.S_ISDIR(info.st_mode) or (info.st_dev, info.st_ino) != expected:
-            raise PreservationError("native prune custody changed")
-        shutil.rmtree(manifest, dir_fd=parent)
+        # Unknown-inode initialization intents own no contents. The operator
+        # may remove only empty directories; never recursively adopt them.
+        for name in pending_custody:
+            _model_name(manifest, name)
+            try:
+                fd = os.open(name, os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+            except FileNotFoundError:
+                continue
+            try:
+                info = os.fstat(fd)
+                if info.st_uid != os.getuid() or info.st_mode & 0o077 or os.listdir(fd):
+                    raise PreservationError("unreceipted native custody is not empty")
+            finally:
+                os.close(fd)
+        if expected is not None:
+            name = _model_name(manifest, custody_name)
+            try:
+                info = os.stat(name, dir_fd=parent, follow_symlinks=False)
+            except FileNotFoundError:
+                pass
+            else:
+                if (
+                    not stat.S_ISDIR(info.st_mode)
+                    or (
+                        info.st_dev,
+                        info.st_ino,
+                    )
+                    != expected
+                ):
+                    raise PreservationError("native prune custody changed")
+                shutil.rmtree(name, dir_fd=parent)
+        for name in pending_custody:
+            try:
+                os.rmdir(name, dir_fd=parent)
+            except FileNotFoundError:
+                pass
         os.fsync(parent)

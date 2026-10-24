@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import Field, model_validator
 
 from .models import Digest, Identifier, PreservationError, Record, TrustProfile
 from .torrent import TorrentExport
+
+NativeCustodyName = Annotated[str, Field(pattern=r"^[a-f0-9]{64}-[a-f0-9]{24}$")]
 
 
 class NativePolicy(Record):
@@ -29,6 +31,8 @@ class NativeModel(Record):
     """Local custody or refusal receipt; a receipt alone never implies bytes."""
 
     identity: tuple[int, int] | None = None
+    custody_name: NativeCustodyName | None = None
+    pending_custody: tuple[NativeCustodyName, ...] = Field(default=(), max_length=256)
     ipfs_identity: tuple[int, int] | None = None
     ipfs_repo: str = Field(default="ipfs", pattern=r"^ipfs(?:-[a-f0-9]{24})?$")
     torrent: TorrentExport | None = None
