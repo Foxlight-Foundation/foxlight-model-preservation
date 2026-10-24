@@ -12,7 +12,7 @@ from pydantic import JsonValue, TypeAdapter
 
 from .mirror import configure_http, follow, model_action, plan, run_mirror
 from .mirror_intake import retain_local
-from .mirror_models import SourceGrant, Terms
+from .mirror_models import MirrorObservation, SourceGrant, Terms
 from .mirror_native import configure, export_reference, write_reference
 from .mirror_prune import prune
 from .mirror_state import MAX_STATE, MirrorLedger, grant_restart
@@ -44,6 +44,7 @@ class MirrorArguments(argparse.Namespace):
     confirm_redistribution: bool
     confirm_reintake: bool
     http_enabled: bool
+    observe_mirror: bool
     allow_http: bool
     allow_private: bool
     allow_local: bool
@@ -183,6 +184,12 @@ def register_mirror_commands(
                 help="require the separate standing resume grant",
             )
             command.add_argument("--seconds", type=int, default=3600)
+            command.add_argument(
+                "--observe",
+                dest="observe_mirror",
+                action="store_true",
+                help="emit bounded live controller activity without peer history",
+            )
         if name in (
             "pin",
             "unpin",
@@ -213,6 +220,15 @@ def _input(path: Path) -> bytes:
     if len(data) > MAX_STATE:
         raise PreservationError("mirror input exceeds its bound")
     return data
+
+
+def _observation(status: MirrorObservation) -> None:
+    print(
+        json.dumps(
+            {"event": "mirror_status", "status": status.model_dump(mode="json")}
+        ),
+        flush=True,
+    )
 
 
 def run_mirror_command(
@@ -316,6 +332,7 @@ def run_mirror_command(
                     flush=True,
                 )
             ),
+            observe=_observation if arguments.observe_mirror else None,
         )
     if action == "transports":
         configure(

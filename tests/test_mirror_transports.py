@@ -7,6 +7,7 @@ import subprocess
 import sys
 import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -63,8 +64,33 @@ def test_http_policy_is_offline_explicit_and_does_not_downgrade_local_or_native(
         MirrorState.model_validate_json(json.dumps(invalid))
 
 
+def test_startup_reads_policy_only_after_acquiring_owner_lock(tmp_path, monkeypatch):
+    ledger = local_mirror(tmp_path)
+    service_lock = ledger.service_lock
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("startup used policy read before owner lock")
+
+    monkeypatch.setattr("foxlight_model_preservation.mirror.MirrorServer", forbidden)
+
+    # Configuration needs the real lock, so replace the method only for startup.
+    @contextmanager
+    def startup_lock():
+        monkeypatch.setattr(ledger, "service_lock", service_lock)
+        # A completed configuration change before startup wins the owner lock.
+        configure_http(ledger, enabled=False)
+        with service_lock():
+            yield
+
+    monkeypatch.setattr(ledger, "service_lock", startup_lock)
+    with pytest.raises(PreservationError, match="at least one"):
+        run_mirror(ledger, public=True)
+    assert not ledger.running() and not ledger.read().http_enabled
+
+
+@pytest.mark.parametrize("observer_failure", [False, True])
 def test_native_only_owner_never_constructs_http_listener_and_drains_on_pause(
-    tmp_path, capture, monkeypatch
+    tmp_path, capture, monkeypatch, observer_failure
 ):
     ledger = local_mirror(tmp_path)
     retain_local(ledger, capture.store, capture.identity, local_grant(capture))
@@ -75,6 +101,7 @@ def test_native_only_owner_never_constructs_http_listener_and_drains_on_pause(
     configure(ledger, torrent=True, session_seconds=60)
     prepared, native_started, native_stopped = (threading.Event() for _ in range(3))
     failures = []
+    observations = []
 
     def forbidden(*args, **kwargs):
         raise AssertionError("disabled HTTP transport attempted to create a listener")
@@ -92,9 +119,20 @@ def test_native_only_owner_never_constructs_http_listener_and_drains_on_pause(
     monkeypatch.setattr("foxlight_model_preservation.mirror_native._torrent", native)
     grant_restart(ledger, int(time.time()) + 600)
 
+    def observe(status):
+        observations.append(status)
+        if observer_failure and status.running and native_started.is_set():
+            raise RuntimeError("observer failed")
+
     def run():
         try:
-            run_mirror(ledger, resume=True, prepared=prepared.set, ready=forbidden)
+            run_mirror(
+                ledger,
+                resume=True,
+                prepared=prepared.set,
+                ready=forbidden,
+                observe=observe,
+            )
         except BaseException as error:
             failures.append(error)
 
@@ -102,14 +140,24 @@ def test_native_only_owner_never_constructs_http_listener_and_drains_on_pause(
     thread.start()
     try:
         assert prepared.wait(10) and native_started.wait(10)
-        with pytest.raises(PreservationError, match="stop the active"):
-            configure_http(ledger, enabled=True)
-        assert not ledger.read().http_enabled
-        ledger.update(lambda state: state.model_copy(update={"paused": True}))
+        if not observer_failure:
+            with pytest.raises(PreservationError, match="stop the active"):
+                configure_http(ledger, enabled=True)
+            assert not ledger.read().http_enabled
+            ledger.update(lambda state: state.model_copy(update={"paused": True}))
         thread.join(15)
-        assert not thread.is_alive() and not failures
+        assert not thread.is_alive()
+        if observer_failure:
+            assert len(failures) == 1 and str(failures[0]) == "observer failed"
+        else:
+            assert not failures
         assert native_stopped.is_set() and not ledger.running()
         assert ledger.read().models[capture.identity].state == "retained"
+        assert (
+            observations[-1].running is False and observations[-1].native_workers == 0
+        )
+        assert any(status.native_workers > 0 for status in observations)
+        assert all(status.http_port is None for status in observations)
     finally:
         if thread.is_alive():
             ledger.update(lambda state: state.model_copy(update={"paused": True}))

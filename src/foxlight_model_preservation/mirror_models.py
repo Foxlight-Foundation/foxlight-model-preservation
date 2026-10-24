@@ -12,6 +12,25 @@ from .torrent import TorrentExport
 NativeCustodyName = Annotated[str, Field(pattern=r"^[a-f0-9]{64}-[a-f0-9]{24}$")]
 
 
+class MirrorObservation(Record):
+    """Live owned activity, never proof of publication or public reachability."""
+
+    running: bool = Field(
+        description="False only after owned work and listeners drain."
+    )
+    http_port: int | None = Field(
+        default=None,
+        ge=1,
+        le=65535,
+        description="Owned HTTP listener port, not public reachability evidence.",
+    )
+    native_workers: int = Field(
+        ge=0,
+        le=4,
+        description="Live native workers, including preparation/drain, not replicas.",
+    )
+
+
 class NativePolicy(Record):
     """Explicit public native transports and finite, durably reserved sessions."""
 

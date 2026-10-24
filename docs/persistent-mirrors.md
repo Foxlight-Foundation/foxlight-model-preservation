@@ -173,6 +173,8 @@ With HTTP disabled, startup reports `port: null` and `http_enabled: false` for
 the owned controller, without constructing an HTTP listener. Native publication
 readiness remains a separate observation. Running with neither HTTP nor a
 selected native transport refuses before starting byte workers or networking.
+Startup reads and validates the selected policy under the owner lock, so a
+completed configuration change cannot leave an old transport choice in effect.
 Every cycle re-verifies retained closures, publishes objects before envelopes,
 and serves only exact manifest/object paths. There is no upload, directory
 listing, admin HTTP endpoint, request-history log or implicit proxy. Public
@@ -205,6 +207,20 @@ Install/enable it only after reviewing paths, user, configuration and public
 permission. The recipe does not create users, mount disks or grant consent.
 
 ## Observe, stop serving, retain
+
+Use `mirror run --observe` with the ordinary explicit `--public` or `--resume`
+choice for a live JSON-lines activity feed. The initial startup receipt remains
+first; additional `mirror_status` events contain `running`, `http_port` and
+`native_workers`. Events are emitted at most once per second, plus a final
+`running: false`/zero-worker event after owned work and listeners drain. The
+final command receipt follows it. No peer/request history is collected.
+
+An HTTP port describes the owned local listener. Native workers include
+preparation, serving and draining; their count is not a reachable replica count.
+Saved publication IDs/ports in offline status are historical data, not live
+reachability evidence. The Python `run_mirror` API exposes the same typed feed
+through its optional `observe` callback. Callbacks run synchronously, must be
+short, and confer no permission; a callback failure stops and drains the role.
 
 ```sh
 model-preserve mirror status --dir /srv/sovereign/example

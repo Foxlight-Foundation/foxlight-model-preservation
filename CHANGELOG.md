@@ -13,6 +13,9 @@
 - Native-only startup reports no HTTP port. It does not grant an unconfigured
   native transport, change outbound source permissions or start a router. A run
   with no selected serving transport refuses before worker/network effects.
+- Read startup policy under the owner lock. Add optional typed live activity
+  observations and `mirror run --observe`, with bounded events and a final
+  drained status. Worker/listener activity is not public reachability evidence.
 
 ## 0.16.0
 

@@ -16,7 +16,7 @@ from typing import cast
 from pydantic import JsonValue
 
 from .discovery import follow_source, refresh_source, search_sources
-from .mirror_models import HeldModel, MirrorState, SourceGrant
+from .mirror_models import HeldModel, MirrorObservation, MirrorState, SourceGrant
 from .mirror_native import NativeMirrors
 from .mirror_state import (
     HEADROOM,
@@ -626,6 +626,7 @@ def run_mirror(
     control: OperationControl | None = None,
     ready: Callable[[int], None] | None = None,
     prepared: Callable[[], None] | None = None,
+    observe: Callable[[MirrorObservation], None] | None = None,
 ) -> dict[str, JsonValue]:
     """Own selected mirror transports until stop, pause/leave or grant expiry.
 
@@ -635,6 +636,9 @@ def run_mirror(
     The ready callback reports only an enabled HTTP listener's actual port.
     Prepared reports controller startup with or without HTTP, not native model
     publication, public reachability or a new serving grant.
+    Optional synchronous observations report owned activity at most once per
+    second plus a drained final status. A failing observer stops and drains the
+    controller; observers must remain short and must not grant any authority.
     """
     if public == resume or not 1 <= seconds <= 86400:
         raise PreservationError(
@@ -642,14 +646,7 @@ def run_mirror(
         )
     active = control or OperationControl()
     stop = threading.Event()
-    state = ledger.read()
-    if not state.http_enabled and not (
-        state.native_policy
-        and (state.native_policy.ipfs_binary or state.native_policy.torrent)
-    ):
-        raise PreservationError("select at least one mirror serving transport")
     deadline = time.monotonic() + seconds if public else float("inf")
-    pinned_policy = policy_id(state)
 
     def authorized(current: MirrorState) -> bool:
         return (
@@ -661,11 +658,18 @@ def run_mirror(
             and (not resume or restart_allowed(current))
         )
 
-    if not authorized(state):
-        raise PreservationError(
-            "mirror is paused/left or lacks current restart authority"
-        )
     with ledger.service_lock():
+        state = ledger.read()
+        if not state.http_enabled and not (
+            state.native_policy
+            and (state.native_policy.ipfs_binary or state.native_policy.torrent)
+        ):
+            raise PreservationError("select at least one mirror serving transport")
+        pinned_policy = policy_id(state)
+        if not authorized(state):
+            raise PreservationError(
+                "mirror is paused/left or lacks current restart authority"
+            )
         if (ledger.path / "prune.json").exists():
             raise PreservationError(
                 "finish the interrupted operator prune before serving"
@@ -719,11 +723,26 @@ def run_mirror(
                 prepared()
             if ready and server is not None:
                 ready(server.server_port)
+            next_observation = 0.0
             while time.monotonic() < deadline and not error:
                 active.checkpoint()
                 if not authorized(ledger.read()):
                     break
                 native.tick()
+                if observe is not None and time.monotonic() >= next_observation:
+                    observe(
+                        MirrorObservation(
+                            running=True,
+                            http_port=server.server_port
+                            if server is not None
+                            else None,
+                            native_workers=sum(
+                                session.thread.is_alive()
+                                for session in native.sessions.values()
+                            ),
+                        )
+                    )
+                    next_observation = time.monotonic() + 1
                 stop.wait(0.1)
         finally:
             stop.set()
@@ -737,6 +756,8 @@ def run_mirror(
                 server.server_close()
             if web is not None:
                 web.join()
+            if observe is not None:
+                observe(MirrorObservation(running=False, native_workers=0))
         if error:
             raise error[0]
     return {"stopped": True, "retained": True, "network_started": True}
