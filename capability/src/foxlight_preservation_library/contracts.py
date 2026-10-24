@@ -5,7 +5,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Literal
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    field_validator,
+    model_validator,
+)
 
 if TYPE_CHECKING:
     from skulk_capability_sdk.contracts import Manifest
@@ -134,6 +141,13 @@ class SharingReferenceInput(Contract):
     job_id: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
+class I2PProxyInput(Contract):
+    """Explicit numeric proxy on the owner host, without DNS or router adoption."""
+
+    host: Literal["127.0.0.1", "::1"] = "127.0.0.1"
+    port: int = Field(default=4444, ge=1, le=65535)
+
+
 class DeliveryInput(Contract):
     """Public publication/receiving selections; byte metadata uses uploads."""
 
@@ -151,6 +165,26 @@ class DeliveryInput(Contract):
     allow_http: bool = False
     allow_private: bool = False
 
+    allow_i2p: bool = False
+    i2p_proxy: I2PProxyInput | None = None
+
+    @model_validator(mode="after")
+    def check_i2p(self) -> DeliveryInput:
+        """Keep explicit protected receiving separate from public/peer grants."""
+        if self.allow_i2p:
+            if (
+                self.kind != "receive"
+                or self.i2p_proxy is None
+                or self.allow_http
+                or self.allow_private
+                or self.allow_peer_network
+                or self.peer_setup_id is not None
+            ):
+                raise ValueError("I2P receiving needs its proxy and exclusive grants")
+        elif self.i2p_proxy is not None:
+            raise ValueError("I2P proxy requires explicit permission")
+        return self
+
 
 class CopyResult(Contract):
     """Exact completed retained copy, never an inferred runtime qualification."""
@@ -162,7 +196,7 @@ class CopyResult(Contract):
     member_count: int | None = Field(default=None, ge=1)
 
 
-BUNDLE_VERSION = "0.11.0"
+BUNDLE_VERSION = "0.12.0"
 """Managed bundle version; tests keep it equal to this package's version."""
 
 

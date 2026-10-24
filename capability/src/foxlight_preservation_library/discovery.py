@@ -1,15 +1,17 @@
 """Typed HTTP presentation of canonical Core discovery; no source cache or worker."""
 
+from __future__ import annotations
+
 from typing import Literal
 
-from pydantic import Field, JsonValue
+from pydantic import Field, JsonValue, model_validator
 
 from .client import CoreClient, CoreRefused
-from .contracts import Contract
+from .contracts import Contract, I2PProxyInput
 
 
 def _peer_default(value: object) -> bool:
-    return value is None or value is False or value == "http"
+    return value is None or value is False or value == "http" or value == []
 
 
 class SourceReviewInput(Contract):
@@ -25,6 +27,21 @@ class SourceFollowInput(Contract):
     confirmed: bool
     allow_http: bool = False
     allow_private: bool = False
+    allow_i2p: bool = Field(default=False, exclude_if=_peer_default)
+    i2p_proxy: I2PProxyInput | None = Field(default=None, exclude_if=_peer_default)
+    i2p_endpoints: list[str] = Field(
+        default_factory=list, max_length=8, exclude_if=_peer_default
+    )
+
+    @model_validator(mode="after")
+    def check_i2p(self) -> SourceFollowInput:
+        """Keep the reviewed source policy distinct from direct connection grants."""
+        if self.allow_i2p:
+            if self.i2p_proxy is None or self.allow_http or self.allow_private:
+                raise ValueError("I2P following needs its proxy and exclusive grants")
+        elif self.i2p_proxy is not None or self.i2p_endpoints:
+            raise ValueError("I2P choices require explicit permission")
+        return self
 
 
 class SourceInput(Contract):
@@ -57,7 +74,9 @@ class DiscoveryStartInput(Contract):
     source_id: str = Field(pattern=r"^[0-9a-f]{64}$")
     entry_id: str | None = Field(default=None, max_length=512)
     manifest_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
-    transport: Literal["http", "peer"] = Field(default="http", exclude_if=_peer_default)
+    transport: Literal["http", "peer", "i2p"] = Field(
+        default="http", exclude_if=_peer_default
+    )
     allow_peer_network: bool = Field(default=False, exclude_if=_peer_default)
     peer_setup_id: str | None = Field(
         default=None, pattern=r"^[0-9a-f]{64}$", exclude_if=_peer_default
@@ -66,6 +85,30 @@ class DiscoveryStartInput(Contract):
     accept_source_keys: bool = False
     allow_http: bool = False
     allow_private: bool = False
+    allow_i2p: bool = Field(default=False, exclude_if=_peer_default)
+    i2p_policy_id: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$", exclude_if=_peer_default
+    )
+
+    @model_validator(mode="after")
+    def check_i2p(self) -> DiscoveryStartInput:
+        """Bind protected metadata work to the owner's exact saved policy."""
+        if self.transport == "i2p":
+            if (
+                not self.allow_i2p
+                or self.i2p_policy_id is None
+                or self.allow_http
+                or self.allow_private
+                or self.allow_peer_network
+                or self.peer_setup_id is not None
+                or self.historical
+            ):
+                raise ValueError(
+                    "I2P metadata needs its exact policy and exclusive grants"
+                )
+        elif self.allow_i2p or self.i2p_policy_id is not None:
+            raise ValueError("Other transports cannot carry I2P grants")
+        return self
 
 
 class PeerSetupInput(Contract):
