@@ -14,8 +14,9 @@ compatible Kubo 0.43.1 executable separately using the existing
 [native runtime acquisition](peer-discovery.md) instructions.
 Supplying a path/version is not software-publisher authentication.
 
-After init and independent source/model/terms enrollment, stop the controller
-and explicitly choose the public transports:
+After init and independent source/model/terms enrollment, or offline
+[retention of an exact public copy](persistent-mirrors.md#retain-a-public-copy-you-already-have),
+stop the controller and explicitly choose the public transports:
 
 ```sh
 model-preserve mirror transports --dir /srv/sovereign/example \
@@ -30,7 +31,8 @@ model-preserve mirror plan --dir /srv/sovereign/example
 Omit either transport to select only the other. Omit both to disable native
 sharing while retaining its caches. Reconfiguration is offline, requires the
 controller to be stopped and invalidates any standing restart grant. Native
-policy upgrades local mirror state to v2; older tools refuse that profile. HTTP-only
+policy upgrades local mirror state to v2, retaining v3 when direct local selections
+are present; older tools refuse unsupported profiles. HTTP-only
 v1 state and its existing restart identity remain readable without migration.
 This changes neither model manifests nor original signed envelopes/cards.
 

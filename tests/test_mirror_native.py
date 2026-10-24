@@ -315,12 +315,22 @@ def test_native_budget_is_spent_before_start_and_block_retains_custody(
     assert len(started) == 1 and ledger.read().egress_month_used == 100
 
 
+@pytest.mark.parametrize("intake", ["source", "local"])
 def test_torrent_mirror_receives_stops_and_prunes_only_on_operator_request(
-    tmp_path, capture
+    tmp_path, capture, intake
 ):
     pytest.importorskip("libtorrent")
-    ledger, _ = mirror(tmp_path, capture)
-    cycle(ledger)
+    if intake == "local":
+        from test_mirror_intake import local_grant, local_mirror
+
+        from foxlight_model_preservation.mirror_intake import retain_local
+
+        ledger = local_mirror(tmp_path)
+        retain_local(ledger, capture.store, capture.identity, local_grant(capture))
+        shutil.rmtree(capture.store)
+    else:
+        ledger, _ = mirror(tmp_path, capture)
+        cycle(ledger)
     configure(ledger, torrent=True, session_seconds=60)
     manager = NativeMirrors(ledger, lambda s: True)
     engine = torrent_engine()
@@ -622,15 +632,25 @@ def test_native_verification_serializes_http_link_publication(
     assert not ledger.read().models[capture.identity].error
 
 
+@pytest.mark.parametrize("intake", ["source", "local"])
 def test_ipfs_mirror_restart_after_publisher_loss_and_independent_receive(
-    tmp_path, capture
+    tmp_path, capture, intake
 ):
     pytest.importorskip("multiformats")
     from test_peer_native import node
 
     binary = native_binary()
-    ledger, publisher = mirror(tmp_path, capture)
-    cycle(ledger)
+    if intake == "local":
+        from test_mirror_intake import local_grant, local_mirror
+
+        from foxlight_model_preservation.mirror_intake import retain_local
+
+        ledger = local_mirror(tmp_path)
+        retain_local(ledger, capture.store, capture.identity, local_grant(capture))
+        publisher = None
+    else:
+        ledger, publisher = mirror(tmp_path, capture)
+        cycle(ledger)
     configure(
         ledger,
         ipfs_binary=binary,
@@ -649,7 +669,8 @@ def test_ipfs_mirror_restart_after_publisher_loss_and_independent_receive(
         )
         first = ledger.read().native_models[capture.identity]
         manager.close()
-        shutil.rmtree(publisher.path)
+        if publisher is not None:
+            shutil.rmtree(publisher.path)
         shutil.rmtree(capture.store)
         manager = NativeMirrors(MirrorLedger(ledger.path), lambda s: True)
         manager.tick()

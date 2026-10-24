@@ -147,6 +147,12 @@ keeps no request-history log. It does not reload new bundles automatically. The 
 [persistent mirror controller](persistent-mirrors.md) adds verified selection
 reconciliation, conservative durable budgets and operator-controlled retention.
 It does not change signed manifests, discovery authority or runtime trust.
+The owner's v3 mirror-state profile also permits independently reviewed local
+public selections without a catalog. It pins the original wrapper hash, records
+no fabricated source identity and grants no network retry route. New selections
+invalidate standing restart permission; existing v1/v2 policy identities remain
+unchanged. This owner-state extension does not extend the signed v1 transport
+domain or flatten PMF into it.
 Public binding additionally requires every member's audience to be `public`.
 An ordinary read-only static HTTPS server is the preferred durable hosting path.
 

@@ -123,7 +123,9 @@ def configure(
         return ledger.update(
             lambda state: state.model_copy(
                 update={
-                    "schema_version": "foxlight.mirror-state.v2",
+                    "schema_version": "foxlight.mirror-state.v3"
+                    if state.schema_version == "foxlight.mirror-state.v3"
+                    else "foxlight.mirror-state.v2",
                     "native_policy": policy,
                     "restart": None,
                 }

@@ -112,17 +112,36 @@ def model_action(ledger: MirrorLedger, manifest_id: str, action: str) -> MirrorS
     if action not in changes:
         raise PreservationError("unsupported mirror model action")
     update = cast(dict[str, object], changes[action])
-    return _record(ledger, manifest_id, update)
+    return record_model(ledger, manifest_id, update)
 
 
-def _record(
+def record_model(
     ledger: MirrorLedger, manifest_id: str, changes: dict[str, object]
 ) -> MirrorState:
+    """Update an existing selection receipt without changing accepted authority."""
+    if set(changes) - {
+        "pinned",
+        "blocked",
+        "state",
+        "error",
+        "verified_at",
+        "transfer_bytes",
+    }:
+        raise PreservationError("selection authority cannot be changed by a receipt")
+
     def apply(state: MirrorState) -> MirrorState:
         if manifest_id not in state.models:
             raise PreservationError("unknown retained mirror selection")
         models = dict(state.models)
         selected_changes = dict(changes)
+        if (
+            changes.get("state") == "pending"
+            and state.models[manifest_id].origin == "local"
+            and state.models[manifest_id].state == "removed"
+        ):
+            raise PreservationError(
+                "removed local selection needs mirror retain --confirm-reintake"
+            )
         if (
             changes.get("state") == "pending"
             and (record := state.native_models.get(manifest_id)) is not None
@@ -144,7 +163,8 @@ def _record(
     return ledger.update(apply)
 
 
-def _terms(manifest: Manifest, grant: SourceGrant) -> None:
+def require_terms(manifest: Manifest, grant: SourceGrant) -> None:
+    """Require every member to match independently reviewed public intake terms."""
     accepted = {(item.license_id, item.terms_reference) for item in grant.terms}
     for member in manifest.members:
         if (
@@ -165,14 +185,22 @@ def _policy(grant: SourceGrant, maximum: int | None = None) -> TransferPolicy:
     )
 
 
+def selection_manifest(envelope: bytes, identity: str, held: HeldModel) -> Manifest:
+    """Authenticate a selected wrapper and terms without claiming complete bytes."""
+    if held.origin == "local" and digest(envelope) != held.envelope_sha256:
+        raise PreservationError("local selection's original signed wrapper changed")
+    manifest = verify_manifest(envelope, held.grant.trust, identity)
+    require_terms(manifest, held.grant)
+    return manifest
+
+
 def verify_retained(
     root: int, identity: str, held: HeldModel, control: OperationControl
 ) -> Manifest:
     """Verify original model trust, public terms and every retained object."""
-    manifest = verify_manifest(
-        read_metadata(root, manifest_path(identity)), held.grant.trust, identity
+    manifest = selection_manifest(
+        read_metadata(root, manifest_path(identity)), identity, held
     )
-    _terms(manifest, held.grant)
     for file in unique_objects(manifest):
         verify_object(root, file, control=control)
     return manifest
@@ -194,7 +222,7 @@ def recover_completed(ledger: MirrorLedger, control: OperationControl) -> None:
             raise
         except (ValueError, OSError):
             continue
-        _record(
+        record_model(
             ledger, identity, {"state": "retained", "verified_at": int(time.time())}
         )
 
@@ -282,6 +310,10 @@ def reconcile(ledger: MirrorLedger, control: OperationControl) -> None:
             continue
         try:
             if held.state == "pending":
+                if held.origin == "local":
+                    # A local copy is retried only by the operator supplying it
+                    # again. A catalog cannot acquire its trust or repair route.
+                    continue
                 if (identity, held.source_id) not in fresh:
                     continue
                 # Reserve both bounded metadata passes before first contact.
@@ -299,7 +331,7 @@ def reconcile(ledger: MirrorLedger, control: OperationControl) -> None:
                     _policy(held.grant),
                     control=control.fork(),
                 )
-                _terms(manifest, held.grant)
+                require_terms(manifest, held.grant)
                 allowance = held.transfer_bytes
                 if allowance is None:
                     allowance = min(
@@ -307,7 +339,7 @@ def reconcile(ledger: MirrorLedger, control: OperationControl) -> None:
                         3 * sum(f.size for f in unique_objects(manifest))
                         + 16 * 1024**2,
                     )
-                    _record(ledger, identity, {"transfer_bytes": allowance})
+                    record_model(ledger, identity, {"transfer_bytes": allowance})
                 if not ledger.reserve(
                     allowance, ingress=True, operation=held.operation_id
                 ):
@@ -337,7 +369,7 @@ def reconcile(ledger: MirrorLedger, control: OperationControl) -> None:
                 )
             with ledger.child("store") as store:
                 verify_retained(store, identity, held, control.fork())
-            _record(
+            record_model(
                 ledger,
                 identity,
                 {"state": "retained", "verified_at": int(time.time()), "error": None},
@@ -345,7 +377,7 @@ def reconcile(ledger: MirrorLedger, control: OperationControl) -> None:
         except OperationCancelled:
             raise
         except (ValueError, OSError) as error:
-            _record(
+            record_model(
                 ledger,
                 identity,
                 {"error": failure_code(error) + ": " + str(error)[:400]},
@@ -414,7 +446,7 @@ def public_selection(
                 continue
             try:
                 manifest = verify_retained(source, identity, held, control.fork())
-                _terms(manifest, held.grant)
+                require_terms(manifest, held.grant)
                 paths = {
                     object_path(f.sha256): f.size for f in unique_objects(manifest)
                 }
@@ -429,7 +461,7 @@ def public_selection(
             except OperationCancelled:
                 raise
             except (ValueError, OSError) as error:
-                _record(
+                record_model(
                     ledger,
                     identity,
                     {"error": failure_code(error) + ": " + str(error)[:400]},

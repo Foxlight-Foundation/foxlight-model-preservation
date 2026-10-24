@@ -7,11 +7,12 @@ from typing import Literal
 
 from pydantic import Field
 
+from .mirror import selection_manifest
 from .mirror_models import HeldModel, NativeCustodyName
 from .mirror_native import prune_native
 from .mirror_state import MAX_STATE, MirrorLedger, encode_state
-from .models import Digest, PreservationError, Record
-from .signing import encode_record, strict_json, verify_manifest
+from .models import Digest, Manifest, PreservationError, Record
+from .signing import encode_record, strict_json
 from .storage import (
     atomic_bytes,
     manifest_path,
@@ -47,6 +48,20 @@ def _unlink(root: int, path: str) -> None:
         pass
 
 
+def _selection(
+    ledger: MirrorLedger, store: int, identity: str, held: HeldModel
+) -> Manifest:
+    # The private pinned local intent survives partial publication and damage to
+    # the complete envelope. It grants deletion only after the operator's exact
+    # blocked/unpinned confirmation, never unauthenticated object discovery.
+    if held.origin == "local":
+        with ledger.child("scratch") as scratch:
+            envelope = read_metadata(scratch, "local-intake/" + identity + ".json")
+    else:
+        envelope = read_metadata(store, manifest_path(identity))
+    return selection_manifest(envelope, identity, held)
+
+
 def prune(ledger: MirrorLedger, manifest: str, confirmation: str) -> dict[str, object]:
     """Remove one explicitly named unpinned model only while the controller is stopped.
 
@@ -74,11 +89,7 @@ def prune(ledger: MirrorLedger, manifest: str, confirmation: str) -> dict[str, o
                 if intent.manifest != manifest:
                     raise PreservationError("finish the existing operator prune first")
             except FileNotFoundError:
-                original = verify_manifest(
-                    read_metadata(store, manifest_path(manifest)),
-                    held.grant.trust,
-                    manifest,
-                )
+                original = _selection(ledger, store, manifest, held)
                 intent = PruneIntent(
                     manifest=manifest,
                     objects=tuple(f.sha256 for f in unique_objects(original)),
@@ -111,11 +122,19 @@ def prune(ledger: MirrorLedger, manifest: str, confirmation: str) -> dict[str, o
                     raise PreservationError(
                         "unknown retained manifest; refusing shared-object deletion"
                     )
-                value = verify_manifest(
-                    read_metadata(store, manifest_path(identity)),
-                    other.grant.trust,
-                    identity,
-                )
+                value = _selection(ledger, store, identity, other)
+                references.update(file.sha256 for file in unique_objects(value))
+            # A local partial selection has authenticated metadata before its
+            # complete store envelope exists. Protect those shared objects too.
+            for identity, other in state.models.items():
+                if (
+                    identity == manifest
+                    or other.origin != "local"
+                    or other.state == "removed"
+                    or identity + ".json" in names
+                ):
+                    continue
+                value = _selection(ledger, store, identity, other)
                 references.update(file.sha256 for file in unique_objects(value))
             # Retire public routes before touching retained files. No readers can
             # exist: the service lock is held until every HTTP worker has drained.
@@ -133,6 +152,9 @@ def prune(ledger: MirrorLedger, manifest: str, confirmation: str) -> dict[str, o
                     pending_custody=intent.pending_custody,
                 )
             _unlink(store, manifest_path(manifest))
+            if held.origin == "local":
+                with ledger.child("scratch") as scratch:
+                    _unlink(scratch, "local-intake/" + manifest + ".json")
             removed = 0
             for identity in intent.objects:
                 if identity not in references:
