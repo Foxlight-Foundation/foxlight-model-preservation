@@ -9,8 +9,8 @@ release.
 
 ## Current development cohort
 
-Portable handoffs, finite peer sharing, PMF and peer receiving are included in
-Library 0.11.0 and its immutable compatible Core pin. Install the verified
+Portable handoffs, finite peer sharing, PMF, peer receiving and I2P source/receiving controls are included in
+Library 0.12.0 and its immutable compatible Core pin. Install the verified
 [hash-locked release archive](../docs/installation.md), then explicitly run
 `foxlight-preservation-preview setup` from that environment. The installer retains
 the source record and original wheel; preview setup checks those against installed
@@ -30,6 +30,12 @@ administrator or PATH changes are needed on supported managed platforms. No nati
 compatibility checks. Source/receiving trust and restore/code permission remain
 separate. See [Library peer use](README.md#receive-through-peers).
 
+For I2P HTTP operations, configure an independently trusted local I2P proxy on
+the Core host, then select **I2P only** and confirm the operation in Library.
+The selected Core pin includes exact-policy source jobs and retained Resume
+policy display. Setup does not install or start an I2P router. This functional
+pilot does not establish anonymity or change other Core traffic settings.
+
 ## Released cohort installation
 
 On macOS or Linux, install `uv` and Git first. macOS also needs the Xcode Command
@@ -42,7 +48,7 @@ recovery kits do not contain the runtime and its dependencies; retain those
 separately for offline recovery.
 
 ```sh
-uv tool install --python 3.13 https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.11.0/foxlight_preservation_library-0.11.0-py3-none-any.whl
+uv tool install --python 3.13 https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.12.0/foxlight_preservation_library-0.12.0-py3-none-any.whl
 foxlight-preservation-preview setup
 ```
 

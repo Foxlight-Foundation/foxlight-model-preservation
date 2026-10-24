@@ -4,6 +4,19 @@ Skulk Library is versioned separately from the portable core. Releases are
 tagged `library-v*`; versions without a tag are source previews installed from
 `main` (see [README](README.md)).
 
+## 0.12.0
+
+- Follow authenticated sources through an explicitly selected I2P HTTP proxy;
+  saved source refreshes and model details bind the exact retained local policy.
+- Receive through I2P with separate model-key/exact-copy and network consent.
+  Resume shows the original proxy and keeps the same job, partials and allowance.
+- Check actual Core schemas before offering I2P controls; refuse unsupported
+  I2P-only references and mixed grants without direct fallback or payload sharing.
+- Pin the compatible Core with retained receiving-policy previews. Keep the
+  public Library launcher SDK-optional and standalone preservation Skulk-free.
+- Document the functional pilot and its unqualified public privacy/performance
+  boundaries. No router setup or application-wide anonymity mode is implied.
+
 ## 0.11.0
 
 - Include a hash-locked public installation archive and exact source evidence.

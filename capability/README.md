@@ -180,12 +180,12 @@ Core on the same model-store host. Its wheel includes the interface; Node.js,
 Skulk's Python package and the managed SDK are not installation dependencies.
 
 ```sh
-uv tool install https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.11.0/foxlight_preservation_library-0.11.0-py3-none-any.whl
+uv tool install https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.12.0/foxlight_preservation_library-0.12.0-py3-none-any.whl
 foxlight-preservation-library
 ```
 
-The 0.11.0 pre-release includes PMF, followed sources, peer receiving/native setup
-and one-file sharing. For exact dependency versions and offline retention, use
+The 0.12.0 pre-release includes PMF, followed sources, peer receiving/native setup
+and one-file sharing, plus explicit I2P source/receiving controls. For exact dependency versions and offline retention, use
 the [hash-locked installation archive](../docs/installation.md) instead of an
 unconstrained tool install. [Verify the release](../docs/releases.md) before
 executing its installer. These are public software artifacts for a development
@@ -320,7 +320,7 @@ exact resolved Library commit from the installed package; it does not replace
 this version with an older released wheel. Local-source/local-wheel installs
 remain usable with an existing Core; preview setup requires the public Git
 installation command, an official release URL, or the release helper's retained
-wheel/installation evidence. The 0.11.0 release includes the PMF behavior
+wheel/installation evidence. The 0.12.0 release includes the PMF behavior
 introduced in the earlier 0.7 source preview.
 
 
@@ -362,14 +362,14 @@ metadata remains in Core's cache. Offline cache export/import and local-file
 sources are available through standalone tools; Library accepts bootstrap files
 up to 256 KiB, not full cache interchange.
 
-These source-following controls are included in Library 0.11.0 with its compatible
+These source-following controls are included in Library 0.12.0 with its compatible
 Core preview. Software delivery does not establish independent community custody,
 anonymous retrieval or censorship-resistance qualification. Direct source and mirror requests expose
 Core's network address and requested metadata/artifact to their operators.
 
 ## Receive through peers (Library 0.9–0.10 source preview)
 
-Library 0.11.0 includes peer discovery and receiving in Library and Guided. Library 0.10 adds **Set up peer support** on a compatible Core. Review
+Library 0.12.0 includes peer discovery and receiving in Library and Guided. Library 0.10 adds **Set up peer support** on a compatible Core. Review
 the official source and download size, explicitly allow installation, and start.
 Core installs its pinned Kubo 0.43.1 build privately, with no administrator or
 PATH changes. Supported managed targets are macOS/Linux ARM64 and AMD64; existing
@@ -423,9 +423,8 @@ features. Standalone operator tools remain available without Skulk.
 
 ## I2P source and receiving controls
 
-**Source preview:** these controls are not part of the published Library 0.11.0
-cohort. They require the compatible Core source with I2P job contracts and the
-retained receiving-policy preview. Library checks actual OpenAPI fields rather
+Library 0.12.0 provides these controls with its compatible Core source pin,
+including I2P job contracts and the retained receiving-policy preview. Library checks actual OpenAPI fields rather
 than inferring support from a version or an existing route. An older Core keeps
 its direct/peer workflows; protected sources and I2P-only references cannot
 silently become direct requests.
