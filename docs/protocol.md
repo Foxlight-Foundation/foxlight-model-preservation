@@ -137,7 +137,10 @@ selected bundles before listening, serves only exact selected manifest/object
 paths, supports one byte range, limits worker count and reserves an upload budget
 before each response. Interrupted responses consume their reserved budget. It has
 no upload, discovery, directory-listing, administration or proxy endpoints. It
-keeps no request-history log. It does not reload new bundles automatically.
+keeps no request-history log. It does not reload new bundles automatically. The separately opted-in
+[persistent mirror controller](persistent-mirrors.md) adds verified selection
+reconciliation, conservative durable budgets and operator-controlled retention.
+It does not change signed manifests, discovery authority or runtime trust.
 Public binding additionally requires every member's audience to be `public`.
 An ordinary read-only static HTTPS server is the preferred durable hosting path.
 

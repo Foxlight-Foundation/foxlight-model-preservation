@@ -29,6 +29,7 @@ class SeedServer(http.server.ThreadingHTTPServer):
     """Serve only selected bundle paths, with bounded threads and total upload."""
 
     daemon_threads = True
+    budget_status = 429
 
     def __init__(
         self,
@@ -121,13 +122,17 @@ class SeedServer(http.server.ThreadingHTTPServer):
         finally:
             self._slots.release()
 
-    def charge(self, count: int) -> bool:
+    def charge(self, count: int, path: str | None = None) -> bool:
         """Reserve actual response bytes globally before they leave the process."""
         with self._budget_lock:
             if count > self._remaining:
                 return False
             self._remaining -= count
             return True
+
+    def can_send(self, path: str) -> bool:
+        """Allow a chunk; persistent mirrors also recheck local policy."""
+        return True
 
     @property
     def reserved_upload_bytes(self) -> int:
@@ -184,8 +189,14 @@ class SeedHandler(http.server.BaseHTTPRequestHandler):
                 if os.fstat(stream.fileno()).st_size != size:
                     raise PreservationError("selected file changed")
                 count = end - start + 1
-                if not self.seed.charge(count):
-                    self.send_error(429)
+                if not self.seed.charge(count, self.path):
+                    if self.seed.budget_status == 503:
+                        self.send_response(503)
+                        self.send_header("Content-Length", "0")
+                        self.send_header("Retry-After", "60")
+                        self.end_headers()
+                    else:
+                        self.send_error(self.seed.budget_status)
                     return
                 self.send_response(206 if requested is not None else 200)
                 self.send_header("Content-Length", str(count))
@@ -203,6 +214,9 @@ class SeedHandler(http.server.BaseHTTPRequestHandler):
         stream.seek(offset)
         remaining = count
         while remaining:
+            if not self.seed.can_send(self.path):
+                self.close_connection = True
+                return
             chunk = stream.read(min(remaining, CHUNK_SIZE))
             if not chunk:
                 self.close_connection = True

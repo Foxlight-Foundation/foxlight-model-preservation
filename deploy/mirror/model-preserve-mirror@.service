@@ -1,0 +1,28 @@
+# Review and adjust the executable/state paths before installing this template.
+# Init, following model/terms policy and the separate grant-resume are manual.
+[Unit]
+Description=Operator-controlled model mirror for %i
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=%i
+UMask=0077
+Environment=PYTHONNOUSERSITE=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+WorkingDirectory=/srv/sovereign/%i
+ExecStart=/opt/sovereign/bin/model-preserve mirror run --dir /srv/sovereign/%i --resume
+Restart=on-failure
+RestartSec=30
+SuccessExitStatus=130
+# Never kill the owner before its workers drain; inspect a stalled mount first.
+TimeoutStopSec=infinity
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/srv/sovereign/%i
+
+[Install]
+WantedBy=multi-user.target

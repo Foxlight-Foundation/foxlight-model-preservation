@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Persistent standalone HTTP mirrors follow authenticated sources under separate
+  model keys and exact reviewed terms. Explicit manual serving and a distinct
+  expiring restart grant preserve operator control; durable UTC budgets survive
+  crashes and refusal/withdrawal/expiry never delete retained models or pins.
+- Offline mirror plan/status, pause/block/pin/retry, completed-intent recovery and
+  explicit stopped-controller prune preserve shared objects and interrupted
+  deletion intent. No Skulk dependency, automatic eviction or native seeding.
+  See [persistent mirrors](docs/persistent-mirrors.md) and the systemd recipe.
+
 - Portable `.foxhandoff` wrappers retain original signed model/source references
   and bounded numeric peer contacts. `handoff-create`/`handoff-inspect` work
   offline; `handoff-fetch`/`handoff-follow`/`handoff-refresh` keep independent

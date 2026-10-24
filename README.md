@@ -9,6 +9,11 @@ verifier/downloader, signed portable catalogs, and opt-in read-only mirrors.
 Model bytes are addressed by SHA-256. Locations can change without changing the
 model's identity or granting a mirror the power to replace it.
 
+A separately chosen [persistent HTTP mirror](docs/persistent-mirrors.md) can
+follow authenticated sources, retain complete public models and serve them
+under explicit model/terms policy. Restart consent is separate, budgets are
+durable and deletion stays with the operator. Skulk is optional.
+
 ## Install
 
 Python 3.11+ on Linux or macOS, with [uv](https://docs.astral.sh/uv/):

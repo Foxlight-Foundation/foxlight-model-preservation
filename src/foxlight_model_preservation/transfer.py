@@ -394,6 +394,23 @@ def _load_manifest(
     )
 
 
+def inspect_manifest(
+    manifest_id: str,
+    trust: TrustProfile,
+    sources: tuple[str, ...],
+    policy: TransferPolicy = DEFAULT_POLICY,
+    *,
+    control: OperationControl | None = None,
+) -> Manifest:
+    """Authenticate bounded metadata without weights, writes or implicit trust."""
+    with (control or OperationControl()).operation("plan_fetch") as active:
+        deadline = time.monotonic() + policy.deadline_seconds
+        manifest, _envelope = _load_manifest(
+            manifest_id, trust, sources, policy, deadline, active
+        )
+        return manifest
+
+
 def fetch(
     manifest_id: str,
     trust: TrustProfile,
@@ -403,6 +420,7 @@ def fetch(
     *,
     control: OperationControl | None = None,
     operation_id: str | None = None,
+    expected_directory: tuple[int, int] | None = None,
 ) -> Manifest:
     """Receive exact trusted content with optional control and persistent allowance.
 
@@ -421,63 +439,75 @@ def fetch(
         )
         files = unique_objects(manifest)
         active.checkpoint()
-        with directory(destination, create=True) as target, writer_lock(target):
+        with directory(destination, create=expected_directory is None) as target:
             pinned = os.fstat(target)
-            binding = digest(
-                canonical_bytes(
-                    {
-                        "request": request_digest(
-                            manifest_id, trust, sources, destination, policy
-                        ),
-                        "device": str(pinned.st_dev),
-                        "inode": str(pinned.st_ino),
-                    }
-                )
-            )
-            budget = TransferBudget(
-                policy.max_bytes,
-                root=target,
-                operation_id=operation_id,
-                request_digest=binding,
-            )
-            missing, _reused, partial = observe_objects(
-                target, files, active, include_partials=True
-            )
-            additional = sum(file.size for file in missing) - partial
             if (
-                missing
-                and shutil.disk_usage(target).free < additional + 16 * CHUNK_SIZE
+                expected_directory is not None
+                and (pinned.st_dev, pinned.st_ino) != expected_directory
             ):
-                raise PreservationError("destination has insufficient free space")
-            for file in missing:
-                complete = False
-                for source in sources:
-                    # A corrupt resumed prefix permits one clean retry from
-                    # this supplier. Cancellation/deadlines/budgets never retry.
-                    for _attempt in range(2):
-                        active.phase("downloading")
-                        try:
-                            _download(
-                                source, file, target, policy, deadline, budget, active
-                            )
-                            complete = True
-                            break
-                        except OperationError:
-                            raise
-                        except (OSError, ValueError, http.client.HTTPException):
-                            continue
-                    if complete:
-                        break
-                if not complete:
-                    raise PreservationError(
-                        "no mirror supplied a complete verified object"
+                raise PreservationError("destination directory identity changed")
+            with writer_lock(target):
+                binding = digest(
+                    canonical_bytes(
+                        {
+                            "request": request_digest(
+                                manifest_id, trust, sources, destination, policy
+                            ),
+                            "device": str(pinned.st_dev),
+                            "inode": str(pinned.st_ino),
+                        }
                     )
-            active.phase("checking")
-            for file in files:
-                verify_object(target, file, control=active)
-            active.phase("publishing")
-            publish_envelope(target, manifest_id, envelope)
-            active.mark_committed()
+                )
+                budget = TransferBudget(
+                    policy.max_bytes,
+                    root=target,
+                    operation_id=operation_id,
+                    request_digest=binding,
+                )
+                missing, _reused, partial = observe_objects(
+                    target, files, active, include_partials=True
+                )
+                additional = sum(file.size for file in missing) - partial
+                if (
+                    missing
+                    and shutil.disk_usage(target).free < additional + 16 * CHUNK_SIZE
+                ):
+                    raise PreservationError("destination has insufficient free space")
+                for file in missing:
+                    complete = False
+                    for source in sources:
+                        # A corrupt resumed prefix permits one clean retry from
+                        # this supplier. Cancellation/deadlines/budgets never retry.
+                        for _attempt in range(2):
+                            active.phase("downloading")
+                            try:
+                                _download(
+                                    source,
+                                    file,
+                                    target,
+                                    policy,
+                                    deadline,
+                                    budget,
+                                    active,
+                                )
+                                complete = True
+                                break
+                            except OperationError:
+                                raise
+                            except (OSError, ValueError, http.client.HTTPException):
+                                continue
+                        if complete:
+                            break
+                    if not complete:
+                        raise PreservationError(
+                            "no mirror supplied a complete verified object"
+                        )
+                active.phase("checking")
+                for file in files:
+                    verify_object(target, file, control=active)
+                active.phase("publishing")
+                publish_envelope(target, manifest_id, envelope)
+                active.mark_committed()
         return manifest
 
 
