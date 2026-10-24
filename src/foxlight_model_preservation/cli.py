@@ -25,6 +25,7 @@ from .handoff_cli import (
     register_handoff_commands,
     run_handoff_command,
 )
+from .i2p_cli import I2PArguments, register_i2p_commands, run_i2p_command
 from .invitations import (
     accept_invitation_keys,
     authenticate_invitation,
@@ -78,6 +79,7 @@ class Arguments(
     HandoffArguments,
     MirrorArguments,
     PirateFaceArguments,
+    I2PArguments,
 ):
     """Typed parser output; each command uses only its declared arguments."""
 
@@ -203,6 +205,7 @@ def argument_parser() -> argparse.ArgumentParser:
     register_handoff_commands(commands.add_parser)
     register_mirror_commands(commands.add_parser)
     register_pirateface_commands(commands.add_parser)
+    register_i2p_commands(commands.add_parser)
     for name in (
         "pmf-pack",
         "pmf-verify",
@@ -602,9 +605,11 @@ def run(
     arguments: Arguments, *, control: OperationControl | None = None
 ) -> dict[str, JsonValue]:
     """Execute exactly the selected operation and return a bounded safe receipt."""
+    if arguments.command == "i2p":
+        return run_i2p_command(arguments, control or OperationControl())
     if arguments.command == "pirateface":
         return run_pirateface_command(arguments, control or OperationControl())
-    if arguments.command == "mirror":
+    if arguments.command in {"mirror", "i2p"}:
         return run_mirror_command(arguments, control or OperationControl())
     if arguments.command in HANDOFF_COMMANDS:
         return run_handoff_command(arguments, control or OperationControl())
@@ -1110,7 +1115,7 @@ def main() -> int:
         "torrent-export",
         "torrent-seed",
     } or arguments.command.startswith(("pmf-", "peer-", "handoff-"))
-    controlled = controlled or arguments.command in {"mirror", "pirateface"}
+    controlled = controlled or arguments.command in {"mirror", "pirateface", "i2p"}
     previous_term = signal.getsignal(signal.SIGTERM)
     if arguments.command == "mirror":
         signal.signal(signal.SIGTERM, lambda _number, _frame: control.cancel())
@@ -1132,7 +1137,7 @@ def main() -> int:
         )
         return 130
     finally:
-        if arguments.command == "mirror":
+        if arguments.command in {"mirror", "i2p"}:
             signal.signal(signal.SIGTERM, previous_term)
         if controlled:
             signal.signal(signal.SIGINT, previous)

@@ -1,0 +1,108 @@
+{
+  "$defs": {
+    "FileIdentity": {
+      "additionalProperties": false,
+      "description": "Exact file bytes inside a member namespace.",
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "size": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Size",
+          "type": "integer"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "size",
+        "sha256"
+      ],
+      "title": "FileIdentity",
+      "type": "object"
+    },
+    "I2PContact": {
+      "additionalProperties": false,
+      "description": "An I2P destination and DHT port, never an IP, URL, signer or trust grant.",
+      "properties": {
+        "destination": {
+          "maxLength": 2048,
+          "minLength": 500,
+          "pattern": "^[A-Za-z0-9~=-]+$",
+          "title": "Destination",
+          "type": "string"
+        },
+        "port": {
+          "maximum": 65534,
+          "minimum": 1,
+          "title": "Port",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "destination",
+        "port"
+      ],
+      "title": "I2PContact",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Offline handoff for one original signed recovery kit in an I2P-only swarm.",
+  "properties": {
+    "schema_version": {
+      "const": "foxlight.i2p-kit-offer.v1",
+      "default": "foxlight.i2p-kit-offer.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "manifest_id": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Manifest Id",
+      "type": "string"
+    },
+    "envelope_base64": {
+      "maxLength": 16777216,
+      "title": "Envelope Base64",
+      "type": "string"
+    },
+    "kit": {
+      "$ref": "#/$defs/FileIdentity"
+    },
+    "metainfo_base64": {
+      "maxLength": 16777216,
+      "title": "Metainfo Base64",
+      "type": "string"
+    },
+    "infohash": {
+      "pattern": "^[0-9a-f]{40}$",
+      "title": "Infohash",
+      "type": "string"
+    },
+    "contacts": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/I2PContact"
+      },
+      "maxItems": 16,
+      "title": "Contacts",
+      "type": "array"
+    }
+  },
+  "required": [
+    "manifest_id",
+    "envelope_base64",
+    "kit",
+    "metainfo_base64",
+    "infohash"
+  ],
+  "title": "I2POffer",
+  "type": "object"
+}

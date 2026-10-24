@@ -2,6 +2,13 @@
 
 ## 0.14.0 (source preview)
 
+- Add an optional standalone I2PSnark recovery-kit pilot: offline I2P-only offers,
+  independently authenticated receiving and finite opt-in hosting, with original
+  legacy/PMF evidence preserved. Receive requires separate payload-sharing
+  consent. Native software is explicitly built/selected, controller loss fences
+  the owned client and local inputs are retained. Public-network privacy and
+  Library integration are unqualified; see [pilot limits](docs/i2p.md).
+
 - Explicit PirateFace exact-repository lookup records bounded untrusted routing
   candidates without rescue requests, hooks, account enrollment or peer sessions.
 - Offline original-repository torrent intake authenticates the original legacy

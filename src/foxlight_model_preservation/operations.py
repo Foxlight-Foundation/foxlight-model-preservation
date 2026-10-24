@@ -27,6 +27,10 @@ Operation = Literal[
     "kit_import",
     "pirateface_lookup",
     "pirateface_import",
+    "i2p_init",
+    "i2p_export",
+    "i2p_receive",
+    "i2p_share",
 ]
 Stage = Literal[
     "starting",
