@@ -6,6 +6,7 @@ import http.server
 import os
 import re
 import shutil
+import socket
 import threading
 import time
 from collections.abc import Callable
@@ -220,6 +221,9 @@ def reconcile(ledger: MirrorLedger, control: OperationControl) -> None:
         state = ledger.read()
         if result.manifest in state.models:
             continue
+        if len(state.models) >= 1000:
+            refresh_error = "selection ledger at capacity; new intake paused"
+            break
         location = next(
             (
                 x
@@ -449,11 +453,63 @@ class MirrorServer(SeedServer):
         self.allowed = {}
         self.owners: dict[str, set[str]] = {}
         self._slots = threading.BoundedSemaphore(4)
+        self._connections: set[socket.socket] = set()
+        self._connections_lock = threading.Lock()
+        self._closing = False
         self.tls_context = None
         state = ledger.read()
         http.server.ThreadingHTTPServer.__init__(
             self, (state.bind, state.port), SeedHandler
         )
+
+    def process_request(
+        self,
+        request: socket.socket | tuple[bytes, socket.socket],
+        client_address: tuple[str, int],
+    ) -> None:
+        """Register accepted sockets before workers start; reject late arrivals."""
+        if isinstance(request, socket.socket):
+            with self._connections_lock:
+                if self._closing:
+                    self.shutdown_request(request)
+                    return
+                self._connections.add(request)
+        try:
+            super().process_request(request, client_address)
+        finally:
+            if isinstance(request, socket.socket) and request.fileno() < 0:
+                with self._connections_lock:
+                    self._connections.discard(request)
+
+    def process_request_thread(
+        self,
+        request: socket.socket | tuple[bytes, socket.socket],
+        client_address: tuple[str, int],
+    ) -> None:
+        """Retire socket ownership only after the actual handler finishes."""
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            if isinstance(request, socket.socket):
+                with self._connections_lock:
+                    self._connections.discard(request)
+
+    def close_connections(self) -> None:
+        """Interrupt incomplete headers and slow transfers before joining workers."""
+        with self._connections_lock:
+            self._closing = True
+            for connection in self._connections:
+                try:
+                    connection.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+
+    def handle_error(
+        self,
+        request: socket.socket | tuple[bytes, socket.socket],
+        client_address: tuple[str, int],
+    ) -> None:
+        """Keep disconnect/parser failures out of remote-address request history."""
 
     def _permitted(self, state: MirrorState, path: str) -> bool:
         return self.authorized(state) and any(
@@ -586,6 +642,7 @@ def run_mirror(
         finally:
             stop.set()
             active.cancel()
+            server.close_connections()
             server.shutdown()
             background.join()
             server.server_close()

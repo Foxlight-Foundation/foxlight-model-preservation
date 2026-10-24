@@ -71,7 +71,11 @@ model-preserve mirror run --dir /srv/sovereign/example --public --seconds 3600
 This is a fresh finite manual public grant, at most 24 hours. It refreshes source
 metadata, selects at most 1,000 exact cached candidates in deterministic
 mirror-specific order and admits only fresh followed-source selections. Failed
-admissions retain a reason and require explicit `retry`. There is no default
+admissions retain a reason and require explicit `retry`. A full 1,000-selection
+ledger refuses new intake while continuing existing retries and verification;
+removed tombstones also occupy ledger slots. Status reports capacity. Retain
+that ledger and use a separately configured state directory for additional
+intake rather than erasing deletion/accounting history. There is no default
 catalog or compulsory Foxlight key/service. Existing verified retained models
 remain available when catalogs expire, withdraw entries or disappear. A completed
 local pending capture can be recovered after a crash without the publisher.
@@ -85,7 +89,8 @@ hardlinks avoid duplicate model allocation; they are not an integrity boundary.
 Clients independently verify exact identities, signatures and file hashes.
 
 Stop with Ctrl-C, SIGTERM, or your service manager. The process retains ownership
-until byte work and actual HTTP handlers drain. An OS filesystem stall may delay
+until byte work and actual HTTP handlers drain. Stop actively shuts down accepted
+sockets, including incomplete request headers, before joining handlers. An OS filesystem stall may delay
 that drain; cancellation does not interrupt the filesystem. A forced process kill
 releases the kernel lock and stops its in-process HTTP threads, but does not
 reset reservations or authorize a restart. No separate native daemon is started.

@@ -632,3 +632,64 @@ def test_fetch_rechecks_enrolled_directory_before_any_write(
             expected_directory=enrolled,
         )
     assert list(store.iterdir()) == []
+
+
+def test_full_selection_ledger_continues_existing_pending_work(
+    tmp_path, capture, monkeypatch
+):
+    import foxlight_model_preservation.mirror as controller
+    from foxlight_model_preservation.discovery_models import SearchResult
+
+    ledger, _ = mirror(tmp_path, capture)
+    cycle(ledger)
+    held = ledger.read().models[capture.identity]
+    models = {
+        f"{i:064x}": held.model_copy(update={"state": "removed", "blocked": True})
+        for i in range(999)
+    }
+    models[capture.identity] = held.model_copy(update={"state": "pending"})
+    ledger.update(lambda s: s.model_copy(update={"models": models}))
+    (ledger.path / "store" / manifest_path(capture.identity)).unlink()
+    search = controller.search_sources
+
+    def added(*args, **kwargs):
+        actual = search(*args, **kwargs)
+        return (*actual, SearchResult(manifest="f" * 64, locations=actual[0].locations))
+
+    monkeypatch.setattr(controller, "search_sources", added)
+    cycle(ledger)
+    state = ledger.read()
+    assert len(state.models) == 1000
+    assert state.models[capture.identity].state == "retained"
+    assert state.last_error == "selection ledger at capacity; new intake paused"
+    verify_store(ledger.path / "store", capture.identity, capture.trust)
+
+
+def test_pause_interrupts_slow_incomplete_headers_before_handler_join(
+    tmp_path, capture
+):
+    import socket
+
+    ledger, _ = mirror(tmp_path, capture)
+    cycle(ledger)
+    ready = queue.Queue()
+    result = []
+    thread = threading.Thread(
+        target=lambda: result.append(
+            run_mirror(ledger, public=True, seconds=120, ready=ready.put)
+        )
+    )
+    thread.start()
+    port = ready.get(timeout=10)
+    client = socket.create_connection(("127.0.0.1", port), timeout=2)
+    try:
+        client.sendall(b"GET / HTTP/1.1\r\nHost: slow\r\nX-Incomplete: ")
+        time.sleep(0.05)
+        ledger.update(lambda s: s.model_copy(update={"paused": True}))
+        thread.join(2)
+        assert not thread.is_alive() and result[0]["stopped"]
+        assert not ledger.running()
+    finally:
+        client.close()
+        if thread.is_alive():
+            thread.join(35)
