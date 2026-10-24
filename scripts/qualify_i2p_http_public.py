@@ -12,20 +12,27 @@ import base64
 import hashlib
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
 import threading
 import time
+import traceback
+from collections import Counter
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import BinaryIO
+from unittest.mock import patch
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from securesystemslib.signer import CryptoSigner
 from tuf.api.metadata import Metadata, Root
 
+from foxlight_model_preservation import transfer
 from foxlight_model_preservation.discovery import (
     bootstrap_identity,
     fetch_selection,
@@ -50,8 +57,8 @@ from foxlight_model_preservation.models import (
     Recipe,
     TrustProfile,
 )
-from foxlight_model_preservation.operations import OperationControl
-from foxlight_model_preservation.seed import SeedServer
+from foxlight_model_preservation.operations import OperationControl, OperationError
+from foxlight_model_preservation.seed import SeedHandler, SeedServer
 from foxlight_model_preservation.signing import (
     CATALOG_TYPE,
     digest,
@@ -61,6 +68,292 @@ from foxlight_model_preservation.signing import (
 )
 from foxlight_model_preservation.storage import manifest_path, pack, restore
 from foxlight_model_preservation.transfer import I2PTransferPolicy
+
+
+class HTTPObservations:
+    """Bounded synthetic-drill observations, without URLs, headers or error text.
+
+    This is an explicit single-fetch developer instrument, never ordinary client
+    telemetry. Only its reviewed aggregate belongs in a public report. Frame
+    locations remain in the private event file; no exception values are stored.
+    """
+
+    def __init__(self, root: Path, *, limit: int = 512):
+        if type(limit) is not int or not 1 <= limit <= 4096:
+            raise ValueError("diagnostic event limit must be between one and 4096")
+        self.started = time.monotonic()
+        self.limit = limit
+        self.lock = threading.Lock()
+        self.changed = threading.Condition(self.lock)
+        self.active_origins: set[int] = set()
+        descriptor = os.open(
+            root / "transfer-events.jsonl", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
+        )
+        self.output = os.fdopen(descriptor, "w")
+        self.counts = Counter()
+        self.errors = Counter()
+        self.written = self.dropped = self.attempt = self.origin = 0
+        self.client_request = 0
+        self.active_request: int | None = None
+
+    def record(self, event: str, **fields) -> None:
+        """Append one bounded safe event; a failed diagnostic write stops the drill."""
+        with self.lock:
+            if self.output.closed:
+                return
+            if event == "origin_start":
+                self.active_origins.add(fields["request"])
+            elif event == "origin_end":
+                self.active_origins.discard(fields["request"])
+                self.changed.notify_all()
+            self.counts[event] += 1
+            if "category" in fields:
+                self.errors[fields["category"]] += 1
+            if self.written >= self.limit:
+                self.dropped += 1
+                return
+            try:
+                self.output.write(
+                    json.dumps(
+                        {
+                            "event": event,
+                            "elapsed": time.monotonic() - self.started,
+                            **fields,
+                        },
+                        sort_keys=True,
+                    )
+                    + "\n"
+                )
+                self.output.flush()
+            except OSError as error:
+                raise RuntimeError("diagnostic log write failed") from error
+            self.written += 1
+
+    def failure(self, error: BaseException) -> dict[str, object]:
+        """Classify known failures and retain frame locations, never error values."""
+        frames = traceback.extract_tb(error.__traceback__)
+        names = {frame.name for frame in frames}
+        causes = []
+        cause = error.__cause__
+        for _ in range(4):
+            if cause is None:
+                break
+            causes.append(type(cause).__name__)
+            names.update(
+                frame.name for frame in traceback.extract_tb(cause.__traceback__)
+            )
+            cause = cause.__cause__
+        category = {
+            "mirror ended before the expected file length": "short_body",
+            "mirror returned an inconsistent content range": "range_mismatch",
+            "mirror returned an inconsistent content length": "length_mismatch",
+            "mirror object hash differs from signed identity": "digest_mismatch",
+            "I2P HTTP response framing is unsupported": "unsupported_framing",
+        }.get(str(error), "other")
+        if isinstance(error, transfer.MirrorHTTPError):
+            category = "http_status"
+        elif isinstance(error, transfer.MirrorProtocolError):
+            category = "http_protocol"
+        elif isinstance(error, OperationError):
+            category = error.code
+        elif isinstance(error, TimeoutError):
+            category = "socket_timeout"
+        elif isinstance(error, (ConnectionError, BrokenPipeError)):
+            category = "connection_failure"
+        phase = (
+            "body_read"
+            if "_bounded_copy" in names
+            else "response_headers"
+            if names & {"getresponse", "_read_status", "begin"}
+            else "body_read"
+            if "_metadata" in names
+            else "other"
+        )
+        if category in {"range_mismatch", "length_mismatch", "unsupported_framing"}:
+            phase = "response_validation"
+        elif category == "http_status":
+            phase = "response_status"
+        elif isinstance(error, OperationError):
+            phase = "operation_control"
+        return {
+            "category": category,
+            "exception": type(error).__name__,
+            "causes": causes,
+            "http_status": error.status_code
+            if isinstance(error, transfer.MirrorHTTPError)
+            else None,
+            "phase": phase,
+            "frames": [
+                {"file": Path(f.filename).name, "function": f.name, "line": f.lineno}
+                for f in frames[-12:]
+            ],
+        }
+
+    @contextmanager
+    def client(self):
+        """Observe one synchronous fetch while calling the original implementation."""
+        download = transfer._download
+        response = transfer.response
+
+        def observed_download(source, file, target, policy, deadline, budget, control):
+            self.attempt += 1
+            self.active_request = None
+            attempt = self.attempt
+            before = transfer._partial_size(target, file)
+            self.record("client_start", attempt=attempt, prefix=before, size=file.size)
+            complete = False
+            try:
+                download(source, file, target, policy, deadline, budget, control)
+                complete = True
+            except BaseException as error:
+                self.record(
+                    "client_error",
+                    attempt=attempt,
+                    request=self.active_request,
+                    kind="object",
+                    **self.failure(error),
+                )
+                raise
+            finally:
+                self.record(
+                    "client_end",
+                    attempt=attempt,
+                    complete=complete,
+                    prefix=file.size
+                    if complete
+                    else transfer._partial_size(target, file),
+                )
+
+        @contextmanager
+        def observed_response(source, relative, policy, *, offset=0):
+            self.client_request += 1
+            request = self.client_request
+            self.active_request = request
+            kind = "manifest" if relative.startswith("manifests/") else "object"
+            self.record(
+                "client_request",
+                attempt=self.attempt,
+                request=request,
+                kind=kind,
+                offset=offset,
+            )
+            try:
+                with response(source, relative, policy, offset=offset) as incoming:
+                    length = incoming.getheader("Content-Length", "")
+                    content_range = incoming.getheader("Content-Range", "")
+                    matched = re.fullmatch(
+                        r"bytes ([0-9]{1,16})-([0-9]{1,16})/([0-9]{1,16})",
+                        content_range,
+                    )
+                    self.record(
+                        "client_response",
+                        attempt=self.attempt,
+                        request=request,
+                        kind=kind,
+                        status=incoming.status,
+                        content_length=int(length)
+                        if re.fullmatch(r"[0-9]{1,16}", length)
+                        else None,
+                        content_range=[int(x) for x in matched.groups()]
+                        if matched
+                        else None,
+                    )
+                    yield incoming
+            except BaseException as error:
+                if kind == "manifest":
+                    self.record(
+                        "client_error",
+                        attempt=0,
+                        request=request,
+                        kind=kind,
+                        **self.failure(error),
+                    )
+                raise
+
+        with (
+            patch.object(transfer, "_download", observed_download),
+            patch.object(transfer, "response", observed_response),
+        ):
+            yield
+
+    def handler_class(self) -> type[SeedHandler]:
+        """Return the real mirror handler with counted successful body writes."""
+        observations = self
+
+        class ObservedSeedHandler(SeedHandler):
+            def _send(self, stream: BinaryIO, offset: int, count: int) -> None:
+                with observations.lock:
+                    observations.origin += 1
+                    request = observations.origin
+                began = time.monotonic()
+                completed = 0
+                max_write = 0.0
+                original = self.wfile.write
+                observations.record(
+                    "origin_start", request=request, offset=offset, expected_bytes=count
+                )
+
+                def write(data):
+                    nonlocal completed, max_write
+                    started = time.monotonic()
+                    written = original(data)
+                    completed += written
+                    max_write = max(max_write, time.monotonic() - started)
+                    return written
+
+                failed = False
+                try:
+                    with patch.object(self.wfile, "write", write):
+                        super()._send(stream, offset, count)
+                except BaseException as error:
+                    failed = True
+                    details = observations.failure(error)
+                    details["phase"] = "body_write"
+                    observations.record("origin_error", request=request, **details)
+                    raise
+                finally:
+                    observations.record(
+                        "origin_end",
+                        request=request,
+                        offset=offset,
+                        expected_bytes=count,
+                        completed_write_bytes=completed,
+                        failed_write_bytes_unknown=failed,
+                        complete=not failed and completed == count,
+                        seconds=time.monotonic() - began,
+                        max_completed_write_seconds=max_write,
+                    )
+
+        return ObservedSeedHandler
+
+    def close(self, *, wait_seconds: float = 35) -> dict[str, object]:
+        """Drain observed bodies within a fixed window or mark evidence incomplete.
+
+        Called after stopping the owned native clients and HTTP accept loop.
+        The default outlasts a single unchanged 30-second socket write. Never
+        infer that unobserved HTTP handlers or router packets were measured.
+        """
+        if not 0 <= wait_seconds <= 35:
+            raise ValueError("diagnostic drain must be between zero and 35 seconds")
+        started = time.monotonic()
+        deadline = started + wait_seconds
+        with self.changed:
+            while self.active_origins:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self.changed.wait(remaining)
+            self.output.close()
+            return {
+                "events_written": self.written,
+                "events_dropped": self.dropped,
+                "event_counts": dict(self.counts),
+                "error_categories": dict(self.errors),
+                "unfinished_origin_requests": sorted(self.active_origins),
+                "observed_origin_evidence_complete": not self.active_origins
+                and self.dropped == 0,
+                "origin_drain_seconds": time.monotonic() - started,
+            }
 
 
 def free_port(kind: int = socket.SOCK_STREAM) -> int:
@@ -275,6 +568,7 @@ def main() -> int:
     model_backend = None
     thread = None
     model_thread = None
+    observations = None
     started = time.monotonic()
     deadline = started + args.seconds
 
@@ -321,6 +615,7 @@ def main() -> int:
         raise TimeoutError("qualification window ended")
 
     try:
+        observations = HTTPObservations(root)
         report["stage"] = "offline-preflight"
         public_root = root / "http-root"
         public_root.mkdir()
@@ -387,6 +682,7 @@ def main() -> int:
             public=True,
             max_upload_bytes=8 * args.payload_mib * 1024**2 + 16 * 1024**2,
         )
+        model_backend.RequestHandlerClass = observations.handler_class()
         model_thread = threading.Thread(target=model_backend.serve_forever, daemon=True)
         model_thread.start()
         proxy_port = free_port()
@@ -474,31 +770,32 @@ def main() -> int:
         report["stage"] = "complete-recovery"
         transfer_start = time.monotonic()
         received = root / "received"
-        manifest = fetch_selection(
-            cache,
-            source_identity(bootstrap),
-            "fixture",
-            identity,
-            trust,
-            received,
-            I2PTransferPolicy(
-                proxy=proxy,
-                deadline_seconds=max(1, min(3600, deadline - time.monotonic())),
-            ),
-            control=OperationControl(
-                lambda progress: (root / "progress.json").write_text(
-                    json.dumps(
-                        {
-                            "stage": "complete-recovery",
-                            "elapsed_seconds": time.monotonic() - started,
-                            "operation": progress.model_dump(mode="json"),
-                        }
-                    )
-                    + "\n"
+        with observations.client():
+            manifest = fetch_selection(
+                cache,
+                source_identity(bootstrap),
+                "fixture",
+                identity,
+                trust,
+                received,
+                I2PTransferPolicy(
+                    proxy=proxy,
+                    deadline_seconds=max(1, min(3600, deadline - time.monotonic())),
                 ),
-                interval_seconds=1,
-            ),
-        )
+                control=OperationControl(
+                    lambda progress: (root / "progress.json").write_text(
+                        json.dumps(
+                            {
+                                "stage": "complete-recovery",
+                                "elapsed_seconds": time.monotonic() - started,
+                                "operation": progress.model_dump(mode="json"),
+                            }
+                        )
+                        + "\n"
+                    ),
+                    interval_seconds=1,
+                ),
+            )
         report["transfer_seconds"] = time.monotonic() - transfer_start
         if (received / manifest_path(identity)).read_bytes() != envelope:
             raise ValueError("original signed envelope differs")
@@ -547,6 +844,8 @@ def main() -> int:
             backend.shutdown()
             thread.join(5)
             backend.server_close()
+        if observations is not None:
+            report["transfer_diagnostics"] = observations.close()
         (root / "report.json").write_text(
             json.dumps(report, indent=2, sort_keys=True) + "\n"
         )
