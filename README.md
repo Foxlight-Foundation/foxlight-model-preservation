@@ -16,18 +16,28 @@ durable and deletion stays with the operator. Skulk is optional.
 
 ## Install
 
-Python 3.11+ on Linux or macOS, with [uv](https://docs.astral.sh/uv/):
+Python 3.11+ on Linux or macOS, with an authenticated Python/uv toolchain. Use the
+[0.12.0 installation archive](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/v0.12.0)
+and its detached attestation bundle. [Verify it first](docs/installation.md),
+extract it, then install into a new directory:
+
+```sh
+python3 install.py --directory "$HOME/sovereign-0.12.0"
+"$HOME/sovereign-0.12.0/bin/model-preserve" --help
+```
+
+The archive contains the exact package wheel, source, hash-locked dependencies
+and source revision. Installation starts no service and grants no model trust.
+[Offline installation](docs/installation.md#retain-a-wheelhouse-and-install-offline)
+uses retained dependency wheels with no index/cache fallback. No package has
+been published to PyPI. Source development installation remains available:
 
 ```sh
 git clone https://github.com/Foxlight-Foundation/foxlight-model-preservation.git
 cd foxlight-model-preservation
-uv tool install .
-model-preserve --help
+uv sync --locked --no-dev
+uv run model-preserve --help
 ```
-
-`python -m pip install .` is also supported, as is a [verified release wheel](#verify-a-release).
-No package has been published to PyPI. For offline recovery, retain the verifier
-and its platform-compatible dependency wheels through an authenticated software channel.
 
 ## Verify a release
 
@@ -165,7 +175,7 @@ launcher with `--check` to inspect the actual owner API before use. Publishing
 and receiving retain separately reviewed, bounded HTTP/BitTorrent sessions with
 explicit stop and public-key/torrent downloads. The source-based Core preview
 builds native dependencies and is separate from stable/frozen distribution.
-Library 0.10 source preview adds separately reviewed native setup to peer source
+Library 0.11 includes separately reviewed native setup and one-file sharing with source
 following, offline search, metadata review and bounded receive-only Core jobs.
 Core owns installation, activity and stop/restart receipts; no manual PATH setup
 is needed on supported managed platforms. See [peer setup and receiving](capability/README.md#receive-through-peers).

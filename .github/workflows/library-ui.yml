@@ -39,12 +39,13 @@ jobs:
       - run: uv build --project capability --out-dir dist-library
       - name: Install only the public wheel and exercise its local screen
         run: |
-          python -m venv /tmp/library-public
-          /tmp/library-public/bin/pip install dist-library/*.whl pytest pytest-asyncio
+          python scripts/release_install.py --project capability --dist dist-library --revision "$GITHUB_SHA"
+          python dist-library/install.py --directory /tmp/library-public
+          uv pip install --python /tmp/library-public/bin/python pytest pytest-asyncio
           cd /tmp
           /tmp/library-public/bin/python -c "import importlib.util; assert importlib.util.find_spec('skulk_capability_sdk') is None; assert importlib.util.find_spec('skulk') is None"
           /tmp/library-public/bin/foxlight-preservation-library --help
-          /tmp/library-public/bin/python -m pytest "$GITHUB_WORKSPACE/capability/tests/test_standalone.py" "$GITHUB_WORKSPACE/capability/tests/test_delivery.py" "$GITHUB_WORKSPACE/capability/tests/test_storage.py" "$GITHUB_WORKSPACE/capability/tests/test_compatibility.py" "$GITHUB_WORKSPACE/capability/tests/test_preview.py" "$GITHUB_WORKSPACE/capability/tests/test_discovery.py" "$GITHUB_WORKSPACE/capability/tests/test_bundle_version.py" -q
+          /tmp/library-public/bin/python -m pytest "$GITHUB_WORKSPACE/capability/tests/test_standalone.py" "$GITHUB_WORKSPACE/capability/tests/test_delivery.py" "$GITHUB_WORKSPACE/capability/tests/test_storage.py" "$GITHUB_WORKSPACE/capability/tests/test_compatibility.py" "$GITHUB_WORKSPACE/capability/tests/test_preview.py" "$GITHUB_WORKSPACE/capability/tests/test_discovery.py" "$GITHUB_WORKSPACE/capability/tests/test_bundle_version.py" "$GITHUB_WORKSPACE/capability/tests/test_handoffs.py" -q
       - uses: actions/upload-artifact@v4
         with:
           name: preservation-library-public

@@ -28,6 +28,14 @@ jobs:
           uv sync --locked --dev --extra bittorrent
           uv run --extra bittorrent pytest tests/test_torrent.py
       - run: uv build
+      - name: Qualify the hash-locked public installation bundle
+        env:
+          SOURCE_REVISION: ${{ github.sha }}
+        run: |
+          python scripts/release_install.py --project . --dist dist --revision "$SOURCE_REVISION"
+          python dist/install.py --directory /tmp/preservation-locked
+          /tmp/preservation-locked/bin/python -c "import importlib.util; assert importlib.util.find_spec('skulk') is None; assert importlib.util.find_spec('skulk_capability_sdk') is None"
+          /tmp/preservation-locked/bin/model-preserve mirror --help
       - name: Install the built wheel outside the checkout
         run: |
           python -m venv /tmp/preservation-wheel
