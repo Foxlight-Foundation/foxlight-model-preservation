@@ -135,14 +135,28 @@ def install(
     uv = shutil.which("uv")
     if uv is None:
         raise ValueError("install an authenticated uv tool before continuing")
-    environment = dict(os.environ, UV_PYTHON_DOWNLOADS="never", PYTHONNOUSERSITE="1")
+    environment = dict(
+        os.environ,
+        UV_PYTHON_DOWNLOADS="never",
+        UV_VENV_SEED="false",
+        PYTHONNOUSERSITE="1",
+    )
     environment.pop("UV_PROJECT_ENVIRONMENT", None)
 
     def run(args: list[str]) -> None:
         subprocess.run([uv, *args], cwd=root, env=environment, check=True)  # noqa: S603 - authenticated explicit uv executable, no shell
 
     destination.mkdir(mode=0o700)
-    run(["venv", "--python", sys.executable, str(destination)])
+    run(
+        [
+            "venv",
+            "--python",
+            sys.executable,
+            "--no-cache",
+            *(["--offline"] if offline else []),
+            str(destination),
+        ]
+    )
     command = [
         "pip",
         "install",

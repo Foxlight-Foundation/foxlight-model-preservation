@@ -151,6 +151,29 @@ def test_offline_requires_explicit_wheelhouse_without_mutation(tmp_path, monkeyp
     assert not (tmp_path / "new").exists()
 
 
+def test_offline_environment_creation_cannot_inherit_seed_downloads(
+    tmp_path, monkeypatch
+):
+    root = assets(tmp_path / "release")
+    wheelhouse = tmp_path / "wheels"
+    wheelhouse.mkdir()
+    monkeypatch.setenv("UV_VENV_SEED", "true")
+    monkeypatch.setattr(install_release.shutil, "which", lambda _: "/explicit/uv")
+    calls = []
+
+    def capture(command, **kwargs):
+        calls.append((command, kwargs["env"]))
+
+    monkeypatch.setattr(install_release.subprocess, "run", capture)
+    install_release.install(root, tmp_path / "new", offline=True, wheelhouse=wheelhouse)
+    assert len(calls) == 3
+    for command, environment in calls:
+        assert "--offline" in command and "--no-cache" in command
+        assert environment["UV_VENV_SEED"] == "false"
+        assert environment["UV_PYTHON_DOWNLOADS"] == "never"
+    assert "--no-index" in calls[1][0]
+
+
 def test_generated_zip_has_a_complete_checked_installation_closure(
     tmp_path, monkeypatch
 ):

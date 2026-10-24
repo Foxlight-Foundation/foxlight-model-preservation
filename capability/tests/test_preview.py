@@ -14,6 +14,16 @@ import pytest
 from foxlight_preservation_library import preview
 
 
+@pytest.fixture(autouse=True)
+def isolate_python_installation_receipts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fake distribution metadata must not adopt the test runner's receipt."""
+    root = tmp_path / "python-prefix"
+    root.mkdir(mode=0o700)
+    monkeypatch.setattr(preview.sys, "prefix", str(root))
+
+
 def test_occupied_directory_is_kept_without_network_or_execution(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
