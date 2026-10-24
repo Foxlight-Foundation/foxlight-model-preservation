@@ -103,7 +103,11 @@ registry provenance retains its separate enrolled-root admission checks. No
 model code executes.
 
 HTTP Range requests and existing partial-file revalidation/resume remain in
-place. Size, deadline, disk and byte-budget checks still apply. Stopping or
+place. I2P receiving permits up to eight attempts per object/supplier by default
+(`--attempts`, one to sixteen), with the same cumulative byte/deadline bounds.
+Two consecutive failures without retained forward progress stop that supplier;
+progressing interruptions can resume without discarding their verified-final
+object identity. Use a range-capable mirror for reliable large transfers. Size, deadline, disk and byte-budget checks still apply. Stopping or
 failure keeps partial/complete files for explicit inspection/resume. No local
 model or router data is deleted. Direct PMF archive-object receiving is not yet
 part of this command; existing signed PMF kits still use offline import or the
@@ -145,7 +149,8 @@ python scripts/qualify_i2p_http_public.py --directory /new/private/evidence \
 
 The directory must be new. The script validates synthetic model/source fixtures
 offline first, then owns two fresh public IPv4 SSU routers and stock HTTP
-client/server helpers. It uses generated model/companion bytes, separate metadata
+client/server helpers and the real range-capable Sovereign model mirror. It uses
+generated model/companion bytes, separate metadata
 and model keys, configured three-hop tunnels, zero configured transit share,
 no router console/plugins/UPnP and no pre-existing router state. `--kib` bounds
 the router's configured rate; it is not a hard wire quota, and bootstrap traffic

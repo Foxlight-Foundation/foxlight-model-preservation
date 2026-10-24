@@ -8,6 +8,9 @@
 - Preserve enrolled TUF authority, root/version floors, last-good offline search,
   independent model trust, exact envelopes, companion completeness, byte budgets
   and range recovery. Ordinary transfer receipt identities remain unchanged.
+- I2P downloads can resume progressing interruptions within an explicit bounded
+  attempt count; two stalled attempts stop a supplier. Cancellation, original
+  signatures, final-object hashes and cumulative byte/deadline bounds remain.
 - Direct transports refuse I2P/onion names before DNS. This is a pilot boundary,
   not qualified public-network anonymity. The separately operated router can
   relay other traffic; see [I2P HTTP](docs/i2p-http.md).

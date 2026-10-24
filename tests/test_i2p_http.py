@@ -470,3 +470,108 @@ def test_cli_followed_source_fetch_needs_no_manual_mirror_url(capture, tmp_path)
         )
         assert result.returncode == 0, result.stderr
         assert json.loads(result.stdout)["manifest"] == capture.identity
+
+
+@contextmanager
+def interrupted_range_proxy(capture, *, stall=False):
+    from foxlight_model_preservation.storage import object_path, verify_store
+
+    file = (
+        verify_store(capture.store, capture.identity, capture.trust).members[0].files[0]
+    )
+    selected = "/" + object_path(file.sha256)
+    offsets = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):
+            path = urlsplit(self.path).path
+            data = (capture.store / path.lstrip("/")).read_bytes()
+            offset = int(self.headers["Range"][6:-1]) if "Range" in self.headers else 0
+            self.send_response(206 if offset else 200)
+            self.send_header("Content-Length", str(len(data) - offset))
+            if offset:
+                self.send_header(
+                    "Content-Range", f"bytes {offset}-{len(data) - 1}/{len(data)}"
+                )
+            self.end_headers()
+            if path == selected:
+                offsets.append(offset)
+                amount = 0 if stall else 1500 if len(offsets) <= 3 else len(data)
+                data = data[offset : offset + amount]
+            self.wfile.write(data)
+            self.close_connection = True
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield I2PHTTPProxy(port=server.server_port), offsets
+    finally:
+        server.shutdown()
+        thread.join(5)
+        server.server_close()
+
+
+def test_i2p_progressive_range_resume_survives_multiple_interruptions(
+    capture, tmp_path
+):
+    from foxlight_model_preservation.storage import verify_store
+
+    with interrupted_range_proxy(capture) as (proxy, offsets):
+        fetch(
+            capture.identity,
+            capture.trust,
+            (BASE,),
+            tmp_path / "received",
+            I2PTransferPolicy(proxy=proxy),
+        )
+    assert offsets == [0, 1500, 3000, 4500]
+    assert verify_store(
+        tmp_path / "received", capture.identity, capture.trust
+    ) == verify_store(capture.store, capture.identity, capture.trust)
+
+
+def test_i2p_resume_stops_after_two_attempts_without_progress(capture, tmp_path):
+    with interrupted_range_proxy(capture, stall=True) as (proxy, offsets):
+        with pytest.raises(PreservationError, match="no mirror"):
+            fetch(
+                capture.identity,
+                capture.trust,
+                (BASE,),
+                tmp_path / "received",
+                I2PTransferPolicy(proxy=proxy),
+            )
+    assert offsets == [0, 0]
+    assert not (tmp_path / "received" / manifest_path(capture.identity)).exists()
+
+
+def test_i2p_resume_cancellation_keeps_partial_and_starts_no_retry(capture, tmp_path):
+    from foxlight_model_preservation.storage import object_path, verify_store
+
+    file = (
+        verify_store(capture.store, capture.identity, capture.trust).members[0].files[0]
+    )
+    partial = tmp_path / "received/.partial"
+    partial.mkdir(parents=True)
+    previous = (capture.store / object_path(file.sha256)).read_bytes()[:500]
+    (partial / file.sha256).write_bytes(previous)
+    control = OperationControl(
+        lambda progress: control.cancel() if progress.bytes_received else None,
+        interval_seconds=0,
+    )
+    with interrupted_range_proxy(capture) as (proxy, offsets):
+        with pytest.raises(OperationCancelled):
+            fetch(
+                capture.identity,
+                capture.trust,
+                (BASE,),
+                tmp_path / "received",
+                I2PTransferPolicy(proxy=proxy),
+                control=control,
+            )
+    assert offsets == [500]
+    assert (partial / file.sha256).read_bytes() == previous
+    assert not (tmp_path / "received" / manifest_path(capture.identity)).exists()

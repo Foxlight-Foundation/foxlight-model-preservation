@@ -33,6 +33,7 @@ class I2PHTTPArguments(argparse.Namespace):
     i2p_http_mirrors: list[str]
     i2p_http_max_bytes: int
     i2p_http_deadline: float
+    i2p_http_attempts: int
 
 
 def register_i2p_http_commands(
@@ -82,6 +83,9 @@ def register_i2p_http_commands(
                 "--max-bytes", dest="i2p_http_max_bytes", type=int, default=20 * 1024**3
             )
             command.add_argument(
+                "--attempts", dest="i2p_http_attempts", type=int, default=8
+            )
+            command.add_argument(
                 "--deadline-seconds",
                 dest="i2p_http_deadline",
                 type=float,
@@ -120,6 +124,7 @@ def run_i2p_http_command(
         proxy=proxy,
         max_bytes=arguments.i2p_http_max_bytes,
         deadline_seconds=arguments.i2p_http_deadline,
+        max_attempts=arguments.i2p_http_attempts,
     )
     if arguments.i2p_http_action == "source-fetch":
         manifest = fetch_selection(

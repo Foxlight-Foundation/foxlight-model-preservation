@@ -82,11 +82,14 @@ class I2PTransferPolicy(TransferPolicy):
     """
 
     proxy: I2PHTTPProxy = I2PHTTPProxy()
+    max_attempts: int = 8
 
     def validate(self) -> None:
         """Validate inherited bounds and the separately selected local proxy."""
         super().validate()
         self.proxy.validate()
+        if type(self.max_attempts) is not int or not 1 <= self.max_attempts <= 16:
+            raise PreservationError("I2P attempt limit must be between one and 16")
         if self.allow_http or self.allow_private:
             raise PreservationError(
                 "I2P receiving cannot grant direct HTTP/private routes"
@@ -451,6 +454,14 @@ def inspect_manifest(
         return manifest
 
 
+def _partial_size(target: int, file: FileIdentity) -> int:
+    try:
+        with open_file(target, ".partial/" + file.sha256) as stream:
+            return os.fstat(stream.fileno()).st_size
+    except FileNotFoundError:
+        return 0
+
+
 def fetch(
     manifest_id: str,
     trust: TrustProfile,
@@ -518,7 +529,18 @@ def fetch(
                     for source in sources:
                         # A corrupt resumed prefix permits one clean retry from
                         # this supplier. Cancellation/deadlines/budgets never retry.
-                        for _attempt in range(2):
+                        attempts = (
+                            policy.max_attempts
+                            if isinstance(policy, I2PTransferPolicy)
+                            else 2
+                        )
+                        stalled = 0
+                        for _attempt in range(attempts):
+                            previous = (
+                                _partial_size(target, file)
+                                if isinstance(policy, I2PTransferPolicy)
+                                else 0
+                            )
                             active.phase("downloading")
                             try:
                                 _download(
@@ -535,6 +557,11 @@ def fetch(
                             except OperationError:
                                 raise
                             except (OSError, ValueError, http.client.HTTPException):
+                                if isinstance(policy, I2PTransferPolicy):
+                                    current = _partial_size(target, file)
+                                    stalled = 0 if current > previous else stalled + 1
+                                    if stalled >= 2:
+                                        break
                                 continue
                         if complete:
                             break

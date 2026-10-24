@@ -51,6 +51,7 @@ from foxlight_model_preservation.models import (
     TrustProfile,
 )
 from foxlight_model_preservation.operations import OperationControl
+from foxlight_model_preservation.seed import SeedServer
 from foxlight_model_preservation.signing import (
     CATALOG_TYPE,
     digest,
@@ -135,7 +136,9 @@ def fixture(root: Path, mib: int) -> tuple[str, TrustProfile, bytes]:
     return identity, trust, envelope
 
 
-def publish(root: Path, base: str, identity: str) -> SourceBootstrap:
+def publish(
+    root: Path, base: str, identity: str, model_base: str | None = None
+) -> SourceBootstrap:
     """Publish synthetic TUF/catalog metadata under keys distinct from model trust."""
     tuf_key = Ed25519PrivateKey.generate()
     signer = CryptoSigner(tuf_key)
@@ -149,7 +152,9 @@ def publish(root: Path, base: str, identity: str) -> SourceBootstrap:
         description="synthetic public I2P test",
         entries=(
             CatalogEntry(
-                entry_id="fixture", manifest=identity, mirrors=(base + "/model",)
+                entry_id="fixture",
+                manifest=identity,
+                mirrors=(model_base or base + "/model",),
             ),
         ),
     )
@@ -267,7 +272,9 @@ def main() -> int:
     real_getaddrinfo = socket.getaddrinfo
     dns_attempts = []
     backend = None
+    model_backend = None
     thread = None
+    model_thread = None
     started = time.monotonic()
     deadline = started + args.seconds
 
@@ -372,7 +379,28 @@ def main() -> int:
         )
         thread = threading.Thread(target=backend.serve_forever, daemon=True)
         thread.start()
+        model_backend = SeedServer(
+            ("127.0.0.1", 0),
+            public_root / "model",
+            (identity,),
+            trust,
+            public=True,
+            max_upload_bytes=8 * args.payload_mib * 1024**2 + 16 * 1024**2,
+        )
+        model_thread = threading.Thread(target=model_backend.serve_forever, daemon=True)
+        model_thread.start()
         proxy_port = free_port()
+        model_server = launch(
+            "model-server",
+            "I2PHTTPTest",
+            [
+                "server",
+                str(root / "model-server"),
+                str(ports[0]),
+                str(model_backend.server_port),
+                str(args.seconds),
+            ],
+        )
         server = launch(
             "server",
             "I2PHTTPTest",
@@ -398,11 +426,13 @@ def main() -> int:
         wait(
             lambda: (
                 (server / "destination.txt").is_file()
+                and (model_server / "destination.txt").is_file()
                 and (root / "client/ready.txt").is_file()
             )
         )
         base = "http://" + (server / "destination.txt").read_text()
-        bootstrap = publish(public_root, base, identity)
+        model_base = "http://" + (model_server / "destination.txt").read_text()
+        bootstrap = publish(public_root, base, identity, model_base)
         cache = root / "cache"
         follow_source(cache, encode_record(bootstrap), bootstrap_identity(bootstrap))
         proxy = I2PHTTPProxy(port=proxy_port)
@@ -424,6 +454,17 @@ def main() -> int:
                 return False
 
         wait(reachable)
+
+        def model_reachable():
+            try:
+                with i2p_http_response(
+                    model_base, manifest_path(identity), proxy, 10
+                ) as incoming:
+                    return incoming.status == 200
+            except OSError:
+                return False
+
+        wait(model_reachable)
         report["stage"] = "authenticated-update"
         refresh_source_i2p(
             cache, source_identity(bootstrap), proxy=proxy, allow_i2p=True
@@ -497,6 +538,11 @@ def main() -> int:
         report["helper_exit_codes"] = [child.returncode for child in processes]
         for log in logs:
             log.close()
+        if model_backend is not None:
+            report["model_upload_reserved_bytes"] = model_backend.reserved_upload_bytes
+            model_backend.shutdown()
+            model_thread.join(5)
+            model_backend.server_close()
         if backend is not None:
             backend.shutdown()
             thread.join(5)
