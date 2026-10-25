@@ -9,21 +9,43 @@ verifier/downloader, signed portable catalogs, and opt-in read-only mirrors.
 Model bytes are addressed by SHA-256. Locations can change without changing the
 model's identity or granting a mirror the power to replace it.
 
-A separately chosen [persistent HTTP mirror](docs/persistent-mirrors.md) can
-follow authenticated sources, retain complete public models and serve them
-under explicit model/terms policy. Restart consent is separate, budgets are
-durable and deletion stays with the operator. Skulk is optional.
+A separately chosen [persistent mirror](docs/persistent-mirrors.md) can follow
+authenticated sources or retain an exact public copy you already have, then serve
+verified models under explicit model/terms policy. Choose HTTP independently of
+[persistent IPFS/BitTorrent sessions](docs/persistent-peers.md). Restart consent
+is separate, budgets are durable and deletion stays with the operator. Skulk is
+optional.
+
+## Current public previews
+
+- **Standalone 0.17.1** includes persistent HTTP/IPFS/BitTorrent mirrors,
+  offline local-copy intake, portable handoffs, signed source following,
+  PirateFace lookup/intake and the separately opted-in I2P pilots.
+- **Library 0.12.0** provides a local interface through its separately pinned
+  compatible Skulk Core. It includes PMF preservation/recovery, one-file sharing,
+  peer setup/receiving and explicit I2P source/receiving controls. Installing the
+  Library package does not install Core or start networking.
+- Public releases are pre-releases. The v1 preservation format has its existing
+  compatibility commitment; PMF remains a separately versioned draft. Standalone
+  persistent mirrors serve the public v1 transport profile, not generic PMF.
+
+Ordinary IPFS/BitTorrent participation is not anonymous. The
+[I2P HTTP](docs/i2p-http.md) pilot is receive-only at the application level and
+uses a separately operated local proxy with no direct fallback. The distinct
+[I2PSnark recovery-kit pilot](docs/i2p.md) can upload pieces while receiving and
+requires explicit sharing consent. Neither pilot establishes anonymity or
+censorship resistance for at-risk users.
 
 ## Install
 
 Python 3.11+ on Linux or macOS, with an authenticated Python/uv toolchain. Use the
-[0.17.0 installation archive](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/v0.17.0)
+[0.17.1 installation archive](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/v0.17.1)
 and its detached attestation bundle. [Verify it first](docs/installation.md),
 extract it, then install into a new directory:
 
 ```sh
-python3 install.py --directory "$HOME/sovereign-0.17.0"
-"$HOME/sovereign-0.17.0/bin/model-preserve" --help
+python3 install.py --directory "$HOME/sovereign-0.17.1"
+"$HOME/sovereign-0.17.1/bin/model-preserve" --help
 ```
 
 The archive contains the exact package wheel, source, hash-locked dependencies
@@ -172,18 +194,21 @@ them through the live store owner, and explicitly clears unused interrupted
 restore files before fresh review. The public local launcher installs with public
 dependencies and includes its interface. A compatible local Core is required.
 The optional managed capability adapter retains its separately supplied SDK.
-Library 0.6 adds reviewed local or mounted NAS/remote storage, durable defaults,
-and a [compatible isolated Core preview](capability/preview.md). Run the installed
-launcher with `--check` to inspect the actual owner API before use. Publishing
-and receiving retain separately reviewed, bounded HTTP/BitTorrent sessions with
-explicit stop and public-key/torrent downloads. The source-based Core preview
-builds native dependencies and is separate from stable/frozen distribution.
-Library 0.11 includes separately reviewed native setup and one-file sharing with source
-following, offline search, metadata review and bounded receive-only Core jobs.
-Core owns installation, activity and stop/restart receipts; no manual PATH setup
-is needed on supported managed platforms. See [peer setup and receiving](capability/README.md#receive-through-peers).
-Standalone mirror/BitTorrent/peer tools remain independently usable; public
-reachability and custody are operator-owned.
+Library 0.12 includes reviewed local or mounted NAS/remote storage, durable
+defaults and a [compatible isolated Core preview](capability/preview.md). Run the
+installed launcher with `--check` to inspect the actual owner API before use.
+Publishing and receiving retain separately reviewed, bounded HTTP/BitTorrent
+sessions with explicit stop and public-key/torrent downloads. One-file sharing,
+source following, offline search and native peer setup/receiving use Core-owned
+jobs and explicit consent. See [peer setup and receiving](capability/README.md#receive-through-peers)
+and [I2P source/receiving controls](capability/README.md#i2p-source-and-receiving-controls).
+The I2P HTTP pilot needs a separately operated proxy/router; Library does not
+install one or provide an application-wide anonymity mode.
+
+The compatible Core preview builds pinned native source and remains separate
+from stable/frozen distribution. Standalone persistent mirrors and peer tools
+remain independently usable; they are not Library's unattended hosting mode.
+Public reachability and custody remain operator-owned.
 
 ### Recover after losing the original host
 
@@ -210,9 +235,9 @@ store works with the ordinary `restore`, evidence inspection and receiving tools
 Metadata inspection alone does not verify weights. See [the format and trust
 contract](docs/protocol.md#self-contained-recovery-kits-v1).
 
-Library's [0.7 source preview](capability/README.md#pmf-source-preview-library-07)
+Library's [PMF preservation and recovery](capability/README.md#pmf-source-preview-library-07)
 uses PMF automatically for Preserve and Restore with a compatible pinned Core.
 Its self-contained PMF kits also work with the independent tools; Skulk is not
 required to recover the archived files/cards/provenance. Earlier kits retain
-their own identities and verification. Source integration is distinct from a
-published 0.7 Library release and direct PMF public transport adapters.
+their own identities and verification. PMF preservation/recovery is included in
+Library 0.12.0; generic PMF public transport adapters remain separate work.
