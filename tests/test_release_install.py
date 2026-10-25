@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import sys
 import zipfile
 from pathlib import Path
 
@@ -265,6 +266,13 @@ def test_desktop_bundle_binds_both_wheels_and_keeps_default_core_free(
     ) as archive:
         archive.extractall(extracted)
     install_release.validate_assets(extracted, "requirements-desktop.lock")
+    if sys.version_info[:2] < (3, 13):
+        with pytest.raises(ValueError, match="use Python 3.13 or newer"):
+            install_release.install(
+                extracted, tmp_path / "installed", selected="requirements-desktop.lock"
+            )
+        assert not (tmp_path / "installed").exists()
+        return
     monkeypatch.setattr(install_release.shutil, "which", lambda _: "/verified/uv")
     monkeypatch.setattr(install_release.subprocess, "run", lambda *args, **kwargs: None)
     result = install_release.install(
