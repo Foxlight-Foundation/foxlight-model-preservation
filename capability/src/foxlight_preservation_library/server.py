@@ -943,7 +943,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/octet-stream")
             self.send_header("Content-Length", str(length))
             self.send_header(
-                "Content-Disposition", 'attachment; filename="' + job_id + '.foxkit"'
+                "Content-Disposition",
+                'attachment; filename="Sovereign-recovery.foxkit"',
             )
             self.send_header("Cache-Control", "no-store")
             self.send_header("Referrer-Policy", "no-referrer")
