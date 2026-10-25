@@ -36,6 +36,7 @@ from .contracts import (
     SharingReferenceInput,
 )
 from .discovery import discovery_control
+from .mirrors import mirror_control
 
 #: The exact built interface files this screen serves. A ``None`` type uses the
 #: platform registry; fonts are explicit because ``mimetypes`` may not know
@@ -178,6 +179,15 @@ class LibraryServer:
         self, action: str, body: dict[str, JsonValue]
     ) -> dict[str, JsonValue]:
         """Allow exact UI controls; only explicit folder review accepts a host path."""
+        if action in {
+            "mirror-copy-review",
+            "mirror-read",
+            "mirror-history",
+            "mirror-start",
+            "mirror-observe",
+            "mirror-stop",
+        }:
+            return await mirror_control(self.client, action, body)
         if action in {
             "peer-read",
             "peer-setup",
@@ -580,6 +590,12 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                     not in {
                         "api/peer-read",
                         "api/core-features",
+                        "api/mirror-copy-review",
+                        "api/mirror-read",
+                        "api/mirror-history",
+                        "api/mirror-start",
+                        "api/mirror-observe",
+                        "api/mirror-stop",
                         "api/peer-setup",
                         "api/peer-runtime-read",
                         "api/peer-runtime-start",

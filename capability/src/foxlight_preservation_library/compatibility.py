@@ -45,6 +45,14 @@ GROUPS: dict[str, tuple[tuple[str, str], ...]] = {
         ("/preservation/kits/{job_id}", "get"),
     ),
     "Portable handoffs": (("/preservation/public-copies/{copy_id}/handoff", "post"),),
+    "Public copy review": (("/preservation/public-copies/{copy_id}/review", "get"),),
+    "Persistent mirrors": (
+        ("/preservation/mirror", "get"),
+        ("/preservation/mirror/jobs", "get"),
+        ("/preservation/mirror/jobs", "post"),
+        ("/preservation/mirror/jobs/{job_id}", "get"),
+        ("/preservation/mirror/jobs/{job_id}", "delete"),
+    ),
     "Publishing and receiving": (
         ("/preservation/setup/publisher", "post"),
         ("/preservation/jobs/{job_id}/invitation", "get"),
@@ -105,4 +113,122 @@ async def check_core(client: CoreClient) -> dict[str, bool]:
             and fields.issubset(properties)
         )
     report["I2P preservation jobs"] = supported_i2p
+    # Routes alone do not establish the authority and lifecycle contract.
+    review_fields = {
+        "PublicCopyReview": {
+            "schema_version",
+            "copy_id",
+            "manifest_id",
+            "archive_format",
+            "name",
+            "size_bytes",
+            "workloads",
+            "runtime_requirements",
+            "members",
+        },
+        "PublicationMember": {
+            "member_id",
+            "role",
+            "repository",
+            "revision",
+            "format",
+            "size_bytes",
+            "file_count",
+            "license_id",
+            "terms_reference",
+            "notice_paths",
+        },
+    }
+    mirror_fields = {
+        "MirrorRequest": {
+            "owner_id",
+            "operation_id",
+            "kind",
+            "policy_id",
+            "configuration",
+            "copy_id",
+            "manifest_id",
+            "action",
+            "confirm_redistribution",
+            "confirm_reintake",
+            "public_participation",
+            "mode",
+            "seconds",
+            "resume_expires",
+            "confirm_resume",
+            "confirm_delete_manifest",
+        },
+        "MirrorConfiguration": {
+            "name",
+            "disk_bytes",
+            "ingress_daily",
+            "egress_daily",
+            "egress_monthly",
+            "http",
+            "exposure",
+            "port",
+            "ipfs",
+            "torrent",
+            "peer_setup_id",
+            "max_active",
+            "session_seconds",
+            "session_bytes",
+            "upload_rate",
+        },
+        "MirrorPage": {
+            "schema_version",
+            "configured",
+            "available",
+            "policy_id",
+            "configuration",
+            "paused",
+            "restart_expires",
+            "restart_allowed",
+            "controller_job_id",
+            "activity",
+            "models",
+            "model_count",
+            "next_offset",
+        },
+        "MirrorJob": {
+            "job_id",
+            "owner_id",
+            "operation_id",
+            "kind",
+            "state",
+            "activity",
+        },
+    }
+    for group, required in (
+        ("Public copy review", review_fields),
+        ("Persistent mirrors", mirror_fields),
+    ):
+        supported = report[group]
+        for name, fields in required.items():
+            schema = schemas.get(name) if isinstance(schemas, dict) else None
+            properties = schema.get("properties") if isinstance(schema, dict) else None
+            supported = (
+                supported
+                and isinstance(properties, dict)
+                and fields.issubset(properties)
+            )
+        report[group] = supported
+    for group, name, expected in (
+        ("Persistent mirrors", "MirrorPage", "skulk.preservation-mirror.v1"),
+        (
+            "Public copy review",
+            "PublicCopyReview",
+            "skulk.preservation-public-review.v1",
+        ),
+    ):
+        schema = schemas.get(name) if isinstance(schemas, dict) else None
+        properties = schema.get("properties") if isinstance(schema, dict) else None
+        version = (
+            properties.get("schema_version") if isinstance(properties, dict) else None
+        )
+        report[group] = (
+            report[group]
+            and isinstance(version, dict)
+            and version.get("const") == expected
+        )
     return report
