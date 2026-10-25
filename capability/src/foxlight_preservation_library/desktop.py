@@ -41,7 +41,7 @@ class DesktopClient(CoreClient):
 
     async def library(self, call: LibraryCall) -> HostReport:
         """Read local receipts without probing or configuring Skulk Core."""
-        return HostReport(report=await asyncio.to_thread(self.owner.read))
+        return HostReport(report=await asyncio.to_thread(self.owner.read, call.offset))
 
     async def request(
         self,
@@ -94,6 +94,9 @@ class DesktopClient(CoreClient):
                 "sovereign_storage_changed",
                 "sovereign_copy_unavailable",
                 "sovereign_job_capacity_reached",
+                "sovereign_library_capacity_reached",
+                "kit_upload_in_use",
+                "remove_unused_kit_uploads",
             }
             raise CoreRefused(
                 code if code in allowed else "invalid_or_unsafe"

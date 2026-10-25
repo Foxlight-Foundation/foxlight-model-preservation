@@ -615,6 +615,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                         "api/desktop-start",
                         "api/desktop-cancel",
                         "api/desktop-upload-create",
+                        "api/desktop-upload-remove",
                         "api/mirror-copy-review",
                         "api/mirror-read",
                         "api/mirror-history",

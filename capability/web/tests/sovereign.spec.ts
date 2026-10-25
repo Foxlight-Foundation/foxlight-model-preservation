@@ -2,6 +2,38 @@ import {test,expect} from '@playwright/test';
 const id='a'.repeat(64),card='card_'+ 'a'.repeat(52);
 const model={card_id:card,name:'example/Portable model',format:'gguf',quantization:'Q4',size_bytes:2048,workloads:['TextGeneration'],complete_file_map:true};
 const empty={host_kind:'sovereign',locations:[],models:[],copies:[],jobs:[],next_offset:null};
+
+test('returning users start in Library and can release private kit transfers',async({page})=>{
+ const copy={copy_id:id,manifest_id:id,name:'My saved model',size_bytes:16,member_count:2};
+ let removed=false;
+ await page.route('**/api/library*',route=>route.fulfill({json:{...empty,copies:[copy],uploads:removed?[]:[{upload_id:'b'.repeat(32),size_bytes:16,offset:16,complete:true}]}}));
+ await page.route('**/api/desktop-search',route=>route.fulfill({json:{catalog_id:null,results:[],total:0,next_offset:null}}));
+ await page.route('**/api/desktop-upload-remove',route=>{expect(route.request().postDataJSON()).toEqual({upload_id:'b'.repeat(32)});removed=true;return route.fulfill({json:{removed:true}});});
+ await page.goto('/');
+ await expect(page.getByRole('heading',{name:'Your Library',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Activity',exact:true}).click();
+ await expect(page.getByText('Removing a transfer keeps your original file, saved models and completed kits.',{exact:false})).toBeVisible();
+ await page.getByRole('button',{name:'Remove transfer',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Remove transfer',exact:true})).toHaveCount(0);
+ await page.getByRole('button',{name:'Library',exact:true}).click();
+ await expect(page.getByRole('heading',{name:copy.name,exact:true})).toBeVisible();
+});
+
+test('a kit selected from older activity still opens its trust review',async({page})=>{
+ const calls:number[]=[];
+ await page.route('**/api/library*',route=>{const offset=Number(new URL(route.request().url()).searchParams.get('offset')??0);calls.push(offset);return route.fulfill({json:{...empty,next_offset:offset===0?48:null}});});
+ await page.route('**/api/desktop-search',route=>route.fulfill({json:{catalog_id:null,results:[],total:0,next_offset:null}}));
+ await page.route('**/api/desktop-upload-create',route=>route.fulfill({json:{upload_id:'b'.repeat(32),offset:0,size_bytes:16}}));
+ await page.route('**/api/upload/*',route=>route.fulfill({json:{upload_id:'b'.repeat(32),offset:16,size_bytes:16,complete:true}}));
+ await page.route('**/api/desktop-plan',route=>route.fulfill({json:{plan_id:id,kind:'kit_import',name:'From older activity',manifest_id:id,size_bytes:16,member_count:2,threshold:1,keys:['ed25519:'+id],expires_at:9999999999}}));
+ await page.goto('/');await page.getByRole('button',{name:'Activity',exact:true}).click();
+ await page.getByRole('button',{name:'Older activity',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Newer activity',exact:true})).toBeVisible();
+ await page.getByLabel('Open recovery kit',{exact:true}).setInputFiles({name:'saved.foxkit',mimeType:'application/octet-stream',buffer:Buffer.alloc(16)});
+ await expect(page.getByRole('button',{name:'Import verified copy',exact:true})).toBeDisabled();
+ await expect(page.getByText('From older activity',{exact:true})).toBeVisible();
+ expect(calls).toContain(48);expect(calls.at(-1)).toBe(0);
+});
 test('standalone first launch browses preset without Core or bootstrap hunting',async({page})=>{
  let ready=false,updates=0;const requests:string[]=[];
  page.on('request',request=>{if(request.url().includes('/api/'))requests.push(request.url());});

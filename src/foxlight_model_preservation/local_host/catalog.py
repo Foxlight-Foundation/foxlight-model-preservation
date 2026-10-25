@@ -25,6 +25,7 @@ from ..models import MAX_METADATA_BYTES, PreservationError
 from ..operations import OperationControl
 from ..registry_proof import (
     RegistryProof,
+    VersionFloor,
     create_registry_proof,
     verify_registry_proof,
 )
@@ -222,6 +223,43 @@ class RegistryCatalog:
             encode_record(proof), self.anchor, card_id, mode="historical"
         ).card
         return card, proof
+
+    def verify_current(self, proof: RegistryProof, card_id: str) -> None:
+        """Check fresh publication against this owner's already observed TUF floors.
+
+        A retained proof cannot regain current assurance after a newer verified
+        root or role was observed, including an update whose catalog was rejected.
+        Historical inspection remains separately available for exact old data.
+        """
+        floors: dict[str, int] = {}
+        metadata = self.cache / "metadata"
+        if metadata.exists():
+            with directory(metadata) as root:
+                for role in ("root", "timestamp", "snapshot", "targets"):
+                    name = role + ".json"
+                    try:
+                        if role == "root":
+                            name = os.readlink(name, dir_fd=root)
+                            if not re.fullmatch(
+                                r"root_history/[1-9][0-9]{0,15}\.root\.json", name
+                            ):
+                                raise PreservationError("unsafe TUF root history")
+                        value = strict_json(read_metadata(root, name))
+                    except FileNotFoundError:
+                        continue
+                    signed = value.get("signed") if isinstance(value, dict) else None
+                    version = (
+                        signed.get("version") if isinstance(signed, dict) else None
+                    )
+                    if type(version) is not int or version < 1:
+                        raise PreservationError("invalid retained update floor")
+                    floors[role] = version
+        verify_registry_proof(
+            encode_record(proof),
+            self.anchor,
+            card_id,
+            minimum_versions=VersionFloor(**floors),
+        )
 
     def search(self, query: str = "", offset: int = 0) -> dict[str, JsonValue]:
         """Search accepted local data only; queries never go to suppliers."""

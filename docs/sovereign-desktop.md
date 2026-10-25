@@ -9,7 +9,8 @@ preview is not a published notarized Mac application or an APT release.
 ## Everyday use
 
 Launch `foxlight-sovereign` with the public core and Library packages installed,
-or open the self-contained Mac app built below. First launch opens **Find models**.
+or open the self-contained Mac app built below. First launch opens **Find models**. Once you have saved copies, reopening starts
+in **Library**.
 Choose **Browse public models** to request metadata from the optional built-in
 Foxlight registry preset. No bootstrap file or account is needed. Search uses the
 accepted signed catalog on this device and continues to work offline. Updating
@@ -42,7 +43,8 @@ The bundled [registry root](../src/foxlight_model_preservation/resources/foxligh
 is a preset supplied by the application, not a key obtained from the endpoint.
 Stock TUF verifies current updates and rollback protection. Original accepted
 snapshots retain their exact catalog and proof bytes. A historical snapshot can
-be browsed, but an expired publication requires explicit historical acceptance
+be browsed, but an expired publication or one older than already observed TUF
+metadata requires explicit historical acceptance
 before downloading. A failed update does not erase the accepted catalog.
 
 The first standalone registry adapter requires complete SHA-256 file maps. It
@@ -67,7 +69,14 @@ requests cooperative cancellation. Reopening records unfinished jobs as
 interrupted and never replays network work automatically. Complete copies are
 indexed only after verification. Partial work stays private and is not a model
 copy. Existing generations, kits and interrupted work are retained; this preview
-has no automatic retention policy or deletion. It writes only to its dedicated
+has no automatic retention policy. Older completed job receipts move to private
+history, remain browsable in Activity, and retain their request identity so a
+repeated submission cannot restart them. Receipt history does not consume active
+queue slots. **Remove transfer** in Activity explicitly removes only this app's
+input copy of a recovery kit; it keeps the original file, saved model copies and
+completed kits, and refuses removal while an import needs it. Eight input
+transfers, four active jobs and 256 saved copies are preview limits. Reaching the
+saved-copy limit does not block exporting or restoring existing copies. It writes only to its dedicated
 private home and fresh recovery destinations.
 
 Default data locations are `~/Library/Application Support/Foxlight/Sovereign` on

@@ -1,5 +1,6 @@
 """Independent custody, authenticated discovery and offline recovery journey."""
 
+import threading
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -183,8 +184,26 @@ def test_find_receive_kit_fresh_owner_restore_without_network(tmp_path, monkeypa
                     "confirmed": False,
                 },
             )
-        imported = finish(recipient, submit(recipient, plan))
+        entered, release = threading.Event(), threading.Event()
+        original_import = recipient._import
+
+        def blocked_import(*args):
+            entered.set()
+            assert release.wait(5)
+            return original_import(*args)
+
+        monkeypatch.setattr(recipient, "_import", blocked_import)
+        receipt = submit(recipient, plan)
+        try:
+            assert entered.wait(5)
+            with pytest.raises(PreservationError, match="kit_upload_in_use"):
+                recipient.control("upload-remove", {"upload_id": upload["upload_id"]})
+        finally:
+            release.set()
+        imported = finish(recipient, receipt)
         assert imported["state"] == "succeeded", imported
+        recipient.control("upload-remove", {"upload_id": upload["upload_id"]})
+        assert recipient.read()["uploads"] == []
         copy = recipient.read()["copies"][0]
         assert copy["manifest_id"] == saved_manifest_id
         restored = finish(
@@ -417,3 +436,130 @@ def test_kit_review_retains_exact_signature_wrapper_and_threshold(
             assert owner.read()["copies"] == []
     finally:
         owner.close()
+
+
+def test_newer_observed_tuf_floor_cannot_be_bypassed_by_a_retained_review(
+    tmp_path, monkeypatch
+):
+    catalog, repo, _data = accepted_catalog(tmp_path)
+    owner = LocalOwner(tmp_path / "owner", catalog=catalog)
+    try:
+        selection = {
+            "kind": "receive",
+            "catalog_id": digest(repo.target),
+            "card_id": repo.card.card_id,
+        }
+        reviewed = owner.control("plan", selection)
+        assert reviewed["historical"] is False
+        repo.timestamp.signed.version += 1
+        for signer in repo.signers:
+            repo.timestamp.sign(signer, append=True)
+        with directory(catalog.cache / "metadata", create=True) as root:
+            atomic_bytes(root, "timestamp.json", repo.timestamp.to_bytes())
+        called = []
+        monkeypatch.setattr(
+            "foxlight_model_preservation.local_host.owner.download_file",
+            lambda *args, **kwargs: called.append(True),
+        )
+        result = finish(owner, submit(owner, reviewed))
+        assert result["state"] == "failed"
+        assert called == []
+        assert owner.control("plan", selection)["historical"] is True
+        assert catalog.search()["total"] == 1
+    finally:
+        owner.close()
+
+
+def test_transfer_slots_can_be_released_without_deleting_saved_data(tmp_path):
+    owner = LocalOwner(tmp_path / "owner")
+    original = tmp_path / "original.foxkit"
+    original.write_bytes(b"An invalid kit, retained by its operator.")
+    try:
+        uploads = [owner.control("upload-create", {"size_bytes": 64}) for _ in range(8)]
+        owner.upload(uploads[0]["upload_id"], 0, original.read_bytes())
+        with pytest.raises(PreservationError):
+            owner.control(
+                "plan", {"kind": "kit_import", "upload_id": uploads[0]["upload_id"]}
+            )
+        with pytest.raises(PreservationError, match="remove_unused_kit_uploads"):
+            owner.control("upload-create", {"size_bytes": 64})
+        # An interrupted allocation can leave its owned metadata before its data file.
+        (owner.home / "uploads" / uploads[1]["upload_id"]).unlink()
+        assert len(owner.read()["uploads"]) == 8
+        for item in uploads[:2]:
+            owner.control("upload-remove", {"upload_id": item["upload_id"]})
+        assert len(owner.read()["uploads"]) == 6
+        owner.control("upload-create", {"size_bytes": 64})
+        assert len(owner.read()["uploads"]) == 7
+        assert original.read_bytes() == b"An invalid kit, retained by its operator."
+    finally:
+        owner.close()
+
+
+def test_retained_history_does_not_exhaust_queue_and_preserves_idempotency(
+    tmp_path, monkeypatch
+):
+    home = tmp_path / "owner"
+    calls = []
+    owner = LocalOwner(home)
+    monkeypatch.setattr(owner.catalog, "refresh", lambda **kwargs: calls.append(True))
+    first = None
+    try:
+        for index in range(270):
+            receipt = owner.control("refresh", {})
+            completed = finish(owner, receipt)
+            assert completed["state"] == "succeeded"
+            if index == 0:
+                first = completed
+        assert len(calls) == 270
+        receipts, offset = [], 0
+        while True:
+            page = owner.read(offset)
+            receipts.extend(page["jobs"])
+            if page["next_offset"] is None:
+                break
+            offset = page["next_offset"]
+        assert len(receipts) == len({item["job_id"] for item in receipts}) == 270
+        assert receipts[0]["created_at"] >= receipts[-1]["created_at"]
+        assert first in receipts
+    finally:
+        owner.close()
+    restarted = LocalOwner(home)
+    monkeypatch.setattr(
+        restarted.catalog,
+        "refresh",
+        lambda **kwargs: pytest.fail("replayed archived job"),
+    )
+    try:
+        replay = restarted.control(
+            "start",
+            {
+                "plan_id": first["plan_id"],
+                "operation_id": first["operation_id"],
+                "confirmed": True,
+            },
+        )
+        assert replay["job_id"] == first["job_id"]
+        assert replay["state"] == "succeeded"
+        # An archived binding must match the full request, not just its filename.
+        record = (
+            home
+            / "history/operations"
+            / (digest(first["operation_id"].encode()) + ".json")
+        )
+        from foxlight_model_preservation.signing import strict_json
+
+        changed = strict_json(record.read_bytes())
+        changed["operation_id"] = "changed-operation-identity"
+        record.write_bytes(identity_json(changed))
+        with pytest.raises(PreservationError, match="request_changed"):
+            restarted.control(
+                "start",
+                {
+                    "plan_id": first["plan_id"],
+                    "operation_id": first["operation_id"],
+                    "confirmed": True,
+                },
+            )
+    finally:
+        restarted.close()

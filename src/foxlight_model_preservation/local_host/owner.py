@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import stat
 import threading
 import time
 import uuid
@@ -27,7 +28,6 @@ from ..models import Manifest, PreservationError, Record, TrustProfile
 from ..operations import OperationControl, failure_code
 from ..pmf import restore_pmf
 from ..pmf_preservation import import_preservation
-from ..registry_proof import verify_registry_proof
 from ..signing import (
     create_key,
     digest,
@@ -144,10 +144,29 @@ class LocalOwner:
         self._closed = True
         self._stack.close()
 
-    def read(self) -> dict[str, JsonValue]:
+    def read(self, offset: int = 0) -> dict[str, JsonValue]:
         """Read safe receipts and public capture keys; no signing material or paths."""
         with self._lock:
             self._check()
+            if not 0 <= offset <= 2**31:
+                raise PreservationError("invalid_page")
+            recent = sorted(
+                self._journal.jobs, key=lambda job: job.created_at, reverse=True
+            )
+            history = self._history_names()
+            selected = recent[offset : offset + 48]
+            if len(selected) < 48:
+                start = max(0, offset - len(recent))
+                with directory(self.home / "history/receipts", create=True) as archived:
+                    selected.extend(
+                        Job.model_validate_json(read_metadata(archived, name))
+                        for name in history[start : start + 48 - len(selected)]
+                    )
+            uploads: list[JsonValue] = []
+            with directory(self.home / "uploads", create=True) as source:
+                for name in sorted(os.listdir(source)):
+                    if re.fullmatch(r"[0-9a-f]{32}\.json", name):
+                        uploads.append(self._upload(name[:-5]))
             return {
                 "host_kind": "sovereign",
                 "locations": [],
@@ -164,11 +183,75 @@ class LocalOwner:
                         if item.job_id in self._controls
                         else 0,
                     }
-                    for item in self._journal.jobs[-48:]
+                    for item in selected
                 ],
-                "next_offset": None,
+                "uploads": uploads,
+                "active_count": len(self._controls),
+                "next_offset": offset + 48
+                if offset + 48 < len(recent) + len(history)
+                else None,
                 "storage_label": "Sovereign on this device",
             }
+
+    def _history_names(self) -> list[str]:
+        current = {job.job_id for job in self._journal.jobs}
+        with directory(self.home / "history/receipts", create=True) as root:
+            return sorted(
+                (
+                    name
+                    for name in os.listdir(root)
+                    if re.fullmatch(r"[0-9]{20}-[0-9a-f]{64}\.json", name)
+                    and name[21:85] not in current
+                ),
+                reverse=True,
+            )
+
+    def _job(self, identifier: str) -> Job:
+        if not re.fullmatch(r"[0-9a-f]{64}", identifier):
+            raise PreservationError("invalid_job_identity")
+        for job in self._journal.jobs:
+            if job.job_id == identifier:
+                return job
+        with directory(self.home / "history/receipts", create=True) as root:
+            for name in os.listdir(root):
+                if re.fullmatch(r"[0-9]{20}-" + identifier + r"\.json", name):
+                    result = Job.model_validate_json(read_metadata(root, name))
+                    if result.job_id != identifier:
+                        raise PreservationError("invalid_job_identity")
+                    return result
+        raise PreservationError("job_unavailable")
+
+    def _archive_history(self) -> None:
+        if len(self._journal.jobs) < 256:
+            return
+        moved = tuple(
+            job
+            for job in self._journal.jobs
+            if job.state not in {"queued", "running"}
+            and job.job_id not in self._controls
+        )[:128]
+        if not moved:
+            raise PreservationError("sovereign_job_capacity_reached")
+        for job in moved:
+            stamp = str(int(job.created_at * 1_000_000)).zfill(20)
+            atomic_bytes(
+                self._root,
+                "history/receipts/" + stamp + "-" + job.job_id + ".json",
+                encode_record(job),
+            )
+            atomic_bytes(
+                self._root,
+                "history/operations/" + digest(job.operation_id.encode()) + ".json",
+                encode_record(job),
+            )
+        identities = {job.job_id for job in moved}
+        self._journal = self._journal.model_copy(
+            update={
+                "jobs": tuple(
+                    job for job in self._journal.jobs if job.job_id not in identities
+                )
+            }
+        )
 
     def _copy(self, identifier: str) -> Copy:
         return (
@@ -231,9 +314,7 @@ class LocalOwner:
                     recipe = registry_recipe(card, proof)
                     # An offline snapshot never silently acquires freshness.
                     try:
-                        verify_registry_proof(
-                            encode_record(proof), self.catalog.anchor, card.card_id
-                        )
+                        self.catalog.verify_current(proof, card.card_id)
                         historical = False
                     except PreservationError:
                         historical = True
@@ -324,19 +405,48 @@ class LocalOwner:
                 if control:
                     control.cancel()
                 return {"stop_requested": control is not None}
+            if action == "upload-remove" and set(body) == {"upload_id"}:
+                identifier = str(body["upload_id"])
+                self._upload(identifier)
+                for job in self._journal.jobs:
+                    if job.kind == "kit_import" and job.state in {"queued", "running"}:
+                        plan = strict_json(
+                            read_metadata(self._root, "plans/" + job.plan_id + ".json")
+                        )
+                        if (
+                            not isinstance(plan, dict)
+                            or plan.get("upload_id") == identifier
+                        ):
+                            raise PreservationError("kit_upload_in_use")
+                with directory(self.home / "uploads") as root:
+                    names = [
+                        name
+                        for name in (identifier, identifier + ".json")
+                        if self._exists_regular(root, name)
+                    ]
+                    for name in names:
+                        os.unlink(name, dir_fd=root)
+                    os.fsync(root)
+                return {"removed": True}
             if action == "upload-create" and set(body) == {"size_bytes"}:
                 size = body["size_bytes"]
                 if type(size) is not int or not 0 < size <= 2**50:
                     raise PreservationError("invalid_control")
                 uploads = self.home / "uploads"
                 with directory(uploads, create=True) as root:
-                    if len(os.listdir(root)) >= 16:
+                    if (
+                        sum(
+                            bool(re.fullmatch(r"[0-9a-f]{32}\.json", name))
+                            for name in os.listdir(root)
+                        )
+                        >= 8
+                    ):
                         raise PreservationError("remove_unused_kit_uploads")
                     name = uuid.uuid4().hex
-                    atomic_bytes(root, name, b"")
                     atomic_bytes(
                         root, name + ".json", identity_json({"size_bytes": size})
                     )
+                    atomic_bytes(root, name, b"")
                 return {
                     "upload_id": name,
                     "size_bytes": size,
@@ -344,6 +454,16 @@ class LocalOwner:
                     "complete": False,
                 }
             raise PreservationError("sovereign_operation_unavailable")
+
+    @staticmethod
+    def _exists_regular(root: int, name: str) -> bool:
+        try:
+            value = os.stat(name, dir_fd=root, follow_symlinks=False)
+        except FileNotFoundError:
+            return False
+        if not stat.S_ISREG(value.st_mode):
+            raise PreservationError("unsafe_upload_transfer")
+        return True
 
     def _upload(self, identifier: str) -> dict[str, JsonValue]:
         if not re.fullmatch(r"[0-9a-f]{32}", identifier):
@@ -354,8 +474,11 @@ class LocalOwner:
             meta = strict_json(read_metadata(root, identifier + ".json"))
             if not isinstance(meta, dict):
                 raise PreservationError("invalid_upload")
-            with open_file(root, identifier) as stream:
-                offset = os.fstat(stream.fileno()).st_size
+            try:
+                with open_file(root, identifier) as stream:
+                    offset = os.fstat(stream.fileno()).st_size
+            except FileNotFoundError:
+                offset = 0
         return {
             "upload_id": identifier,
             "size_bytes": meta["size_bytes"],
@@ -398,14 +521,36 @@ class LocalOwner:
             (job for job in self._journal.jobs if job.operation_id == operation_id),
             None,
         )
+        if previous is None:
+            try:
+                previous = Job.model_validate_json(
+                    read_metadata(
+                        self._root,
+                        "history/operations/" + digest(operation_id.encode()) + ".json",
+                    )
+                )
+            except FileNotFoundError:
+                pass
         if previous:
-            if previous.plan_id != plan_id:
+            if previous.operation_id != operation_id or previous.plan_id != plan_id:
                 raise PreservationError("request_changed")
             return previous.model_dump(mode="json")
         if cast(int, plan["expires_at"]) <= time.time():
             raise PreservationError("plan_missing_or_expired")
-        if len(self._journal.jobs) >= 256 or len(self._controls) >= 4:
+        if len(self._controls) >= 4:
             raise PreservationError("sovereign_job_capacity_reached")
+        if (
+            plan["kind"] in {"receive", "kit_import"}
+            and len(self._journal.copies)
+            + sum(
+                job.kind in {"receive", "kit_import"}
+                and job.state in {"queued", "running"}
+                for job in self._journal.jobs
+            )
+            >= 256
+        ):
+            raise PreservationError("sovereign_library_capacity_reached")
+        self._archive_history()
         job = Job(
             job_id=digest(
                 identity_json({"operation_id": operation_id, "plan_id": plan_id})
@@ -493,10 +638,18 @@ class LocalOwner:
                 job = self._update(job, output=str(output))
             self._update(job, state="succeeded")
         except Exception as error:
+            code = failure_code(error)
+            if isinstance(error, PreservationError) and str(error) in {
+                "insufficient_space",
+                "selected_kit_envelope_changed",
+                "sovereign_capture_trust_missing",
+                "plan_changed",
+            }:
+                code = str(error)
             self._update(
                 job,
                 state="cancelled" if failure_code(error) == "cancelled" else "failed",
-                error_code=failure_code(error),
+                error_code=code,
             )
         finally:
             with self._lock:
@@ -527,9 +680,7 @@ class LocalOwner:
         if recipe.model_dump(mode="json") != plan["recipe"]:
             raise PreservationError("plan_changed")
         if not plan["historical"]:
-            verify_registry_proof(
-                encode_record(proof), self.catalog.anchor, card.card_id
-            )
+            self.catalog.verify_current(proof, card.card_id)
         selected_bytes = cast(int, plan["size_bytes"])
         if shutil.disk_usage(self.home).free < selected_bytes * 4 + 32 * 1024**2:
             raise PreservationError("insufficient_space")
@@ -687,14 +838,10 @@ class LocalOwner:
 
     def open_kit(self, job_id: str) -> BinaryIO:
         """Open an exact successful kit export; callers never supply a path."""
-        import stat
-
         with self._lock:
             self._check()
-            job = next(
-                (item for item in self._journal.jobs if item.job_id == job_id), None
-            )
-            if job is None or job.kind != "kit_export" or job.state != "succeeded":
+            job = self._job(job_id)
+            if job.kind != "kit_export" or job.state != "succeeded":
                 raise PreservationError("kit_not_ready")
             descriptor = os.open(
                 self.home / "kits" / (job_id + ".foxkit"),
@@ -709,10 +856,8 @@ class LocalOwner:
         """Resolve only a successful own-job restore, for an explicit reveal action."""
         with self._lock:
             self._check()
-            job = next(
-                (item for item in self._journal.jobs if item.job_id == job_id), None
-            )
-            if job is None or job.kind != "restore" or job.state != "succeeded":
+            job = self._job(job_id)
+            if job.kind != "restore" or job.state != "succeeded":
                 raise PreservationError("restore_not_ready")
             output = self.home / "restored" / job_id
             with directory(output):
