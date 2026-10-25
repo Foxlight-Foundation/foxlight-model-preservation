@@ -53,6 +53,13 @@ GROUPS: dict[str, tuple[tuple[str, str], ...]] = {
         ("/preservation/mirror/jobs/{job_id}", "get"),
         ("/preservation/mirror/jobs/{job_id}", "delete"),
     ),
+    "Retained recovery": (
+        ("/preservation/mirror/models/{manifest_id}", "get"),
+        ("/preservation/mirror/models/{manifest_id}/review", "get"),
+        ("/preservation/mirror/kits/{job_id}", "get"),
+        ("/preservation/mirror/kits/{job_id}", "head"),
+        ("/preservation/mirror/kits/{job_id}", "delete"),
+    ),
     "Publishing and receiving": (
         ("/preservation/setup/publisher", "post"),
         ("/preservation/jobs/{job_id}/invitation", "get"),
@@ -199,9 +206,44 @@ async def check_core(client: CoreClient) -> dict[str, bool]:
             "activity",
         },
     }
+    recovery_fields = {
+        "MirrorSelection": {
+            "schema_version",
+            "manifest_id",
+            "configured",
+            "available",
+            "policy_id",
+            "model",
+        },
+        "MirrorReview": {
+            "schema_version",
+            "manifest_id",
+            "archive_format",
+            "name",
+            "size_bytes",
+            "workloads",
+            "runtime_requirements",
+            "members",
+            "capture_key_ids",
+            "capture_threshold",
+        },
+        "MirrorModel": {
+            "manifest_id",
+            "state",
+            "pinned",
+            "blocked",
+            "name",
+            "member_count",
+            "size_bytes",
+        },
+        "MirrorKit": {"state", "manifest_id", "size_bytes", "sha256"},
+        "MirrorKitRemoval": {"confirm_job_id"},
+        "MirrorJob": {"kit", "kit_removed"},
+    }
     for group, required in (
         ("Public copy review", review_fields),
         ("Persistent mirrors", mirror_fields),
+        ("Retained recovery", recovery_fields),
     ):
         supported = report[group]
         for name, fields in required.items():
@@ -215,6 +257,12 @@ async def check_core(client: CoreClient) -> dict[str, bool]:
         report[group] = supported
     for group, name, expected in (
         ("Persistent mirrors", "MirrorPage", "skulk.preservation-mirror.v1"),
+        (
+            "Retained recovery",
+            "MirrorSelection",
+            "skulk.preservation-mirror-selection.v1",
+        ),
+        ("Retained recovery", "MirrorReview", "skulk.preservation-mirror-review.v1"),
         (
             "Public copy review",
             "PublicCopyReview",
@@ -231,4 +279,17 @@ async def check_core(client: CoreClient) -> dict[str, bool]:
             and isinstance(version, dict)
             and version.get("const") == expected
         )
+    request_schema = schemas.get("MirrorRequest") if isinstance(schemas, dict) else None
+    properties = (
+        request_schema.get("properties") if isinstance(request_schema, dict) else None
+    )
+    kind = properties.get("kind") if isinstance(properties, dict) else None
+    kinds = kind.get("enum") if isinstance(kind, dict) else None
+    report["Retained recovery"] = (
+        report["Retained recovery"]
+        and report["Persistent mirrors"]
+        and report["Public copy review"]
+        and isinstance(kinds, list)
+        and "prepare_kit" in kinds
+    )
     return report

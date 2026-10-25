@@ -4,6 +4,28 @@ Skulk Library is versioned separately from the portable core. Releases are
 tagged `library-v*`; versions without a tag are source previews installed from
 `main` (see [README](README.md)).
 
+## 0.14.0
+
+- Recover retained mirror copies from Library, including first launch and loss of
+  the original import or copy receipt. Review complete signed member metadata.
+- Prepare a separate recovery kit as a durable host job, reopen its outcome,
+  and stream the exact sealed file with HEAD/range/If-Range support.
+- Keep preparation separate from sharing. Retry the same explicit preparation
+  after a lost response without creating another kit; preparing another kit
+  requires another operator decision.
+- Confirm removal of one preparation's kit files separately from retained-model
+  removal. No automatic cleanup, eviction or new trust grant is introduced.
+- Keep earlier preparations accessible for their own download and cleanup after
+  another preparation, including failed replacements, pagination and loss of
+  the original import or retained-model metadata.
+- Require the existing blocked, unpinned and stopped model state before offering
+  mirror-copy removal, and explain the separate blocking step before deletion.
+- Look up the exact retained identity before reintake, including removed records
+  beyond the displayed page. Negotiate the new recovery contract separately;
+  older hosts retain existing sharing and Stop controls.
+- Pin integrated Core `246fe15cc8702ba7037bb967db6cf80675bc1ea5`. The GUI still
+  needs compatible Core; standalone preservation does not require Skulk.
+
 ## 0.13.0
 
 - Manage separate retained public copies from Sharing: explicit resource settings,

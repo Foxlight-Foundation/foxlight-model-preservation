@@ -1,6 +1,7 @@
 import {useEffect, useRef, useState} from 'react';
 import {api, bytes, errorText, type Copy, type PublicationMember} from './client';
 import {PeerAccess, type PeerGrant} from './peer';
+import {MirrorKitReceipt, RetainedRecovery, type RetainedModel} from './retained-recovery';
 import {Callout, Consent, Details, Icon, Label, Menu, Mono, Pill, Progress, Row, Sheet, Step, ago} from './ui';
 
 interface MirrorConfiguration {
@@ -9,10 +10,7 @@ interface MirrorConfiguration {
   ipfs:boolean; torrent:boolean; peer_setup_id:string|null; max_active:number;
   session_seconds:number; session_bytes:number; upload_rate:number;
 }
-interface MirrorModel {
-  manifest_id:string; state:'pending'|'retained'|'removed'; pinned:boolean;
-  blocked:boolean; error_code:string|null;
-}
+type MirrorModel=RetainedModel;
 interface MirrorActivity {running:boolean; http_port:number|null; native_workers:number}
 interface MirrorPage {
   schema_version:'skulk.preservation-mirror.v1'; configured:boolean; available:boolean;
@@ -42,11 +40,13 @@ type MirrorDecision =
   | {kind:'prune'; policy_id:string; manifest_id:string; confirm_delete_manifest:string};
 type Dialog =
   | {kind:'configure'; policy_id:string|null; configuration:MirrorConfiguration|null}
+  | {kind:'recovery'; policy_id:string; model:MirrorModel}
+  | {kind:'kit'; job_id:string}
   | {kind:'retain'; policy_id:string; copy:Copy; removed:boolean}
   | {kind:'run'|'grant_resume'|'revoke_resume'; policy_id:string; configuration:MirrorConfiguration; expires:number|null}
   | {kind:'model'|'prune'; policy_id:string; model:MirrorModel; name:string; action?:ModelAction};
 const active=(job:MirrorJob)=>['queued','running','cancelling'].includes(job.state);
-const titles:Record<string,string>={configure:'Save mirror settings',retain:'Keep public copy',run:'Share retained copies',grant_resume:'Allow sharing after restart',revoke_resume:'Remove restart permission',model:'Change retained selection',prune:'Remove mirror copy'};
+const titles:Record<string,string>={configure:'Save mirror settings',retain:'Keep public copy',run:'Share retained copies',grant_resume:'Allow sharing after restart',revoke_resume:'Remove restart permission',model:'Change retained selection',prune:'Remove mirror copy',prepare_kit:'Prepare recovery kit'};
 const gibibyte=1024**3;
 
 /** Durable sharing controls; opening, polling and saving settings stay offline. */
@@ -54,8 +54,10 @@ export function PersistentMirrors({copies,features,blocked,onOverlayChange,bitto
   const [page,setPage]=useState<MirrorPage|null>(null),[history,setHistory]=useState<MirrorHistory|null>(null);
   const [offset,setOffset]=useState(0),[historyOffset,setHistoryOffset]=useState(0),[revision,setRevision]=useState(0);
   const [dialog,setDialog]=useState<Dialog|null>(null),[submitting,setSubmitting]=useState(false),[stopping,setStopping]=useState<Set<string>>(()=>new Set()),[error,setError]=useState(''),[readError,setReadError]=useState('');
+  const [checking,setChecking]=useState<string|null>(null);
   const live=useRef(true),pending=useRef<{key:string;id:string}|null>(null),overlay=useRef(onOverlayChange);overlay.current=onOverlayChange;
   const supported=features?.['Persistent mirrors']===true;
+  const recoverySupported=features?.['Retained recovery']===true;
   useEffect(()=>{live.current=true;return()=>{live.current=false;};},[]);
   useEffect(()=>{overlay.current(Boolean(dialog));return()=>overlay.current(false);},[Boolean(dialog)]);
   useEffect(()=>{
@@ -99,7 +101,19 @@ export function PersistentMirrors({copies,features,blocked,onOverlayChange,bitto
   const controller=page?.controller_job_id??null;
   const working=Boolean(controller)||Boolean(history?.jobs.some(active));
   const configuration=page?.configuration??null,policy=page?.policy_id??null;
-  const name=(identity:string)=>copies.find(copy=>copy.manifest_id===identity)?.model_id??`Retained model ${identity.slice(0,12)}`;
+  const name=(identity:string)=>page?.models.find(model=>model.manifest_id===identity)?.name||copies.find(copy=>copy.manifest_id===identity)?.model_id||`Retained model ${identity.slice(0,12)}`;
+  async function reviewIntake(copy:Copy){
+    if(!policy)return;
+    setChecking(copy.copy_id);setError('');
+    try{
+      const exact=await api<{manifest_id:string;configured:boolean;available:boolean;policy_id:string|null;model:MirrorModel|null}>('mirror-selection',{manifest_id:copy.manifest_id});
+      if(!exact.available||!exact.configured)throw new Error('mirror_selection_unavailable');
+      if(exact.policy_id!==policy)throw new Error('mirror_policy_changed');
+      if(exact.model&&exact.model.state!=='removed')throw new Error('mirror_selection_already_kept');
+      if(live.current)open({kind:'retain',policy_id:policy,copy,removed:exact.model?.state==='removed'});
+    }catch(reason){if(live.current)setError(reason instanceof Error?reason.message:'host_unavailable');}
+    finally{if(live.current)setChecking(null);}
+  }
   function open(next:Dialog){setError('');setDialog(next);}
   if(features===null)return null;
   if(!supported)return <section aria-labelledby="persistent-mirrors-title"><h2 id="persistent-mirrors-title">Keep models available</h2><p className="sk-hint">Update the preservation host to manage a persistent mirror here. Existing finite sessions remain above.</p></section>;
@@ -130,20 +144,23 @@ export function PersistentMirrors({copies,features,blocked,onOverlayChange,bitto
             {label:model.pinned?'Unpin mirror copy':'Pin mirror copy',icon:'lock',disabled:working,onSelect:()=>{if(policy)open({kind:'model',policy_id:policy,model,name:name(model.manifest_id),action:model.pinned?'unpin':'pin'});}},
             {label:model.blocked?'Allow future serving':'Block future serving',icon:'pause',disabled:working,onSelect:()=>{if(policy)open({kind:'model',policy_id:policy,model,name:name(model.manifest_id),action:model.blocked?'unblock':'block'});}},
             ...(model.state==='pending'?[{label:'Retry retained intake',icon:'refresh',disabled:working,onSelect:()=>{if(policy)open({kind:'model',policy_id:policy,model,name:name(model.manifest_id),action:'retry'});}}]:[]),
-            {label:'Remove mirror copy',icon:'trash',disabled:working||model.pinned,onSelect:()=>{if(policy)open({kind:'prune',policy_id:policy,model,name:name(model.manifest_id)});}},
+            {label:'Remove mirror copy',icon:'trash',disabled:working||model.pinned||!model.blocked,onSelect:()=>{if(policy)open({kind:'prune',policy_id:policy,model,name:name(model.manifest_id)});}},
           ]}/></div>
           {model.error_code&&<Callout tone="warn">{errorText(model.error_code)}</Callout>}
+          {model.state!=='removed'&&!model.blocked&&<p className="sk-hint">Block future serving before removing this mirror copy. Blocking keeps its files; removal still needs your separate confirmation.</p>}
+          {model.state==='retained'&&recoverySupported&&<button className="sk-btn sk-outline" disabled={!page.available||!policy} onClick={()=>{if(policy)open({kind:'recovery',policy_id:policy,model});}}><Icon name="download"/>Save recovery kit</button>}
           <Details summary="Exact retained identity"><Mono value={model.manifest_id} label="retained manifest identity"/><p>Source changes and stopping sharing do not delete this selection. Removed identities stay recorded; returning one requires a new explicit intake.</p></Details>
         </article>)}</div>
         <div className="sk-actions">{offset>0&&<button className="sk-btn sk-quiet" onClick={()=>setOffset(0)}>First retained selections</button>}{page.next_offset!==null&&<button className="sk-btn sk-quiet" onClick={()=>setOffset(page.next_offset!)}>Next retained selections</button>}</div>
         <Details summary="Keep another public copy">
+          {!recoverySupported&&<Callout>Update the preservation host for exact retained-selection lookup and recovery kits. Existing sharing and Stop controls remain available.</Callout>}
           {!features?.['Public copy review']&&<Callout>Update the preservation host to review every member’s signed terms before retaining a new copy. Existing Stop controls remain available.</Callout>}
           {copies.length===0&&<p>Publish, receive or import a public copy first. Private captures require a separate public publication review.</p>}
-          {copies.map(copy=>{const held=page.models.find(model=>model.manifest_id===copy.manifest_id);return <div className="sk-row" key={copy.copy_id}><span>{copy.model_id}<small className="sk-meta"> · {bytes(copy.size_bytes)} · {copy.member_count} members</small></span><button className="sk-btn sk-outline sk-sm" disabled={!policy||!page.available||working||!features?.['Public copy review']||held?.state==='retained'||held?.state==='pending'} onClick={()=>{if(policy)open({kind:'retain',policy_id:policy,copy,removed:held?.state==='removed'});}}>{held?.state==='retained'?'Kept here':held?.state==='pending'?'Intake pending':'Keep available'}</button></div>;})}
+          {copies.map(copy=>{const held=page.models.find(model=>model.manifest_id===copy.manifest_id);return <div className="sk-row" key={copy.copy_id}><span>{copy.model_id}<small className="sk-meta"> · {bytes(copy.size_bytes)} · {copy.member_count} members</small></span><button className="sk-btn sk-outline sk-sm" disabled={!policy||!page.available||working||Boolean(checking)||!recoverySupported||!features?.['Public copy review']||held?.state==='retained'||held?.state==='pending'} onClick={()=>void reviewIntake(copy)}>{checking===copy.copy_id?'Checking retained identity…':held?.state==='retained'?'Kept here':held?.state==='pending'?'Intake pending':'Keep available'}</button></div>;})}
         </Details>
         <Details summary="Mirror activity and decisions">
           <p>Jobs belong to the host and continue when this page closes. These receipts report local work, not community replicas or anonymous access.</p>
-          {history?.jobs.map(job=><article className="sk-card" key={job.job_id}><Row k={titles[job.kind]??job.kind}><Pill tone={job.state==='succeeded'?'ok':job.state==='failed'?'bad':active(job)?'live':'muted'}>{job.state}</Pill></Row><p className="sk-meta">{ago(job.updated_at)}</p>{active(job)&&<Progress label="Owned mirror work"/>}{(job.bytes_hashed>0||job.bytes_copied>0)&&<p className="sk-hint">Checked {bytes(job.bytes_hashed)} · copied {bytes(job.bytes_copied)}</p>}{job.error_code&&<Callout tone="warn">{errorText(job.error_code)}</Callout>}{(active(job)||job.state==='failed')&&<button className="sk-btn sk-outline" disabled={stopping.has(job.job_id)} onClick={()=>void stop(job.job_id)}><Icon name="stop"/>{stopping.has(job.job_id)?'Stopping…':active(job)?'Stop this operation':'Confirm this operation is stopped'}</button>}<Details summary="Receipt identity"><Mono value={job.job_id} label="mirror job identity"/></Details></article>)}
+          {history?.jobs.map(job=><article className="sk-card" key={job.job_id} aria-label={`Mirror decision ${job.job_id}`}><Row k={titles[job.kind]??job.kind}><Pill tone={job.state==='succeeded'?'ok':job.state==='failed'?'bad':active(job)?'live':'muted'}>{job.state}</Pill></Row><p className="sk-meta">{ago(job.updated_at)}</p>{active(job)&&<Progress label="Owned mirror work"/>}{(job.bytes_hashed>0||job.bytes_copied>0)&&<p className="sk-hint">Checked {bytes(job.bytes_hashed)} · copied {bytes(job.bytes_copied)}</p>}{job.error_code&&<Callout tone="warn">{errorText(job.error_code)}</Callout>}{(active(job)||job.state==='failed')&&<button className="sk-btn sk-outline" disabled={stopping.has(job.job_id)} onClick={()=>void stop(job.job_id)}><Icon name="stop"/>{stopping.has(job.job_id)?'Stopping…':active(job)?'Stop this operation':'Confirm this operation is stopped'}</button>}{job.kind==='prepare_kit'&&recoverySupported&&<button className="sk-btn sk-outline" onClick={()=>open({kind:'kit',job_id:job.job_id})}>Recovery kit actions</button>}<Details summary="Receipt identity"><Mono value={job.job_id} label="mirror job identity"/></Details></article>)}
           {historyOffset>0&&<button className="sk-btn sk-quiet" onClick={()=>setHistoryOffset(0)}>Latest decisions</button>}{history?.next_offset!==null&&history?.next_offset!==undefined&&<button className="sk-btn sk-quiet" onClick={()=>setHistoryOffset(history.next_offset!)}>Older decisions</button>}
         </Details>
       </>}
@@ -154,6 +171,8 @@ export function PersistentMirrors({copies,features,blocked,onOverlayChange,bitto
 
 /** Each sheet freezes its reviewed policy and keeps retry inputs unchanged. */
 function MirrorDialog({selection,busy,error,onClose,onSubmit,bittorrentAvailable}:{selection:Dialog;busy:boolean;error:string;onClose:()=>void;onSubmit:(decision:MirrorDecision)=>Promise<void>;bittorrentAvailable:boolean}) {
+  if(selection.kind==='recovery')return <RetainedRecovery model={selection.model} policyId={selection.policy_id} onClose={onClose}/>;
+  if(selection.kind==='kit')return <MirrorKitReceipt jobId={selection.job_id} onClose={onClose}/>;
   if(selection.kind==='configure')return <MirrorSettings selection={selection} busy={busy} error={error} onClose={onClose} onSubmit={onSubmit} bittorrentAvailable={bittorrentAvailable}/>;
   if(selection.kind==='retain')return <RetainReview selection={selection} busy={busy} error={error} onClose={onClose} onSubmit={onSubmit}/>;
   return <MirrorDecisionSheet selection={selection} busy={busy} error={error} onClose={onClose} onSubmit={onSubmit}/>;
@@ -220,7 +239,7 @@ function MirrorDecisionSheet({selection,busy,error,onClose,onSubmit}:{selection:
   const validPermission=Number.isFinite(permissionHours)&&permissionHours>0&&permissionHours<=24&&Number.isInteger(permissionHours*3600);
   const isModel=selection.kind==='model'||selection.kind==='prune';
   const label=selection.kind==='prune'?'Remove mirror copy':selection.kind==='model'?({pin:'Pin mirror copy',unpin:'Unpin mirror copy',block:'Block future serving',unblock:'Allow future serving',retry:'Retry retained intake'}[selection.action??'retry']):titles[selection.kind];
-  const valid=confirmed&&(selection.kind!=='run'||validHours)&&(selection.kind!=='grant_resume'||validPermission)&&(selection.kind!=='model'||Boolean(selection.action));
+  const valid=confirmed&&(selection.kind!=='run'||validHours)&&(selection.kind!=='grant_resume'||validPermission)&&(selection.kind!=='model'||Boolean(selection.action))&&(selection.kind!=='prune'||(selection.model.blocked&&!selection.model.pinned));
   function decide(){
     if(!valid)return;
     if(selection.kind==='run')void onSubmit({kind:'run',policy_id:selection.policy_id,public_participation:true,mode:standing?'resume':'finite',seconds:Math.round(hours*3600)});
@@ -234,7 +253,7 @@ function MirrorDecisionSheet({selection,busy,error,onClose,onSubmit}:{selection:
     {selection.kind==='grant_resume'&&<><p>Permit a separately started mirror to resume after the host restarts. This permission alone starts no network or sharing.</p><label className="sk-field"><span>Permission duration (hours)</span><input className="sk-input" type="number" min={1/3600} max={24} step="any" value={permissionHours} disabled={busy} onChange={event=>setPermissionHours(Number(event.target.value))}/></label><p>Permission expires {new Date((opened+Math.round(permissionHours*3600))*1000).toLocaleString()}. Policy changes and new intake require fresh review.</p></>}
     {selection.kind==='revoke_resume'&&<p>Remove saved restart permission. Retained models remain. Use Stop to withdraw current serving and clear running intent.</p>}
     {isModel&&<Details summary="Exact selected model"><Mono value={selection.model.manifest_id} label="selected retained manifest"/></Details>}
-    {selection.kind==='prune'&&<Callout tone="warn">Delete this mirror’s retained bytes for this exact selection. Library copies, recipient copies and verification history remain. A pinned copy must be unpinned first; running sharing must be stopped.</Callout>}
+    {selection.kind==='prune'&&<Callout tone="warn">Delete this mirror’s retained bytes for this exact selection. Library copies, recipient copies and verification history remain. Block future serving, unpin the copy and stop running sharing before removal.</Callout>}
     {selection.kind==='model'&&<p>{selection.action==='retry'?'Try the same retained selection again under its unchanged intake and transfer allowance. No new source or trust is accepted.':selection.action==='pin'?'Protect this mirror copy from explicit removal.':selection.action==='unpin'?'Remove deletion protection. This does not delete any bytes.':selection.action==='block'?'Block this model from future serving. Retained bytes stay here.':'Allow future serving of this retained selection under the reviewed mirror policy. This starts no sharing.'}</p>}
     <Consent checked={confirmed} disabled={busy} onChange={setConfirmed}>{selection.kind==='run'?'Allow this mirror to serve these retained public copies with the reviewed exposure and limits.':selection.kind==='grant_resume'?'Allow this exact policy to resume sharing after restart until the selected expiry.':selection.kind==='prune'?'Delete only this exact retained mirror copy.':`Confirm: ${label.toLowerCase()}.`}</Consent>
     {error&&<Callout tone="bad" role="alert">{errorText(error)}</Callout>}

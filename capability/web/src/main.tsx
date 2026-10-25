@@ -8,6 +8,7 @@ import {Publish,Receive,DeliveryReview} from './delivery';
 import {Storage} from './storage';
 import {Find} from './discovery';
 import {useI2PAvailability} from './i2p';
+import {RetainedLibrary} from './retained-recovery';
 import {TemporaryJobs,TemporaryFilesReview,type TemporaryWork} from './maintenance';
 import {Callout,Empty,Icon,Label,Menu,Monogram,PageBanner,Pill,Progress,SheetHost,SkulkMark,ago,initials,readTheme,useTheme,type IconName,type Tone} from './ui';
 
@@ -45,6 +46,7 @@ function App() {
   const [error,setError] = useState('');
   const [loadError,setLoadError] = useState('');
   const [notice,setNotice] = useState('');
+  const [retainedOverlay,setRetainedOverlay] = useState(false);
   const [offset,setOffset] = useState(0);
   const [theme,toggleTheme] = useTheme();
   const lastRead = useRef(0);
@@ -111,8 +113,7 @@ function App() {
       <PageBanner/>
       {!page ? <div className="sk-loading" aria-busy={!(error||loadError)}><SkulkMark size={40}/><p>{(error||loadError)?'Library unavailable.':'Opening your Library…'}</p></div>
       : area==='find' ? <Find i2pAvailable={i2pAvailable} onReview={currentReview} uploads={page.uploads??[]} onChange={refresh}/>
-      : guided ? <Guided busy={busy} onDevice={()=>void setup()} onFolder={()=>navigate('storage')} onFind={()=>navigate('find')}/>
-      : area==='library' ? <LibraryArea page={page} location={location} online={online} busy={busy} available={available} onStorage={()=>navigate('storage')} onPlan={(kind,selection)=>void plan(kind,selection)} onPublish={openPublish}/>
+      : area==='library' ? <><div inert={retainedOverlay}>{guided?<Guided busy={busy} onDevice={()=>void setup()} onFolder={()=>navigate('storage')} onFind={()=>navigate('find')}/>:<LibraryArea page={page} location={location} online={online} busy={busy} available={available} onStorage={()=>navigate('storage')} onPlan={(kind,selection)=>void plan(kind,selection)} onPublish={openPublish}/>}</div><RetainedLibrary blocked={Boolean(sheet)} onOverlayChange={setRetainedOverlay} onSharing={()=>navigate('sharing')}/></>
       : area==='storage' ? <Storage locations={page.locations} defaultId={defaultId} busy={busy} onDevice={()=>void setup()} onChange={refresh}/>
       : area==='activity' ? <ActivityArea page={page} busy={busy} available={available} onCancel={job=>void cancel(job)} onCheck={job=>void plan('check',job)} onReclaim={job=>void reclaim(job)} onRetry={job=>void retry(job)} onReceive={openReceive} onSharing={()=>navigate('sharing')} onInspect={job=>void inspectWork(job)}/>
       : <Sharing page={page} busy={busy} onReceive={()=>openReceive()} onKit={copy=>void plan('kit_export',copy)} onRestore={copy=>void plan('recover',copy)} onImport={()=>{setPublicImport(true);setReview(null);}} onReview={currentReview} onStop={job=>void cancel(job)}/>}
