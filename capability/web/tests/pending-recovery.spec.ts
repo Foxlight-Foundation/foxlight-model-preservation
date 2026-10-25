@@ -63,11 +63,14 @@ test('Guided recovers an interrupted copy, reopens the same check and follows th
   expect(state.checks).toEqual([{manifest_id:identity,policy_id:policy}]);expect(state.preparations).toHaveLength(0);
   await page.reload();await open(page);await expect(page.getByText('running',{exact:true})).toBeVisible();expect(state.checks).toHaveLength(1);
   state.job!.state='succeeded';state.job!.bytes_hashed=10;state.selectedState='retained';state.model.state='retained';
-  await expect(page.getByRole('button',{name:'Save recovery kit',exact:true})).toBeVisible();
+  await expect(page.getByRole('dialog').getByRole('button',{name:'Save recovery kit',exact:true})).toBeVisible();
+  // Let the background catalog observe the same completed copy too. Its card
+  // action is inert, but can still match an unscoped locator in Chromium.
+  await expect(page.getByRole('article',{name:'Retained copy '+review.name,exact:true,includeHidden:true}).getByRole('button',{name:'Save recovery kit',exact:true,includeHidden:true})).toBeVisible();
   expect(state.model.pinned&&state.model.blocked).toBe(true);expect(state.stops).toEqual([]);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
   await stableView(page,info.outputPath('pending-copy-checked.png'));
-  await page.getByRole('button',{name:'Save recovery kit',exact:true}).click();
+  await page.getByRole('dialog').getByRole('button',{name:'Save recovery kit',exact:true}).click();
   await page.getByRole('button',{name:'Prepare recovery kit',exact:true}).click();
   await expect(page.getByText('running',{exact:true})).toBeVisible();
   state.kit!.state='succeeded';state.kit!.bytes_hashed=10;state.kit!.bytes_copied=10;state.kit!.kit={state:'prepared',manifest_id:identity,size_bytes:27,sha256:'f'.repeat(64)};
@@ -98,12 +101,12 @@ test('failed byte verification stays pending and never fetches or prepares a kit
   const state=await host(page);await open(page);await page.getByRole('dialog').getByRole('button',{name:'Check local bytes',exact:true}).click();
   state.job!.state='failed';state.job!.error_code='missing_or_corrupt_object';
   await expect(page.getByText(/Incomplete or corrupt copies stay pending/)).toBeVisible();
-  await expect(page.getByRole('button',{name:'Save recovery kit',exact:true})).toHaveCount(0);expect(state.preparations).toHaveLength(0);expect(state.model.state).toBe('pending');
+  await expect(page.getByRole('dialog').getByRole('button',{name:'Save recovery kit',exact:true})).toHaveCount(0);expect(state.preparations).toHaveLength(0);expect(state.model.state).toBe('pending');
 });
 
 test('a successful job alone cannot substitute for confirmed retained custody',async({page})=>{
   const state=await host(page);await open(page);await page.getByRole('dialog').getByRole('button',{name:'Check local bytes',exact:true}).click();state.job!.state='succeeded';
-  await expect(page.getByText('succeeded',{exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'Save recovery kit',exact:true})).toHaveCount(0);expect(state.preparations).toHaveLength(0);
+  await expect(page.getByText('succeeded',{exact:true})).toBeVisible();await expect(page.getByRole('dialog').getByRole('button',{name:'Save recovery kit',exact:true})).toHaveCount(0);expect(state.preparations).toHaveLength(0);
 });
 
 test('retained publication waits for its active check to finish before offering a kit',async({page})=>{
