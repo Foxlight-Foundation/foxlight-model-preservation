@@ -19,6 +19,7 @@ from urllib.parse import urlsplit
 
 import httpx
 from foxlight_preservation_library.desktop import DesktopClient
+from foxlight_preservation_library.preview import PUBLIC_REPOSITORY, _library_source
 from foxlight_preservation_library.server import LibraryServer
 
 
@@ -30,6 +31,14 @@ async def qualify() -> dict[str, object]:
     record = json.loads((Path(sys.prefix) / "sovereign-install.json").read_text())
     if record["requirements_profile"] != "requirements-desktop.lock":
         raise RuntimeError("independent desktop installation receipt required")
+    if _library_source() != (
+        "git+"
+        + PUBLIC_REPOSITORY
+        + "@"
+        + record["source_revision"]
+        + "#subdirectory=capability"
+    ):
+        raise RuntimeError("Core preview cannot reuse retained software evidence")
     expected = [record, *record["components_installed"]]
     versions = {
         item["project"]: importlib.metadata.version(item["project"])
@@ -97,6 +106,7 @@ async def qualify() -> dict[str, object]:
         "independent_loopback_surface": True,
         "external_connections_and_lookups_refused": True,
         "foreign_origin_refused": True,
+        "preview_retained_source_validated": True,
         "models_downloaded_or_executed": False,
     }
 

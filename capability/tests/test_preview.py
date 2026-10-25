@@ -437,11 +437,20 @@ def test_unpublished_direct_or_index_install_refuses_before_new_profile(
     assert not root.exists()
 
 
-@pytest.mark.parametrize("tamper", ["none", "wheel", "package", "identity", "receipt"])
+@pytest.mark.parametrize(
+    ("schema_version", "tamper"),
+    [
+        (schema, tamper)
+        for schema in ("foxlight.software-install.v1", "foxlight.software-install.v2")
+        for tamper in ("none", "wheel", "package", "identity", "receipt")
+    ]
+    + [("foxlight.software-install.v2", "component")],
+)
 def test_retained_release_continuity_requires_exact_installed_bytes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     tamper: str,
+    schema_version: str,
 ) -> None:
     import zipfile
 
@@ -459,14 +468,32 @@ def test_retained_release_continuity_requires_exact_installed_bytes(
             "foxlight_preservation_library/preview.py", source.read_bytes()
         )
     receipt = {
-        "schema_version": "foxlight.software-install.v1",
+        "schema_version": schema_version,
         "project": "foxlight-preservation-library",
         "version": "0.11.0",
         "source_revision": "a" * 40,
         "wheel": wheel.name,
         "wheel_sha256": hashlib.sha256(wheel.read_bytes()).hexdigest(),
     }
+    if schema_version == "foxlight.software-install.v2":
+        receipt.update(
+            {
+                "python_min": [3, 13],
+                "requirements": ["requirements.lock", "requirements-desktop.lock"],
+                "components": [
+                    {
+                        "project": "foxlight-model-preservation",
+                        "version": "0.21.0",
+                        "source_revision": "a" * 40,
+                        "wheel": "foxlight_model_preservation-0.21.0-py3-none-any.whl",
+                        "wheel_sha256": "b" * 64,
+                    }
+                ],
+            }
+        )
     (evidence / "INSTALL.json").write_text(json.dumps(receipt))
+    if tamper == "component":
+        receipt["components"][0]["wheel_sha256"] = "c" * 64
     if tamper == "receipt":
         receipt["source_revision"] = "b" * 40
     if tamper == "identity":
@@ -497,6 +524,27 @@ def test_retained_release_continuity_requires_exact_installed_bytes(
             + "a" * 40
             + "#subdirectory=capability"
         )
+        if schema_version == "foxlight.software-install.v2":
+            original_client = httpx.Client
+            monkeypatch.setattr(
+                preview.httpx,
+                "Client",
+                lambda **kwargs: original_client(
+                    transport=httpx.MockTransport(
+                        lambda _: httpx.Response(200, content=b"unverified installer")
+                    ),
+                    **kwargs,
+                ),
+            )
+
+            def forbidden(*args: object, **kwargs: object) -> None:
+                pytest.fail("unverified installer was executed")
+
+            monkeypatch.setattr(preview.subprocess, "run", forbidden)
+            with pytest.raises(preview.PreviewRefused, match="checksum"):
+                preview.setup(
+                    tmp_path / "core-preview", resume=False, with_dashboard=False
+                )
     else:
         with pytest.raises(preview.PreviewRefused, match="evidence changed"):
             preview._library_source()
