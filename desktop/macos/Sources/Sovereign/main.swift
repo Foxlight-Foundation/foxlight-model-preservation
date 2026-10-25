@@ -45,7 +45,8 @@ final class LocalProcess: ObservableObject {
         let child = Process()
         child.executableURL = python
         // Isolated Python ignores PYTHONPATH, user packages and the working folder.
-        child.arguments = ["-I", "-c", "import sys,runpy;sys.path.insert(0,sys.argv.pop(1));runpy.run_module('foxlight_preservation_library.desktop',run_name='__main__')", site.path, "--no-browser"]
+        // A sealed app must never receive runtime bytecode cache writes.
+        child.arguments = ["-I", "-B", "-c", "import sys,runpy;sys.path.insert(0,sys.argv.pop(1));runpy.run_module('foxlight_preservation_library.desktop',run_name='__main__')", site.path, "--no-browser"]
         if let index = CommandLine.arguments.firstIndex(of: "--data-directory"), index + 1 < CommandLine.arguments.count {
             let path = CommandLine.arguments[index + 1]
             if path.hasPrefix("/") { child.arguments?.append(contentsOf: ["--home", path]) }

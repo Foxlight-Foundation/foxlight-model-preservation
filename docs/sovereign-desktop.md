@@ -109,7 +109,7 @@ uv pip install --python /absolute/portable-python/bin/python3 \
 
 Run `python scripts/package_desktop.py --help` for the explicit runtime, clean
 site, two wheel, source-revision, build-directory and new output `.app` arguments.
-The app bundles the runtime, both public packages and their local assets. Its
+The app bundles the runtime, both public packages and their local assets. The isolated runtime disables bytecode writes inside the sealed application. Its
 build receipt records input wheel and runtime-file identities. No private SDK,
 Core checkout or model data belongs in those inputs. Packaging applies an ad hoc
 local signature; it does not claim Developer ID signing, notarization,
