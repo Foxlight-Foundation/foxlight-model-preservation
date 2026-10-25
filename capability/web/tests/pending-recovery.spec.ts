@@ -106,6 +106,16 @@ test('a successful job alone cannot substitute for confirmed retained custody',a
   await expect(page.getByText('succeeded',{exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'Save recovery kit',exact:true})).toHaveCount(0);expect(state.preparations).toHaveLength(0);
 });
 
+test('retained publication waits for its active check to finish before offering a kit',async({page})=>{
+  const state=await host(page);state.selectedState='retained';
+  state.job={job_id:checkId,owner_id:'library',operation_id:'original',kind:'recover',state:'running',manifest_id:identity,bytes_hashed:10,bytes_copied:0,error_code:null,kit_removed:false,kit:null};
+  await open(page);const dialog=page.getByRole('dialog');
+  await expect(dialog.getByRole('button',{name:'Checking local bytes…',exact:true})).toBeDisabled();
+  await expect(dialog.getByRole('button',{name:'Save recovery kit',exact:true})).toHaveCount(0);
+  expect(state.preparations).toHaveLength(0);state.job.state='succeeded';
+  await expect(dialog.getByRole('button',{name:'Save recovery kit',exact:true})).toBeVisible();expect(state.checks).toHaveLength(0);
+});
+
 test('old hosts explain pending recovery without sending unsupported decisions',async({page})=>{
   const state=await host(page,{supported:false});await expect(page.getByText(/Update the preservation host to check pending copies offline/)).toBeVisible();await expect(page.getByRole('button',{name:'Check local bytes',exact:true})).toHaveCount(0);expect(state.checks).toHaveLength(0);
 });

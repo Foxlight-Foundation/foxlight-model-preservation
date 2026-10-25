@@ -121,7 +121,7 @@ export function PendingRecovery({model,policyId,onClose}:{model:RetainedModel;po
   }
   const available=loaded&&!readError&&selection?.configured&&selection.available&&catalog?.available;
   const currentPolicy=selection?.policy_id===policyId&&catalog?.policy_id===policyId;
-  const ready=Boolean(available&&currentPolicy&&selection?.model?.state==='retained');
+  const ready=Boolean(available&&currentPolicy&&selection?.model?.state==='retained'&&(!job||terminal(job)));
   const canCheck=Boolean(available&&currentPolicy&&!busy&&!catalog?.controller_job_id&&selection?.model?.state==='pending'&&(!job||terminal(job)));
   return <><div inert={kit}><Sheet kicker="Pending mirror copy" title={review?.name??retainedName(model)} back="Close pending recovery" onClose={onClose} footer={<><button className="sk-btn sk-quiet" onClick={onClose}>Close</button>{ready?<button className="sk-btn sk-solid" disabled={busy} onClick={()=>setKit(true)}><Icon name="download"/>Save recovery kit</button>:<button className="sk-btn sk-solid" disabled={!canCheck} onClick={()=>void recover()}>{busy?'Working…':job&&active(job)?'Checking local bytes…':pending.current?'Retry the same check':job?'Check local bytes again':'Check local bytes'}</button>}</>}>
     {!loaded&&!readError&&<p role="status">Authenticating the original selection and finding earlier checks…</p>}
