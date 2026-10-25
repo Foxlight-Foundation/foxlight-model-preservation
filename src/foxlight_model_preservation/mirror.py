@@ -15,8 +15,14 @@ from typing import cast
 
 from pydantic import JsonValue
 
-from .discovery import follow_source, refresh_source, search_sources
-from .mirror_models import HeldModel, MirrorObservation, MirrorState, SourceGrant
+from .discovery import follow_source, list_sources, refresh_source, search_sources
+from .mirror_models import (
+    HeldModel,
+    MirrorObservation,
+    MirrorState,
+    SourceGrant,
+    SourceIntake,
+)
 from .mirror_native import NativeMirrors, PeerSessionRunner
 from .mirror_state import (
     HEADROOM,
@@ -28,8 +34,15 @@ from .mirror_state import (
 from .models import Manifest, PreservationError
 from .operations import OperationCancelled, OperationControl, failure_code
 from .seed import SeedHandler, SeedServer
-from .signing import digest, verify_manifest
+from .signing import (
+    canonical_bytes,
+    digest,
+    encode_record,
+    strict_json,
+    verify_manifest,
+)
 from .storage import (
+    atomic_bytes,
     manifest_path,
     object_path,
     observe_objects,
@@ -40,7 +53,7 @@ from .storage import (
     verify_object,
     writer_lock,
 )
-from .transfer import TransferPolicy, fetch, inspect_manifest
+from .transfer import TransferPolicy, fetch, inspect_envelope
 
 
 def follow(
@@ -66,6 +79,7 @@ def follow(
             lambda state: state.model_copy(
                 update={
                     "sources": dict(state.sources, **{status.source_id: grant}),
+                    "schema_version": "foxlight.mirror-state.v5",
                     "restart": None,
                 }
             )
@@ -126,7 +140,9 @@ def configure_http(ledger: MirrorLedger, *, enabled: bool) -> MirrorState:
         return ledger.update(
             lambda state: state.model_copy(
                 update={
-                    "schema_version": "foxlight.mirror-state.v4",
+                    "schema_version": "foxlight.mirror-state.v5"
+                    if state.schema_version == "foxlight.mirror-state.v5"
+                    else "foxlight.mirror-state.v4",
                     "http_enabled": enabled,
                     "restart": None,
                 }
@@ -206,20 +222,117 @@ def _policy(grant: SourceGrant, maximum: int | None = None) -> TransferPolicy:
 
 def selection_manifest(envelope: bytes, identity: str, held: HeldModel) -> Manifest:
     """Authenticate a selected wrapper and terms without claiming complete bytes."""
-    if held.origin == "local" and digest(envelope) != held.envelope_sha256:
-        raise PreservationError("local selection's original signed wrapper changed")
+    if held.envelope_sha256 is not None and digest(envelope) != held.envelope_sha256:
+        raise PreservationError("selection's original signed wrapper changed")
     manifest = verify_manifest(envelope, held.grant.trust, identity)
     require_terms(manifest, held.grant)
     return manifest
 
 
+def selection_envelope(
+    ledger: MirrorLedger,
+    store: int,
+    identity: str,
+    held: HeldModel,
+    *,
+    prefer_private: bool = False,
+    pending: bool = True,
+) -> bytes:
+    """Read original bounded custody metadata, never infer it from bare objects.
+
+    Pinned local/source intake metadata can outlive unfinished publication. Prune
+    prefers that private original to protect exact shared-object references even
+    if a complete wrapper is damaged. Complete-kit callers require the store.
+    Every returned wrapper still authenticates against the selection's own grant.
+    """
+    if held.origin == "source" and held.envelope_sha256 is not None:
+        with ledger.child("scratch") as scratch:
+            raw = read_metadata(
+                scratch, "source-intake/" + identity + ".authority.json"
+            )
+        strict_json(raw)
+        if SourceIntake.model_validate_json(raw) != _source_intake(identity, held):
+            raise PreservationError("original source intake authority changed")
+    private = held.envelope_sha256 is not None and pending
+    path = held.origin + "-intake/" + identity + ".json"
+    if private and prefer_private:
+        with ledger.child("scratch") as scratch:
+            envelope = read_metadata(scratch, path)
+    else:
+        try:
+            envelope = read_metadata(store, manifest_path(identity))
+        except FileNotFoundError:
+            if not private:
+                raise
+            with ledger.child("scratch") as scratch:
+                envelope = read_metadata(scratch, path)
+    selection_manifest(envelope, identity, held)
+    return envelope
+
+
+def _source_intake(identity: str, held: HeldModel) -> SourceIntake:
+    return SourceIntake(
+        manifest=identity,
+        authority_sha256=digest(
+            canonical_bytes(
+                held.model_dump(
+                    mode="json",
+                    exclude={"pinned", "blocked", "state", "error", "verified_at"},
+                )
+            )
+        ),
+    )
+
+
+def _retain_source_envelope(
+    ledger: MirrorLedger, identity: str, held: HeldModel, envelope: bytes
+) -> HeldModel:
+    # The caller has authenticated the full original closure and admitted space
+    # for both metadata copies before this write. Commit private metadata before
+    # its owner-state pin; neither may publish a partial generation or serve it.
+    selected = held.model_copy(update={"envelope_sha256": digest(envelope)})
+    selection_manifest(envelope, identity, selected)
+    with ledger.child("scratch") as scratch:
+        atomic_bytes(scratch, "source-intake/" + identity + ".json", envelope)
+        atomic_bytes(
+            scratch,
+            "source-intake/" + identity + ".authority.json",
+            encode_record(_source_intake(identity, selected)),
+        )
+
+    def pin(state: MirrorState) -> MirrorState:
+        if state.models.get(identity) != held:
+            raise PreservationError("mirror selection changed before source intake")
+        return state.model_copy(
+            update={
+                "schema_version": "foxlight.mirror-state.v5",
+                "models": dict(state.models, **{identity: selected}),
+                "restart": state.restart
+                if state.schema_version == "foxlight.mirror-state.v5"
+                else None,
+            }
+        )
+
+    ledger.update(pin)
+    return selected
+
+
 def verify_retained(
-    root: int, identity: str, held: HeldModel, control: OperationControl
+    root: int,
+    identity: str,
+    held: HeldModel,
+    control: OperationControl,
+    *,
+    ledger: MirrorLedger | None = None,
 ) -> Manifest:
     """Verify original model trust, public terms and every retained object."""
-    manifest = selection_manifest(
-        read_metadata(root, manifest_path(identity)), identity, held
-    )
+    if held.origin == "source" and held.envelope_sha256 is not None:
+        if ledger is None:
+            raise PreservationError("pinned source custody needs its owner ledger")
+        envelope = selection_envelope(ledger, root, identity, held, pending=False)
+    else:
+        envelope = read_metadata(root, manifest_path(identity))
+    manifest = selection_manifest(envelope, identity, held)
     for file in unique_objects(manifest):
         verify_object(root, file, control=control)
     return manifest
@@ -236,7 +349,7 @@ def recover_completed(ledger: MirrorLedger, control: OperationControl) -> None:
             continue
         try:
             with ledger.child("store") as store:
-                verify_retained(store, identity, held, control.fork())
+                verify_retained(store, identity, held, control.fork(), ledger=ledger)
         except OperationCancelled:
             raise
         except (ValueError, OSError):
@@ -253,6 +366,8 @@ def reconcile(ledger: MirrorLedger, control: OperationControl) -> None:
     operation and conservative ingress reservation. Failures require explicit
     retry; source changes never delete bytes, pins or accepted model evidence.
     """
+    if (ledger.path / "prune.json").exists():
+        raise PreservationError("finish the interrupted operator prune first")
     recover_completed(ledger, control)
     state = ledger.read()
     refresh_error = None
@@ -275,6 +390,11 @@ def reconcile(ledger: MirrorLedger, control: OperationControl) -> None:
         except (ValueError, OSError) as failure:
             refresh_error = failure_code(failure) + ": " + str(failure)[:400]
     state = ledger.read()
+    catalogs = {
+        source.source_id: source.catalog_id
+        for source in list_sources(ledger.path / "discovery")
+        if source.freshness == "fresh" and source.catalog_id is not None
+    }
     results = sorted(
         search_sources(ledger.path / "discovery", "", limit=1000),
         key=lambda item: digest((state.salt + item.manifest).encode()),
@@ -297,6 +417,9 @@ def reconcile(ledger: MirrorLedger, control: OperationControl) -> None:
         )
         if location is None:
             continue
+        catalog_id = catalogs.get(location.source_id)
+        if catalog_id is None:
+            continue
         grant = state.sources[location.source_id]
         mirrors = tuple(
             x
@@ -307,6 +430,7 @@ def reconcile(ledger: MirrorLedger, control: OperationControl) -> None:
             continue
         held = HeldModel(
             source_id=location.source_id,
+            catalog_id=catalog_id,
             entry_id=location.entry_id,
             grant=grant,
             mirrors=mirrors,
@@ -314,7 +438,13 @@ def reconcile(ledger: MirrorLedger, control: OperationControl) -> None:
         )
         ledger.update(
             lambda current, identity=result.manifest, selected=held: current.model_copy(
-                update={"models": dict(current.models, **{identity: selected})}
+                update={
+                    "schema_version": "foxlight.mirror-state.v5",
+                    "models": dict(current.models, **{identity: selected}),
+                    "restart": current.restart
+                    if current.schema_version == "foxlight.mirror-state.v5"
+                    else None,
+                }
             )
         )
     fresh = {
@@ -335,7 +465,8 @@ def reconcile(ledger: MirrorLedger, control: OperationControl) -> None:
                     continue
                 if (identity, held.source_id) not in fresh:
                     continue
-                # Reserve both bounded metadata passes before first contact.
+                # Reserve bounded metadata before first contact. The authenticated
+                # original is reused by fetch, not downloaded a second time.
                 # Object credit is proportional to the authenticated closure.
                 if not ledger.reserve(
                     HEADROOM + 4096,
@@ -343,14 +474,34 @@ def reconcile(ledger: MirrorLedger, control: OperationControl) -> None:
                     operation="meta-" + digest(held.operation_id.encode())[:59],
                 ):
                     raise PreservationError("mirror ingress budget unavailable")
-                manifest = inspect_manifest(
-                    identity,
-                    held.grant.trust,
-                    held.mirrors,
-                    _policy(held.grant),
-                    control=control.fork(),
-                )
-                require_terms(manifest, held.grant)
+                needs_record = held.envelope_sha256 is None
+                if needs_record:
+                    envelope = inspect_envelope(
+                        identity,
+                        held.grant.trust,
+                        held.mirrors,
+                        _policy(held.grant),
+                        control=control.fork(),
+                    )
+                else:
+                    # Retry retains the original wrapper, even when a supplier
+                    # serves another independently valid envelope for this ID.
+                    try:
+                        with ledger.child("store") as store:
+                            envelope = selection_envelope(ledger, store, identity, held)
+                    except FileNotFoundError:
+                        # Explicit retry after physical deletion may reacquire
+                        # metadata, but only its originally pinned bytes and
+                        # unchanged independent authority. Never clear that pin.
+                        envelope = inspect_envelope(
+                            identity,
+                            held.grant.trust,
+                            held.mirrors,
+                            _policy(held.grant),
+                            control=control.fork(),
+                        )
+                        needs_record = True
+                manifest = selection_manifest(envelope, identity, held)
                 allowance = held.transfer_bytes
                 if allowance is None:
                     allowance = min(
@@ -358,7 +509,9 @@ def reconcile(ledger: MirrorLedger, control: OperationControl) -> None:
                         3 * sum(f.size for f in unique_objects(manifest))
                         + 16 * 1024**2,
                     )
-                    record_model(ledger, identity, {"transfer_bytes": allowance})
+                    held = record_model(
+                        ledger, identity, {"transfer_bytes": allowance}
+                    ).models[identity]
                 if not ledger.reserve(
                     allowance, ingress=True, operation=held.operation_id
                 ):
@@ -370,12 +523,24 @@ def reconcile(ledger: MirrorLedger, control: OperationControl) -> None:
                         control.fork(),
                         include_partials=True,
                     )
-                additional = sum(f.size for f in missing) - partial
+                additional = (
+                    sum(f.size for f in missing)
+                    - partial
+                    + 2 * len(envelope)
+                    + 1024  # Bounded source-intake authority receipt.
+                )
                 usage = ledger.usage()
                 if usage + additional + HEADROOM > ledger.read().disk_bytes or (
                     shutil.disk_usage(ledger.path).free < additional + HEADROOM
                 ):
                     raise PreservationError("mirror disk admission budget exhausted")
+                if ledger.read().models.get(identity) != held:
+                    raise PreservationError(
+                        "mirror selection changed before source intake"
+                    )
+                control.checkpoint()
+                if needs_record:
+                    held = _retain_source_envelope(ledger, identity, held, envelope)
                 fetch(
                     identity,
                     held.grant.trust,
@@ -385,9 +550,10 @@ def reconcile(ledger: MirrorLedger, control: OperationControl) -> None:
                     control=control.fork(),
                     operation_id=held.operation_id,
                     expected_directory=ledger.read().identity["store"],
+                    envelope=envelope,
                 )
             with ledger.child("store") as store:
-                verify_retained(store, identity, held, control.fork())
+                verify_retained(store, identity, held, control.fork(), ledger=ledger)
             record_model(
                 ledger,
                 identity,
@@ -464,7 +630,9 @@ def public_selection(
             if held.blocked or held.error or held.state != "retained":
                 continue
             try:
-                manifest = verify_retained(source, identity, held, control.fork())
+                manifest = verify_retained(
+                    source, identity, held, control.fork(), ledger=ledger
+                )
                 require_terms(manifest, held.grant)
                 paths = {
                     object_path(f.sha256): f.size for f in unique_objects(manifest)
@@ -664,19 +832,32 @@ def run_mirror(
 
     with ledger.service_lock():
         state = ledger.read()
+        if (ledger.path / "prune.json").exists():
+            raise PreservationError(
+                "finish the interrupted operator prune before serving"
+            )
         if not state.http_enabled and not (
             state.native_policy
             and (state.native_policy.ipfs_binary or state.native_policy.torrent)
         ):
             raise PreservationError("select at least one mirror serving transport")
+        if state.sources and state.schema_version != "foxlight.mirror-state.v5":
+            if resume or state.paused or state.left:
+                raise PreservationError(
+                    "source custody upgrade needs explicit run or renewed restart grant"
+                )
+            state = ledger.update(
+                lambda current: current.model_copy(
+                    update={
+                        "schema_version": "foxlight.mirror-state.v5",
+                        "restart": None,
+                    }
+                )
+            )
         pinned_policy = policy_id(state)
         if not authorized(state):
             raise PreservationError(
                 "mirror is paused/left or lacks current restart authority"
-            )
-        if (ledger.path / "prune.json").exists():
-            raise PreservationError(
-                "finish the interrupted operator prune before serving"
             )
         server = MirrorServer(ledger, authorized) if state.http_enabled else None
         web = (

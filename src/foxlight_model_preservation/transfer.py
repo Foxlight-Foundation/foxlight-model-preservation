@@ -33,9 +33,18 @@ from .operations import (
     OperationError,
     OperationPlan,
 )
-from .signing import canonical_bytes, digest, verify_manifest
+from .signing import (
+    BUNDLE_TYPE,
+    Envelope,
+    canonical_bytes,
+    decode_base64,
+    digest,
+    strict_json,
+    verify_manifest,
+)
 from .storage import (
     CHUNK_SIZE,
+    atomic_bytes,
     directory,
     file_identity,
     manifest_path,
@@ -446,12 +455,29 @@ def inspect_manifest(
     control: OperationControl | None = None,
 ) -> Manifest:
     """Authenticate bounded metadata without weights, writes or implicit trust."""
+    envelope = inspect_envelope(manifest_id, trust, sources, policy, control=control)
+    return verify_manifest(envelope, trust, manifest_id)
+
+
+def inspect_envelope(
+    manifest_id: str,
+    trust: TrustProfile,
+    sources: tuple[str, ...],
+    policy: TransferPolicy = DEFAULT_POLICY,
+    *,
+    control: OperationControl | None = None,
+) -> bytes:
+    """Authenticate and return original bounded wrapper bytes without weights.
+
+    Retaining these bytes does not establish complete custody or enroll a signer.
+    A host may persist them privately before calling fetch with this exact wrapper.
+    """
     with (control or OperationControl()).operation("plan_fetch") as active:
         deadline = time.monotonic() + policy.deadline_seconds
-        manifest, _envelope = _load_manifest(
+        _manifest, envelope = _load_manifest(
             manifest_id, trust, sources, policy, deadline, active
         )
-        return manifest
+        return envelope
 
 
 def _partial_size(target: int, file: FileIdentity) -> int:
@@ -472,12 +498,17 @@ def fetch(
     control: OperationControl | None = None,
     operation_id: str | None = None,
     expected_directory: tuple[int, int] | None = None,
+    envelope: bytes | None = None,
 ) -> Manifest:
     """Receive exact trusted content with optional control and persistent allowance.
 
     Reuse the same operation_id and immutable inputs after interruption. Local
     charges persist before object reads; a new ID is a new authorized allowance.
     No operation_id retains the original per-invocation accounting behavior.
+    An optional original envelope is reauthenticated locally before object work;
+    it avoids another metadata request and is published byte-for-byte. A different
+    valid destination wrapper refuses rather than stripping any earlier signers.
+    Ordinary fetch retains its existing signature-merging publication behavior.
     """
     with (control or OperationControl()).operation("fetch") as active:
         policy.validate()
@@ -485,9 +516,20 @@ def fetch(
             receipt_path(operation_id)
         deadline = time.monotonic() + policy.deadline_seconds
         active.limit_deadline(deadline)
-        manifest, envelope = _load_manifest(
-            manifest_id, trust, sources, policy, deadline, active
-        )
+        if envelope is None:
+            manifest, envelope = _load_manifest(
+                manifest_id, trust, sources, policy, deadline, active
+            )
+            original_wrapper = False
+        else:
+            if not sources or len(sources) > policy.max_sources:
+                raise PreservationError("supply a bounded nonempty mirror list")
+            manifest = verify_manifest(envelope, trust, manifest_id)
+            if sum(f.size for f in unique_objects(manifest)) > policy.max_bytes:
+                raise BudgetExceeded(
+                    "signed bundle exceeds the selected transfer budget"
+                )
+            original_wrapper = True
         files = unique_objects(manifest)
         active.checkpoint()
         with directory(destination, create=expected_directory is None) as target:
@@ -498,6 +540,28 @@ def fetch(
             ):
                 raise PreservationError("destination directory identity changed")
             with writer_lock(target):
+                if original_wrapper:
+                    try:
+                        existing = read_metadata(target, manifest_path(manifest_id))
+                    except FileNotFoundError:
+                        pass
+                    else:
+                        if existing != envelope:
+                            try:
+                                previous = Envelope.model_validate_json(
+                                    canonical_bytes(strict_json(existing))
+                                )
+                                same_payload = (
+                                    previous.payloadType == BUNDLE_TYPE
+                                    and digest(decode_base64(previous.payload))
+                                    == manifest_id
+                                )
+                            except ValueError:
+                                same_payload = False
+                            if same_payload:
+                                raise PreservationError(
+                                    "destination holds a different signed wrapper"
+                                )
                 binding = digest(
                     canonical_bytes(
                         {
@@ -573,7 +637,10 @@ def fetch(
                 for file in files:
                     verify_object(target, file, control=active)
                 active.phase("publishing")
-                publish_envelope(target, manifest_id, envelope)
+                if original_wrapper:
+                    atomic_bytes(target, manifest_path(manifest_id), envelope)
+                else:
+                    publish_envelope(target, manifest_id, envelope)
                 active.mark_committed()
         return manifest
 

@@ -102,10 +102,18 @@ verified store can later be corrupted and must be checked again.
 
 An explicitly selected mirror can recover an interrupted completion offline with
 `mirror recover`. It checks the original accepted authority and every actual
-object before publishing a missing local-intake wrapper and the retained receipt.
+object before publishing a missing intake wrapper and the retained receipt.
 Partial bytes are never promoted. This local operation changes no signed format
 or identity, starts no networking, and preserves operator block/pin and resource
 policy. See [mirror recovery](persistent-mirrors.md#inspect-and-recover-retained-copies).
+
+Mirror owner-state v5 separately retains original authenticated source wrappers
+and a private selection-authority binding before receiving objects. Source,
+catalog/entry attribution, trust/terms and transfer allowance stay with that exact
+wrapper. This metadata is not a published generation or public route. Older mirror
+owners refuse v5; unchanged complete stores and kits remain independently usable
+by existing archive readers. Legacy source selections without an original private
+record still require their published wrapper for offline recovery.
 
 Restore verifies the store, copies and verifies each declared file into a fresh
 private tree, then publishes that tree into a newly reserved empty destination.

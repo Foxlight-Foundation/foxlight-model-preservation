@@ -19,6 +19,8 @@ from test_mirror import cycle, mirror
 
 from foxlight_model_preservation.handoffs import read_handoff
 from foxlight_model_preservation.mirror import configure_http, model_action, run_mirror
+from foxlight_model_preservation.mirror_intake import retain_local
+from foxlight_model_preservation.mirror_models import SourceGrant, Terms
 from foxlight_model_preservation.mirror_native import (
     NativeMirrors,
     configure,
@@ -250,9 +252,16 @@ def test_inventory_handles_stage_retirement_and_refuses_replacement(
 
 
 def test_configure_is_offline_invalidates_resume_and_preserves_legacy_policy(
-    tmp_path, capture, monkeypatch
+    tmp_path, monkeypatch
 ):
-    ledger, _ = mirror(tmp_path, capture)
+    ledger = MirrorLedger.initialize(
+        tmp_path / "legacy",
+        name="Legacy owner without sources",
+        disk_bytes=2 * 1024**3,
+        ingress_daily=1024**3,
+        egress_daily=1024**3,
+        egress_monthly=1024**3,
+    )
     original = policy_id(ledger.read())
     grant_restart(ledger, int(time.time()) + 600)
     assert restart_allowed(MirrorLedger(ledger.path).read())
@@ -1022,12 +1031,17 @@ def test_ipfs_model_isolation_allows_block_without_deleting_another_copy(
     other = pack(
         capture.recipe.model_copy(update={"name": "second"}),
         capture.sources,
-        ledger.path / "store",
+        capture.store,
         (capture.key,),
     )
-    held = ledger.read().models[capture.identity]
-    ledger.update(
-        lambda s: s.model_copy(update={"models": dict(s.models, **{other: held})})
+    retain_local(
+        ledger,
+        capture.store,
+        other,
+        SourceGrant(
+            trust=capture.trust,
+            terms=(Terms(license_id="test-only", terms_reference="LICENSE"),),
+        ),
     )
     configure(
         ledger,
