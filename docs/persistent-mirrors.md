@@ -158,6 +158,37 @@ intake can supply its authenticated private intent before object publication;
 inspection does not claim its payload is complete or uncorrupted. Removed
 selections cannot supply inspection metadata after deliberate deletion.
 
+If interruption left a selection **pending** although its complete bytes are
+already on disk, stop the mirror controller, then recover that exact selection
+without starting a service or contacting a source:
+
+```sh
+model-preserve mirror recover --dir /srv/sovereign/example \
+  --manifest MANIFEST_SHA256 --progress
+```
+
+`recover` authenticates the original model identity, accepted keys and every
+member's reviewed public terms, then hashes every actual object. A local
+write-ahead intake record can restore the exact original wrapper if the crash
+preceded its publication. This works after the original input, publisher,
+registry or catalog disappears. Missing or damaged bytes refuse recovery and
+remain on disk; this command does not fetch, retry a transfer, sign, delete,
+unblock or re-admit a removed selection. Complete pending copies become retained
+and can use `export-kit` below. Their pin/block settings, accepted policy and
+resource accounting stay unchanged; the old failure and restart grant are
+cleared. Sharing requires a subsequent explicit Start or new restart grant.
+An already retained copy is reverified without rewriting its receipt. Progress
+is bounded metadata on stderr; Ctrl-C/termination cooperatively stops hashing.
+Cancellation before the completion receipt keeps the selection pending. A crash
+between wrapper publication and receipt commit can leave a complete pending
+store; rerun this same offline command rather than deleting it.
+
+Application hosts can run `mirror_recovery.recover_selection` in a durable
+cancellable worker. Inspection remains metadata-only and does not perform this
+promotion implicitly. The Library's existing retained-kit controls remain
+separate; pending-copy recovery needs a host/Library adapter before it appears
+there.
+
 `export-kit` requires a retained selection and creates a new self-contained
 [recovery kit](protocol.md#self-contained-recovery-kits-v1). It preserves the
 exact original signed wrapper and streams every selected object through

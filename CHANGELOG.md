@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## 0.19.0
+
+- Add explicit offline `mirror recover` and its cancellable embedding API for
+  complete pending copies after an interrupted intake/receipt. Authenticate
+  original model keys, exact identity and all public terms; verify every actual
+  object before promoting. A retained local intent can restore the unchanged
+  original signed wrapper after publisher/input loss.
+- Keep missing/corrupt/removed copies unpromoted, preserve block/pin/policy and
+  accounting, and clear restart permission after pending recovery. This starts
+  no networking or sharing, enrolls no keys, deletes nothing and does not bypass
+  separate recipient, registry or runtime trust. Library pending-copy adoption
+  remains separate from its released retained recovery-kit controls.
+
 ## 0.18.0
 
 - Inspect exact retained mirror state independently of catalog/application

@@ -15,7 +15,12 @@ from .mirror_intake import retain_local
 from .mirror_models import MirrorObservation, SourceGrant, Terms
 from .mirror_native import configure, export_reference, write_reference
 from .mirror_prune import prune
-from .mirror_recovery import export_selection_kit, inspect_selection, selection_status
+from .mirror_recovery import (
+    export_selection_kit,
+    inspect_selection,
+    recover_selection,
+    selection_status,
+)
 from .mirror_state import MAX_STATE, MirrorLedger, grant_restart
 from .models import PreservationError
 from .operations import OperationControl
@@ -100,9 +105,12 @@ def register_mirror_commands(
         "selection",
         "inspect",
         "export-kit",
+        "recover",
     ):
         command = actions.add_parser(name)
         command.add_argument("--dir", dest="mirror_dir", type=Path, required=True)
+        if name == "recover":
+            command.add_argument("--progress", action="store_true")
         if name == "http":
             http = command.add_mutually_exclusive_group(required=True)
             http.add_argument("--enable", dest="http_enabled", action="store_true")
@@ -210,6 +218,7 @@ def register_mirror_commands(
             "selection",
             "inspect",
             "export-kit",
+            "recover",
         ):
             command.add_argument("--manifest", dest="mirror_manifest", required=True)
         if name == "prune":
@@ -303,6 +312,16 @@ def run_mirror_command(
             "members": len(kit.manifest.members),
             "kit_bytes": kit.kit_bytes,
             "exported": True,
+            "network_started": False,
+            "grants_imported": False,
+        }
+    if action == "recover":
+        manifest = recover_selection(ledger, arguments.mirror_manifest, control=control)
+        return {
+            "manifest": arguments.mirror_manifest,
+            "members": len(manifest.members),
+            "state": "retained",
+            "payload_bytes_verified": True,
             "network_started": False,
             "grants_imported": False,
         }
