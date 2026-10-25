@@ -18,7 +18,8 @@ optional.
 
 The [independent Sovereign Library](docs/sovereign-desktop.md)
 adds built-in signed catalog browsing, private download/preservation and offline
-kit recovery without Skulk. The public Library 0.16 installation archive includes both public packages.
+kit recovery without Skulk. The public Library 0.16 installation archive includes
+both public packages.
 The Mac source preview bundles its own runtime; notarized Mac/APT distribution
 remains separate.
 
@@ -46,10 +47,11 @@ executing the helper. First launch offers **Browse public models** and
   the separately opted-in I2P pilots.
 - **Library 0.16.0** adds the independent Find/Library/Activity interface through
   its `requirements-desktop.lock` installation profile. The default profile keeps
-  the local interface through its separately pinned compatible Skulk Core. It includes PMF preservation/recovery, one-file sharing,
+  the local interface through its separately pinned compatible Skulk Core. That
+  Core-backed mode includes PMF preservation/recovery, one-file sharing,
   peer setup/receiving, persistent mirror controls and explicit I2P
-  source/receiving controls. Installing the Library package does not install
-  Core or start networking. Retained recovery-kit preparation, native download
+  source/receiving controls. Installing the Library does not set up Skulk Core
+  or start model transfers or sharing. Retained recovery-kit preparation, native download
   and explicit earlier-kit cleanup work from Library/Guided. Pending copies
   also offer a durable offline local-byte check before kit preparation, without
   receiving, sharing or new trust.
