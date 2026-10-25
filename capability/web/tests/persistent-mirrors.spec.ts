@@ -61,6 +61,7 @@ async function host(page:Page,options:{configured?:boolean;terms?:boolean;held?:
       if(input.kind==='prune')state.snapshot.models[0].state='removed';
       if(input.kind==='model'&&input.action==='unpin'){state.snapshot.models[0].pinned=false;state.snapshot.policy_id='d'.repeat(64);}
       if(input.kind==='model'&&input.action==='pin')state.snapshot.models[0].pinned=true;
+      if(input.kind==='model'&&input.action==='block'){state.snapshot.models[0].blocked=true;state.snapshot.policy_id='e'.repeat(64);}
     }
     if(state.loseNext){state.loseNext=false;return route.abort('failed');}
     return route.fulfill({json:receipt});
@@ -173,7 +174,7 @@ test('an older terms contract keeps Stop available even without live activity de
   expect(state.snapshot.models[0].state).toBe('retained');
 });
 
-test('removal requires unpinning and fresh exact-selection consent after navigation',async({page})=>{
+test('removal requires unpinning, blocking and fresh exact-selection consent after navigation',async({page})=>{
   const state=await host(page,{held:true,pinned:true});
   const controls=()=>page.getByRole('button',{name:'Mirror controls for community/future',exact:true});
   await controls().click();
@@ -181,6 +182,11 @@ test('removal requires unpinning and fresh exact-selection consent after navigat
   await page.getByRole('menuitem',{name:'Unpin mirror copy',exact:true}).click();
   await page.getByRole('checkbox',{name:/Confirm: unpin mirror copy/}).check();
   await page.getByRole('button',{name:'Unpin mirror copy',exact:true}).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await controls().click();await expect(page.getByRole('menuitem',{name:'Remove mirror copy',exact:true})).toBeDisabled();
+  await page.getByRole('menuitem',{name:'Block future serving',exact:true}).click();
+  await page.getByRole('checkbox',{name:/Confirm: block future serving/}).check();
+  await page.getByRole('button',{name:'Block future serving',exact:true}).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await controls().click();await page.getByRole('menuitem',{name:'Remove mirror copy',exact:true}).click();
   await expect(page.getByRole('button',{name:'Remove mirror copy',exact:true})).toBeDisabled();
@@ -193,7 +199,7 @@ test('removal requires unpinning and fresh exact-selection consent after navigat
   await page.getByRole('checkbox',{name:'Delete only this exact retained mirror copy.',exact:true}).check();
   await page.getByRole('button',{name:'Remove mirror copy',exact:true}).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  expect(state.starts.at(-1)).toMatchObject({kind:'prune',policy_id:'d'.repeat(64),manifest_id:identity,confirm_delete_manifest:identity});
+  expect(state.starts.at(-1)).toMatchObject({kind:'prune',policy_id:'e'.repeat(64),manifest_id:identity,confirm_delete_manifest:identity});
   expect(state.snapshot.models[0].state).toBe('removed');
   expect(state.starts.some(input=>input.kind==='retain')).toBe(false);
 });

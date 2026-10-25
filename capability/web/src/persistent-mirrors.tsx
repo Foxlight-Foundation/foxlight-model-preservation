@@ -144,9 +144,10 @@ export function PersistentMirrors({copies,features,blocked,onOverlayChange,bitto
             {label:model.pinned?'Unpin mirror copy':'Pin mirror copy',icon:'lock',disabled:working,onSelect:()=>{if(policy)open({kind:'model',policy_id:policy,model,name:name(model.manifest_id),action:model.pinned?'unpin':'pin'});}},
             {label:model.blocked?'Allow future serving':'Block future serving',icon:'pause',disabled:working,onSelect:()=>{if(policy)open({kind:'model',policy_id:policy,model,name:name(model.manifest_id),action:model.blocked?'unblock':'block'});}},
             ...(model.state==='pending'?[{label:'Retry retained intake',icon:'refresh',disabled:working,onSelect:()=>{if(policy)open({kind:'model',policy_id:policy,model,name:name(model.manifest_id),action:'retry'});}}]:[]),
-            {label:'Remove mirror copy',icon:'trash',disabled:working||model.pinned,onSelect:()=>{if(policy)open({kind:'prune',policy_id:policy,model,name:name(model.manifest_id)});}},
+            {label:'Remove mirror copy',icon:'trash',disabled:working||model.pinned||!model.blocked,onSelect:()=>{if(policy)open({kind:'prune',policy_id:policy,model,name:name(model.manifest_id)});}},
           ]}/></div>
           {model.error_code&&<Callout tone="warn">{errorText(model.error_code)}</Callout>}
+          {model.state!=='removed'&&!model.blocked&&<p className="sk-hint">Block future serving before removing this mirror copy. Blocking keeps its files; removal still needs your separate confirmation.</p>}
           {model.state==='retained'&&recoverySupported&&<button className="sk-btn sk-outline" disabled={!page.available||!policy} onClick={()=>{if(policy)open({kind:'recovery',policy_id:policy,model});}}><Icon name="download"/>Save recovery kit</button>}
           <Details summary="Exact retained identity"><Mono value={model.manifest_id} label="retained manifest identity"/><p>Source changes and stopping sharing do not delete this selection. Removed identities stay recorded; returning one requires a new explicit intake.</p></Details>
         </article>)}</div>
@@ -238,7 +239,7 @@ function MirrorDecisionSheet({selection,busy,error,onClose,onSubmit}:{selection:
   const validPermission=Number.isFinite(permissionHours)&&permissionHours>0&&permissionHours<=24&&Number.isInteger(permissionHours*3600);
   const isModel=selection.kind==='model'||selection.kind==='prune';
   const label=selection.kind==='prune'?'Remove mirror copy':selection.kind==='model'?({pin:'Pin mirror copy',unpin:'Unpin mirror copy',block:'Block future serving',unblock:'Allow future serving',retry:'Retry retained intake'}[selection.action??'retry']):titles[selection.kind];
-  const valid=confirmed&&(selection.kind!=='run'||validHours)&&(selection.kind!=='grant_resume'||validPermission)&&(selection.kind!=='model'||Boolean(selection.action));
+  const valid=confirmed&&(selection.kind!=='run'||validHours)&&(selection.kind!=='grant_resume'||validPermission)&&(selection.kind!=='model'||Boolean(selection.action))&&(selection.kind!=='prune'||(selection.model.blocked&&!selection.model.pinned));
   function decide(){
     if(!valid)return;
     if(selection.kind==='run')void onSubmit({kind:'run',policy_id:selection.policy_id,public_participation:true,mode:standing?'resume':'finite',seconds:Math.round(hours*3600)});
@@ -252,7 +253,7 @@ function MirrorDecisionSheet({selection,busy,error,onClose,onSubmit}:{selection:
     {selection.kind==='grant_resume'&&<><p>Permit a separately started mirror to resume after the host restarts. This permission alone starts no network or sharing.</p><label className="sk-field"><span>Permission duration (hours)</span><input className="sk-input" type="number" min={1/3600} max={24} step="any" value={permissionHours} disabled={busy} onChange={event=>setPermissionHours(Number(event.target.value))}/></label><p>Permission expires {new Date((opened+Math.round(permissionHours*3600))*1000).toLocaleString()}. Policy changes and new intake require fresh review.</p></>}
     {selection.kind==='revoke_resume'&&<p>Remove saved restart permission. Retained models remain. Use Stop to withdraw current serving and clear running intent.</p>}
     {isModel&&<Details summary="Exact selected model"><Mono value={selection.model.manifest_id} label="selected retained manifest"/></Details>}
-    {selection.kind==='prune'&&<Callout tone="warn">Delete this mirror’s retained bytes for this exact selection. Library copies, recipient copies and verification history remain. A pinned copy must be unpinned first; running sharing must be stopped.</Callout>}
+    {selection.kind==='prune'&&<Callout tone="warn">Delete this mirror’s retained bytes for this exact selection. Library copies, recipient copies and verification history remain. Block future serving, unpin the copy and stop running sharing before removal.</Callout>}
     {selection.kind==='model'&&<p>{selection.action==='retry'?'Try the same retained selection again under its unchanged intake and transfer allowance. No new source or trust is accepted.':selection.action==='pin'?'Protect this mirror copy from explicit removal.':selection.action==='unpin'?'Remove deletion protection. This does not delete any bytes.':selection.action==='block'?'Block this model from future serving. Retained bytes stay here.':'Allow future serving of this retained selection under the reviewed mirror policy. This starts no sharing.'}</p>}
     <Consent checked={confirmed} disabled={busy} onChange={setConfirmed}>{selection.kind==='run'?'Allow this mirror to serve these retained public copies with the reviewed exposure and limits.':selection.kind==='grant_resume'?'Allow this exact policy to resume sharing after restart until the selected expiry.':selection.kind==='prune'?'Delete only this exact retained mirror copy.':`Confirm: ${label.toLowerCase()}.`}</Consent>
     {error&&<Callout tone="bad" role="alert">{errorText(error)}</Callout>}

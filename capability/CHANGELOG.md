@@ -18,6 +18,8 @@ tagged `library-v*`; versions without a tag are source previews installed from
 - Keep earlier preparations accessible for their own download and cleanup after
   another preparation, including failed replacements, pagination and loss of
   the original import or retained-model metadata.
+- Require the existing blocked, unpinned and stopped model state before offering
+  mirror-copy removal, and explain the separate blocking step before deletion.
 - Look up the exact retained identity before reintake, including removed records
   beyond the displayed page. Negotiate the new recovery contract separately;
   older hosts retain existing sharing and Stop controls.

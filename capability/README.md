@@ -168,7 +168,8 @@ fresh permission; Stop clears intent. Closing Library grants nothing.
 Each retained copy's **⋯** menu offers **Pin mirror copy**, **Block future
 serving**, retry for pending intake and **Remove mirror copy**. Pin protects
 against removal; block keeps bytes while withholding future serving. Stop active
-sharing before changes. Removal requires unpinning and fresh confirmation for the
+sharing before changes. Removal requires blocking future serving, unpinning and
+fresh confirmation for the
 exact selected identity, and deletes only that mirror's selected copy. Recipient
 copies remain theirs. Removed identities stay recorded; returning one needs a
 separate deliberate reintake. Storage pressure and source withdrawal never grant
