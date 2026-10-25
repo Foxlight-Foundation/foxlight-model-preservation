@@ -127,12 +127,15 @@ def export_kit(
     destination: Path,
     *,
     expected_envelope: bytes | None = None,
+    expected_store_identity: tuple[int, int] | None = None,
     control: OperationControl | None = None,
 ) -> KitInspection:
     """Write only the selected signed closure and public trust to a new kit.
 
     Private keys, other archive generations and local authorization are never
     selected. Each object is hashed while copying; incomplete output stays hidden.
+    An enrolled owner can additionally pin the source directory's device/inode;
+    replacement then refuses before any source metadata or object is read.
     """
     active = control or OperationControl()
     with (
@@ -140,6 +143,10 @@ def export_kit(
         directory(store) as source,
         directory(destination.parent) as parent,
     ):
+        if expected_store_identity is not None:
+            info = os.fstat(source)
+            if (info.st_dev, info.st_ino) != expected_store_identity:
+                raise PreservationError("kit source directory identity changed")
         envelope = read_metadata(source, manifest_path(manifest_id))
         if expected_envelope is not None and envelope != expected_envelope:
             raise PreservationError(
