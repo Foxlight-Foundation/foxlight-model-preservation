@@ -5,6 +5,15 @@ everyday use, and Activity through Skulk Core's durable preservation host. It
 uses local HTTP; its optional managed adapter uses the capability authoring SDK. It includes no Skulk imports,
 private owner code, signing keys, verifier, artifact transfer or byte worker.
 
+The optional **Sovereign** source preview adds an independent owner through
+`foxlight-sovereign` with the public core installed (`desktop` extra for source
+builds). It supplies built-in signed registry browsing, private PMF preservation,
+recovery kits and file restore without Core or the managed SDK. Its native Mac
+shell bundles both public packages and Python. See the [independent desktop
+guide](../docs/sovereign-desktop.md) for behavior and source-preview distribution
+limits. The existing `foxlight-preservation-library` launcher and managed entry
+point retain their Core adapter. Neither mode starts sharing on launch.
+
 Library 0.15.0 adds [offline pending-copy checks](#check-a-pending-mirror-copy), keeps [retained-copy recovery](#recover-a-retained-mirror-copy), [persistent mirror controls](#keep-models-available), and explicit [I2P HTTP source and receiving controls](#i2p-source-and-receiving-controls)
 with its pinned compatible Core, alongside the peer setup, PMF and one-file
 sharing workflows below. These are public previews with separate networking and

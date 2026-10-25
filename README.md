@@ -16,9 +16,14 @@ verified models under explicit model/terms policy. Choose HTTP independently of
 is separate, budgets are durable and deletion stays with the operator. Skulk is
 optional.
 
+The [independent Sovereign Library source preview](docs/sovereign-desktop.md)
+adds built-in signed catalog browsing, private download/preservation and offline
+kit recovery without Skulk. The Mac preview bundles its own runtime; public
+notarized desktop distribution is not claimed by this source change.
+
 ## Current public previews
 
-- **Standalone 0.19.0** includes persistent HTTP/IPFS/BitTorrent mirrors,
+- **Standalone 0.20.0** includes persistent HTTP/IPFS/BitTorrent mirrors,
   offline local-copy intake, portable handoffs, signed source following,
   retained-copy inspection/recovery-kit export, offline completion recovery,
   PirateFace lookup/intake and
@@ -45,7 +50,7 @@ censorship resistance for at-risk users.
 ## Install
 
 Python 3.11+ on Linux or macOS, with an authenticated Python/uv toolchain. Use the
-[0.19.0 installation archive](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/v0.19.0)
+[0.20.0 installation archive](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/v0.20.0)
 and its detached attestation bundle. [Verify it first](docs/installation.md),
 extract it, then install into a new directory:
 

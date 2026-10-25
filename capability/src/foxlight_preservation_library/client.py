@@ -6,7 +6,7 @@ import asyncio
 import hashlib
 import json
 import time
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, BinaryIO, cast
 
 import httpx
 from pydantic import JsonValue
@@ -149,6 +149,10 @@ class CoreClient:
             and job.get("owner_id") in {self.owner_id, self.sharing_owner_id}
         ]
         return HostReport(report=report)
+
+    async def local_artifact(self, job_id: str) -> BinaryIO:
+        """Refuse independent filesystem artifacts in a Core-backed client."""
+        raise CoreRefused("sovereign_operation_unavailable")
 
     async def metadata(
         self, method: str, path: str, body: dict[str, JsonValue] | None = None

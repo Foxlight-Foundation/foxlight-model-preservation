@@ -2,6 +2,7 @@ import { StrictMode, useCallback, useEffect, useRef, useState, type ReactNode } 
 import { createRoot } from 'react-dom/client';
 import { api, bytes, errorText, kitDownload, type Copy, type Job, type Location, type Model, type Page, type Plan } from './client';
 import './style.css';
+import {Sovereign} from './sovereign';
 import {UploadKit,ReviewPlan} from './recovery';
 import {Sharing,SharingReview,SharingSession} from './sharing';
 import {Publish,Receive,DeliveryReview} from './delivery';
@@ -31,8 +32,17 @@ export function jobStatus(job:Job):[Tone,string] {
   return ['muted',job.state.replaceAll('_',' ')];
 }
 
-/** Real Library/Guided interface; all effects begin with explicit reviewed controls. */
+/** Choose the actual host before mounting any Core-specific controls. */
 function App() {
+  const [host,setHost]=useState<'sovereign'|'core'|null>(null),[failure,setFailure]=useState('');
+  useEffect(()=>{let live=true;void api<Page&{host_kind?:string}>('library?offset=0').then(value=>{if(live)setHost(value.host_kind==='sovereign'?'sovereign':'core');}).catch(error=>{if(live)setFailure(error instanceof Error?error.message:'host_unavailable');});return()=>{live=false;};},[]);
+  if(host==='sovereign')return <Sovereign/>;
+  if(host==='core')return <CoreApp/>;
+  return <main className="sk-main"><p role={failure?'alert':'status'}>{failure?errorText(failure):'Opening your Library…'}</p></main>;
+}
+
+/** Real Library/Guided interface; all effects begin with explicit reviewed controls. */
+function CoreApp() {
   const i2pAvailable=useI2PAvailability();
   const [page,setPage] = useState<Page|null>(null);
   const [area,setArea] = useState<Area>('library');

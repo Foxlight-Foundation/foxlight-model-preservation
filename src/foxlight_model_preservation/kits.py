@@ -120,6 +120,18 @@ def inspect_kit(path: Path) -> KitInspection:
         return _header(stream)[0]
 
 
+def read_kit_envelope(path: Path) -> bytes:
+    """Return the original self-verified signed wrapper without reading weights.
+
+    This is bounded metadata inspection, not independent trust. A reviewed import
+    can pin these exact bytes with ``import_kit(expected_envelope=...)`` so a
+    changed signature wrapper cannot replace the one the operator selected.
+    """
+    with _input(path) as stream:
+        _inspection, envelope = _header(stream)
+        return envelope
+
+
 def export_kit(
     store: Path,
     manifest_id: str,
