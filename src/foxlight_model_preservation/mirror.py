@@ -318,12 +318,21 @@ def _retain_source_envelope(
 
 
 def verify_retained(
-    root: int, identity: str, held: HeldModel, control: OperationControl
+    root: int,
+    identity: str,
+    held: HeldModel,
+    control: OperationControl,
+    *,
+    ledger: MirrorLedger | None = None,
 ) -> Manifest:
     """Verify original model trust, public terms and every retained object."""
-    manifest = selection_manifest(
-        read_metadata(root, manifest_path(identity)), identity, held
-    )
+    if held.origin == "source" and held.envelope_sha256 is not None:
+        if ledger is None:
+            raise PreservationError("pinned source custody needs its owner ledger")
+        envelope = selection_envelope(ledger, root, identity, held, pending=False)
+    else:
+        envelope = read_metadata(root, manifest_path(identity))
+    manifest = selection_manifest(envelope, identity, held)
     for file in unique_objects(manifest):
         verify_object(root, file, control=control)
     return manifest
@@ -340,7 +349,7 @@ def recover_completed(ledger: MirrorLedger, control: OperationControl) -> None:
             continue
         try:
             with ledger.child("store") as store:
-                verify_retained(store, identity, held, control.fork())
+                verify_retained(store, identity, held, control.fork(), ledger=ledger)
         except OperationCancelled:
             raise
         except (ValueError, OSError):
@@ -544,7 +553,7 @@ def reconcile(ledger: MirrorLedger, control: OperationControl) -> None:
                     envelope=envelope,
                 )
             with ledger.child("store") as store:
-                verify_retained(store, identity, held, control.fork())
+                verify_retained(store, identity, held, control.fork(), ledger=ledger)
             record_model(
                 ledger,
                 identity,
@@ -621,7 +630,9 @@ def public_selection(
             if held.blocked or held.error or held.state != "retained":
                 continue
             try:
-                manifest = verify_retained(source, identity, held, control.fork())
+                manifest = verify_retained(
+                    source, identity, held, control.fork(), ledger=ledger
+                )
                 require_terms(manifest, held.grant)
                 paths = {
                     object_path(f.sha256): f.size for f in unique_objects(manifest)

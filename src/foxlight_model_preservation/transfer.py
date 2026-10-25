@@ -33,7 +33,15 @@ from .operations import (
     OperationError,
     OperationPlan,
 )
-from .signing import canonical_bytes, digest, verify_manifest
+from .signing import (
+    BUNDLE_TYPE,
+    Envelope,
+    canonical_bytes,
+    decode_base64,
+    digest,
+    strict_json,
+    verify_manifest,
+)
 from .storage import (
     CHUNK_SIZE,
     atomic_bytes,
@@ -540,10 +548,17 @@ def fetch(
                     else:
                         if existing != envelope:
                             try:
-                                verify_manifest(existing, trust, manifest_id)
+                                previous = Envelope.model_validate_json(
+                                    canonical_bytes(strict_json(existing))
+                                )
+                                same_payload = (
+                                    previous.payloadType == BUNDLE_TYPE
+                                    and digest(decode_base64(previous.payload))
+                                    == manifest_id
+                                )
                             except ValueError:
-                                pass
-                            else:
+                                same_payload = False
+                            if same_payload:
                                 raise PreservationError(
                                     "destination holds a different signed wrapper"
                                 )

@@ -226,7 +226,9 @@ def _prepare(ledger: MirrorLedger, manifest: str, control: OperationControl) -> 
 
     state = ledger.read()
     with ledger.content_lock(), ledger.child("store") as store:
-        model = verify_retained(store, manifest, state.models[manifest], control)
+        model = verify_retained(
+            store, manifest, state.models[manifest], control, ledger=ledger
+        )
     with _custody_lock:
         # Existing adapters copy an export and Kubo keeps blocks. Reserve both
         # plus metadata headroom; ongoing allocation is observed, not a quota.
@@ -619,7 +621,7 @@ def export_reference(ledger: MirrorLedger, manifest: str, kind: str) -> bytes:
     if held is None or held.state != "retained" or record is None:
         raise PreservationError("select a complete retained native model")
     with ledger.child("store") as store:
-        verify_retained(store, manifest, held, OperationControl())
+        verify_retained(store, manifest, held, OperationControl(), ledger=ledger)
         envelope = read_metadata(store, manifest_path(manifest))
     if kind == "peer" and record.cid and record.contacts:
         invitation = peer_invitation_from_envelope(

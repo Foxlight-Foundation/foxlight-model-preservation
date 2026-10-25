@@ -22,6 +22,8 @@ from foxlight_model_preservation.mirror import (
     configure_http,
     follow,
     model_action,
+    public_selection,
+    recover_completed,
     run_mirror,
 )
 from foxlight_model_preservation.mirror_intake import retain_local
@@ -46,6 +48,7 @@ from foxlight_model_preservation.mirror_state import (
     restart_allowed,
 )
 from foxlight_model_preservation.models import PreservationError
+from foxlight_model_preservation.operations import OperationControl
 from foxlight_model_preservation.signing import digest, encode_record, public_record
 from foxlight_model_preservation.storage import (
     manifest_path,
@@ -472,3 +475,36 @@ def test_removed_source_needs_operator_retry_and_cannot_change_wrapper(
     assert held.envelope_sha256 == original.envelope_sha256
     assert held.operation_id == original.operation_id
     assert held.grant == original.grant and held.catalog_id == original.catalog_id
+
+
+@pytest.mark.parametrize("state", ["pending", "retained"])
+def test_controller_never_promotes_or_serves_changed_source_attribution(
+    tmp_path, capture, monkeypatch, state
+):
+    ledger, _ = mirror(tmp_path, capture)
+    ledger = crash(ledger, capture.identity, "published")
+    held = ledger.read().models[capture.identity]
+    ledger.update(
+        lambda current: current.model_copy(
+            update={
+                "models": {
+                    capture.identity: held.model_copy(
+                        update={"entry_id": "changed-attribution", "state": state}
+                    )
+                }
+            }
+        )
+    )
+    original = (ledger.path / "store" / manifest_path(capture.identity)).read_bytes()
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("changed attribution reached byte verification")
+
+    monkeypatch.setattr("foxlight_model_preservation.mirror.verify_object", forbidden)
+    recover_completed(ledger, OperationControl())
+    assert ledger.read().models[capture.identity].state == state
+    allowed, _ = public_selection(ledger, OperationControl())
+    assert not allowed
+    assert (
+        ledger.path / "store" / manifest_path(capture.identity)
+    ).read_bytes() == original

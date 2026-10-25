@@ -122,6 +122,42 @@ def test_supplied_wrapper_cannot_strip_existing_signatures(capture, tmp_path):
     assert (capture.store / manifest_path(capture.identity)).read_bytes() == current
 
 
+def test_original_wrapper_cannot_strip_signatures_outside_current_trust(
+    capture, monkeypatch
+):
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    from foxlight_model_preservation.signing import (
+        BUNDLE_TYPE,
+        encode_record,
+        public_record,
+        sign_record,
+        verify_manifest,
+    )
+
+    path = capture.store / manifest_path(capture.identity)
+    original = path.read_bytes()
+    manifest = verify_manifest(original, capture.trust, capture.identity)
+    different = Ed25519PrivateKey.generate()
+    independent = capture.trust.model_copy(update={"keys": (public_record(different),)})
+    incoming = encode_record(sign_record(manifest, (different,), BUNDLE_TYPE))
+    assert verify_manifest(incoming, independent, capture.identity) == manifest
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("conflicting wrapper reached object receiving")
+
+    monkeypatch.setattr("foxlight_model_preservation.transfer._download", forbidden)
+    with pytest.raises(PreservationError, match="different signed wrapper"):
+        fetch(
+            capture.identity,
+            independent,
+            (str(capture.store),),
+            capture.store,
+            envelope=incoming,
+        )
+    assert path.read_bytes() == original
+
+
 def test_http_range_resume_and_complete_partial(
     capture: Capture, tmp_path: Path
 ) -> None:
