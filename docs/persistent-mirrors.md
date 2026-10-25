@@ -131,6 +131,61 @@ profile. PMF network transport remains separate: a PMF envelope refuses before
 selection or copying rather than being translated into a different identity.
 PMF's existing offline kit/restore tools remain available.
 
+## Inspect and recover retained copies
+
+A retained model does not depend on its original catalog, publisher or Library
+import record. Inspect an exact identity directly, regardless of list pages:
+
+```sh
+model-preserve mirror selection --dir /srv/sovereign/example \
+  --manifest MANIFEST_SHA256
+model-preserve mirror inspect --dir /srv/sovereign/example \
+  --manifest MANIFEST_SHA256
+model-preserve mirror export-kit --dir /srv/sovereign/example \
+  --manifest MANIFEST_SHA256 --output /separate-disk/model.foxkit
+```
+
+`selection` reads bounded local state and distinguishes an unknown selection
+from pending, retained and deliberately removed selections. An unavailable or
+invalid owner ledger refuses; it is not reported as an empty mirror. This read
+does not rely on source freshness, an application receipt or pagination.
+
+`inspect` authenticates the bounded original signed manifest against this
+selection's accepted keys, exact identity and every member's reviewed public
+terms. It returns all original card data, opaque extensions, companions and
+notice metadata without opening or hashing weight objects. A pending local
+intake can supply its authenticated private intent before object publication;
+inspection does not claim its payload is complete or uncorrupted. Removed
+selections cannot supply inspection metadata after deliberate deletion.
+
+`export-kit` requires a retained selection and creates a new self-contained
+[recovery kit](protocol.md#self-contained-recovery-kits-v1). It preserves the
+exact original signed wrapper and streams every selected object through
+length/hash checks. It refuses a
+replaced enrolled store, changed wrapper, unsatisfied signer/terms policy,
+damaged bytes or an existing output file. Cancellation or a failed copy leaves
+no published partial kit. It does not need to stop HTTP/native sharing, alter
+budgets or restart permission, sign new provenance, delete retained copies or
+start network participation. Concurrent removal can make preparation refuse;
+an already exported separate kit remains under its own operator's control.
+
+The kit's public keys are candidates. A recipient can inspect its fingerprints,
+then import with independently selected keys and the exact identity into a new
+destination:
+
+```sh
+model-preserve kit-inspect --kit model.foxkit
+model-preserve kit-import --kit model.foxkit \
+  --expected-manifest-id MANIFEST_SHA256 --trust independently-accepted-keys.json \
+  --output /path/to/new-recovered-archive
+```
+
+The kit profile also supports a deliberate first-contact key decision, which
+does not establish publisher identity. Model, source, registry and runtime
+authority remain separate. No private signing key or mirror policy is exported.
+These tools recover the existing public preservation-v1 mirror profile;
+standalone PMF kit tools retain their separate existing contract.
+
 ## Run manually, then choose restart permission separately
 
 HTTP serving is a separate choice from native peer transports. It remains enabled

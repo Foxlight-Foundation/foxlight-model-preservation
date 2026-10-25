@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## 0.18.0
+
+- Inspect exact retained mirror state independently of catalog/application
+  receipts or pagination with `mirror selection`. Corrupt/unavailable state
+  refuses instead of appearing empty. `mirror inspect` authenticates original
+  signed metadata and complete card/companion terms without scanning weights;
+  a pending local intent is metadata, not proof of complete payload bytes.
+- Export a complete retained copy with `mirror export-kit` and the reusable
+  standalone recovery API. Original wrapper bytes, every opaque card/companion
+  and candidate public trust survive; every object is verified while copying
+  into an atomic, non-overwriting kit. Existing serving need not stop. No new
+  signer, network, runtime or recipient trust authority is granted.
+- Let enrolled hosts optionally pin the source store's device/inode during kit
+  export, refusing a replaced directory before reading its metadata or objects.
+  This changes no signed archive/kit format or existing identities.
+
 ## 0.17.1
 
 - Allow a trusted embedding process owner to select the direct native peer

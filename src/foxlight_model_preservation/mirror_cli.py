@@ -15,6 +15,7 @@ from .mirror_intake import retain_local
 from .mirror_models import MirrorObservation, SourceGrant, Terms
 from .mirror_native import configure, export_reference, write_reference
 from .mirror_prune import prune
+from .mirror_recovery import export_selection_kit, inspect_selection, selection_status
 from .mirror_state import MAX_STATE, MirrorLedger, grant_restart
 from .models import PreservationError
 from .operations import OperationControl
@@ -96,6 +97,9 @@ def register_mirror_commands(
         "prune",
         "transports",
         "export",
+        "selection",
+        "inspect",
+        "export-kit",
     ):
         command = actions.add_parser(name)
         command.add_argument("--dir", dest="mirror_dir", type=Path, required=True)
@@ -107,6 +111,10 @@ def register_mirror_commands(
             command.add_argument(
                 "--kind", dest="export_kind", choices=["peer", "torrent"], required=True
             )
+            command.add_argument(
+                "--output", dest="export_output", type=Path, required=True
+            )
+        if name == "export-kit":
             command.add_argument(
                 "--output", dest="export_output", type=Path, required=True
             )
@@ -199,6 +207,9 @@ def register_mirror_commands(
             "prune",
             "export",
             "retain",
+            "selection",
+            "inspect",
+            "export-kit",
         ):
             command.add_argument("--manifest", dest="mirror_manifest", required=True)
         if name == "prune":
@@ -261,6 +272,40 @@ def run_mirror_command(
     ledger = MirrorLedger(arguments.mirror_dir)
     if action in ("plan", "status"):
         return plan(ledger)
+    if action == "selection":
+        selected = selection_status(ledger, arguments.mirror_manifest)
+        return {
+            "manifest": arguments.mirror_manifest,
+            "selected": selected is not None,
+            "state": selected.state if selected is not None else None,
+            "origin": selected.origin if selected is not None else None,
+            "pinned": selected.pinned if selected is not None else False,
+            "blocked": selected.blocked if selected is not None else False,
+            "network_started": False,
+        }
+    if action == "inspect":
+        metadata = inspect_selection(ledger, arguments.mirror_manifest)
+        return {
+            "manifest": arguments.mirror_manifest,
+            "metadata": metadata.model_dump(mode="json"),
+            "payload_bytes_verified": False,
+            "network_started": False,
+        }
+    if action == "export-kit":
+        kit = export_selection_kit(
+            ledger,
+            arguments.mirror_manifest,
+            arguments.export_output,
+            control=control,
+        )
+        return {
+            "manifest": arguments.mirror_manifest,
+            "members": len(kit.manifest.members),
+            "kit_bytes": kit.kit_bytes,
+            "exported": True,
+            "network_started": False,
+            "grants_imported": False,
+        }
     if action == "http":
         state = configure_http(ledger, enabled=arguments.http_enabled)
         return {

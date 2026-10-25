@@ -18,13 +18,16 @@ optional.
 
 ## Current public previews
 
-- **Standalone 0.17.1** includes persistent HTTP/IPFS/BitTorrent mirrors,
+- **Standalone 0.18.0** includes persistent HTTP/IPFS/BitTorrent mirrors,
   offline local-copy intake, portable handoffs, signed source following,
-  PirateFace lookup/intake and the separately opted-in I2P pilots.
-- **Library 0.12.0** provides a local interface through its separately pinned
+  retained-copy inspection/recovery-kit export, PirateFace lookup/intake and
+  the separately opted-in I2P pilots.
+- **Library 0.13.0** provides a local interface through its separately pinned
   compatible Skulk Core. It includes PMF preservation/recovery, one-file sharing,
-  peer setup/receiving and explicit I2P source/receiving controls. Installing the
-  Library package does not install Core or start networking.
+  peer setup/receiving, persistent mirror controls and explicit I2P
+  source/receiving controls. Installing the Library package does not install
+  Core or start networking. Standalone retained-copy export does not yet have
+  Library controls.
 - Public releases are pre-releases. The v1 preservation format has its existing
   compatibility commitment; PMF remains a separately versioned draft. Standalone
   persistent mirrors serve the public v1 transport profile, not generic PMF.
@@ -39,13 +42,13 @@ censorship resistance for at-risk users.
 ## Install
 
 Python 3.11+ on Linux or macOS, with an authenticated Python/uv toolchain. Use the
-[0.17.1 installation archive](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/v0.17.1)
+[0.18.0 installation archive](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/v0.18.0)
 and its detached attestation bundle. [Verify it first](docs/installation.md),
 extract it, then install into a new directory:
 
 ```sh
-python3 install.py --directory "$HOME/sovereign-0.17.1"
-"$HOME/sovereign-0.17.1/bin/model-preserve" --help
+python3 install.py --directory "$HOME/sovereign-0.18.0"
+"$HOME/sovereign-0.18.0/bin/model-preserve" --help
 ```
 
 The archive contains the exact package wheel, source, hash-locked dependencies
