@@ -6,34 +6,34 @@ const review={schema_version:'skulk.preservation-mirror-review.v1',manifest_id:i
   {member_id:'primary',role:'primary',repository:'fixture/model',revision:'e'.repeat(40),format:'fixture',size_bytes:6,file_count:2,license_id:'MIT',terms_reference:'LICENSE',notice_paths:['LICENSE']},
   {member_id:'companion',role:'future'.repeat(15),repository:'fixture/companion',revision:'f'.repeat(40),format:'fixture',size_bytes:4,file_count:1,license_id:'Companion terms',terms_reference:'COMPANION-LICENSE',notice_paths:['COMPANION-LICENSE']},
 ]};
-type Job={job_id:string;owner_id:string;operation_id:string;kind:string;state:string;manifest_id:string;bytes_hashed:number;bytes_copied:number;error_code:null;kit_removed:boolean;kit:null|{state:string;manifest_id:string;size_bytes:number;sha256:string}};
+type Job={job_id:string;owner_id:string;operation_id:string;kind:string;state:string;manifest_id:string;created_at:number;updated_at:number;bytes_hashed:number;bytes_copied:number;error_code:null;kit_removed:boolean;kit:null|{state:string;manifest_id:string;size_bytes:number;sha256:string}};
 const errors=new WeakMap<Page,string[]>();
 test.beforeEach(async({page})=>{const found:string[]=[];errors.set(page,found);page.on('pageerror',error=>found.push(error.message));page.on('console',message=>{if(message.type()==='error'&&!message.text().includes('net::ERR_FAILED'))found.push(message.text());});});
 test.afterEach(async({page})=>{expect(errors.get(page)??[]).toEqual([]);});
 
 /** Browser contract fixture; genuine Core/archive acceptance is a separate gate. */
 async function host(page:Page){
-  const state={job:null as Job|null,preparations:[] as Record<string,unknown>[],removed:[] as string[],loseReply:false,metadataError:false};
+  const state={job:null as Job|null,history:[] as Job[],preparations:[] as Record<string,unknown>[],removed:[] as string[],loseReply:false,metadataError:false,showModels:true};
   await page.route('**/api/library?offset=*',route=>route.fulfill({json:{locations:[],models:[],copies:[],public_copies:[],jobs:[],next_offset:null}}));
   await page.route('**/api/core-features',route=>route.fulfill({json:{'Retained recovery':true,'Persistent mirrors':true,'Public copy review':true}}));
   await page.route('**/api/mirror-*',async route=>{
     const action=new URL(route.request().url()).pathname.split('/').at(-1);
-    if(action==='mirror-read')return route.fulfill({json:{schema_version:'skulk.preservation-mirror.v1',configured:true,available:true,policy_id:policy,configuration:null,paused:true,restart_expires:null,restart_allowed:false,controller_job_id:null,models:[model],model_count:1,next_offset:null}});
-    if(action==='mirror-history')return route.fulfill({json:{jobs:state.job?[state.job]:[],next_offset:null}});
+    if(action==='mirror-read')return route.fulfill({json:{schema_version:'skulk.preservation-mirror.v1',configured:true,available:true,policy_id:policy,configuration:null,paused:true,restart_expires:null,restart_allowed:false,controller_job_id:null,models:state.showModels?[model]:[],model_count:state.showModels?1:0,next_offset:null}});
+    if(action==='mirror-history'){const offset=Number(route.request().postDataJSON().offset??0);return route.fulfill({json:{jobs:state.history.slice(offset,offset+20),next_offset:offset+20<state.history.length?offset+20:null}});}
     if(action==='mirror-retained-review')return state.metadataError?route.abort('failed'):route.fulfill({json:review});
     if(action==='mirror-kit-latest')return route.fulfill({json:{manifest_id:identity,job:state.job}});
     if(action==='mirror-prepare'){
       const input=route.request().postDataJSON() as Record<string,unknown>;state.preparations.push(input);
-      if(!state.job||input.previous_job_id){state.job={job_id:input.previous_job_id?'e'.repeat(64):jobId,owner_id:'library',operation_id:'fixture',kind:'prepare_kit',state:'running',manifest_id:identity,bytes_hashed:0,bytes_copied:0,error_code:null,kit_removed:false,kit:null};}
+      if(!state.job||input.previous_job_id){state.job={job_id:input.previous_job_id?'e'.repeat(64):jobId,owner_id:'library',operation_id:'fixture',kind:'prepare_kit',state:'running',manifest_id:identity,created_at:1,updated_at:1,bytes_hashed:0,bytes_copied:0,error_code:null,kit_removed:false,kit:null};state.history.unshift(state.job);}
       if(state.loseReply){state.loseReply=false;return route.abort('failed');}
       return route.fulfill({json:state.job});
     }
-    if(action==='mirror-observe')return route.fulfill({json:state.job});
-    if(action==='mirror-stop'){state.job!.state='cancelled';return route.fulfill({json:state.job});}
+    if(action==='mirror-observe')return route.fulfill({json:state.history.find(job=>job.job_id===route.request().postDataJSON().job_id)});
+    if(action==='mirror-stop'){const selected=state.history.find(job=>job.job_id===route.request().postDataJSON().job_id)!;selected.state='cancelled';return route.fulfill({json:selected});}
     if(action==='mirror-kit-remove'){
-      const input=route.request().postDataJSON();expect(input).toEqual({job_id:state.job!.job_id,confirm_job_id:state.job!.job_id});
-      state.removed.push(input.job_id);state.job!.kit_removed=true;state.job!.kit=null;
-      return route.fulfill({json:state.job});
+      const input=route.request().postDataJSON();const selected=state.history.find(job=>job.job_id===input.job_id)!;expect(input.confirm_job_id).toBe(selected.job_id);
+      state.removed.push(input.job_id);selected.kit_removed=true;selected.kit=null;
+      return route.fulfill({json:selected});
     }
     throw new Error(`Unexpected control: ${action}`);
   });
@@ -109,4 +109,43 @@ test('unavailable authenticated metadata leaves preparation disabled and needs o
   state.metadataError=false;await page.getByRole('button',{name:'Read again',exact:true}).click();
   await expect(page.getByRole('button',{name:'Prepare recovery kit',exact:true})).toBeEnabled();
   expect(state.preparations).toHaveLength(0);
+});
+
+test('a newer failed preparation keeps the earlier kit downloadable and separately removable',async({page},info)=>{
+  const state=await host(page);await open(page);
+  await page.getByRole('button',{name:'Prepare recovery kit',exact:true}).click();
+  await expect(page.getByText('running',{exact:true})).toBeVisible();
+  const first=state.job!;first.state='succeeded';first.kit={state:'prepared',manifest_id:identity,size_bytes:17,sha256:'f'.repeat(64)};
+  await expect(page.getByRole('link',{name:'Download recovery kit',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Prepare another kit',exact:true}).click();
+  await expect(page.getByText('running',{exact:true})).toBeVisible();
+  state.job!.state='failed';
+  await expect(page.getByText('failed',{exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Earlier recovery kits',exact:true}).click();
+  const earlier=page.getByRole('article',{name:`Recovery kit receipt ${first.job_id}`,exact:true});
+  await earlier.getByRole('button',{name:'Recovery kit actions',exact:true}).click();
+  const selected=page.getByRole('dialog').filter({has:page.getByRole('heading',{name:'Recovery kit actions',exact:true})});
+  await expect(selected.getByRole('link',{name:'Download this recovery kit',exact:true})).toHaveAttribute('href',`http://127.0.0.1:4178/api/mirror-kit/${first.job_id}`);
+  await expect(selected.getByRole('button',{name:'Remove only this kit',exact:true})).toBeDisabled();
+  await selected.getByRole('checkbox',{name:/Delete only this preparation’s kit files/}).check();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
+  await page.screenshot({path:info.outputPath('earlier-kit-actions.png')});
+  await selected.getByRole('button',{name:'Remove only this kit',exact:true}).click();
+  await expect(selected.getByText('kit removed',{exact:true})).toBeVisible();
+  expect(state.removed).toEqual([first.job_id]);expect(state.job!.state).toBe('failed');expect(state.job!.kit_removed).toBe(false);expect(model.state).toBe('retained');
+  expect(state.preparations).toHaveLength(2);
+});
+
+test('permanent history manages an older kit after model metadata loss and beyond twenty other decisions',async({page})=>{
+  const state=await host(page);
+  const first:Job={job_id:jobId,owner_id:'library',operation_id:'old',kind:'prepare_kit',state:'succeeded',manifest_id:identity,created_at:1,updated_at:1,bytes_hashed:10,bytes_copied:10,error_code:null,kit_removed:false,kit:{state:'prepared',manifest_id:identity,size_bytes:17,sha256:'f'.repeat(64)}};
+  state.history=Array.from({length:20},(_,i)=>({...first,job_id:(i+100).toString(16).padStart(64,'0'),kind:'model',kit:null}));state.history.push(first);state.showModels=false;state.metadataError=true;
+  await page.getByRole('button',{name:'Sharing',exact:true}).click();
+  await page.getByText('Mirror activity and decisions',{exact:true}).click();
+  await page.getByRole('button',{name:'Older decisions',exact:true}).click();
+  await page.getByRole('article',{name:`Mirror decision ${first.job_id}`,exact:true}).getByRole('button',{name:'Recovery kit actions',exact:true}).click();
+  await expect(page.getByRole('link',{name:'Download this recovery kit',exact:true})).toBeVisible();
+  await page.getByRole('checkbox',{name:/Delete only this preparation’s kit files/}).check();
+  await page.getByRole('button',{name:'Remove only this kit',exact:true}).click();
+  await expect(page.getByText('kit removed',{exact:true})).toBeVisible();expect(state.removed).toEqual([first.job_id]);expect(state.preparations).toHaveLength(0);
 });

@@ -15,6 +15,9 @@ tagged `library-v*`; versions without a tag are source previews installed from
   requires another operator decision.
 - Confirm removal of one preparation's kit files separately from retained-model
   removal. No automatic cleanup, eviction or new trust grant is introduced.
+- Keep earlier preparations accessible for their own download and cleanup after
+  another preparation, including failed replacements, pagination and loss of
+  the original import or retained-model metadata.
 - Look up the exact retained identity before reintake, including removed records
   beyond the displayed page. Negotiate the new recovery contract separately;
   older hosts retain existing sharing and Stop controls.

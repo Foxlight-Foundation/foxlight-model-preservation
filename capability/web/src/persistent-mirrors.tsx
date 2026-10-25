@@ -1,7 +1,7 @@
 import {useEffect, useRef, useState} from 'react';
 import {api, bytes, errorText, type Copy, type PublicationMember} from './client';
 import {PeerAccess, type PeerGrant} from './peer';
-import {RetainedRecovery, type RetainedModel} from './retained-recovery';
+import {MirrorKitReceipt, RetainedRecovery, type RetainedModel} from './retained-recovery';
 import {Callout, Consent, Details, Icon, Label, Menu, Mono, Pill, Progress, Row, Sheet, Step, ago} from './ui';
 
 interface MirrorConfiguration {
@@ -41,11 +41,12 @@ type MirrorDecision =
 type Dialog =
   | {kind:'configure'; policy_id:string|null; configuration:MirrorConfiguration|null}
   | {kind:'recovery'; policy_id:string; model:MirrorModel}
+  | {kind:'kit'; job_id:string}
   | {kind:'retain'; policy_id:string; copy:Copy; removed:boolean}
   | {kind:'run'|'grant_resume'|'revoke_resume'; policy_id:string; configuration:MirrorConfiguration; expires:number|null}
   | {kind:'model'|'prune'; policy_id:string; model:MirrorModel; name:string; action?:ModelAction};
 const active=(job:MirrorJob)=>['queued','running','cancelling'].includes(job.state);
-const titles:Record<string,string>={configure:'Save mirror settings',retain:'Keep public copy',run:'Share retained copies',grant_resume:'Allow sharing after restart',revoke_resume:'Remove restart permission',model:'Change retained selection',prune:'Remove mirror copy'};
+const titles:Record<string,string>={configure:'Save mirror settings',retain:'Keep public copy',run:'Share retained copies',grant_resume:'Allow sharing after restart',revoke_resume:'Remove restart permission',model:'Change retained selection',prune:'Remove mirror copy',prepare_kit:'Prepare recovery kit'};
 const gibibyte=1024**3;
 
 /** Durable sharing controls; opening, polling and saving settings stay offline. */
@@ -158,7 +159,7 @@ export function PersistentMirrors({copies,features,blocked,onOverlayChange,bitto
         </Details>
         <Details summary="Mirror activity and decisions">
           <p>Jobs belong to the host and continue when this page closes. These receipts report local work, not community replicas or anonymous access.</p>
-          {history?.jobs.map(job=><article className="sk-card" key={job.job_id}><Row k={titles[job.kind]??job.kind}><Pill tone={job.state==='succeeded'?'ok':job.state==='failed'?'bad':active(job)?'live':'muted'}>{job.state}</Pill></Row><p className="sk-meta">{ago(job.updated_at)}</p>{active(job)&&<Progress label="Owned mirror work"/>}{(job.bytes_hashed>0||job.bytes_copied>0)&&<p className="sk-hint">Checked {bytes(job.bytes_hashed)} · copied {bytes(job.bytes_copied)}</p>}{job.error_code&&<Callout tone="warn">{errorText(job.error_code)}</Callout>}{(active(job)||job.state==='failed')&&<button className="sk-btn sk-outline" disabled={stopping.has(job.job_id)} onClick={()=>void stop(job.job_id)}><Icon name="stop"/>{stopping.has(job.job_id)?'Stopping…':active(job)?'Stop this operation':'Confirm this operation is stopped'}</button>}<Details summary="Receipt identity"><Mono value={job.job_id} label="mirror job identity"/></Details></article>)}
+          {history?.jobs.map(job=><article className="sk-card" key={job.job_id} aria-label={`Mirror decision ${job.job_id}`}><Row k={titles[job.kind]??job.kind}><Pill tone={job.state==='succeeded'?'ok':job.state==='failed'?'bad':active(job)?'live':'muted'}>{job.state}</Pill></Row><p className="sk-meta">{ago(job.updated_at)}</p>{active(job)&&<Progress label="Owned mirror work"/>}{(job.bytes_hashed>0||job.bytes_copied>0)&&<p className="sk-hint">Checked {bytes(job.bytes_hashed)} · copied {bytes(job.bytes_copied)}</p>}{job.error_code&&<Callout tone="warn">{errorText(job.error_code)}</Callout>}{(active(job)||job.state==='failed')&&<button className="sk-btn sk-outline" disabled={stopping.has(job.job_id)} onClick={()=>void stop(job.job_id)}><Icon name="stop"/>{stopping.has(job.job_id)?'Stopping…':active(job)?'Stop this operation':'Confirm this operation is stopped'}</button>}{job.kind==='prepare_kit'&&recoverySupported&&<button className="sk-btn sk-outline" onClick={()=>open({kind:'kit',job_id:job.job_id})}>Recovery kit actions</button>}<Details summary="Receipt identity"><Mono value={job.job_id} label="mirror job identity"/></Details></article>)}
           {historyOffset>0&&<button className="sk-btn sk-quiet" onClick={()=>setHistoryOffset(0)}>Latest decisions</button>}{history?.next_offset!==null&&history?.next_offset!==undefined&&<button className="sk-btn sk-quiet" onClick={()=>setHistoryOffset(history.next_offset!)}>Older decisions</button>}
         </Details>
       </>}
@@ -170,6 +171,7 @@ export function PersistentMirrors({copies,features,blocked,onOverlayChange,bitto
 /** Each sheet freezes its reviewed policy and keeps retry inputs unchanged. */
 function MirrorDialog({selection,busy,error,onClose,onSubmit,bittorrentAvailable}:{selection:Dialog;busy:boolean;error:string;onClose:()=>void;onSubmit:(decision:MirrorDecision)=>Promise<void>;bittorrentAvailable:boolean}) {
   if(selection.kind==='recovery')return <RetainedRecovery model={selection.model} policyId={selection.policy_id} onClose={onClose}/>;
+  if(selection.kind==='kit')return <MirrorKitReceipt jobId={selection.job_id} onClose={onClose}/>;
   if(selection.kind==='configure')return <MirrorSettings selection={selection} busy={busy} error={error} onClose={onClose} onSubmit={onSubmit} bittorrentAvailable={bittorrentAvailable}/>;
   if(selection.kind==='retain')return <RetainReview selection={selection} busy={busy} error={error} onClose={onClose} onSubmit={onSubmit}/>;
   return <MirrorDecisionSheet selection={selection} busy={busy} error={error} onClose={onClose} onSubmit={onSubmit}/>;

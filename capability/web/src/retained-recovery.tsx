@@ -1,6 +1,6 @@
 import {useEffect, useRef, useState} from 'react';
 import {api, bytes, errorText, type PublicationMember} from './client';
-import {Callout, Consent, Details, Icon, Mono, Pill, Progress, Row, Sheet, Step} from './ui';
+import {Callout, Consent, Details, Icon, Mono, Pill, Progress, Row, Sheet, Step, ago} from './ui';
 
 export interface RetainedModel {
   manifest_id:string; state:'pending'|'retained'|'removed'; pinned:boolean; blocked:boolean;
@@ -9,6 +9,7 @@ export interface RetainedModel {
 export interface RetainedJob {
   job_id:string; owner_id:string; kind:string; state:string; manifest_id:string|null;
   bytes_hashed:number; bytes_copied:number; error_code:string|null; kit_removed?:boolean;
+  created_at?:number; updated_at?:number;
   kit?:{state:string; manifest_id:string; size_bytes:number; sha256:string}|null;
 }
 interface RetainedReview {
@@ -67,6 +68,7 @@ export function RetainedRecovery({model,policyId,onClose}:{model:RetainedModel;p
   const [review,setReview]=useState<RetainedReview|null>(null),[job,setJob]=useState<RetainedJob|null>(null);
   const [loaded,setLoaded]=useState(false),[revision,setRevision]=useState(0),[readError,setReadError]=useState(''),[error,setError]=useState('');
   const [busy,setBusy]=useState(false),[remove,setRemove]=useState(false),[confirmed,setConfirmed]=useState(false);
+  const [earlier,setEarlier]=useState(false);
   const mounted=useRef(true),pending=useRef<{previous_job_id:string|null}|null>(null);
   useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
   useEffect(()=>{
@@ -109,7 +111,7 @@ export function RetainedRecovery({model,policyId,onClose}:{model:RetainedModel;p
   }
   const ready=job?.state==='succeeded'&&job.kit?.state==='prepared'&&job.kit_removed===false;
   const canPrepare=loaded&&!readError&&!busy&&(!job||terminal(job));
-  return <Sheet kicker="Retained mirror copy" title={review?.name??retainedName(model)} back="Close retained recovery" onClose={onClose} footer={<><button className="sk-btn sk-quiet" onClick={onClose}>Close</button>{ready&&!readError?<a className="sk-btn sk-solid" href={filename(job!)} download><Icon name="download"/>Download recovery kit</a>:<button className="sk-btn sk-solid" disabled={!canPrepare} onClick={()=>void prepare()}>{busy?'Working…':pending.current?'Retry the same preparation':job?'Prepare another kit':'Prepare recovery kit'}</button>}</>}>
+  return <><div inert={earlier}><Sheet kicker="Retained mirror copy" title={review?.name??retainedName(model)} back="Close retained recovery" onClose={onClose} footer={<><button className="sk-btn sk-quiet" onClick={onClose}>Close</button>{ready&&!readError?<a className="sk-btn sk-solid" href={filename(job!)} download><Icon name="download"/>Download recovery kit</a>:<button className="sk-btn sk-solid" disabled={!canPrepare} onClick={()=>void prepare()}>{busy?'Working…':pending.current?'Retry the same preparation':job?'Prepare another kit':'Prepare recovery kit'}</button>}</>}>
     {!loaded&&!readError&&<p role="status">Authenticating retained metadata and finding earlier preparations…</p>}
     {readError&&<Callout tone="bad" role="alert">{errorText(readError)} <button className="sk-btn sk-quiet" disabled={busy} onClick={()=>setRevision(value=>value+1)}>Read again</button></Callout>}
     {review&&<>
@@ -129,6 +131,64 @@ export function RetainedRecovery({model,policyId,onClose}:{model:RetainedModel;p
         {remove&&job&&<><Consent checked={confirmed} disabled={busy} onChange={setConfirmed}>Delete only this preparation’s kit files on this host. Keep the retained model and copies already saved elsewhere.</Consent><button className="sk-btn sk-outline" disabled={!confirmed||busy||Boolean(readError)} onClick={()=>void control('mirror-kit-remove')}>Remove only this kit</button></>}
       </Step>
     </>}
+    <button className="sk-btn sk-quiet" disabled={busy} onClick={()=>setEarlier(true)}>Earlier recovery kits</button>
+    <p className="sk-hint">Preparing another kit keeps earlier files. Open an earlier preparation to download or explicitly remove only its kit.</p>
+    {error&&<Callout tone="bad" role="alert">{errorText(error)}</Callout>}
+  </Sheet></div>{earlier&&<EarlierKits manifestId={model.manifest_id} onClose={()=>{setEarlier(false);setRevision(value=>value+1);}}/>}</>;
+}
+
+/** Page permanent receipts without treating an empty filtered page as absence. */
+function EarlierKits({manifestId,onClose}:{manifestId:string;onClose:()=>void}) {
+  const [offset,setOffset]=useState(0),[revision,setRevision]=useState(0);
+  const [page,setPage]=useState<{jobs:RetainedJob[];next_offset:number|null}|null>(null),[error,setError]=useState('');
+  const [selected,setSelected]=useState<string|null>(null);
+  useEffect(()=>{
+    let current=true;setPage(null);setError('');
+    void api<{jobs:RetainedJob[];next_offset:number|null}>('mirror-history',{offset}).then(value=>{if(current)setPage(value);}).catch(reason=>{if(current)setError(reason instanceof Error?reason.message:'host_unavailable');});
+    return()=>{current=false;};
+  },[offset,revision]);
+  const jobs=page?.jobs.filter(job=>job.kind==='prepare_kit'&&job.manifest_id===manifestId)??[];
+  return <><div inert={Boolean(selected)}><Sheet kicker="Retained mirror copy" title="Earlier recovery kits" back="Back to retained recovery" onClose={onClose}>
+    <p>Each preparation owns separate files. A newer or failed preparation does not replace an earlier kit. Removing a kit keeps the retained model and recipient files.</p>
+    {!page&&!error&&<p role="status">Reading permanent preparation receipts…</p>}
+    {error&&<Callout tone="bad" role="alert">{errorText(error)} <button className="sk-btn sk-quiet" onClick={()=>setRevision(value=>value+1)}>Read again</button></Callout>}
+    {page&&jobs.length===0&&<p>No preparations for this model on this page. {page.next_offset!==null?'Older decisions remain available below.':'You have reached the end of this owner’s decisions.'}</p>}
+    {jobs.map(job=><article className="sk-card" key={job.job_id} aria-label={`Recovery kit receipt ${job.job_id}`}><Row k="Preparation"><Pill tone={job.kit_removed?'muted':job.state==='succeeded'?'ok':active(job)?'live':'muted'}>{job.kit_removed?'kit removed':job.state}</Pill></Row>{job.created_at&&<p className="sk-meta">Prepared {ago(job.created_at)}</p>}{job.kit&&<Row k="Kit size">{bytes(job.kit.size_bytes)}</Row>}<Mono value={job.job_id} label="earlier preparation job identity"/><button className="sk-btn sk-outline" onClick={()=>setSelected(job.job_id)}>Recovery kit actions</button></article>)}
+    <div className="sk-actions">{offset>0&&<button className="sk-btn sk-quiet" onClick={()=>setOffset(0)}>Latest decisions</button>}{page?.next_offset!=null&&<button className="sk-btn sk-quiet" onClick={()=>setOffset(page.next_offset!)}>Older decisions</button>}</div>
+  </Sheet></div>{selected&&<MirrorKitReceipt jobId={selected} onClose={()=>{setSelected(null);setRevision(value=>value+1);}}/>}</>;
+}
+
+/** Keep each exact own-job kit manageable even after model/copy metadata loss. */
+export function MirrorKitReceipt({jobId,onClose}:{jobId:string;onClose:()=>void}) {
+  const [job,setJob]=useState<RetainedJob|null>(null),[readError,setReadError]=useState(''),[error,setError]=useState('');
+  const [revision,setRevision]=useState(0),[busy,setBusy]=useState(false),[confirmed,setConfirmed]=useState(false);
+  const mounted=useRef(true);
+  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
+  useEffect(()=>{
+    let current=true,timer:number|undefined;setReadError('');
+    async function read(){
+      try{const value=await api<RetainedJob>('mirror-observe',{job_id:jobId});if(value.kind!=='prepare_kit')throw new Error('invalid_job_identity');if(current){setJob(value);setReadError('');if(active(value))timer=window.setTimeout(()=>void read(),2000);}}
+      catch(reason){if(current)setReadError(reason instanceof Error?reason.message:'host_unavailable');}
+    }
+    void read();return()=>{current=false;window.clearTimeout(timer);};
+  },[jobId,revision]);
+  async function control(action:'mirror-stop'|'mirror-kit-remove'){
+    if(!job)return;setBusy(true);setError('');
+    try{const value=await api<RetainedJob>(action,{job_id:jobId,...(action==='mirror-kit-remove'?{confirm_job_id:jobId}:{})});if(mounted.current){setJob(value);setConfirmed(false);setRevision(value=>value+1);}}
+    catch(reason){if(mounted.current)setError(reason instanceof Error?reason.message:'host_unavailable');}
+    finally{if(mounted.current)setBusy(false);}
+  }
+  const ready=job?.state==='succeeded'&&job.kit?.state==='prepared'&&job.kit_removed===false;
+  return <Sheet kicker="Permanent preparation receipt" title="Recovery kit actions" back="Close recovery kit actions" onClose={onClose} footer={<><button className="sk-btn sk-quiet" onClick={onClose}>Close</button>{ready&&!readError&&<a className="sk-btn sk-solid" href={filename(job!)} download><Icon name="download"/>Download this recovery kit</a>}</>}>
+    <Mono value={jobId} label="selected preparation job identity"/>
+    <p>This receipt refers only to this preparation. Newer preparations and missing import or model records do not remove its files.</p>
+    {!job&&!readError&&<p role="status">Reading this preparation…</p>}
+    {readError&&<Callout tone="bad" role="alert">{errorText(readError)} <button className="sk-btn sk-quiet" disabled={busy} onClick={()=>setRevision(value=>value+1)}>Read again</button></Callout>}
+    {job&&<><Row k="Preparation state"><Pill tone={ready?'ok':active(job)?'live':'muted'}>{job.kit_removed?'kit removed':job.state}</Pill></Row>{active(job)&&<Progress label="Owned recovery kit preparation"/>}{job.manifest_id&&<Mono value={job.manifest_id} label="prepared model manifest identity"/>}{job.kit&&<><Row k="Prepared file">{bytes(job.kit.size_bytes)}</Row><Mono value={job.kit.sha256} label="selected kit SHA-256"/></>}{job.error_code&&<Callout tone="warn">{errorText(job.error_code)}</Callout>}
+      {(active(job)||job.state==='failed')&&<button className="sk-btn sk-outline" disabled={busy} onClick={()=>void control('mirror-stop')}>Stop this preparation</button>}
+      {terminal(job)&&!job.kit_removed&&<><Consent checked={confirmed} disabled={busy||Boolean(readError)} onChange={setConfirmed}>Delete only this preparation’s kit files on this host. Keep the retained model and recipient files.</Consent><button className="sk-btn sk-outline" disabled={!confirmed||busy||Boolean(readError)} onClick={()=>void control('mirror-kit-remove')}>Remove only this kit</button></>}
+    </>}
+    <Callout>Kits are not encrypted. Verify the expected signed identity, fingerprints and threshold independently when restoring. A prepared-file digest does not grant model or registry trust.</Callout>
     {error&&<Callout tone="bad" role="alert">{errorText(error)}</Callout>}
   </Sheet>;
 }

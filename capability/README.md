@@ -203,6 +203,14 @@ Close Library whenever needed. Return to the same retained copy to find its
 preparation, including a receipt older than the current activity page. An
 ambiguous submission can be retried as the same immutable decision; reopening
 only reads its outcome. **Prepare another kit** is a separate explicit choice.
+Use **Earlier recovery kits** in the recovery sheet to browse this model's
+permanent preparations. Choose **Recovery kit actions** on a receipt to download
+or explicitly remove only its kit, even when a newer preparation fails. Empty
+filtered pages offer **Older decisions**; they do not mean all earlier kits are
+gone. The same controls are in **Sharing → Mirror activity and decisions** and
+remain usable after the model or original import metadata is removed. Preparing
+another kit never silently removes the earlier files.
+
 Active work exposes **Stop this preparation**. Failed or interrupted work is
 not silently restarted. No timer removes kit files.
 
