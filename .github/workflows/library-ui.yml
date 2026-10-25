@@ -1,9 +1,9 @@
 name: Library interface
 on:
   push:
-    paths: ['capability/**', 'src/foxlight_model_preservation/local_host/**', 'desktop/**', 'scripts/package_desktop.py', 'scripts/release_install.py', 'scripts/install_release.py', 'scripts/qualify_installed_desktop.py', '.github/workflows/library-ui.yml']
+    paths: ['capability/**', 'src/foxlight_model_preservation/local_host/**', 'desktop/**', 'scripts/*macos.py', 'scripts/package_desktop.py', 'scripts/release_install.py', 'scripts/install_release.py', 'scripts/qualify_installed_desktop.py', '.github/workflows/library-ui.yml']
   pull_request:
-    paths: ['capability/**', 'src/foxlight_model_preservation/local_host/**', 'desktop/**', 'scripts/package_desktop.py', 'scripts/release_install.py', 'scripts/install_release.py', 'scripts/qualify_installed_desktop.py', '.github/workflows/library-ui.yml']
+    paths: ['capability/**', 'src/foxlight_model_preservation/local_host/**', 'desktop/**', 'scripts/*macos.py', 'scripts/package_desktop.py', 'scripts/release_install.py', 'scripts/install_release.py', 'scripts/qualify_installed_desktop.py', '.github/workflows/library-ui.yml']
 permissions:
   contents: read
 jobs:
@@ -70,3 +70,42 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build the native shell
         run: swift build --package-path desktop/macos --scratch-path /tmp/sovereign-swift
+
+  mac-bundle:
+    name: Independent Apple silicon bundle
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install uv==0.12.23
+      - name: Fetch and verify pinned public inputs
+        run: |
+          python - <<'PY'
+          import hashlib, json, pathlib, urllib.request, zipfile
+          lock = json.loads(pathlib.Path('desktop/macos/inputs.json').read_bytes())
+          for name in ('library', 'python'):
+              urllib.request.urlretrieve(lock[name]['url'], '/tmp/' + name + '.archive')
+              assert hashlib.sha256(pathlib.Path('/tmp/' + name + '.archive').read_bytes()).hexdigest() == lock[name]['sha256']
+          with zipfile.ZipFile('/tmp/library.archive') as archive:
+              archive.extractall('/tmp/sovereign-software')
+          PY
+          python -m pip download --only-binary=:all: --require-hashes --find-links /tmp/sovereign-software --dest /tmp/sovereign-wheelhouse -r /tmp/sovereign-software/requirements-desktop.lock
+      - name: Build the complete offline candidate
+        run: |
+          python scripts/build_macos.py --library-archive /tmp/library.archive --python-archive /tmp/python.archive --wheelhouse /tmp/sovereign-wheelhouse --directory /tmp/sovereign-native
+          codesign --verify --strict /tmp/sovereign-native/Sovereign.app
+      - name: Exercise bundled runtime outside the checkout
+        run: |
+          cd /tmp
+          /tmp/sovereign-native/Sovereign.app/Contents/Resources/python/bin/python3 -I -B - <<'PY'
+          import importlib.util, pathlib, runpy, sys
+          sys.path.insert(0, '/tmp/sovereign-native/Sovereign.app/Contents/Resources/site-packages')
+          assert importlib.util.find_spec('skulk') is None
+          assert importlib.util.find_spec('skulk_capability_sdk') is None
+          from foxlight_model_preservation import pmf
+          from foxlight_preservation_library.desktop import DesktopClient
+          sys.argv = ['foxlight-sovereign', '--help']
+          runpy.run_module('foxlight_preservation_library.desktop', run_name='__main__')
+          PY
