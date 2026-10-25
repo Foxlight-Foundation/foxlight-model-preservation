@@ -1,9 +1,9 @@
 name: Library interface
 on:
   push:
-    paths: ['capability/**', '.github/workflows/library-ui.yml']
+    paths: ['capability/**', 'src/foxlight_model_preservation/local_host/**', 'desktop/**', 'scripts/package_desktop.py', '.github/workflows/library-ui.yml']
   pull_request:
-    paths: ['capability/**', '.github/workflows/library-ui.yml']
+    paths: ['capability/**', 'src/foxlight_model_preservation/local_host/**', 'desktop/**', 'scripts/package_desktop.py', '.github/workflows/library-ui.yml']
 permissions:
   contents: read
 jobs:
@@ -46,7 +46,22 @@ jobs:
           /tmp/library-public/bin/python -c "import importlib.util; assert importlib.util.find_spec('skulk_capability_sdk') is None; assert importlib.util.find_spec('skulk') is None"
           /tmp/library-public/bin/foxlight-preservation-library --help
           /tmp/library-public/bin/python -m pytest "$GITHUB_WORKSPACE/capability/tests/test_standalone.py" "$GITHUB_WORKSPACE/capability/tests/test_delivery.py" "$GITHUB_WORKSPACE/capability/tests/test_storage.py" "$GITHUB_WORKSPACE/capability/tests/test_compatibility.py" "$GITHUB_WORKSPACE/capability/tests/test_preview.py" "$GITHUB_WORKSPACE/capability/tests/test_discovery.py" "$GITHUB_WORKSPACE/capability/tests/test_bundle_version.py" "$GITHUB_WORKSPACE/capability/tests/test_handoffs.py" "$GITHUB_WORKSPACE/capability/tests/test_mirrors.py" "$GITHUB_WORKSPACE/capability/tests/test_mirror_recovery.py" "$GITHUB_WORKSPACE/capability/tests/test_pending_recovery.py" -q
+      - name: Exercise the independently installed owner without Core or SDK
+        run: |
+          uv build --wheel --out-dir dist-core
+          uv pip install --python /tmp/library-public/bin/python dist-core/*.whl
+          cd /tmp
+          /tmp/library-public/bin/python -c "import importlib.util; assert importlib.util.find_spec('skulk') is None; assert importlib.util.find_spec('skulk_capability_sdk') is None"
+          /tmp/library-public/bin/foxlight-sovereign --help
+          /tmp/library-public/bin/python -m pytest "$GITHUB_WORKSPACE/capability/tests/test_desktop.py" -q
       - uses: actions/upload-artifact@v4
         with:
           name: preservation-library-public
           path: dist-library/*
+
+  mac-shell:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the native shell
+        run: swift build --package-path desktop/macos --scratch-path /tmp/sovereign-swift

@@ -179,6 +179,10 @@ class LibraryServer:
         self, action: str, body: dict[str, JsonValue]
     ) -> dict[str, JsonValue]:
         """Allow exact UI controls; only explicit folder review accepts a host path."""
+        if action.startswith("desktop-"):
+            if self.startup is not None:
+                raise CoreRefused("operator_screen_required")
+            return await self.client.request("POST", action, body)
         if action in {
             "mirror-copy-review",
             "mirror-read",
@@ -533,6 +537,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         if selected is None:
             return
         app, relative = selected
+        if re.fullmatch(r"api/desktop-kit/[0-9a-f]{64}", relative):
+            self._local_download(app, relative.rsplit("/", 1)[1])
+            return
         if re.fullmatch(r"api/mirror-kit/[0-9a-f]{64}", relative):
             self._mirror_download(app, relative.rsplit("/", 1)[1])
             return
@@ -601,6 +608,13 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                     not in {
                         "api/peer-read",
                         "api/core-features",
+                        "api/desktop-search",
+                        "api/desktop-refresh",
+                        "api/desktop-plan",
+                        "api/desktop-reveal",
+                        "api/desktop-start",
+                        "api/desktop-cancel",
+                        "api/desktop-upload-create",
                         "api/mirror-copy-review",
                         "api/mirror-read",
                         "api/mirror-history",
@@ -907,6 +921,36 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             if not started:
                 self._reply(409, b'{"error":"kit_download_refused"}')
             self.close_connection = True
+
+    def _local_download(self, app: LibraryServer, job_id: str) -> None:
+        """Stream an independent own-job kit through the same private ticket."""
+        if app.startup is not None:
+            self._reply(403, b'{"error":"operator_screen_required"}')
+            return
+        future = asyncio.run_coroutine_threadsafe(
+            app.client.local_artifact(job_id), app.loop
+        )
+        try:
+            stream = future.result(timeout=12)
+        except (ValueError, OSError, CoreRefused, concurrent.futures.TimeoutError):
+            self._reply(409, b'{"error":"kit_not_ready"}')
+            return
+        import os
+
+        with stream:
+            length = os.fstat(stream.fileno()).st_size
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(length))
+            self.send_header(
+                "Content-Disposition", 'attachment; filename="' + job_id + '.foxkit"'
+            )
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            while chunk := stream.read(256 * 1024):
+                self.wfile.write(chunk)
 
     def _download(
         self, app: LibraryServer, job_id: str, *, torrent: bool = False
