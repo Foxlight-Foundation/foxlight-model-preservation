@@ -30,9 +30,18 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--revision", required=True)
     parser.add_argument("--build-directory", type=Path, required=True)
+    parser.add_argument(
+        "--configuration", choices=("debug", "release"), default="debug"
+    )
+    parser.add_argument("--version", default="0.1.0")
+    parser.add_argument("--build-number", default="1")
     args = parser.parse_args()
     if not re.fullmatch(r"[0-9a-f]{40}", args.revision):
         parser.error("revision must be an exact source commit")
+    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", args.version):
+        parser.error("version must contain three numeric components")
+    if not re.fullmatch(r"[1-9][0-9]*", args.build_number):
+        parser.error("build number must be a positive integer")
     runtime = args.runtime.resolve()
     if any(
         path.is_symlink() and not path.resolve().is_relative_to(runtime)
@@ -64,6 +73,8 @@ def main() -> None:
             str(project / "desktop/macos"),
             "--scratch-path",
             str(args.build_directory),
+            "--configuration",
+            args.configuration,
         ],
         check=True,
     )
@@ -75,6 +86,8 @@ def main() -> None:
             str(project / "desktop/macos"),
             "--scratch-path",
             str(args.build_directory),
+            "--configuration",
+            args.configuration,
             "--show-bin-path",
         ],
         text=True,
@@ -99,9 +112,13 @@ def main() -> None:
     subprocess.run(  # noqa: S603 - explicit local builder arguments, no shell
         [
             str(shutil.which("uv") or "/usr/bin/uv"),
+            "--no-config",
+            "--offline",
+            "--no-cache",
             "pip",
             "install",
             "--no-deps",
+            "--no-index",
             "--target",
             str(resources / "site-packages"),
             str(args.root_wheel),
@@ -117,8 +134,8 @@ def main() -> None:
                 "CFBundleName": "Sovereign",
                 "CFBundleDisplayName": "Sovereign",
                 "CFBundlePackageType": "APPL",
-                "CFBundleShortVersionString": "0.1.0",
-                "CFBundleVersion": "1",
+                "CFBundleShortVersionString": args.version,
+                "CFBundleVersion": args.build_number,
                 "LSMinimumSystemVersion": "13.0",
                 "NSHighResolutionCapable": True,
                 "NSAppTransportSecurity": {"NSAllowsLocalNetworking": True},

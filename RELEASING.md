@@ -1,9 +1,13 @@
 # Releasing
 
-Release by pushing a tag. [release.yml](.github/workflows/release.yml) builds and
+Release Python packages by pushing a tag. [release.yml](.github/workflows/release.yml) builds and
 checks the files, attests them, creates the GitHub pre-release and, once enabled,
 publishes to PyPI. Do not upload release files by hand: hand-built files carry no
 provenance. Users verify releases as described in [docs/releases.md](docs/releases.md).
+The separate [Mac candidate recipe](docs/macos-distribution.md) pins these
+published inputs and records a distinct native-shell revision. Its signing and
+notarization step creates local candidates only; no public native upload lane is
+enabled by these scripts. It must not be called a GitHub-built Python release.
 
 | Tag | Project | Version | Changelog |
 | --- | --- | --- | --- |

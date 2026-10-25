@@ -92,6 +92,10 @@ semantics. No Windows support is claimed.
 
 ## Reproducible local Mac preview
 
+For a release-mode candidate with hash-pinned public inputs and the separate
+Developer ID/notarization procedure, see [macOS distribution](macos-distribution.md).
+The following flexible builder remains a local preview tool.
+
 Build on macOS with Swift, uv and a portable CPython 3.13 runtime. End users of
 the assembled application need neither Python nor a developer checkout. Build
 the frontend, public core wheel and Library wheel from the same revision, then
