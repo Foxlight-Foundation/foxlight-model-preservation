@@ -1,9 +1,9 @@
 name: Library interface
 on:
   push:
-    paths: ['capability/**', 'src/foxlight_model_preservation/local_host/**', 'desktop/**', 'scripts/*macos.py', 'scripts/package_desktop.py', 'scripts/release_install.py', 'scripts/install_release.py', 'scripts/qualify_installed_desktop.py', '.github/workflows/library-ui.yml']
+    paths: ['capability/**', 'src/foxlight_model_preservation/local_host/**', 'desktop/**', 'scripts/*macos.py', 'scripts/package_desktop.py', 'scripts/release_install.py', 'scripts/install_release.py', 'scripts/qualify_installed_desktop.py', 'scripts/qualify_macos_cli.py', '.github/workflows/library-ui.yml']
   pull_request:
-    paths: ['capability/**', 'src/foxlight_model_preservation/local_host/**', 'desktop/**', 'scripts/*macos.py', 'scripts/package_desktop.py', 'scripts/release_install.py', 'scripts/install_release.py', 'scripts/qualify_installed_desktop.py', '.github/workflows/library-ui.yml']
+    paths: ['capability/**', 'src/foxlight_model_preservation/local_host/**', 'desktop/**', 'scripts/*macos.py', 'scripts/package_desktop.py', 'scripts/release_install.py', 'scripts/install_release.py', 'scripts/qualify_installed_desktop.py', 'scripts/qualify_macos_cli.py', '.github/workflows/library-ui.yml']
 permissions:
   contents: read
 jobs:
@@ -109,3 +109,7 @@ jobs:
           sys.argv = ['foxlight-sovereign', '--help']
           runpy.run_module('foxlight_preservation_library.desktop', run_name='__main__')
           PY
+      - name: Qualify relocated native CLI, offline original PMF and tamper refusal
+        run: |
+          sh -n desktop/macos/cli/launcher.sh
+          python scripts/qualify_macos_cli.py --app /tmp/sovereign-native/Sovereign.app --directory /tmp/sovereign-native-cli

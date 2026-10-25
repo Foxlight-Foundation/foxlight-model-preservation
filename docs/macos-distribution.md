@@ -51,6 +51,45 @@ matching hash-verified full Python build. `SOURCES.json` records that archive an
 every notice digest; the builder checks and retains this inventory. Some full
 build notices cover components not used by this application.
 
+## Bundled commands
+
+The app includes two commands backed by its own Python and public packages:
+
+```sh
+"/Applications/Sovereign.app/Contents/Resources/bin/model-preserve" --help
+"/Applications/Sovereign.app/Contents/Resources/bin/foxlight-sovereign" --help
+```
+
+`model-preserve` provides the standalone preservation CLI. `foxlight-sovereign`
+opens the independent local Library host, with `--home` and `--no-browser`
+available for operators. Neither needs system Python or Skulk. Their launchers
+follow relative/absolute command symlinks and remain valid when the app moves or
+is renamed, including paths with spaces or Unicode. Installer-generated console
+paths inside `Resources/site-packages/bin` point to the same supported commands;
+unrelated optional/developer command stubs are omitted from this native bundle.
+The original Python distributions keep their normal entry points.
+
+Scripts live under Resources so the app's resource seal covers them, following
+[Apple's bundle signing guidance](https://developer.apple.com/library/archive/technotes/tn2206/).
+The launchers use isolated Python, ignore incoming Python paths/venv launchers
+and disable bytecode writes into the signed app. They do not install a global
+command, start sharing or change model/source trust.
+
+For a built candidate, run this installed-command check before signing:
+
+```sh
+python scripts/qualify_macos_cli.py --app /absolute/new-candidate/Sovereign.app \
+  --directory /absolute/new-cli-qualification
+```
+
+It copies/relocates the app and runs its real commands with network access denied
+by a child-process sandbox. A public synthetic PMF vector restores its model,
+required companion, notices, opaque card and original signed envelope; corrupt
+bytes refuse a new restoration. Incoming Python configuration and command
+symlinks are exercised, and the resource seal must still validate afterward.
+This checks the bundled CLI mechanics, not clean-host, full real-model or public
+network qualification.
+
 ## Sign a reviewed candidate
 
 Merge/review the source and qualify an app built from that clean exact revision.

@@ -20,6 +20,45 @@ import subprocess
 from pathlib import Path
 
 
+def install_native_cli(contents: Path) -> dict[str, str]:
+    """Install relocatable commands and replace external-Python console stubs."""
+    source = Path(__file__).resolve().parents[1] / "desktop/macos/cli"
+    resources = contents / "Resources"
+    # Apple TN2206 places scripts in Resources, covered by the outer seal,
+    # rather than relying on script signatures stored in extended attributes.
+    commands = resources / "bin"
+    commands.mkdir()
+    internal = resources / "site-packages/bin"
+    if internal.is_symlink():
+        raise ValueError("console-script directory must remain inside the app")
+    internal.mkdir(exist_ok=True)
+    # These are installer-generated stubs, not package modules. Only the two
+    # supported native commands belong in this app; optional Core clients and
+    # third-party developer stubs must not point at an external Python either.
+    stubs = list(internal.iterdir())
+    if any(path.is_dir() and not path.is_symlink() for path in stubs):
+        raise ValueError("unexpected directory in generated console scripts")
+    for stub in stubs:
+        stub.unlink()
+    bootstrap = resources / "native-cli.py"
+    shutil.copyfile(source / "native-cli.py", bootstrap)
+    bootstrap.chmod(0o644)
+    paths = [bootstrap]
+    for name in ("model-preserve", "foxlight-sovereign"):
+        command = commands / name
+        shutil.copyfile(source / "launcher.sh", command)
+        command.chmod(0o755)
+        paths.append(command)
+        alias = internal / name
+        alias.symlink_to("../../bin/" + name)
+    return {
+        "Contents/" + str(path.relative_to(contents)): hashlib.sha256(
+            path.read_bytes()
+        ).hexdigest()
+        for path in paths
+    }
+
+
 def main() -> None:
     """Stage an application without system Python or a developer checkout."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -129,6 +168,7 @@ def main() -> None:
         ],
         check=True,
     )
+    native_cli = install_native_cli(contents)
     with (contents / "Info.plist").open("wb") as stream:
         plistlib.dump(
             {
@@ -160,6 +200,7 @@ def main() -> None:
             if path.is_file() and not path.is_symlink()
         },
         "distribution": "local-unnotarized-preview",
+        "native_cli": native_cli,
     }
     (resources / "build-receipt.json").write_text(
         json.dumps(receipt, sort_keys=True, indent=2) + "\n"
