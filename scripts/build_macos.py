@@ -63,6 +63,8 @@ def extract_library(archive: Path, target: Path) -> None:
 
 def extract_python(archive: Path, target: Path) -> None:
     """Extract only relative runtime members with confined link destinations."""
+    # macOS /tmp aliases /private/tmp. Compare canonical roots on both sides.
+    target = target.resolve()
     with tarfile.open(archive) as source:
         members = source.getmembers()
         names: set[str] = set()
@@ -118,7 +120,7 @@ def main() -> None:
     check_input(args.python_archive, lock["python"]["sha256"])
     if platform.system() != "Darwin" or platform.machine() != "arm64":
         parser.error("this candidate is qualified for native Apple silicon only")
-    output = args.directory.absolute()
+    output = args.directory.resolve()
     if output.exists() or not args.wheelhouse.is_dir():
         parser.error("a new staging directory and existing wheelhouse are required")
     revision, dirty = source_identity()

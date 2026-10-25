@@ -65,7 +65,7 @@ def validate_candidate(app: Path, expected_source: str, team: str) -> dict:
         raise ValueError("candidate does not match the reviewed release recipe")
     # Confinement matters before walking/signing anything reachable from the app.
     for path in app.rglob("*"):
-        if path.is_symlink() and not path.resolve().is_relative_to(app):
+        if path.is_symlink() and not path.resolve().is_relative_to(app.resolve()):
             raise ValueError("candidate contains an external symlink")
     return receipt
 
@@ -132,7 +132,7 @@ def main() -> None:
     args = parser.parse_args()
     app = args.app.absolute()
     receipt = validate_candidate(app, args.expected_source, args.team)
-    output = args.directory.absolute()
+    output = args.directory.resolve()
     if output.exists():
         parser.error("release directory must be new")
     output.mkdir(parents=True)

@@ -66,7 +66,9 @@ def test_runtime_internal_link_and_regular_file(tmp_path):
         link.type = tarfile.SYMTYPE
         link.linkname = "python3.13"
         target.addfile(link)
-    build.extract_python(archive, tmp_path / "runtime")
+    alias = tmp_path / "alias"
+    alias.symlink_to(tmp_path, target_is_directory=True)
+    build.extract_python(archive, alias / "runtime")
     assert (tmp_path / "runtime/python/bin/python3").read_bytes() == b"code"
 
 
