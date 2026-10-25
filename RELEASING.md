@@ -18,8 +18,11 @@ way.
 The workflow runs four jobs. **Build** checks the tag against the version,
 rebuilds the Library interface and requires it to match the committed `static/`
 (Library only), runs `uv build`, checks the built name/version, exports public runtime hash locks from committed
-project locks, and builds installation records/helpers and one ZIP. No private
-SDK/source requirement is allowed in public default locks. It writes outer
+project locks, and builds installation records/helpers and one ZIP. Library releases also build the exactly pinned core wheel from the same
+checkout and include it, a separate desktop lock and v2 component bindings in the
+Library archive. Default Library installs keep the original Core client; the
+desktop profile installs both public wheels. No private SDK/source requirement
+is allowed in either public lock. It writes outer
 `SHA256SUMS`; the archive retains its own inner inventory. **Provenance** attests the distributions, locks, installer, record, archive and
 outer `SHA256SUMS`, and retains the detached verification bundle; it runs
 no build code and, with **PyPI**, is the only job that can request an OIDC token.
@@ -125,3 +128,27 @@ GitHub release wheel with `[managed]` has the same exposure today.
 - Release immutability, which locks published assets and tags and adds GitHub's
   own release attestation (`gh release verify-asset`). The workflow publishes
   through `gh release create`, which uploads to a draft before publishing.
+
+## Qualify the independent Library installation
+
+Build both projects from the same reviewed revision, then give the Library
+asset builder its matching core wheel:
+
+```sh
+uv build --no-sources --wheel --out-dir dist-core
+uv build --no-sources --project capability --out-dir dist-library
+python scripts/release_install.py --project capability --dist dist-library \
+  --revision FULL_REVIEWED_COMMIT --desktop-core-wheel dist-core/CORE.whl
+python dist-library/install.py --directory /absolute/new-sovereign \
+  --requirements requirements-desktop.lock
+/absolute/new-sovereign/bin/python -I scripts/qualify_installed_desktop.py
+```
+
+Repeat using a retained wheelhouse and `--offline`; the qualifier permits only
+its owned loopback surface and refuses external connections/lookups. It checks
+the installed source/component receipt, versions, absence of Skulk/SDK, real
+local screen/search and foreign-Origin refusal. This is installation/local-host
+evidence, not full native UI, model recovery or public-network qualification.
+Keep those separately scoped acceptances. The workflow includes and attests the
+component wheel; PyPI selection uploads only the project's primary wheel/sdist,
+never the other project's component. Public PyPI remains separately disabled.

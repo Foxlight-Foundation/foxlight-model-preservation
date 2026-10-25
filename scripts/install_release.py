@@ -15,6 +15,8 @@ import re
 import shutil
 import subprocess
 import sys
+import zipfile
+from email.parser import HeaderParser
 from pathlib import Path
 
 RECORD_FIELDS = {
@@ -39,6 +41,25 @@ def _hash(path: Path) -> str:
     return result.hexdigest()
 
 
+def _wheel_identity(path: Path, project: str, version: str) -> None:
+    try:
+        with zipfile.ZipFile(path) as archive:
+            names = [
+                name
+                for name in archive.namelist()
+                if name.endswith(".dist-info/METADATA")
+            ]
+            if len(names) != 1 or archive.getinfo(names[0]).file_size > 1024**2:
+                raise ValueError("one bounded wheel identity required")
+            metadata = HeaderParser().parsestr(archive.read(names[0]).decode())
+    except (zipfile.BadZipFile, UnicodeError) as error:
+        raise ValueError("invalid bundled wheel metadata") from error
+    if metadata.get_all("Name") != [project] or metadata.get_all("Version") != [
+        version
+    ]:
+        raise ValueError("bundled wheel identity does not match its record")
+
+
 def validate_assets(root: Path, selected: str) -> dict[str, object]:
     """Verify a closed safe asset inventory before any installation mutation."""
     sums = {}
@@ -51,9 +72,12 @@ def validate_assets(root: Path, selected: str) -> dict[str, object]:
         if _hash(root / name) != wanted:
             raise ValueError("release asset hash mismatch: " + name)
     record = json.loads((root / "INSTALL.json").read_text())
-    if not isinstance(record, dict) or set(record) != RECORD_FIELDS:
+    if not isinstance(record, dict):
         raise ValueError("unsupported installation record")
-    if record["schema_version"] != "foxlight.software-install.v1":
+    desktop = record.get("schema_version") == "foxlight.software-install.v2"
+    if set(record) != RECORD_FIELDS | ({"components"} if desktop else set()):
+        raise ValueError("unsupported installation record")
+    if not desktop and record["schema_version"] != "foxlight.software-install.v1":
         raise ValueError("unsupported installation version")
     project, version = record["project"], record["version"]
     if project not in {"foxlight-model-preservation", "foxlight-preservation-library"}:
@@ -71,6 +95,30 @@ def validate_assets(root: Path, selected: str) -> dict[str, object]:
         if project == "foxlight-model-preservation"
         else ["requirements.lock"]
     )
+    components = []
+    if desktop:
+        if project != "foxlight-preservation-library":
+            raise ValueError("desktop profile requires the public Library")
+        components = record["components"]
+        if not isinstance(components, list) or len(components) != 1:
+            raise ValueError("one exact desktop core component required")
+        component = components[0]
+        if (
+            not isinstance(component, dict)
+            or set(component)
+            != {"project", "version", "source_revision", "wheel", "wheel_sha256"}
+            or component["project"] != "foxlight-model-preservation"
+            or component["source_revision"] != record["source_revision"]
+            or not isinstance(component["version"], str)
+            or not re.fullmatch(r"[0-9][0-9A-Za-z.+!_-]*", component["version"])
+            or not isinstance(component["wheel"], str)
+            or not component["wheel"].endswith(".whl")
+            or component["wheel"] == record["wheel"]
+            or component["wheel"] not in sums
+            or sums[component["wheel"]] != component["wheel_sha256"]
+        ):
+            raise ValueError("invalid desktop core component binding")
+        locks.append("requirements-desktop.lock")
     if project == "foxlight-model-preservation" and record["requirements"] == [
         *locks,
         "requirements-mirror.lock",
@@ -81,7 +129,13 @@ def validate_assets(root: Path, selected: str) -> dict[str, object]:
     wheel = record["wheel"]
     if not isinstance(wheel, str) or not wheel.endswith(".whl") or wheel not in sums:
         raise ValueError("missing release wheel")
-    expected = {wheel, *locks, "INSTALL.json", "install.py"}
+    expected = {
+        wheel,
+        *(component["wheel"] for component in components),
+        *locks,
+        "INSTALL.json",
+        "install.py",
+    }
     sdists = [name for name in sums if name.endswith(".tar.gz")]
     bundle_name = project + "-" + version + "-install.zip"
     if bundle_name in sums:
@@ -90,6 +144,12 @@ def validate_assets(root: Path, selected: str) -> dict[str, object]:
         raise ValueError("unexpected or missing release assets")
     if sums[wheel] != record["wheel_sha256"]:
         raise ValueError("wheel hash does not match installation record")
+    if desktop:
+        _wheel_identity(root / wheel, project, version)
+        for component in components:
+            _wheel_identity(
+                root / component["wheel"], component["project"], component["version"]
+            )
     minimum = [3, 13] if project == "foxlight-preservation-library" else [3, 11]
     if record["python_min"] != minimum:
         raise ValueError("invalid Python contract")
@@ -101,6 +161,7 @@ def validate_assets(root: Path, selected: str) -> dict[str, object]:
         if line.strip() and not line.lstrip().startswith("#")
     ]
     found = False
+    found_core = False
     for line in lines:
         if not re.fullmatch(
             r"[A-Za-z0-9._-]+==[A-Za-z0-9.!+_-]+(?:\s*;\s*[^\n]+?)?(?:\s+--hash=sha256:[0-9a-f]{64})+",
@@ -109,10 +170,32 @@ def validate_assets(root: Path, selected: str) -> dict[str, object]:
             raise ValueError("exact hashed runtime requirements required")
         if any(v in line.lower() for v in ("git+", "://", " @ ", "skulk")):
             raise ValueError("private/source dependency refused")
-        if line.startswith(own + " "):
-            found = "--hash=sha256:" + record["wheel_sha256"] in line
+        package = re.split(r"==", line, maxsplit=1)[0].lower().replace("_", "-")
+        hashes = re.findall(r"--hash=sha256:([a-f0-9]{64})", line)
+        if package == project:
+            if (
+                not line.startswith(own + " ")
+                or hashes != [record["wheel_sha256"]]
+                or found
+            ):
+                raise ValueError("runtime lock must pin this exact release wheel")
+            found = True
+        if desktop and package == "foxlight-model-preservation":
+            component = components[0]
+            if (
+                selected != "requirements-desktop.lock"
+                or not line.startswith(
+                    component["project"] + "==" + component["version"] + " "
+                )
+                or hashes != [component["wheel_sha256"]]
+                or found_core
+            ):
+                raise ValueError("desktop lock must pin its exact bundled core")
+            found_core = True
     if not found:
         raise ValueError("runtime lock omits this exact release wheel")
+    if selected == "requirements-desktop.lock" and not found_core:
+        raise ValueError("desktop lock omits its exact bundled core")
     return record
 
 
@@ -198,10 +281,18 @@ def install(
         starts_services=False,
         model_trust_granted=False,
     )
+    components = record.get("components", [])
+    receipt["components_installed"] = (
+        components if selected == "requirements-desktop.lock" else []
+    )
     evidence = destination / "sovereign-release"
     evidence.mkdir(mode=0o700)
     for name in (record["wheel"], "INSTALL.json", "SHA256SUMS", selected):
         shutil.copyfile(root / name, evidence / name)
+    if selected == "requirements-desktop.lock":
+        for component in components:
+            name = component["wheel"]
+            shutil.copyfile(root / name, evidence / name)
     (destination / "sovereign-install.json").write_text(
         json.dumps(receipt, indent=2, sort_keys=True) + "\n"
     )

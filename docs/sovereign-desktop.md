@@ -8,7 +8,9 @@ preview is not a published notarized Mac application or an APT release.
 
 ## Everyday use
 
-Launch `foxlight-sovereign` with the public core and Library packages installed,
+Select `requirements-desktop.lock` from a verified v2 Library installation
+archive ([instructions](installation.md#select-the-independent-desktop-profile)),
+then launch `foxlight-sovereign` with both public packages installed,
 or open the self-contained Mac app built below. First launch opens **Find models**. Once you have saved copies, reopening starts
 in **Library**.
 Choose **Browse public models** to request metadata from the optional built-in

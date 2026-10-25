@@ -72,7 +72,8 @@ def _local_release_source(installed: Distribution) -> str | None:
             value.get("wheel_sha256"),
         )
         if (
-            value.get("schema_version") != "foxlight.software-install.v1"
+            value.get("schema_version")
+            not in {"foxlight.software-install.v1", "foxlight.software-install.v2"}
             or version != installed.version
             or not isinstance(revision, str)
             or re.fullmatch(r"[a-f0-9]{40}", revision) is None
@@ -85,6 +86,32 @@ def _local_release_source(installed: Distribution) -> str | None:
         )
         if value.get("wheel") != wheel_name:
             raise ValueError("unexpected release wheel")
+        if value["schema_version"] == "foxlight.software-install.v2":
+            raw_components = value.get("components")
+            if not isinstance(raw_components, list):
+                raise ValueError("invalid desktop component record")
+            components = cast(list[object], raw_components)
+            if len(components) != 1:
+                raise ValueError("invalid desktop component record")
+            component: object = components[0]
+            if not isinstance(component, dict):
+                raise ValueError("invalid desktop component record")
+            component = cast(dict[str, object], component)
+            core_version = component.get("version")
+            core_hash = component.get("wheel_sha256")
+            if (
+                set(component)
+                != {"project", "version", "source_revision", "wheel", "wheel_sha256"}
+                or component.get("project") != "foxlight-model-preservation"
+                or component.get("source_revision") != revision
+                or not isinstance(core_version, str)
+                or re.fullmatch(r"[0-9][0-9A-Za-z.+!_-]*", core_version) is None
+                or component.get("wheel")
+                != "foxlight_model_preservation-" + core_version + "-py3-none-any.whl"
+                or not isinstance(core_hash, str)
+                or re.fullmatch(r"[0-9a-f]{64}", core_hash) is None
+            ):
+                raise ValueError("invalid desktop component binding")
         evidence = root / "sovereign-release"
         if evidence.is_symlink() or not evidence.is_dir():
             raise ValueError("missing retained release evidence")
@@ -107,6 +134,8 @@ def _local_release_source(installed: Distribution) -> str | None:
             "wheel",
             "wheel_sha256",
         )
+        if value["schema_version"] == "foxlight.software-install.v2":
+            fields += ("components", "python_min", "requirements")
         if any(value.get(field) != original_record.get(field) for field in fields):
             raise ValueError("installation continuity record changed")
         wheel = evidence / wheel_name

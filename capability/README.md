@@ -6,8 +6,9 @@ uses local HTTP; its optional managed adapter uses the capability authoring SDK.
 private owner code, signing keys, verifier, artifact transfer or byte worker.
 
 The optional **Sovereign** source preview adds an independent owner through
-`foxlight-sovereign` with the public core installed (`desktop` extra for source
-builds). It supplies built-in signed registry browsing, private PMF preservation,
+`foxlight-sovereign` with the public core installed. Source builds use the `desktop` extra;
+v2 public installation archives provide the hash-locked
+[`requirements-desktop.lock` profile](../docs/installation.md#select-the-independent-desktop-profile). It supplies built-in signed registry browsing, private PMF preservation,
 recovery kits and file restore without Core or the managed SDK. Its native Mac
 shell bundles both public packages and Python. See the [independent desktop
 guide](../docs/sovereign-desktop.md) for behavior and source-preview distribution
