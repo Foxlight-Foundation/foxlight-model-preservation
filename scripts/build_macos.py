@@ -106,6 +106,21 @@ def source_identity() -> tuple[str, bool]:
     return revision, dirty
 
 
+def copy_runtime_notices(resources: Path) -> dict[str, str]:
+    """Retain upstream runtime notices omitted by its small install archive."""
+    source = PROJECT / "desktop/macos/runtime-notices"
+    record = json.loads((source / "SOURCES.json").read_bytes())
+    members: dict[str, str] = record["members"]
+    if {path.name for path in source.iterdir()} != {*members, "SOURCES.json"}:
+        raise ValueError("runtime notice inventory changed")
+    for name, expected in members.items():
+        if Path(name).name != name:
+            raise ValueError("unsafe runtime notice name")
+        check_input(source / name, expected)
+    shutil.copytree(source, resources / "runtime-notices")
+    return members
+
+
 def main() -> None:
     """Stage the exact independent app; never sign with a private identity."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -192,6 +207,7 @@ def main() -> None:
     )
     receipt_path = app / "Contents/Resources/build-receipt.json"
     receipt = json.loads(receipt_path.read_bytes())
+    notices = copy_runtime_notices(app / "Contents/Resources")
     receipt.update(
         schema_version="sovereign.desktop-build.v2",
         shell_source_revision=revision,
@@ -200,6 +216,7 @@ def main() -> None:
         software=record,
         configuration="release",
         distribution="ad-hoc-candidate",
+        runtime_notices=notices,
     )
     receipt_path.write_text(json.dumps(receipt, sort_keys=True, indent=2) + "\n")
     subprocess.run(  # noqa: S603

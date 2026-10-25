@@ -33,6 +33,13 @@ def test_substituted_native_input_refuses(tmp_path):
         build.check_input(archive, "0" * 64)
 
 
+def test_runtime_notice_inventory_retained(tmp_path):
+    retained = build.copy_runtime_notices(tmp_path)
+    assert "LICENSE.openssl-3.txt" in retained
+    for name, expected in retained.items():
+        assert build.digest(tmp_path / "runtime-notices" / name) == expected
+
+
 @pytest.mark.parametrize("name", ["../outside", "/outside", "python/../../outside"])
 def test_runtime_traversal_refuses_before_extraction(tmp_path, name):
     archive = tmp_path / "runtime.tar.gz"

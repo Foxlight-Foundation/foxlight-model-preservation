@@ -44,6 +44,13 @@ are labeled and cannot enter the signing step. Rebuilding the same recipe
 reproduces the inputs and behavior; compiler output, timestamped signatures and
 notarization are not claimed to be byte-identical.
 
+The application also retains Python's own license, Python-wheel license
+directories and `Resources/runtime-notices/`. The latter contains upstream
+dependency notices omitted from the small runtime archive, copied from the
+matching hash-verified full Python build. `SOURCES.json` records that archive and
+every notice digest; the builder checks and retains this inventory. Some full
+build notices cover components not used by this application.
+
 ## Sign a reviewed candidate
 
 Merge/review the source and qualify an app built from that clean exact revision.
