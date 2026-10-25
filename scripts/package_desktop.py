@@ -31,6 +31,9 @@ def main() -> None:
     parser.add_argument("--revision", required=True)
     parser.add_argument("--build-directory", type=Path, required=True)
     parser.add_argument(
+        "--uv", type=Path, default=Path(shutil.which("uv") or "/usr/bin/uv")
+    )
+    parser.add_argument(
         "--configuration", choices=("debug", "release"), default="debug"
     )
     parser.add_argument("--version", default="0.1.0")
@@ -111,7 +114,7 @@ def main() -> None:
     )
     subprocess.run(  # noqa: S603 - explicit local builder arguments, no shell
         [
-            str(shutil.which("uv") or "/usr/bin/uv"),
+            str(args.uv.resolve()),
             "--no-config",
             "--offline",
             "--no-cache",

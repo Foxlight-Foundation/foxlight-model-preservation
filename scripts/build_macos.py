@@ -181,6 +181,8 @@ def main() -> None:
             str(output / "swift"),
             "--configuration",
             "release",
+            "--uv",
+            str(args.uv.resolve()),
             "--version",
             lock["version"],
             "--build-number",
