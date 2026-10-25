@@ -8,11 +8,11 @@
   },
   "x-fixture-source": {
     "repository": "Foxlight-Foundation/Skulk",
-    "tree": "60c1c3eef8012eab54cf8eac23c52e9c8d3ce468",
+    "tree": "ea146bf223fe2c8a5efe218a4824187f32734d68",
     "generator": "scripts/export_openapi.py:write_openapi",
     "scope": "Exact mirror and public-copy review OpenAPI fragment; no runtime or completion claim.",
-    "revision": "246fe15cc8702ba7037bb967db6cf80675bc1ea5",
-    "reviewed_head": "1090ddfc621eaaf4206fb5765fb7cf93de487f3a"
+    "revision": "446079c2417f1b8ef5bef0934e605b73654e4e47",
+    "reviewed_head": "ec5c7c94fe78ce2201a0872f4d4a7c99103b803f"
   },
   "paths": {
     "/preservation/mirror": {
@@ -65,7 +65,7 @@
           "Model Preservation"
         ],
         "summary": "Start one explicit permanent mirror decision",
-        "description": "Configure offline, retain an exact already accepted public copy with reviewed every-member terms, select a finite public run or separately approved standing resume, control pin/block/retry, or confirm exact stopped-owner deletion. The immutable client operation observes its original job on replay. Every new effect binds current policy; installation, metadata reads, receiving, or a source file grant no sharing. Configuration and local admission clear restart authority as appropriate; no policy evicts retained copies. Direct public PMF transport remains unavailable.",
+        "description": "Configure offline, retain an exact already accepted public copy with reviewed every-member terms, recover a complete pending selection offline, prepare its recovery kit, select a finite public run or separately approved standing resume, control pin/block/retry, or confirm exact stopped-owner deletion. Recovery requires a stopped controller and original model authority, verifies every actual object and clears Core restart intent; it never fetches or deletes partial bytes. The immutable client operation observes its original job on replay. Every new effect binds current policy; installation, metadata reads, receiving, or a source file grant no sharing. Configuration and local admission clear restart authority as appropriate; no policy evicts retained copies. Direct public PMF transport remains unavailable.",
         "operationId": "start_preservation_mirror_jobs_post",
         "requestBody": {
           "required": true,
@@ -741,7 +741,8 @@
               "revoke_resume",
               "model",
               "prune",
-              "prepare_kit"
+              "prepare_kit",
+              "recover"
             ],
             "title": "Kind",
             "description": "Selected operation, immutable after admission."
@@ -1205,7 +1206,8 @@
               "revoke_resume",
               "model",
               "prune",
-              "prepare_kit"
+              "prepare_kit",
+              "recover"
             ],
             "title": "Kind",
             "description": "Exactly one mirror control or byte operation."

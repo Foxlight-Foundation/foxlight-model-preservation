@@ -189,7 +189,9 @@ class LibraryServer:
             "mirror-selection",
             "mirror-retained-review",
             "mirror-kit-latest",
+            "mirror-recovery-latest",
             "mirror-prepare",
+            "mirror-recover",
             "mirror-kit-remove",
         }:
             return await mirror_control(self.client, action, body)
@@ -608,7 +610,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                         "api/mirror-selection",
                         "api/mirror-retained-review",
                         "api/mirror-kit-latest",
+                        "api/mirror-recovery-latest",
                         "api/mirror-prepare",
+                        "api/mirror-recover",
                         "api/mirror-kit-remove",
                         "api/peer-setup",
                         "api/peer-runtime-read",

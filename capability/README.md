@@ -5,7 +5,7 @@ everyday use, and Activity through Skulk Core's durable preservation host. It
 uses local HTTP; its optional managed adapter uses the capability authoring SDK. It includes no Skulk imports,
 private owner code, signing keys, verifier, artifact transfer or byte worker.
 
-Library 0.14.0 adds [retained-copy recovery](#recover-a-retained-mirror-copy), keeps [persistent mirror controls](#keep-models-available), and retains explicit [I2P HTTP source and receiving controls](#i2p-source-and-receiving-controls)
+Library 0.15.0 adds [offline pending-copy checks](#check-a-pending-mirror-copy), keeps [retained-copy recovery](#recover-a-retained-mirror-copy), [persistent mirror controls](#keep-models-available), and explicit [I2P HTTP source and receiving controls](#i2p-source-and-receiving-controls)
 with its pinned compatible Core, alongside the peer setup, PMF and one-file
 sharing workflows below. These are public previews with separate networking and
 trust decisions, not a qualified anonymity mode.
@@ -183,6 +183,35 @@ not shown as an empty mirror. The [compatible preview](preview.md) pins these
 APIs. Library itself still needs a compatible running Core, while the
 [standalone mirror tools](../docs/persistent-mirrors.md) work without Skulk.
 
+## Check a pending mirror copy
+
+In **Library → Retained mirror copies**, including Guided first launch, choose
+**Check local bytes** beside a pending selection. The same action appears in
+**Sharing → Keep models available**. Review the original exact manifest, every
+member and notice, capture fingerprints and signature threshold. These reads
+start no work. If the mirror is sharing, choose **Stop mirror sharing** first.
+
+Choose **Check local bytes** inside the review to start a durable offline check.
+Core rechecks the original accepted authority and every actual required object.
+Complete local intakes can recover their unchanged original signed wrapper after
+an interrupted publication. Pin, block, retained bytes and deletion choices stay
+intact; checking clears sharing restart permission. It fetches no replacement
+bytes, accepts no new signer and starts no sharing or model execution.
+
+Close or reload Library freely. Reopening finds the same job and shows progress
+and **Stop this check** without replaying it. An ambiguous submission offers
+**Retry the same check**; a terminal failure, cancellation or Core interruption
+needs a separately selected **Check local bytes again**. Incomplete, corrupt,
+removed or changed selections cannot be promoted. After confirmed retained
+custody, choose **Save recovery kit** and follow the preparation/download steps
+below. No kit is prepared automatically.
+
+The separate **Pending recovery** feature check requires `recover` in both the
+host's request and job contracts, plus progress and retained-selection support.
+Older hosts keep their existing kit/sharing controls and explain this upgrade.
+Source-fed intake without a retained original wrapper cannot recover signed
+metadata from bare weights; keep its original archive or source available.
+
 ## Recover a retained mirror copy
 
 In **Library → Retained mirror copies**, choose **Save recovery kit**. These
@@ -309,11 +338,11 @@ Core on the same model-store host. Its wheel includes the interface; Node.js,
 Skulk's Python package and the managed SDK are not installation dependencies.
 
 ```sh
-uv tool install https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.14.0/foxlight_preservation_library-0.14.0-py3-none-any.whl
+uv tool install https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.15.0/foxlight_preservation_library-0.15.0-py3-none-any.whl
 foxlight-preservation-library
 ```
 
-The 0.14.0 pre-release includes persistent mirror controls, PMF, followed sources, peer receiving/native setup
+The 0.15.0 pre-release includes persistent mirror controls, PMF, followed sources, peer receiving/native setup
 and one-file sharing, plus explicit I2P source/receiving controls. For exact dependency versions and offline retention, use
 the [hash-locked installation archive](../docs/installation.md) instead of an
 unconstrained tool install. [Verify the release](../docs/releases.md) before

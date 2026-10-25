@@ -292,4 +292,26 @@ async def check_core(client: CoreClient) -> dict[str, bool]:
         and isinstance(kinds, list)
         and "prepare_kit" in kinds
     )
+    # An older retained-kit host remains useful even without offline promotion.
+    # Both request and receipt must recognize recovery; version strings and the
+    # presence of the generic jobs endpoint cannot establish this contract.
+    pending = report["Retained recovery"]
+    for name in ("MirrorRequest", "MirrorJob"):
+        schema = schemas.get(name) if isinstance(schemas, dict) else None
+        properties = schema.get("properties") if isinstance(schema, dict) else None
+        kind = properties.get("kind") if isinstance(properties, dict) else None
+        kinds = kind.get("enum") if isinstance(kind, dict) else None
+        pending = pending and isinstance(kinds, list) and "recover" in kinds
+        if name == "MirrorJob":
+            pending = (
+                pending
+                and isinstance(properties, dict)
+                and {
+                    "manifest_id",
+                    "bytes_hashed",
+                    "bytes_copied",
+                    "error_code",
+                }.issubset(properties)
+            )
+    report["Pending recovery"] = pending
     return report

@@ -1,7 +1,7 @@
 import {useEffect, useRef, useState} from 'react';
 import {api, bytes, errorText, type Copy, type PublicationMember} from './client';
 import {PeerAccess, type PeerGrant} from './peer';
-import {MirrorKitReceipt, RetainedRecovery, type RetainedModel} from './retained-recovery';
+import {MirrorKitReceipt, PendingRecovery, RetainedRecovery, type RetainedModel} from './retained-recovery';
 import {Callout, Consent, Details, Icon, Label, Menu, Mono, Pill, Progress, Row, Sheet, Step, ago} from './ui';
 
 interface MirrorConfiguration {
@@ -41,12 +41,13 @@ type MirrorDecision =
 type Dialog =
   | {kind:'configure'; policy_id:string|null; configuration:MirrorConfiguration|null}
   | {kind:'recovery'; policy_id:string; model:MirrorModel}
+  | {kind:'pending'; policy_id:string; model:MirrorModel}
   | {kind:'kit'; job_id:string}
   | {kind:'retain'; policy_id:string; copy:Copy; removed:boolean}
   | {kind:'run'|'grant_resume'|'revoke_resume'; policy_id:string; configuration:MirrorConfiguration; expires:number|null}
   | {kind:'model'|'prune'; policy_id:string; model:MirrorModel; name:string; action?:ModelAction};
 const active=(job:MirrorJob)=>['queued','running','cancelling'].includes(job.state);
-const titles:Record<string,string>={configure:'Save mirror settings',retain:'Keep public copy',run:'Share retained copies',grant_resume:'Allow sharing after restart',revoke_resume:'Remove restart permission',model:'Change retained selection',prune:'Remove mirror copy',prepare_kit:'Prepare recovery kit'};
+const titles:Record<string,string>={configure:'Save mirror settings',retain:'Keep public copy',run:'Share retained copies',grant_resume:'Allow sharing after restart',revoke_resume:'Remove restart permission',model:'Change retained selection',prune:'Remove mirror copy',prepare_kit:'Prepare recovery kit',recover:'Check local bytes'};
 const gibibyte=1024**3;
 
 /** Durable sharing controls; opening, polling and saving settings stay offline. */
@@ -58,6 +59,7 @@ export function PersistentMirrors({copies,features,blocked,onOverlayChange,bitto
   const live=useRef(true),pending=useRef<{key:string;id:string}|null>(null),overlay=useRef(onOverlayChange);overlay.current=onOverlayChange;
   const supported=features?.['Persistent mirrors']===true;
   const recoverySupported=features?.['Retained recovery']===true;
+  const pendingSupported=features?.['Pending recovery']===true;
   useEffect(()=>{live.current=true;return()=>{live.current=false;};},[]);
   useEffect(()=>{overlay.current(Boolean(dialog));return()=>overlay.current(false);},[Boolean(dialog)]);
   useEffect(()=>{
@@ -149,6 +151,7 @@ export function PersistentMirrors({copies,features,blocked,onOverlayChange,bitto
           {model.error_code&&<Callout tone="warn">{errorText(model.error_code)}</Callout>}
           {model.state!=='removed'&&!model.blocked&&<p className="sk-hint">Block future serving before removing this mirror copy. Blocking keeps its files; removal still needs your separate confirmation.</p>}
           {model.state==='retained'&&recoverySupported&&<button className="sk-btn sk-outline" disabled={!page.available||!policy} onClick={()=>{if(policy)open({kind:'recovery',policy_id:policy,model});}}><Icon name="download"/>Save recovery kit</button>}
+          {model.state==='pending'&&(pendingSupported?<button className="sk-btn sk-outline" disabled={!page.available||!policy} onClick={()=>{if(policy)open({kind:'pending',policy_id:policy,model});}}><Icon name="check"/>Check local bytes</button>:<p className="sk-hint">Update the preservation host to check pending copies offline. Existing retained-copy and sharing controls remain available.</p>)}
           <Details summary="Exact retained identity"><Mono value={model.manifest_id} label="retained manifest identity"/><p>Source changes and stopping sharing do not delete this selection. Removed identities stay recorded; returning one requires a new explicit intake.</p></Details>
         </article>)}</div>
         <div className="sk-actions">{offset>0&&<button className="sk-btn sk-quiet" onClick={()=>setOffset(0)}>First retained selections</button>}{page.next_offset!==null&&<button className="sk-btn sk-quiet" onClick={()=>setOffset(page.next_offset!)}>Next retained selections</button>}</div>
@@ -172,6 +175,7 @@ export function PersistentMirrors({copies,features,blocked,onOverlayChange,bitto
 /** Each sheet freezes its reviewed policy and keeps retry inputs unchanged. */
 function MirrorDialog({selection,busy,error,onClose,onSubmit,bittorrentAvailable}:{selection:Dialog;busy:boolean;error:string;onClose:()=>void;onSubmit:(decision:MirrorDecision)=>Promise<void>;bittorrentAvailable:boolean}) {
   if(selection.kind==='recovery')return <RetainedRecovery model={selection.model} policyId={selection.policy_id} onClose={onClose}/>;
+  if(selection.kind==='pending')return <PendingRecovery model={selection.model} policyId={selection.policy_id} onClose={onClose}/>;
   if(selection.kind==='kit')return <MirrorKitReceipt jobId={selection.job_id} onClose={onClose}/>;
   if(selection.kind==='configure')return <MirrorSettings selection={selection} busy={busy} error={error} onClose={onClose} onSubmit={onSubmit} bittorrentAvailable={bittorrentAvailable}/>;
   if(selection.kind==='retain')return <RetainReview selection={selection} busy={busy} error={error} onClose={onClose} onSubmit={onSubmit}/>;

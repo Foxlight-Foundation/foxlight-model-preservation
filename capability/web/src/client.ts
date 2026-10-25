@@ -30,6 +30,7 @@ export function errorText(code:string):string {
     previous_mirror_still_draining:'Earlier sharing is still stopping. Keep its retained copies and wait for the host to confirm the stop.',
     mirror_stop_incomplete:'The host could not confirm that all sharing stopped. Keep using Stop for this exact session and inspect host diagnostics.',
     mirror_busy_try_again:'Another mirror operation is still finishing. Wait for its receipt before reviewing new work.',
+    mirror_previous_recovery_changed:'The earlier local-byte check no longer matches this model or is still active. Read its receipt before choosing another check.',
     public_mirror_pmf_transport_unavailable:'This mirror adapter cannot serve PMF directly yet. Keep the original archive; this operation does not convert it.',
     metadata_preview_too_large:'The complete review is too large for this Library view. Keep the original archive and use the standalone tools.',
     invalid_job_identity:'The job reply did not match this decision. Check activity before retrying the unchanged review.',

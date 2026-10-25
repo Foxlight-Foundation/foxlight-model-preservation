@@ -4,6 +4,22 @@ Skulk Library is versioned separately from the portable core. Releases are
 tagged `library-v*`; versions without a tag are source previews installed from
 `main` (see [README](README.md)).
 
+## 0.15.0
+
+- Check a pending mirror copy's local bytes from Library, Guided first launch
+  and Sharing, using its original accepted model authority and current policy.
+- Observe durable progress and Stop after client loss. Retry an ambiguous
+  submission as the same check; another check names an exact terminal receipt.
+- Keep pin/block and deletion choices, clear sharing restart permission, and
+  receive no replacement bytes or new trust. Incomplete copies stay pending.
+- Offer the existing recovery-kit journey only after retained custody and check
+  completion. Preserve original envelopes, card extensions, companions and notices.
+- Negotiate pending recovery separately from retained-kit support, so older hosts
+  keep their existing controls. Include mirror cases in SDK-free package CI.
+- Pin compatible Core `446079c2417f1b8ef5bef0934e605b73654e4e47`. Source-fed
+  intake without a retained original wrapper remains a separate durability gap.
+  This GUI requires compatible Core; standalone preservation remains Skulk-free.
+
 ## 0.14.0
 
 - Recover retained mirror copies from Library, including first launch and loss of
