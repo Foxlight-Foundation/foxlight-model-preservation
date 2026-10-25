@@ -2,7 +2,7 @@ import {test,expect,type Page} from '@playwright/test';
 
 const identity='a'.repeat(64),policy='b'.repeat(64),jobId='c'.repeat(64);
 const model={manifest_id:identity,state:'retained',pinned:false,blocked:false,error_code:null,name:'Community model and companions',size_bytes:10,member_count:2};
-const review={schema_version:'skulk.preservation-mirror-review.v1',manifest_id:identity,archive_format:'preservation-v1',name:model.name,size_bytes:10,workloads:['chat'],runtime_requirements:['fixture'],capture_key_ids:['d'.repeat(64)],capture_threshold:1,members:[
+const review={schema_version:'skulk.preservation-mirror-review.v1',manifest_id:identity,archive_format:'preservation-v1',name:model.name,size_bytes:10,workloads:['chat'],runtime_requirements:['fixture'],capture_key_ids:['ed25519:'+'d'.repeat(64)],capture_threshold:1,members:[
   {member_id:'primary',role:'primary',repository:'fixture/model',revision:'e'.repeat(40),format:'fixture',size_bytes:6,file_count:2,license_id:'MIT',terms_reference:'LICENSE',notice_paths:['LICENSE']},
   {member_id:'companion',role:'future'.repeat(15),repository:'fixture/companion',revision:'f'.repeat(40),format:'fixture',size_bytes:4,file_count:1,license_id:'Companion terms',terms_reference:'COMPANION-LICENSE',notice_paths:['COMPANION-LICENSE']},
 ]};

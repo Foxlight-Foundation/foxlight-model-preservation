@@ -328,7 +328,10 @@ async def _recovery_control(
             != checked.size_bytes
             or len(set(checked.capture_key_ids)) != len(checked.capture_key_ids)
             or any(
-                re.fullmatch(r"[0-9a-f]{64}", key) is None
+                # Fingerprints are namespaced (currently ``ed25519:<digest>``),
+                # not manifest digests. Keep bounded opaque identifiers for
+                # display; the owner/recipient verifier establishes trust.
+                re.fullmatch(r"[A-Za-z0-9._:-]{1,200}", key) is None
                 for key in checked.capture_key_ids
             )
             or checked.capture_threshold > len(checked.capture_key_ids)

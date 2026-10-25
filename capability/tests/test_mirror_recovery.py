@@ -184,7 +184,7 @@ async def test_review_preserves_unknown_fields_and_long_companion_role() -> None
         "workloads": [],
         "runtime_requirements": [],
         "members": [member],
-        "capture_key_ids": ["e" * 64],
+        "capture_key_ids": ["ed25519:" + "e" * 64],
         "capture_threshold": 1,
         "future_card": {"preserve": [1, 2]},
     }
