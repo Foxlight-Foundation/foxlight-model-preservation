@@ -1,7 +1,7 @@
 {
   "schema_version": "sovereign.macos-inputs.v1",
   "version": "0.1.0",
-  "build_number": "1",
+  "build_number": "2",
   "architecture": "arm64",
   "minimum_macos": "13.0",
   "library": {
