@@ -55,6 +55,7 @@ class MirrorStartInput(Contract):
         "model",
         "prune",
         "prepare_kit",
+        "recover",
     ]
     policy_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     configuration: MirrorConfigurationInput | None = None
@@ -92,10 +93,13 @@ class MirrorStartInput(Contract):
             or self.confirm_reintake
         ):
             raise ValueError("intake confirmations belong only to retain")
-        if self.kind in {"model", "prune", "prepare_kit"} and self.manifest_id is None:
+        if (
+            self.kind in {"model", "prune", "prepare_kit", "recover"}
+            and self.manifest_id is None
+        ):
             raise ValueError("select the exact retained model")
         if (
-            self.kind not in {"model", "prune", "retain", "prepare_kit"}
+            self.kind not in {"model", "prune", "retain", "prepare_kit", "recover"}
             and self.manifest_id is not None
         ):
             raise ValueError("model identity belongs only to model operations")
@@ -165,6 +169,16 @@ class MirrorPrepareInput(MirrorManifestInput):
         default=None,
         pattern=r"^[0-9a-f]{64}$",
         description="Previous terminal job when explicitly preparing another kit.",
+    )
+
+
+class MirrorRecoverInput(MirrorPrepareInput):
+    """Check local bytes under original authority, with an explicit retry chain."""
+
+    previous_job_id: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+        description="Previous terminal recovery check when explicitly checking again.",
     )
 
 
@@ -338,7 +352,8 @@ async def _recovery_control(
         ):
             raise CoreRefused("mirror_selection_changed")
         return result
-    if action == "mirror-kit-latest":
+    if action in {"mirror-kit-latest", "mirror-recovery-latest"}:
+        kind = "recover" if action == "mirror-recovery-latest" else "prepare_kit"
         selected = MirrorManifestInput.model_validate(body)
         offset = 0
         # Core retains at most 4,096 receipts. Scanning only bounded metadata
@@ -358,7 +373,7 @@ async def _recovery_control(
                 ):
                     raise CoreRefused("job_owner_changed")
                 if (
-                    row.get("kind") == "prepare_kit"
+                    row.get("kind") == kind
                     and row.get("manifest_id") == selected.manifest_id
                 ):
                     if (
@@ -374,29 +389,41 @@ async def _recovery_control(
                 raise CoreRefused("invalid_host_response")
             offset = following
         raise CoreRefused("invalid_host_response")
-    if action == "mirror-prepare":
-        selected = MirrorPrepareInput.model_validate(body)
+    if action in {"mirror-prepare", "mirror-recover"}:
+        recovering = action == "mirror-recover"
+        kind = "recover" if recovering else "prepare_kit"
+        selected = (
+            MirrorRecoverInput.model_validate(body)
+            if recovering
+            else MirrorPrepareInput.model_validate(body)
+        )
         if selected.previous_job_id is not None:
             previous = await _owned_mirror_job(client, selected.previous_job_id)
             if (
-                previous.get("kind") != "prepare_kit"
+                previous.get("kind") != kind
                 or previous.get("manifest_id") != selected.manifest_id
                 or previous.get("state")
                 not in {"succeeded", "failed", "cancelled", "interrupted"}
             ):
-                raise CoreRefused("mirror_previous_preparation_changed")
+                raise CoreRefused(
+                    "mirror_previous_recovery_changed"
+                    if recovering
+                    else "mirror_previous_preparation_changed"
+                )
         semantic = "\x00".join(
             (
-                "mirror-kit-v1",
+                "mirror-recover-v1" if recovering else "mirror-kit-v1",
                 selected.manifest_id,
                 selected.policy_id,
                 selected.previous_job_id or "",
             )
         )
-        operation_id = "kit-" + hashlib.sha256(semantic.encode()).hexdigest()
+        operation_id = ("recover-" if recovering else "kit-") + hashlib.sha256(
+            semantic.encode()
+        ).hexdigest()
         decision = MirrorStartInput(
             operation_id=operation_id,
-            kind="prepare_kit",
+            kind=kind,
             policy_id=selected.policy_id,
             manifest_id=selected.manifest_id,
         )
@@ -408,7 +435,7 @@ async def _recovery_control(
         if (
             result.get("operation_id") != operation_id
             or result.get("owner_id") != client.mirror_owner_id
-            or result.get("kind") != "prepare_kit"
+            or result.get("kind") != kind
             or result.get("manifest_id") != selected.manifest_id
             or not isinstance(result.get("job_id"), str)
             or re.fullmatch(r"[0-9a-f]{64}", str(result["job_id"])) is None
@@ -445,7 +472,9 @@ async def mirror_control(
         "mirror-selection",
         "mirror-retained-review",
         "mirror-kit-latest",
+        "mirror-recovery-latest",
         "mirror-prepare",
+        "mirror-recover",
         "mirror-kit-remove",
     }:
         return await _recovery_control(client, action, body)

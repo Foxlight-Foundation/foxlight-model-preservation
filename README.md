@@ -23,13 +23,14 @@ optional.
   retained-copy inspection/recovery-kit export, offline completion recovery,
   PirateFace lookup/intake and
   the separately opted-in I2P pilots.
-- **Library 0.14.0** provides a local interface through its separately pinned
+- **Library 0.15.0** provides a local interface through its separately pinned
   compatible Skulk Core. It includes PMF preservation/recovery, one-file sharing,
   peer setup/receiving, persistent mirror controls and explicit I2P
   source/receiving controls. Installing the Library package does not install
   Core or start networking. Retained recovery-kit preparation, native download
-  and explicit earlier-kit cleanup work from Library/Guided. Pending-copy
-  completion recovery still uses the standalone command.
+  and explicit earlier-kit cleanup work from Library/Guided. Pending copies
+  also offer a durable offline local-byte check before kit preparation, without
+  receiving, sharing or new trust.
 - Public releases are pre-releases. The v1 preservation format has its existing
   compatibility commitment; PMF remains a separately versioned draft. Standalone
   persistent mirrors serve the public v1 transport profile, not generic PMF.

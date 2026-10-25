@@ -19,7 +19,11 @@ interface RetainedReview {
 }
 interface Catalog {
   configured:boolean; available:boolean; policy_id:string|null;
-  models:RetainedModel[]; next_offset:number|null;
+  models:RetainedModel[]; next_offset:number|null; controller_job_id?:string|null;
+}
+interface Selection {
+  manifest_id:string; configured:boolean; available:boolean; policy_id:string|null;
+  model:RetainedModel|null;
 }
 const active=(job:RetainedJob)=>['queued','running','cancelling'].includes(job.state);
 const terminal=(job:RetainedJob)=>['succeeded','failed','cancelled','interrupted'].includes(job.state);
@@ -28,13 +32,13 @@ export const retainedName=(model:RetainedModel)=>model.name||`Retained model ${m
 
 /** Recover from custody even when the original import/copy receipt is gone. */
 export function RetainedLibrary({blocked,onOverlayChange,onSharing}:{blocked:boolean;onOverlayChange:(open:boolean)=>void;onSharing:()=>void}) {
-  const [supported,setSupported]=useState(false),[catalog,setCatalog]=useState<Catalog|null>(null);
+  const [supported,setSupported]=useState(false),[pendingSupported,setPendingSupported]=useState(false),[catalog,setCatalog]=useState<Catalog|null>(null);
   const [offset,setOffset]=useState(0),[error,setError]=useState('');
   const [selection,setSelection]=useState<{model:RetainedModel;policy:string}|null>(null);
   const overlay=useRef(onOverlayChange);overlay.current=onOverlayChange;
   useEffect(()=>{if(blocked)setSelection(null);},[blocked]);
   useEffect(()=>{overlay.current(Boolean(selection));return()=>overlay.current(false);},[Boolean(selection)]);
-  useEffect(()=>{let current=true;void api<Record<string,boolean>>('core-features',{}).then(value=>{if(current)setSupported(value['Retained recovery']===true);}).catch(()=>{});return()=>{current=false;};},[]);
+  useEffect(()=>{let current=true;void api<Record<string,boolean>>('core-features',{}).then(value=>{if(current){setSupported(value['Retained recovery']===true);setPendingSupported(value['Pending recovery']===true);}}).catch(()=>{});return()=>{current=false;};},[]);
   useEffect(()=>{
     if(!supported)return;
     let current=true,timer:number|undefined;
@@ -56,11 +60,87 @@ export function RetainedLibrary({blocked,onOverlayChange,onSharing}:{blocked:boo
         <div className="sk-model-head"><div className="sk-model-title"><h3>{retainedName(model)}</h3><p className="sk-meta">{model.state}{model.size_bytes!=null?` · ${bytes(model.size_bytes)}`:''}{model.member_count?` · ${model.member_count} members`:''}</p></div><Pill tone={model.state==='retained'?'ok':'muted'}>{model.state}</Pill></div>
         {model.error_code&&<Callout tone="warn">{errorText(model.error_code)}</Callout>}
         {model.state==='retained'&&<button className="sk-btn sk-outline" disabled={!catalog.available||!catalog.policy_id||Boolean(error)} onClick={()=>{if(catalog.policy_id)setSelection({model,policy:catalog.policy_id});}}><Icon name="download"/>Save recovery kit</button>}
+        {model.state==='pending'&&(pendingSupported?<button className="sk-btn sk-outline" disabled={!catalog.available||!catalog.policy_id||Boolean(error)} onClick={()=>{if(catalog.policy_id)setSelection({model,policy:catalog.policy_id});}}><Icon name="check"/>Check local bytes</button>:<p className="sk-hint">Update the preservation host to check pending copies offline. Existing retained-copy and sharing controls remain available.</p>)}
       </article>)}</div>
       <div className="sk-actions">{offset>0&&<button className="sk-btn sk-quiet" onClick={()=>setOffset(0)}>First retained copies</button>}{catalog?.next_offset!=null&&<button className="sk-btn sk-quiet" onClick={()=>setOffset(catalog.next_offset!)}>Next retained copies</button>}</div>
     </section>
-    {selection&&<RetainedRecovery model={selection.model} policyId={selection.policy} onClose={()=>setSelection(null)}/>}
+    {selection&&(selection.model.state==='pending'?<PendingRecovery model={selection.model} policyId={selection.policy} onClose={()=>setSelection(null)}/>:<RetainedRecovery model={selection.model} policyId={selection.policy} onClose={()=>setSelection(null)}/>)}
   </>;
+}
+
+/** Observe and explicitly check a selected pending closure without receiving bytes. */
+export function PendingRecovery({model,policyId,onClose}:{model:RetainedModel;policyId:string;onClose:()=>void}) {
+  const [review,setReview]=useState<RetainedReview|null>(null),[job,setJob]=useState<RetainedJob|null>(null);
+  const [selection,setSelection]=useState<Selection|null>(null),[catalog,setCatalog]=useState<Catalog|null>(null);
+  const [loaded,setLoaded]=useState(false),[revision,setRevision]=useState(0),[readError,setReadError]=useState(''),[error,setError]=useState('');
+  const [busy,setBusy]=useState(false),[kit,setKit]=useState(false);
+  const mounted=useRef(true),pending=useRef<{previous_job_id:string|null}|null>(null);
+  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
+  useEffect(()=>{
+    let current=true;setLoaded(false);setReadError('');
+    void Promise.all([
+      api<RetainedReview>('mirror-retained-review',{manifest_id:model.manifest_id,...(model.member_count?{member_count:model.member_count}:{})}),
+      api<{manifest_id:string;job:RetainedJob|null}>('mirror-recovery-latest',{manifest_id:model.manifest_id}),
+      api<Selection>('mirror-selection',{manifest_id:model.manifest_id}),
+      api<Catalog>('mirror-read',{offset:0}),
+    ]).then(([metadata,latest,selected,page])=>{if(current){setReview(metadata);setJob(latest.job);setSelection(selected);setCatalog(page);if(latest.job)pending.current=null;setLoaded(true);}}).catch(reason=>{if(current)setReadError(reason instanceof Error?reason.message:'host_unavailable');});
+    return()=>{current=false;};
+  },[model.manifest_id,model.member_count,revision]);
+  useEffect(()=>{
+    if(!job||!active(job))return;
+    let current=true,timer:number|undefined;
+    async function read(){
+      try{
+        const value=await api<RetainedJob>('mirror-observe',{job_id:job!.job_id});
+        if(value.kind!=='recover'||value.manifest_id!==model.manifest_id)throw new Error('invalid_job_identity');
+        if(current){setJob(value);setReadError('');if(active(value))timer=window.setTimeout(()=>void read(),2000);else setRevision(value=>value+1);}
+      }catch(reason){if(current){setReadError(reason instanceof Error?reason.message:'host_unavailable');timer=window.setTimeout(()=>void read(),2000);}}
+    }
+    timer=window.setTimeout(()=>void read(),1000);return()=>{current=false;window.clearTimeout(timer);};
+  },[job?.job_id,job?.state,model.manifest_id]);
+  useEffect(()=>{
+    if(!catalog?.controller_job_id)return;
+    const timer=window.setTimeout(()=>setRevision(value=>value+1),2000);
+    return()=>window.clearTimeout(timer);
+  },[catalog?.controller_job_id,revision]);
+  async function recover(){
+    if(!pending.current)pending.current={previous_job_id:job?.job_id??null};
+    const decision=pending.current;setBusy(true);setError('');
+    try{
+      const value=await api<RetainedJob>('mirror-recover',{manifest_id:model.manifest_id,policy_id:policyId,...(decision.previous_job_id?{previous_job_id:decision.previous_job_id}:{})});
+      pending.current=null;
+      if(mounted.current){setJob(value);if(!active(value))setRevision(value=>value+1);}
+    }catch(reason){if(mounted.current)setError(reason instanceof Error?reason.message:'host_unavailable');}
+    finally{if(mounted.current)setBusy(false);}
+  }
+  async function stop(jobId:string){
+    setBusy(true);setError('');
+    try{await api<RetainedJob>('mirror-stop',{job_id:jobId});if(mounted.current)setRevision(value=>value+1);}
+    catch(reason){if(mounted.current)setError(reason instanceof Error?reason.message:'host_unavailable');}
+    finally{if(mounted.current)setBusy(false);}
+  }
+  const available=loaded&&!readError&&selection?.configured&&selection.available&&catalog?.available;
+  const currentPolicy=selection?.policy_id===policyId&&catalog?.policy_id===policyId;
+  const ready=Boolean(available&&currentPolicy&&selection?.model?.state==='retained');
+  const canCheck=Boolean(available&&currentPolicy&&!busy&&!catalog?.controller_job_id&&selection?.model?.state==='pending'&&(!job||terminal(job)));
+  return <><div inert={kit}><Sheet kicker="Pending mirror copy" title={review?.name??retainedName(model)} back="Close pending recovery" onClose={onClose} footer={<><button className="sk-btn sk-quiet" onClick={onClose}>Close</button>{ready?<button className="sk-btn sk-solid" disabled={busy} onClick={()=>setKit(true)}><Icon name="download"/>Save recovery kit</button>:<button className="sk-btn sk-solid" disabled={!canCheck} onClick={()=>void recover()}>{busy?'Working…':job&&active(job)?'Checking local bytes…':pending.current?'Retry the same check':job?'Check local bytes again':'Check local bytes'}</button>}</>}>
+    {!loaded&&!readError&&<p role="status">Authenticating the original selection and finding earlier checks…</p>}
+    {readError&&<Callout tone="bad" role="alert">{errorText(readError)}</Callout>}
+    {loaded&&!selection?.available&&<Callout tone="warn">Mirror storage is unavailable or busy. Reconnect it and read again; this does not mean your bytes are gone.</Callout>}
+    {loaded&&!currentPolicy&&<Callout tone="warn">Mirror settings changed. Close this review and reopen the copy to use its current policy.</Callout>}
+    {loaded&&(!selection?.model||selection.model.state==='removed')&&<Callout tone="warn">This selection is no longer retained. Checking cannot return a deliberately removed model.</Callout>}
+    {review&&<>
+      <RetainedReviewDetails review={review} pending/>
+      <Step n={2} title="Check the bytes already here">
+        <p>This offline check uses the original accepted signatures and verifies every required file. It downloads nothing, starts no sharing and keeps pin, block and deletion choices. It clears permission to restart sharing.</p>
+        {catalog?.controller_job_id&&<Callout tone="warn">Stop mirror sharing before checking. <button className="sk-btn sk-outline" disabled={busy} onClick={()=>void stop(catalog.controller_job_id!)}><Icon name="stop"/>Stop mirror sharing</button></Callout>}
+        {job&&<article className="sk-card" aria-label="Pending copy check"><Row k="Local-byte check"><Pill tone={job.state==='succeeded'?'ok':job.state==='failed'?'bad':active(job)?'live':'muted'}>{job.state}</Pill></Row>{active(job)&&<Progress label="Checking retained local bytes"/>}<p className="sk-hint">Checked {bytes(job.bytes_hashed)} · copied {bytes(job.bytes_copied)}</p>{job.error_code&&<Callout tone="warn">{errorText(job.error_code)} Incomplete or corrupt copies stay pending; no replacement download is started.</Callout>}{(active(job)||job.state==='failed')&&<button className="sk-btn sk-outline" disabled={busy} onClick={()=>void stop(job.job_id)}><Icon name="stop"/>Stop this check</button>}<Details summary="Check receipt"><Mono value={job.job_id} label="pending recovery job identity"/></Details></article>}
+        {ready?<Callout tone="ok">The complete signed copy is retained here. Save a recovery kit next to keep the model, companions, cards and provenance outside this host.</Callout>:<p>The check continues when this page closes. Return here to observe its outcome. After interruption, choose a new check explicitly; opening this page never starts one.</p>}
+      </Step>
+    </>}
+    <button className="sk-btn sk-quiet" disabled={busy} onClick={()=>setRevision(value=>value+1)}>Read again</button>
+    {error&&<Callout tone="bad" role="alert">{errorText(error)}</Callout>}
+  </Sheet></div>{kit&&selection?.model&&<RetainedRecovery model={selection.model} policyId={policyId} onClose={()=>{setKit(false);setRevision(value=>value+1);}}/>}</>;
 }
 
 /** Metadata reads never start work. Each preparation is an explicit durable decision. */
@@ -115,10 +195,7 @@ export function RetainedRecovery({model,policyId,onClose}:{model:RetainedModel;p
     {!loaded&&!readError&&<p role="status">Authenticating retained metadata and finding earlier preparations…</p>}
     {readError&&<Callout tone="bad" role="alert">{errorText(readError)} <button className="sk-btn sk-quiet" disabled={busy} onClick={()=>setRevision(value=>value+1)}>Read again</button></Callout>}
     {review&&<>
-      <Step n={1} title="Complete retained selection"><Row k="Model files">{bytes(review.size_bytes)} · {review.members.length} members</Row><Mono value={review.manifest_id} label="retained recovery manifest identity"/><p>Preparation rechecks all required bytes and preserves the original signed envelope, cards, extensions and companions. It creates a separate portable file on this host.</p>
-        <Details summary="Members and declared terms">{review.members.map(member=><article className="sk-card sk-mirror-member" key={member.member_id}><h3>{member.member_id} · {member.role}</h3><Row k="Declared terms">{member.license_id}</Row><Row k="Terms reference">{member.terms_reference}</Row><p className="sk-meta">{member.repository} · {bytes(member.size_bytes)} · {member.file_count} files</p>{member.notice_paths.length>0&&<p>Required notices: {member.notice_paths.join(', ')}</p>}</article>)}</Details>
-        <Details summary="Capture signatures and trust"><p>Capture signature threshold: {review.capture_threshold}. Included keys are verification material. Confirm the expected identity, fingerprints and threshold independently before restoring. A capture signature does not grant registry or runtime trust.</p>{review.capture_key_ids.map(key=><Mono key={key} value={key} label="capture key fingerprint"/>)}</Details>
-      </Step>
+      <RetainedReviewDetails review={review}/>
       <Step n={2} title="Save a portable recovery kit">
         <p>The job continues when this page closes. Return here to find its result. Saving a kit starts no sharing and does not install a model.</p>
         <Callout>Kits contain model files and public verification material. They are not encrypted. Save the file somewhere you control; then use Restore here or the standalone model-preserve tools, even without the original Core or registry.</Callout>
@@ -190,4 +267,12 @@ export function MirrorKitReceipt({jobId,onClose}:{jobId:string;onClose:()=>void}
     <Callout>Kits are not encrypted. Verify the expected signed identity, fingerprints and threshold independently when restoring. A prepared-file digest does not grant model or registry trust.</Callout>
     {error&&<Callout tone="bad" role="alert">{errorText(error)}</Callout>}
   </Sheet>;
+}
+
+/** Display the full authenticated selection while keeping capture and runtime trust distinct. */
+function RetainedReviewDetails({review,pending=false}:{review:RetainedReview;pending?:boolean}) {
+  return <Step n={1} title="Complete retained selection"><Row k="Model files">{bytes(review.size_bytes)} · {review.members.length} members</Row><Mono value={review.manifest_id} label="retained recovery manifest identity"/><p>{pending?'This is the original signed selection, including every required companion and notice. Reading it does not check the local file bytes.':'Preparation rechecks all required bytes and preserves the original signed envelope, cards, extensions and companions. It creates a separate portable file on this host.'}</p>
+        <Details summary="Members and declared terms">{review.members.map(member=><article className="sk-card sk-mirror-member" key={member.member_id}><h3>{member.member_id} · {member.role}</h3><Row k="Declared terms">{member.license_id}</Row><Row k="Terms reference">{member.terms_reference}</Row><p className="sk-meta">{member.repository} · {bytes(member.size_bytes)} · {member.file_count} files</p>{member.notice_paths.length>0&&<p>Required notices: {member.notice_paths.join(', ')}</p>}</article>)}</Details>
+        <Details summary="Capture signatures and trust"><p>Capture signature threshold: {review.capture_threshold}. Included keys are verification material. Confirm the expected identity, fingerprints and threshold independently before restoring. A capture signature does not grant registry or runtime trust.</p>{review.capture_key_ids.map(key=><Mono key={key} value={key} label="capture key fingerprint"/>)}</Details>
+      </Step>;
 }
