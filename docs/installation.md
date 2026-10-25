@@ -5,7 +5,7 @@ optional separate application that connects to a compatible Skulk Core. Installi
 software does not follow sources, trust model keys, set up Core, download models,
 install native peer software or grant public serving.
 
-The `v0.18.0` core and `library-v0.13.0` Library pre-releases provide one installation
+The `v0.18.0` core and `library-v0.14.0` Library pre-releases provide one installation
 archive each, plus `release.sigstore.json`, a detached build-attestation bundle.
 The archive contains a wheel, source distribution, `INSTALL.json`, hash-locked
 runtime requirements, `install.py` and inner checksums. An optional standalone
@@ -20,7 +20,7 @@ Choose the standalone core, or the optional Library with Python 3.13+:
 | Role | Tag | Archive |
 | --- | --- | --- |
 | Standalone | `v0.18.0` | `foxlight-model-preservation-0.18.0-install.zip` |
-| Optional Library | `library-v0.13.0` | `foxlight-preservation-library-0.13.0-install.zip` |
+| Optional Library | `library-v0.14.0` | `foxlight-preservation-library-0.14.0-install.zip` |
 
 Download the archive and `release.sigstore.json` from the same chosen release.
 Public asset downloads need no account. For the standalone core:

@@ -36,7 +36,7 @@ from .contracts import (
     SharingReferenceInput,
 )
 from .discovery import discovery_control
-from .mirrors import mirror_control
+from .mirrors import mirror_control, prepared_mirror_kit
 
 #: The exact built interface files this screen serves. A ``None`` type uses the
 #: platform registry; fonts are explicit because ``mimetypes`` may not know
@@ -186,6 +186,11 @@ class LibraryServer:
             "mirror-start",
             "mirror-observe",
             "mirror-stop",
+            "mirror-selection",
+            "mirror-retained-review",
+            "mirror-kit-latest",
+            "mirror-prepare",
+            "mirror-kit-remove",
         }:
             return await mirror_control(self.client, action, body)
         if action in {
@@ -496,7 +501,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             ),
         )
         self.end_headers()
-        self.wfile.write(data)
+        if self.command != "HEAD":
+            self.wfile.write(data)
 
     def _app(self) -> tuple[LibraryServer, str] | None:
         server = cast(_Server, self.server)
@@ -525,6 +531,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         if selected is None:
             return
         app, relative = selected
+        if re.fullmatch(r"api/mirror-kit/[0-9a-f]{64}", relative):
+            self._mirror_download(app, relative.rsplit("/", 1)[1])
+            return
         if re.fullmatch(r"api/manifest/[0-9a-f]{64}", relative):
             self._metadata(
                 app, "GET", "plans/" + relative.rsplit("/", 1)[1] + "/public-manifest"
@@ -596,6 +605,11 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                         "api/mirror-start",
                         "api/mirror-observe",
                         "api/mirror-stop",
+                        "api/mirror-selection",
+                        "api/mirror-retained-review",
+                        "api/mirror-kit-latest",
+                        "api/mirror-prepare",
+                        "api/mirror-kit-remove",
                         "api/peer-setup",
                         "api/peer-runtime-read",
                         "api/peer-runtime-start",
@@ -737,6 +751,158 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             self._reply(200, encoded, "application/json")
         except (CoreRefused, ValueError, OSError, concurrent.futures.TimeoutError):
             self._reply(409, b'{"error":"public_copy_unavailable"}')
+
+    def do_HEAD(self) -> None:
+        """Inspect a sealed retained kit through the same private screen scope."""
+        selected = self._app()
+        if selected is None:
+            return
+        app, relative = selected
+        if re.fullmatch(r"api/mirror-kit/[0-9a-f]{64}", relative):
+            self._mirror_download(app, relative.rsplit("/", 1)[1], head=True)
+            return
+        self._reply(404, b'{"error":"not_found"}')
+
+    def _mirror_download(
+        self, app: LibraryServer, job_id: str, *, head: bool = False
+    ) -> None:
+        """Stream a sealed own-job artifact with bounded IO and exact resume.
+
+        Validate ownership, seal and every response header before sending any
+        artifact headers. Core owns the descriptor/fingerprint check; this bridge
+        never buffers or rehashes a complete kit, or grants recipient trust.
+        """
+        started = False
+        future = asyncio.run_coroutine_threadsafe(
+            prepared_mirror_kit(app.client, job_id), app.loop
+        )
+        try:
+            kit = future.result(timeout=12)
+            etag = '"sha256-' + kit.sha256 + '"'
+            headers = {"Accept-Encoding": "identity"}
+            byte_range = None if head else self.headers.get("Range")
+            if_range = self.headers.get("If-Range")
+            if byte_range is not None:
+                if (
+                    len(byte_range) > 160
+                    or re.fullmatch(r"bytes=[0-9]*-[0-9]*", byte_range) is None
+                ):
+                    raise CoreRefused("invalid_range")
+                headers["Range"] = byte_range
+            if if_range is not None:
+                if len(if_range) > 160:
+                    raise CoreRefused("invalid_range")
+                headers["If-Range"] = if_range
+            requested = byte_range if if_range in {None, etag} else None
+            expected: tuple[int, int] | None = (0, kit.size_bytes)
+            if requested is not None:
+                first_text, last_text = requested.removeprefix("bytes=").split("-")
+                if first_text:
+                    first = int(first_text)
+                    end = (
+                        min(kit.size_bytes, int(last_text) + 1)
+                        if last_text
+                        else kit.size_bytes
+                    )
+                    expected = (first, end) if first < end else None
+                else:
+                    suffix = int(last_text or "0")
+                    expected = (
+                        (max(0, kit.size_bytes - suffix), kit.size_bytes)
+                        if suffix
+                        else None
+                    )
+            with (
+                httpx.Client(
+                    base_url=app.client.http.base_url,
+                    trust_env=False,
+                    follow_redirects=False,
+                    timeout=30,
+                ) as transfer,
+                transfer.stream(
+                    "HEAD" if head else "GET",
+                    "/preservation/mirror/kits/" + job_id,
+                    headers=headers,
+                ) as response,
+            ):
+                content_range = response.headers.get("Content-Range")
+                if response.status_code == 416:
+                    if (
+                        expected is not None
+                        or content_range != f"bytes */{kit.size_bytes}"
+                    ):
+                        raise CoreRefused("invalid_range")
+                    self.send_response(416)
+                    self.send_header("Content-Range", content_range)
+                    self.send_header("Content-Length", "0")
+                    self.send_header("Cache-Control", "private, no-store")
+                    self.send_header("Referrer-Policy", "no-referrer")
+                    self.end_headers()
+                    return
+                if (
+                    response.status_code not in {200, 206}
+                    or response.headers.get("ETag") != etag
+                    or response.headers.get("Content-Encoding")
+                    not in {None, "identity"}
+                ):
+                    raise CoreRefused("kit_download_refused")
+                length = int(response.headers.get("Content-Length", "0"))
+                if response.status_code == 200:
+                    if (
+                        requested is not None
+                        or length != kit.size_bytes
+                        or content_range is not None
+                    ):
+                        raise CoreRefused("invalid_kit_length")
+                else:
+                    match = re.fullmatch(
+                        r"bytes ([0-9]{1,16})-([0-9]{1,16})/([0-9]{1,16})",
+                        content_range or "",
+                    )
+                    if match is None or byte_range is None or head:
+                        raise CoreRefused("invalid_range")
+                    first, last, total = map(int, match.groups())
+                    if not (
+                        total == kit.size_bytes
+                        and 0 <= first <= last < total
+                        and expected == (first, last + 1)
+                        and length == last - first + 1
+                        and (if_range is None or if_range == etag)
+                    ):
+                        raise CoreRefused("invalid_range")
+                self.send_response(response.status_code)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Length", str(length))
+                self.send_header(
+                    "Content-Disposition",
+                    'attachment; filename="sovereign-'
+                    + kit.manifest_id[:12]
+                    + '.foxkit"',
+                )
+                self.send_header("Accept-Ranges", "bytes")
+                self.send_header("ETag", etag)
+                self.send_header("Cache-Control", "private, no-store")
+                self.send_header("Referrer-Policy", "no-referrer")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                if content_range is not None:
+                    self.send_header("Content-Range", content_range)
+                self.end_headers()
+                started = True
+                if head:
+                    return
+                sent = 0
+                for chunk in response.iter_raw(chunk_size=1024**2):
+                    sent += len(chunk)
+                    if sent > length:
+                        raise CoreRefused("kit_length_changed")
+                    self.wfile.write(chunk)
+                if sent != length:
+                    self.close_connection = True
+        except (ValueError, OSError, httpx.HTTPError, concurrent.futures.TimeoutError):
+            _ = future.cancel()
+            if not started:
+                self._reply(409, b'{"error":"kit_download_refused"}')
+            self.close_connection = True
 
     def _download(
         self, app: LibraryServer, job_id: str, *, torrent: bool = False

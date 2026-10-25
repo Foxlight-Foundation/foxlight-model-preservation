@@ -8,57 +8,13 @@
   },
   "x-fixture-source": {
     "repository": "Foxlight-Foundation/Skulk",
-    "tree": "a739d46a64f19122499b4e28034af64e26ed5c59",
+    "tree": "60c1c3eef8012eab54cf8eac23c52e9c8d3ce468",
     "generator": "scripts/export_openapi.py:write_openapi",
     "scope": "Exact mirror and public-copy review OpenAPI fragment; no runtime or completion claim.",
-    "revision": "9d516de5969b5e719bb1b81624f504563b4e0528",
-    "reviewed_head": "9555380ed0748e33e15ddf5cd84f018a6b2e8214"
+    "revision": "246fe15cc8702ba7037bb967db6cf80675bc1ea5",
+    "reviewed_head": "1090ddfc621eaaf4206fb5765fb7cf93de487f3a"
   },
   "paths": {
-    "/preservation/public-copies/{copy_id}/review": {
-      "get": {
-        "tags": [
-          "Model Preservation"
-        ],
-        "summary": "Review every accepted public-copy member offline",
-        "description": "Authenticate the exact enrolled public archive and, for supported PMF, its original signed source profile. Return every member's original terms, notice paths, declared file count and size in a bounded all-or-nothing response. No weights, model parsing, registry connection, network, trust enrollment, conversion, sharing or deletion occurs. Metadata review is not a fresh byte-completion check or redistribution permission.",
-        "operationId": "public_copy_review_preservation_public_copies__copy_id__review_get",
-        "parameters": [
-          {
-            "name": "copy_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
-              "title": "Copy Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PublicCopyReview"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/preservation/mirror": {
       "get": {
         "tags": [
@@ -289,10 +245,470 @@
           }
         }
       }
+    },
+    "/preservation/mirror/kits/{job_id}": {
+      "head": {
+        "tags": [
+          "Model Preservation"
+        ],
+        "summary": "Read prepared recovery-kit download headers",
+        "description": "Check the enrolled artifact fingerprint and return prepared length/digest headers without reading payload bytes or replaying preparation. Model trust remains separate.",
+        "operationId": "kit_preservation_mirror_kits__job_id__head",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Model Preservation"
+        ],
+        "summary": "Download one prepared retained-copy recovery kit",
+        "description": "Download only a successfully sealed, unchanged private preparation artifact through an owned descriptor. Supports bounded single byte ranges and strong If-Range; no full-byte hash runs in a GET. A kit retains original signed evidence and candidate keys; recipients still independently verify trust and all bytes. Reading starts no sharing and never deletes the retained model.",
+        "operationId": "kit_preservation_mirror_kits__job_id__get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "206": {
+            "description": "Selected byte range",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "416": {
+            "description": "Unsatisfiable or unsupported range"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Model Preservation"
+        ],
+        "summary": "Remove only explicitly confirmed kit preparation files",
+        "description": "Delete one stopped job's enrolled complete/incomplete kit generation after exact job confirmation. Retained model weights, cards, provenance, sharing policy and other kits are untouched. Removal intent survives interruption; only explicit retry completes it. Unexpected/replaced files refuse deletion, and restart performs no automatic cleanup.",
+        "operationId": "remove_kit_preservation_mirror_kits__job_id__delete",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MirrorKitRemoval"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MirrorJob"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/preservation/mirror/models/{manifest_id}": {
+      "get": {
+        "tags": [
+          "Model Preservation"
+        ],
+        "summary": "Look up one exact retained mirror selection",
+        "description": "Read exact state independently of list pagination and original application import records. Unknown selections are distinct from unavailable or corrupt storage. Authenticated labels use bounded metadata only; this starts no network, hashes no model payload and grants no trust or deletion.",
+        "operationId": "selection_preservation_mirror_models__manifest_id__get",
+        "parameters": [
+          {
+            "name": "manifest_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Manifest Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MirrorSelection"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/preservation/mirror/models/{manifest_id}/review": {
+      "get": {
+        "tags": [
+          "Model Preservation"
+        ],
+        "summary": "Review complete retained-copy metadata without the original import",
+        "description": "Authenticate the original signed identity and all required member terms/notices using locally accepted mirror trust. Return a complete bounded review or refuse, without scanning weights, signing new provenance, following sources or admitting models. Capture keys remain independent of recipient, registry and runtime authority.",
+        "operationId": "review_preservation_mirror_models__manifest_id__review_get",
+        "parameters": [
+          {
+            "name": "manifest_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Manifest Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MirrorReview"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/preservation/public-copies/{copy_id}/review": {
+      "get": {
+        "tags": [
+          "Model Preservation"
+        ],
+        "summary": "Review every accepted public-copy member offline",
+        "description": "Authenticate the exact enrolled public archive and, for supported PMF, its original signed source profile. Return every member's original terms, notice paths, declared file count and size in a bounded all-or-nothing response. No weights, model parsing, registry connection, network, trust enrollment, conversion, sharing or deletion occurs. Metadata review is not a fresh byte-completion check or redistribution permission.",
+        "operationId": "public_copy_review_preservation_public_copies__copy_id__review_get",
+        "parameters": [
+          {
+            "name": "copy_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+              "title": "Copy Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicCopyReview"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "MirrorActivity": {
+        "properties": {
+          "running": {
+            "type": "boolean",
+            "title": "Running",
+            "description": "False only after owned work/listeners drain."
+          },
+          "http_port": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 65535.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Http Port",
+            "description": "Actual owned local listener, if enabled."
+          },
+          "native_workers": {
+            "type": "integer",
+            "maximum": 4.0,
+            "minimum": 0.0,
+            "title": "Native Workers",
+            "description": "Live native workers, including preparation and drain."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "running",
+          "native_workers"
+        ],
+        "title": "MirrorActivity",
+        "description": "Live owned activity, never a count of publicly reachable replicas."
+      },
+      "MirrorConfiguration": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "description": "Operator's mirror name."
+          },
+          "disk_bytes": {
+            "type": "integer",
+            "maximum": 9007199254740991.0,
+            "minimum": 268435456.0,
+            "title": "Disk Bytes",
+            "description": "Retained/partial/cache disk allowance."
+          },
+          "ingress_daily": {
+            "type": "integer",
+            "maximum": 9007199254740991.0,
+            "minimum": 1.0,
+            "title": "Ingress Daily",
+            "description": "Daily network intake allowance; local retention spends none."
+          },
+          "egress_daily": {
+            "type": "integer",
+            "maximum": 9007199254740991.0,
+            "minimum": 1.0,
+            "title": "Egress Daily",
+            "description": "Conservatively reserved daily upload allowance."
+          },
+          "egress_monthly": {
+            "type": "integer",
+            "maximum": 9007199254740991.0,
+            "minimum": 1.0,
+            "title": "Egress Monthly",
+            "description": "Conservatively reserved monthly upload allowance."
+          },
+          "http": {
+            "type": "boolean",
+            "title": "Http",
+            "description": "Separately select HTTP serving; no listener starts on save.",
+            "default": false
+          },
+          "exposure": {
+            "type": "string",
+            "enum": [
+              "loopback",
+              "network"
+            ],
+            "title": "Exposure",
+            "description": "Numeric HTTP bind scope, not proof of public routing.",
+            "default": "loopback"
+          },
+          "port": {
+            "type": "integer",
+            "maximum": 65535.0,
+            "minimum": 0.0,
+            "title": "Port",
+            "description": "HTTP port; zero requests an ephemeral port.",
+            "default": 8080
+          },
+          "ipfs": {
+            "type": "boolean",
+            "title": "Ipfs",
+            "description": "Select separately configured native IPFS sharing.",
+            "default": false
+          },
+          "torrent": {
+            "type": "boolean",
+            "title": "Torrent",
+            "description": "Select public BitTorrent sharing; receiving never implies this.",
+            "default": false
+          },
+          "peer_setup_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Peer Setup Id",
+            "description": "Exact reviewed Core peer settings when selecting IPFS."
+          },
+          "max_active": {
+            "type": "integer",
+            "maximum": 4.0,
+            "minimum": 1.0,
+            "title": "Max Active",
+            "description": "Maximum owned native workers, including preparation.",
+            "default": 2
+          },
+          "session_seconds": {
+            "type": "integer",
+            "maximum": 86400.0,
+            "minimum": 1.0,
+            "title": "Session Seconds",
+            "description": "Finite native session duration inside the controller.",
+            "default": 3600
+          },
+          "session_bytes": {
+            "type": "integer",
+            "maximum": 9007199254740991.0,
+            "minimum": 1.0,
+            "title": "Session Bytes",
+            "description": "Upload reservation per native session, spent before startup.",
+            "default": 67108864
+          },
+          "upload_rate": {
+            "type": "integer",
+            "maximum": 104857600.0,
+            "minimum": 1024.0,
+            "title": "Upload Rate",
+            "description": "Native upload rate in bytes per second.",
+            "default": 1048576
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "disk_bytes",
+          "ingress_daily",
+          "egress_daily",
+          "egress_monthly"
+        ],
+        "title": "MirrorConfiguration",
+        "description": "Offline serving/resource choices; saving never starts a listener or router."
+      },
       "MirrorJob": {
         "properties": {
           "job_id": {
@@ -324,7 +740,8 @@
               "grant_resume",
               "revoke_resume",
               "model",
-              "prune"
+              "prune",
+              "prepare_kit"
             ],
             "title": "Kind",
             "description": "Selected operation, immutable after admission."
@@ -412,6 +829,23 @@
             "title": "Bytes Received",
             "description": "Observed receive bytes, not a new budget grant.",
             "default": 0
+          },
+          "kit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MirrorKit"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Prepared content or explicit removal receipt; absent before complete sealing."
+          },
+          "kit_removed": {
+            "type": "boolean",
+            "title": "Kit Removed",
+            "description": "Operator removed this job's prepared or incomplete kit generation; retained models are unaffected.",
+            "default": false
           }
         },
         "additionalProperties": false,
@@ -428,43 +862,189 @@
         "title": "MirrorJob",
         "description": "Durable control/worker receipt separate from existing finite copy jobs."
       },
-      "MirrorActivity": {
+      "MirrorJobsPage": {
         "properties": {
-          "running": {
-            "type": "boolean",
-            "title": "Running",
-            "description": "False only after owned work/listeners drain."
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/MirrorJob"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Jobs",
+            "description": "One mirror receipt page.",
+            "default": []
           },
-          "http_port": {
+          "next_offset": {
             "anyOf": [
               {
                 "type": "integer",
-                "maximum": 65535.0,
+                "maximum": 4096.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset",
+            "description": "Next history offset, if any."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "MirrorJobsPage",
+        "description": "Bounded permanent mirror history, independent of finite sharing jobs."
+      },
+      "MirrorKit": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "prepared",
+              "removed"
+            ],
+            "title": "State",
+            "description": "Historical preparation or explicit removal, not a fresh payload scan."
+          },
+          "manifest_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Manifest Id",
+            "description": "Original signed model identity inside this kit."
+          },
+          "size_bytes": {
+            "type": "integer",
+            "maximum": 9007199254740991.0,
+            "minimum": 1.0,
+            "title": "Size Bytes",
+            "description": "Prepared complete kit length."
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Sha256",
+            "description": "Prepared kit bytes digest, separate from its signed model identity."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "manifest_id",
+          "size_bytes",
+          "sha256"
+        ],
+        "title": "MirrorKit",
+        "description": "Prepared content identity; recipient model trust remains independent."
+      },
+      "MirrorKitRemoval": {
+        "properties": {
+          "confirm_job_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Confirm Job Id",
+            "description": "Explicitly confirm this preparation job's private kit and temporary output only."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "confirm_job_id"
+        ],
+        "title": "MirrorKitRemoval",
+        "description": "Separate exact-artifact deletion, including stopped incomplete preparation."
+      },
+      "MirrorModel": {
+        "properties": {
+          "manifest_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Manifest Id",
+            "description": "Original exact signed manifest identity."
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "retained",
+              "removed"
+            ],
+            "title": "State",
+            "description": "Custody receipt, not public availability."
+          },
+          "pinned": {
+            "type": "boolean",
+            "title": "Pinned",
+            "description": "Operator pin; prune must refuse while pinned."
+          },
+          "blocked": {
+            "type": "boolean",
+            "title": "Blocked",
+            "description": "Operator serving block; source loss never deletes bytes."
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code",
+            "description": "Safe intake/verification refusal, if any."
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "Authenticated original name, when local metadata is available."
+          },
+          "member_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 256.0,
                 "minimum": 1.0
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Http Port",
-            "description": "Actual owned local listener, if enabled."
+            "title": "Member Count",
+            "description": "Declared full member count; no fresh payload completeness claim."
           },
-          "native_workers": {
-            "type": "integer",
-            "maximum": 4.0,
-            "minimum": 0.0,
-            "title": "Native Workers",
-            "description": "Live native workers, including preparation and drain."
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Bytes",
+            "description": "Declared logical closure bytes, without scanning weights."
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "running",
-          "native_workers"
+          "manifest_id",
+          "state",
+          "pinned",
+          "blocked"
         ],
-        "title": "MirrorActivity",
-        "description": "Live owned activity, never a count of publicly reachable replicas."
+        "title": "MirrorModel",
+        "description": "Bounded retained-selection status with no private authority or paths."
       },
       "MirrorPage": {
         "properties": {
@@ -599,190 +1179,6 @@
         "title": "MirrorPage",
         "description": "Read-only page; constructing or observing it never starts sharing."
       },
-      "MirrorModel": {
-        "properties": {
-          "manifest_id": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "title": "Manifest Id",
-            "description": "Original exact signed manifest identity."
-          },
-          "state": {
-            "type": "string",
-            "enum": [
-              "pending",
-              "retained",
-              "removed"
-            ],
-            "title": "State",
-            "description": "Custody receipt, not public availability."
-          },
-          "pinned": {
-            "type": "boolean",
-            "title": "Pinned",
-            "description": "Operator pin; prune must refuse while pinned."
-          },
-          "blocked": {
-            "type": "boolean",
-            "title": "Blocked",
-            "description": "Operator serving block; source loss never deletes bytes."
-          },
-          "error_code": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 80
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Error Code",
-            "description": "Safe intake/verification refusal, if any."
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "manifest_id",
-          "state",
-          "pinned",
-          "blocked"
-        ],
-        "title": "MirrorModel",
-        "description": "Bounded retained-selection status with no private authority or paths."
-      },
-      "MirrorConfiguration": {
-        "properties": {
-          "name": {
-            "type": "string",
-            "maxLength": 200,
-            "minLength": 1,
-            "title": "Name",
-            "description": "Operator's mirror name."
-          },
-          "disk_bytes": {
-            "type": "integer",
-            "maximum": 9007199254740991.0,
-            "minimum": 268435456.0,
-            "title": "Disk Bytes",
-            "description": "Retained/partial/cache disk allowance."
-          },
-          "ingress_daily": {
-            "type": "integer",
-            "maximum": 9007199254740991.0,
-            "minimum": 1.0,
-            "title": "Ingress Daily",
-            "description": "Daily network intake allowance; local retention spends none."
-          },
-          "egress_daily": {
-            "type": "integer",
-            "maximum": 9007199254740991.0,
-            "minimum": 1.0,
-            "title": "Egress Daily",
-            "description": "Conservatively reserved daily upload allowance."
-          },
-          "egress_monthly": {
-            "type": "integer",
-            "maximum": 9007199254740991.0,
-            "minimum": 1.0,
-            "title": "Egress Monthly",
-            "description": "Conservatively reserved monthly upload allowance."
-          },
-          "http": {
-            "type": "boolean",
-            "title": "Http",
-            "description": "Separately select HTTP serving; no listener starts on save.",
-            "default": false
-          },
-          "exposure": {
-            "type": "string",
-            "enum": [
-              "loopback",
-              "network"
-            ],
-            "title": "Exposure",
-            "description": "Numeric HTTP bind scope, not proof of public routing.",
-            "default": "loopback"
-          },
-          "port": {
-            "type": "integer",
-            "maximum": 65535.0,
-            "minimum": 0.0,
-            "title": "Port",
-            "description": "HTTP port; zero requests an ephemeral port.",
-            "default": 8080
-          },
-          "ipfs": {
-            "type": "boolean",
-            "title": "Ipfs",
-            "description": "Select separately configured native IPFS sharing.",
-            "default": false
-          },
-          "torrent": {
-            "type": "boolean",
-            "title": "Torrent",
-            "description": "Select public BitTorrent sharing; receiving never implies this.",
-            "default": false
-          },
-          "peer_setup_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "pattern": "^[0-9a-f]{64}$"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Peer Setup Id",
-            "description": "Exact reviewed Core peer settings when selecting IPFS."
-          },
-          "max_active": {
-            "type": "integer",
-            "maximum": 4.0,
-            "minimum": 1.0,
-            "title": "Max Active",
-            "description": "Maximum owned native workers, including preparation.",
-            "default": 2
-          },
-          "session_seconds": {
-            "type": "integer",
-            "maximum": 86400.0,
-            "minimum": 1.0,
-            "title": "Session Seconds",
-            "description": "Finite native session duration inside the controller.",
-            "default": 3600
-          },
-          "session_bytes": {
-            "type": "integer",
-            "maximum": 9007199254740991.0,
-            "minimum": 1.0,
-            "title": "Session Bytes",
-            "description": "Upload reservation per native session, spent before startup.",
-            "default": 67108864
-          },
-          "upload_rate": {
-            "type": "integer",
-            "maximum": 104857600.0,
-            "minimum": 1024.0,
-            "title": "Upload Rate",
-            "description": "Native upload rate in bytes per second.",
-            "default": 1048576
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "name",
-          "disk_bytes",
-          "ingress_daily",
-          "egress_daily",
-          "egress_monthly"
-        ],
-        "title": "MirrorConfiguration",
-        "description": "Offline serving/resource choices; saving never starts a listener or router."
-      },
       "MirrorRequest": {
         "properties": {
           "owner_id": {
@@ -808,7 +1204,8 @@
               "grant_resume",
               "revoke_resume",
               "model",
-              "prune"
+              "prune",
+              "prepare_kit"
             ],
             "title": "Kind",
             "description": "Exactly one mirror control or byte operation."
@@ -961,88 +1358,161 @@
         "title": "MirrorRequest",
         "description": "One permanently identified decision; replay observes the original job."
       },
-      "PublicationMember": {
+      "MirrorReview": {
         "properties": {
-          "member_id": {
+          "schema_version": {
             "type": "string",
-            "maxLength": 64,
-            "title": "Member Id",
-            "description": "Exact signed member selection."
+            "const": "skulk.preservation-mirror-review.v1",
+            "title": "Schema Version",
+            "description": "Bounded retained-copy metadata review contract.",
+            "default": "skulk.preservation-mirror-review.v1"
           },
-          "role": {
+          "manifest_id": {
             "type": "string",
-            "maxLength": 64,
-            "title": "Role",
-            "description": "Declared closure role."
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Manifest Id",
+            "description": "Exact retained signed identity."
           },
-          "repository": {
+          "archive_format": {
             "type": "string",
-            "maxLength": 512,
-            "title": "Repository",
-            "description": "Original repository identity."
+            "const": "preservation-v1",
+            "title": "Archive Format",
+            "description": "Current public mirror transport profile, without conversion.",
+            "default": "preservation-v1"
           },
-          "revision": {
+          "name": {
             "type": "string",
-            "maxLength": 40,
-            "title": "Revision",
-            "description": "Exact original revision."
-          },
-          "format": {
-            "type": "string",
-            "maxLength": 128,
-            "title": "Format",
-            "description": "Declared file format."
+            "maxLength": 200,
+            "title": "Name",
+            "description": "Original signed display name."
           },
           "size_bytes": {
             "type": "integer",
             "minimum": 0.0,
             "title": "Size Bytes",
-            "description": "Declared selected member bytes."
+            "description": "Declared logical closure size, not a fresh weight check."
           },
-          "file_count": {
-            "type": "integer",
-            "minimum": 0.0,
-            "title": "File Count",
-            "description": "Declared selected file count."
-          },
-          "license_id": {
-            "type": "string",
-            "maxLength": 200,
-            "title": "License Id",
-            "description": "Existing terms hint only."
-          },
-          "terms_reference": {
-            "type": "string",
-            "maxLength": 2048,
-            "title": "Terms Reference",
-            "description": "Existing terms reference."
-          },
-          "notice_paths": {
+          "workloads": {
             "items": {
               "type": "string"
             },
             "type": "array",
             "maxItems": 100,
-            "title": "Notice Paths",
-            "description": "Original required public notices."
+            "title": "Workloads",
+            "description": "Original declared workloads."
+          },
+          "runtime_requirements": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Runtime Requirements",
+            "description": "Original runtime declarations; no code or model admission."
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/PublicationMember"
+            },
+            "type": "array",
+            "maxItems": 256,
+            "minItems": 1,
+            "title": "Members",
+            "description": "Every signed member and required notice; oversized reviews refuse entirely."
+          },
+          "capture_key_ids": {
+            "items": {
+              "type": "string",
+              "pattern": "^ed25519:[0-9a-f]{64}$"
+            },
+            "type": "array",
+            "maxItems": 32,
+            "minItems": 1,
+            "title": "Capture Key Ids",
+            "description": "Locally accepted non-revoked capture keys, not registry authority or a recipient trust grant."
+          },
+          "capture_threshold": {
+            "type": "integer",
+            "maximum": 32.0,
+            "minimum": 1.0,
+            "title": "Capture Threshold",
+            "description": "Previously accepted capture verification threshold."
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "member_id",
-          "role",
-          "repository",
-          "revision",
-          "format",
+          "manifest_id",
+          "name",
           "size_bytes",
-          "file_count",
-          "license_id",
-          "terms_reference",
-          "notice_paths"
+          "workloads",
+          "runtime_requirements",
+          "members",
+          "capture_key_ids",
+          "capture_threshold"
         ],
-        "title": "PublicationMember",
-        "description": "One retained member's public-facing terms hints; never a rights grant."
+        "title": "MirrorReview",
+        "description": "Complete authenticated member terms, independent of original import records."
+      },
+      "MirrorSelection": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "skulk.preservation-mirror-selection.v1",
+            "title": "Schema Version",
+            "description": "Exact local selection observation contract.",
+            "default": "skulk.preservation-mirror-selection.v1"
+          },
+          "manifest_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Manifest Id",
+            "description": "Exact requested original manifest identity."
+          },
+          "configured": {
+            "type": "boolean",
+            "title": "Configured",
+            "description": "Core has an enrolled mirror directory."
+          },
+          "available": {
+            "type": "boolean",
+            "title": "Available",
+            "description": "Local state was available; false never means an unknown selection."
+          },
+          "policy_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Policy Id",
+            "description": "Observed policy to review before a new effect."
+          },
+          "model": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MirrorModel"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "None means unknown only when available is true."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "manifest_id",
+          "configured",
+          "available"
+        ],
+        "title": "MirrorSelection",
+        "description": "Exact identity lookup independent of application receipts and list pages."
       },
       "PublicCopyReview": {
         "properties": {
@@ -1130,18 +1600,88 @@
         "title": "PublicCopyReview",
         "description": "Authenticated public-copy terms; no byte check or redistribution grant."
       },
-      "HTTPValidationError": {
+      "PublicationMember": {
         "properties": {
-          "detail": {
+          "member_id": {
+            "type": "string",
+            "maxLength": 64,
+            "title": "Member Id",
+            "description": "Exact signed member selection."
+          },
+          "role": {
+            "type": "string",
+            "maxLength": 100,
+            "title": "Role",
+            "description": "Declared closure role."
+          },
+          "repository": {
+            "type": "string",
+            "maxLength": 512,
+            "title": "Repository",
+            "description": "Original repository identity."
+          },
+          "revision": {
+            "type": "string",
+            "maxLength": 40,
+            "title": "Revision",
+            "description": "Exact original revision."
+          },
+          "format": {
+            "type": "string",
+            "maxLength": 128,
+            "title": "Format",
+            "description": "Declared file format."
+          },
+          "size_bytes": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Size Bytes",
+            "description": "Declared selected member bytes."
+          },
+          "file_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "File Count",
+            "description": "Declared selected file count."
+          },
+          "license_id": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "License Id",
+            "description": "Existing terms hint only."
+          },
+          "terms_reference": {
+            "type": "string",
+            "maxLength": 2048,
+            "title": "Terms Reference",
+            "description": "Existing terms reference."
+          },
+          "notice_paths": {
             "items": {
-              "$ref": "#/components/schemas/ValidationError"
+              "type": "string"
             },
             "type": "array",
-            "title": "Detail"
+            "maxItems": 100,
+            "title": "Notice Paths",
+            "description": "Original required public notices."
           }
         },
+        "additionalProperties": false,
         "type": "object",
-        "title": "HTTPValidationError"
+        "required": [
+          "member_id",
+          "role",
+          "repository",
+          "revision",
+          "format",
+          "size_bytes",
+          "file_count",
+          "license_id",
+          "terms_reference",
+          "notice_paths"
+        ],
+        "title": "PublicationMember",
+        "description": "One retained member's public-facing terms hints; never a rights grant."
       },
       "ValidationError": {
         "properties": {
@@ -1182,38 +1722,6 @@
           "type"
         ],
         "title": "ValidationError"
-      },
-      "MirrorJobsPage": {
-        "properties": {
-          "jobs": {
-            "items": {
-              "$ref": "#/components/schemas/MirrorJob"
-            },
-            "type": "array",
-            "maxItems": 20,
-            "title": "Jobs",
-            "description": "One mirror receipt page.",
-            "default": []
-          },
-          "next_offset": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "maximum": 4096.0,
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Next Offset",
-            "description": "Next history offset, if any."
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "title": "MirrorJobsPage",
-        "description": "Bounded permanent mirror history, independent of finite sharing jobs."
       }
     }
   }

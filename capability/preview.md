@@ -10,8 +10,8 @@ release.
 ## Current development cohort
 
 Portable handoffs, finite peer sharing, PMF, peer receiving and I2P source/receiving controls are included in
-Library 0.13.0 and its immutable compatible Core pin, including persistent mirror
-controls. Install the verified
+Library 0.14.0 and its immutable compatible Core pin, including persistent mirror
+and retained-copy recovery controls. Install the verified
 [hash-locked release archive](../docs/installation.md), then explicitly run
 `foxlight-preservation-preview setup` from that environment. The installer retains
 the source record and original wheel; preview setup checks those against installed
@@ -49,7 +49,7 @@ recovery kits do not contain the runtime and its dependencies; retain those
 separately for offline recovery.
 
 ```sh
-uv tool install --python 3.13 https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.13.0/foxlight_preservation_library-0.13.0-py3-none-any.whl
+uv tool install --python 3.13 https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.14.0/foxlight_preservation_library-0.14.0-py3-none-any.whl
 foxlight-preservation-preview setup
 ```
 

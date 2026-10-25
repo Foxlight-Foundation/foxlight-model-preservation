@@ -5,7 +5,7 @@ everyday use, and Activity through Skulk Core's durable preservation host. It
 uses local HTTP; its optional managed adapter uses the capability authoring SDK. It includes no Skulk imports,
 private owner code, signing keys, verifier, artifact transfer or byte worker.
 
-Library 0.13.0 adds [persistent mirror controls](#keep-models-available) and retains explicit [I2P HTTP source and receiving controls](#i2p-source-and-receiving-controls)
+Library 0.14.0 adds [retained-copy recovery](#recover-a-retained-mirror-copy), keeps [persistent mirror controls](#keep-models-available), and retains explicit [I2P HTTP source and receiving controls](#i2p-source-and-receiving-controls)
 with its pinned compatible Core, alongside the peer setup, PMF and one-file
 sharing workflows below. These are public previews with separate networking and
 trust decisions, not a qualified anonymity mode.
@@ -139,7 +139,10 @@ Public IPFS/BitTorrent and direct HTTP can expose addresses and offered content.
 These controls do not provide anonymity.
 
 Open **Keep another public copy**, then **Keep available** beside an accepted
-public Library copy. Review the exact signed identity and every member's original
+public Library copy. Library first reads that exact retained identity, regardless
+of the displayed page. A previously removed selection requires a separate,
+fresh reintake confirmation. An unavailable observation never means absence.
+Review the exact signed identity and every member's original
 license declaration, terms reference and required notice paths, including
 companions and notice-only members. Confirm that you reviewed those terms and
 may redistribute the complete selection. These references are not a new license
@@ -172,13 +175,64 @@ separate deliberate reintake. Storage pressure and source withdrawal never grant
 automatic deletion. **Mirror activity and decisions** retains the host's jobs.
 
 These controls need Core's persistent-mirror API. Retaining a new copy also needs
-complete public-copy review; an older host missing that endpoint can still expose
+complete public-copy review and exact retained-selection lookup; an older host
+missing those contracts can still expose
 its existing Stop controls. Unavailable storage is reported explicitly and is
 not shown as an empty mirror. The [compatible preview](preview.md) pins these
 APIs. Library itself still needs a compatible running Core, while the
-[standalone mirror tools](../docs/persistent-mirrors.md) work without Skulk. Recipient export
-from a retained mirror after the original Library copy receipt is lost remains a
-separate enhancement; current public-copy sharing paths follow below.
+[standalone mirror tools](../docs/persistent-mirrors.md) work without Skulk.
+
+## Recover a retained mirror copy
+
+In **Library → Retained mirror copies**, choose **Save recovery kit**. These
+copies are also shown during first launch, even without private archive storage
+or an installed model. The same action appears beside retained selections in
+**Sharing → Keep models available**. Names and sizes in a list are hints; opening
+the selection authenticates its complete signed metadata locally. This read
+does not scan every model file or grant recipient trust.
+
+Review the exact manifest, all members and original terms. Expand **Capture
+signatures and trust** for the capture fingerprints and threshold. Choose
+**Prepare recovery kit** to start one durable host job. Core checks every
+required file and creates a separate complete kit with the original envelope,
+cards, unknown extensions, companions and provenance. This works after the
+original public import or Library copy receipt is gone. Preparation starts no
+listener, swarm, model installation or execution, and grants no restart rights.
+
+Close Library whenever needed. Return to the same retained copy to find its
+preparation, including a receipt older than the current activity page. An
+ambiguous submission can be retried as the same immutable decision; reopening
+only reads its outcome. **Prepare another kit** is a separate explicit choice.
+Active work exposes **Stop this preparation**. Failed or interrupted work is
+not silently restarted. No timer removes kit files.
+
+When preparation succeeds, choose **Download recovery kit**. The browser saves
+the stream directly; Library never constructs a whole-model JavaScript Blob or
+puts weights in control-plane JSON. GET/HEAD and a single HTTP byte range use
+the prepared file's strong SHA-256 ETag; `If-Range` protects resumed downloads.
+Core refuses a changed or unsealed file. A fingerprint check protects the local
+prepared artifact; recipients still verify the signed contents independently.
+
+Keep the `.foxkit` file on storage you control. It is not encrypted. Use
+**Restore** in Library or the [standalone recovery tools](../docs/trust-and-recovery.md)
+with independently authenticated identity, keys and threshold. Included keys
+alone do not identify an author or grant registry trust. Existing registry,
+owner-capture and repository-code permissions stay separate. Restoring a kit
+does not require the original Core or registry; executing a model still requires
+a compatible runtime and any separately retained runtime software.
+
+To reclaim the host's prepared file, open **Remove this prepared kit…** and
+confirm **Remove only this kit**. This deletes only that stopped preparation's
+kit files. The retained mirror selection and files saved by recipients remain.
+It is separate from **Remove mirror copy**, which has its own pin and exact
+identity controls. Unavailable metadata or storage is a refusal, never an empty
+result or permission to delete.
+
+The new **Retained recovery** feature check requires the exact selection, review,
+preparation, seal, download and removal API contracts. Older compatible hosts
+keep their existing sharing and Stop controls and request an upgrade for these
+new actions. This GUI remains a Core client; it is not yet an independent local
+GUI host, frozen Mac app or APT package. Standalone core tools remain Skulk-free.
 
 ## Send and receive a model
 
@@ -246,11 +300,11 @@ Core on the same model-store host. Its wheel includes the interface; Node.js,
 Skulk's Python package and the managed SDK are not installation dependencies.
 
 ```sh
-uv tool install https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.13.0/foxlight_preservation_library-0.13.0-py3-none-any.whl
+uv tool install https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.14.0/foxlight_preservation_library-0.14.0-py3-none-any.whl
 foxlight-preservation-library
 ```
 
-The 0.13.0 pre-release includes persistent mirror controls, PMF, followed sources, peer receiving/native setup
+The 0.14.0 pre-release includes persistent mirror controls, PMF, followed sources, peer receiving/native setup
 and one-file sharing, plus explicit I2P source/receiving controls. For exact dependency versions and offline retention, use
 the [hash-locked installation archive](../docs/installation.md) instead of an
 unconstrained tool install. [Verify the release](../docs/releases.md) before

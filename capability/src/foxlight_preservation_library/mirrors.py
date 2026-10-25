@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 from typing import Literal
 
 from pydantic import ConfigDict, Field, JsonValue, ValidationError, model_validator
@@ -45,7 +47,14 @@ class MirrorStartInput(Contract):
         min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9._:@-]+$"
     )
     kind: Literal[
-        "configure", "retain", "run", "grant_resume", "revoke_resume", "model", "prune"
+        "configure",
+        "retain",
+        "run",
+        "grant_resume",
+        "revoke_resume",
+        "model",
+        "prune",
+        "prepare_kit",
     ]
     policy_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     configuration: MirrorConfigurationInput | None = None
@@ -83,10 +92,10 @@ class MirrorStartInput(Contract):
             or self.confirm_reintake
         ):
             raise ValueError("intake confirmations belong only to retain")
-        if self.kind in {"model", "prune"} and self.manifest_id is None:
+        if self.kind in {"model", "prune", "prepare_kit"} and self.manifest_id is None:
             raise ValueError("select the exact retained model")
         if (
-            self.kind not in {"model", "prune", "retain"}
+            self.kind not in {"model", "prune", "retain", "prepare_kit"}
             and self.manifest_id is not None
         ):
             raise ValueError("model identity belongs only to model operations")
@@ -136,12 +145,48 @@ class MirrorCopyInput(Contract):
     member_count: int = Field(ge=1, le=256)
 
 
+class MirrorManifestInput(Contract):
+    """One exact retained identity, independent of import receipts or list pages."""
+
+    manifest_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class MirrorReviewInput(MirrorManifestInput):
+    """Review all original members, optionally binding an authenticated count hint."""
+
+    member_count: int | None = Field(default=None, ge=1, le=256)
+
+
+class MirrorPrepareInput(MirrorManifestInput):
+    """One explicit preparation decision, with stateless retry-safe identity."""
+
+    policy_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    previous_job_id: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+        description="Previous terminal job when explicitly preparing another kit.",
+    )
+
+
+class MirrorKitRemovalInput(MirrorJobInput):
+    """Confirm only the selected stopped preparation, never its retained model."""
+
+    confirm_job_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def exact_confirmation(self) -> MirrorKitRemovalInput:
+        """Refuse a mismatched confirmation before contacting the owner."""
+        if self.confirm_job_id != self.job_id:
+            raise ValueError("confirm the exact preparation job")
+        return self
+
+
 class _ReviewMember(Contract):
     """Required display data; unknown additive response fields remain opaque."""
 
     model_config = ConfigDict(extra="ignore")
     member_id: str = Field(min_length=1, max_length=64)
-    role: str = Field(min_length=1, max_length=64)
+    role: str = Field(min_length=1, max_length=100)
     repository: str = Field(max_length=512)
     revision: str = Field(max_length=40)
     format: str = Field(max_length=128)
@@ -167,10 +212,240 @@ class _CopyReview(Contract):
     members: tuple[_ReviewMember, ...] = Field(min_length=1, max_length=256)
 
 
+class _RetainedModel(Contract):
+    """Validate custody separately from optional historical metadata hints."""
+
+    model_config = ConfigDict(extra="ignore")
+    manifest_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    state: Literal["pending", "retained", "removed"]
+    pinned: bool
+    blocked: bool
+    name: str | None = Field(default=None, max_length=200)
+    member_count: int | None = Field(default=None, ge=1, le=256)
+    size_bytes: int | None = Field(default=None, ge=0)
+
+
+class _RetainedSelection(Contract):
+    """An unavailable observation must never look like an unknown selection."""
+
+    model_config = ConfigDict(extra="ignore")
+    schema_version: Literal["skulk.preservation-mirror-selection.v1"]
+    manifest_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    configured: bool
+    available: bool
+    policy_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    model: _RetainedModel | None = None
+
+
+class _RetainedReview(Contract):
+    """The complete authenticated projection, without inferring recipient trust."""
+
+    model_config = ConfigDict(extra="ignore")
+    schema_version: Literal["skulk.preservation-mirror-review.v1"]
+    manifest_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    archive_format: Literal["preservation-v1"]
+    name: str = Field(max_length=200)
+    size_bytes: int = Field(ge=0)
+    workloads: tuple[str, ...] = Field(max_length=100)
+    runtime_requirements: tuple[str, ...] = Field(max_length=100)
+    members: tuple[_ReviewMember, ...] = Field(min_length=1, max_length=256)
+    capture_key_ids: tuple[str, ...] = Field(min_length=1, max_length=32)
+    capture_threshold: int = Field(ge=1, le=32)
+
+
+class PreparedMirrorKit(Contract):
+    """Prepared content receipt for streaming; never a recipient trust grant."""
+
+    model_config = ConfigDict(extra="ignore")
+    state: Literal["prepared"]
+    manifest_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    size_bytes: int = Field(ge=1, le=2**53 - 1)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+async def _owned_mirror_job(client: CoreClient, job_id: str) -> dict[str, JsonValue]:
+    job = await client.request("GET", "mirror/jobs/" + job_id)
+    if job.get("job_id") != job_id:
+        raise CoreRefused("invalid_job_identity")
+    if job.get("owner_id") != client.mirror_owner_id:
+        raise CoreRefused("job_owner_changed")
+    return job
+
+
+async def prepared_mirror_kit(client: CoreClient, job_id: str) -> PreparedMirrorKit:
+    """Read an exact successful own-job seal before streaming any artifact bytes."""
+    selected = MirrorJobInput(job_id=job_id)
+    job = await _owned_mirror_job(client, selected.job_id)
+    if (
+        job.get("kind") != "prepare_kit"
+        or job.get("state") != "succeeded"
+        or job.get("kit_removed") is not False
+    ):
+        raise CoreRefused("mirror_kit_not_ready")
+    try:
+        kit = PreparedMirrorKit.model_validate_json(json.dumps(job.get("kit")))
+    except ValidationError as error:
+        raise CoreRefused("mirror_kit_not_ready") from error
+    if kit.manifest_id != job.get("manifest_id"):
+        raise CoreRefused("invalid_job_identity")
+    return kit
+
+
+async def _recovery_control(
+    client: CoreClient, action: str, body: dict[str, JsonValue]
+) -> dict[str, JsonValue]:
+    if action == "mirror-selection":
+        selected = MirrorManifestInput.model_validate(body)
+        result = await client.request("GET", "mirror/models/" + selected.manifest_id)
+        try:
+            checked = _RetainedSelection.model_validate_json(json.dumps(result))
+        except ValidationError as error:
+            raise CoreRefused("mirror_selection_changed") from error
+        if checked.manifest_id != selected.manifest_id or (
+            checked.model is not None
+            and checked.model.manifest_id != selected.manifest_id
+        ):
+            raise CoreRefused("mirror_selection_changed")
+        return result
+    if action == "mirror-retained-review":
+        selected = MirrorReviewInput.model_validate(body)
+        result = await client.request(
+            "GET", "mirror/models/" + selected.manifest_id + "/review"
+        )
+        try:
+            checked = _RetainedReview.model_validate_json(json.dumps(result))
+        except ValidationError as error:
+            raise CoreRefused("mirror_selection_changed") from error
+        if (
+            checked.manifest_id != selected.manifest_id
+            or (
+                selected.member_count is not None
+                and len(checked.members) != selected.member_count
+            )
+            or len({member.member_id for member in checked.members})
+            != len(checked.members)
+            or sum(member.size_bytes for member in checked.members)
+            != checked.size_bytes
+            or len(set(checked.capture_key_ids)) != len(checked.capture_key_ids)
+            or any(
+                re.fullmatch(r"[0-9a-f]{64}", key) is None
+                for key in checked.capture_key_ids
+            )
+            or checked.capture_threshold > len(checked.capture_key_ids)
+        ):
+            raise CoreRefused("mirror_selection_changed")
+        return result
+    if action == "mirror-kit-latest":
+        selected = MirrorManifestInput.model_validate(body)
+        offset = 0
+        # Core retains at most 4,096 receipts. Scanning only bounded metadata
+        # finds old preparations after client loss without assuming a page miss
+        # means absence; it performs no byte work or permission replay.
+        while offset <= 4096:
+            page = await client.request(
+                "GET", f"mirror/jobs?owner_id={client.mirror_owner_id}&offset={offset}"
+            )
+            rows = page.get("jobs")
+            if not isinstance(rows, list) or len(rows) > 20:
+                raise CoreRefused("invalid_host_response")
+            for row in rows:
+                if (
+                    not isinstance(row, dict)
+                    or row.get("owner_id") != client.mirror_owner_id
+                ):
+                    raise CoreRefused("job_owner_changed")
+                if (
+                    row.get("kind") == "prepare_kit"
+                    and row.get("manifest_id") == selected.manifest_id
+                ):
+                    if (
+                        not isinstance(row.get("job_id"), str)
+                        or re.fullmatch(r"[0-9a-f]{64}", str(row["job_id"])) is None
+                    ):
+                        raise CoreRefused("invalid_job_identity")
+                    return {"manifest_id": selected.manifest_id, "job": row}
+            following = page.get("next_offset")
+            if following is None:
+                return {"manifest_id": selected.manifest_id, "job": None}
+            if type(following) is not int or not offset < following <= 4096:
+                raise CoreRefused("invalid_host_response")
+            offset = following
+        raise CoreRefused("invalid_host_response")
+    if action == "mirror-prepare":
+        selected = MirrorPrepareInput.model_validate(body)
+        if selected.previous_job_id is not None:
+            previous = await _owned_mirror_job(client, selected.previous_job_id)
+            if (
+                previous.get("kind") != "prepare_kit"
+                or previous.get("manifest_id") != selected.manifest_id
+                or previous.get("state")
+                not in {"succeeded", "failed", "cancelled", "interrupted"}
+            ):
+                raise CoreRefused("mirror_previous_preparation_changed")
+        semantic = "\x00".join(
+            (
+                "mirror-kit-v1",
+                selected.manifest_id,
+                selected.policy_id,
+                selected.previous_job_id or "",
+            )
+        )
+        operation_id = "kit-" + hashlib.sha256(semantic.encode()).hexdigest()
+        decision = MirrorStartInput(
+            operation_id=operation_id,
+            kind="prepare_kit",
+            policy_id=selected.policy_id,
+            manifest_id=selected.manifest_id,
+        )
+        result = await client.request(
+            "POST",
+            "mirror/jobs",
+            {**decision.model_dump(mode="json"), "owner_id": client.mirror_owner_id},
+        )
+        if (
+            result.get("operation_id") != operation_id
+            or result.get("owner_id") != client.mirror_owner_id
+            or result.get("kind") != "prepare_kit"
+            or result.get("manifest_id") != selected.manifest_id
+            or not isinstance(result.get("job_id"), str)
+            or re.fullmatch(r"[0-9a-f]{64}", str(result["job_id"])) is None
+        ):
+            raise CoreRefused("invalid_job_identity")
+        return result
+    selected = MirrorKitRemovalInput.model_validate(body)
+    job = await _owned_mirror_job(client, selected.job_id)
+    if job.get("kind") != "prepare_kit" or job.get("state") not in {
+        "succeeded",
+        "failed",
+        "cancelled",
+        "interrupted",
+    }:
+        raise CoreRefused("mirror_kit_busy_or_unknown")
+    result = await client.request(
+        "DELETE",
+        "mirror/kits/" + selected.job_id,
+        {"confirm_job_id": selected.confirm_job_id},
+    )
+    if (
+        result.get("job_id") != selected.job_id
+        or result.get("owner_id") != client.mirror_owner_id
+    ):
+        raise CoreRefused("invalid_job_identity")
+    return result
+
+
 async def mirror_control(
     client: CoreClient, action: str, body: dict[str, JsonValue]
 ) -> dict[str, JsonValue]:
     """Translate typed choices without transferring model bytes or local authority."""
+    if action in {
+        "mirror-selection",
+        "mirror-retained-review",
+        "mirror-kit-latest",
+        "mirror-prepare",
+        "mirror-kit-remove",
+    }:
+        return await _recovery_control(client, action, body)
     if action == "mirror-copy-review":
         copy = MirrorCopyInput.model_validate(body)
         review = await client.request(

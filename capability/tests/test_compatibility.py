@@ -45,6 +45,41 @@ async def test_api_check_is_read_only_and_reports_missing_folder_routes() -> Non
         await client.close()
 
 
+@pytest.mark.parametrize(
+    "missing", [None, "head", "kit_removed", "prepare_kit", "version"]
+)
+async def test_retained_recovery_requires_its_complete_new_contract(
+    missing: str | None,
+) -> None:
+    value = json.loads(
+        (Path(__file__).parent / "fixtures/core-mirror-contract-v1.json").read_text()
+    )
+    schemas = value["components"]["schemas"]
+    if missing == "head":
+        value["paths"]["/preservation/mirror/kits/{job_id}"].pop("head")
+    elif missing == "kit_removed":
+        schemas["MirrorJob"]["properties"].pop("kit_removed")
+    elif missing == "prepare_kit":
+        schemas["MirrorRequest"]["properties"]["kind"]["enum"].remove("prepare_kit")
+    elif missing == "version":
+        schemas["MirrorReview"]["properties"]["schema_version"]["const"] = "unknown"
+
+    def core(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        return httpx.Response(
+            200,
+            json={"jobs": []} if request.url.path == "/preservation/library" else value,
+        )
+
+    client = CoreClient(Settings(), "local", transport=httpx.MockTransport(core))
+    try:
+        report = await check_core(client)
+        assert report["Retained recovery"] is (missing is None)
+        assert report["Persistent mirrors"] and report["Public copy review"]
+    finally:
+        await client.close()
+
+
 async def test_compatibility_requires_a_real_available_store_owner() -> None:
     requests: list[str] = []
 

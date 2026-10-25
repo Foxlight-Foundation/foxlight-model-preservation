@@ -20,7 +20,7 @@ async function stableView(page:Page,path:string){
 }
 
 /** Mocked browser contract only; actual host/archive acceptance is separate. */
-async function host(page:Page,options:{configured?:boolean;terms?:boolean;held?:boolean;pinned?:boolean}={}) {
+async function host(page:Page,options:{configured?:boolean;terms?:boolean;held?:boolean;pinned?:boolean;offPageRemoved?:boolean;recovery?:boolean}={}) {
   const state={
     snapshot:{schema_version:'skulk.preservation-mirror.v1',configured:options.configured!==false,available:options.configured!==false,policy_id:options.configured===false?null:initialPolicy,configuration:options.configured===false?null:{...configuration},paused:true,restart_expires:null as number|null,restart_allowed:false,controller_job_id:null as string|null,activity:null as {running:boolean;http_port:number|null;native_workers:number}|null,models:[] as Held[],model_count:0,next_offset:null},
     jobs:[] as Receipt[],starts:[] as Record<string,unknown>[],stops:[] as string[],loseNext:false,
@@ -28,12 +28,13 @@ async function host(page:Page,options:{configured?:boolean;terms?:boolean;held?:
   if(options.held){state.snapshot.models=[{manifest_id:identity,state:'retained',pinned:options.pinned===true,blocked:false,error_code:null}];state.snapshot.model_count=1;}
   const receipts=new Map<string,Receipt>();let sequence=8;
   await page.route('**/api/library?offset=*',route=>route.fulfill({json:{locations:[],models:[],copies:[],public_copies:[copy],bittorrent_available:true,jobs:[],next_offset:null}}));
-  await page.route('**/api/core-features',route=>route.fulfill({json:{'Portable handoffs':true,'Persistent mirrors':true,'Public copy review':options.terms!==false}}));
+  await page.route('**/api/core-features',route=>route.fulfill({json:{'Portable handoffs':true,'Persistent mirrors':true,'Public copy review':options.terms!==false,'Retained recovery':options.recovery!==false}}));
   await page.route('**/api/mirror-*',async route=>{
     const action=new URL(route.request().url()).pathname.split('/').at(-1);
     const input=route.request().postDataJSON() as Record<string,unknown>;
     if(action==='mirror-read')return route.fulfill({json:state.snapshot});
     if(action==='mirror-history')return route.fulfill({json:{jobs:state.jobs,next_offset:null}});
+    if(action==='mirror-selection')return route.fulfill({json:{schema_version:'skulk.preservation-mirror-selection.v1',manifest_id:identity,configured:state.snapshot.configured,available:state.snapshot.available,policy_id:state.snapshot.policy_id,model:options.offPageRemoved?{manifest_id:identity,state:'removed',pinned:false,blocked:false,error_code:null}:state.snapshot.models.find(model=>model.manifest_id===identity)??null}});
     if(action==='mirror-copy-review'){
       expect(input).toEqual({copy_id:copy.copy_id,manifest_id:identity,member_count:2});
       return route.fulfill({json:review});
@@ -85,6 +86,29 @@ test('first configuration selects no transport and creates no network session',a
   expect(state.starts[0]).not.toHaveProperty('public_participation');
   expect(state.snapshot.controller_job_id).toBeNull();
   await expect(page.getByRole('button',{name:'Start sharing',exact:true})).toBeDisabled();
+});
+
+test('exact lookup finds removed selections outside the displayed page before intake consent',async({page})=>{
+  const state=await host(page,{offPageRemoved:true});
+  expect(state.snapshot.models).toHaveLength(0);
+  await page.getByText('Keep another public copy',{exact:true}).click();
+  await page.getByRole('button',{name:'Keep available',exact:true}).click();
+  await page.getByRole('checkbox',{name:/I reviewed the terms for every listed member/}).check();
+  await expect(page.getByRole('button',{name:'Keep this public copy',exact:true})).toBeDisabled();
+  await page.getByRole('checkbox',{name:/I deliberately want to return this previously removed exact selection/}).check();
+  await page.getByRole('button',{name:'Keep this public copy',exact:true}).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  expect(state.starts[0]).toMatchObject({kind:'retain',confirm_reintake:true});
+});
+
+test('an older recovery contract keeps existing controller Stop available',async({page})=>{
+  const state=await host(page,{held:true,recovery:false});
+  state.snapshot.controller_job_id='f'.repeat(64);
+  await expect(page.getByRole('button',{name:'Stop sharing',exact:true})).toBeVisible();
+  await page.getByText('Keep another public copy',{exact:true}).click();
+  await expect(page.getByText(/exact retained-selection lookup and recovery kits/)).toBeVisible();
+  await page.getByRole('button',{name:'Stop sharing',exact:true}).click();
+  expect(state.stops).toEqual(['f'.repeat(64)]);expect(state.starts).toHaveLength(0);
 });
 
 test('all companion terms precede intake and a lost reply retries the unchanged decision',async({page},info)=>{
