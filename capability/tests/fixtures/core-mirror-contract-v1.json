@@ -1,0 +1,1220 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Skulk API",
+    "summary": "Distributed inference, placement, store, and compatibility APIs for Skulk.",
+    "description": "Skulk exposes OpenAI-compatible inference APIs, cluster placement controls, model-store workflows, configuration endpoints, and debugging endpoints. Most text-generation requests require the target model to already be placed and running on the node or cluster.",
+    "version": "2.0.3"
+  },
+  "x-fixture-source": {
+    "repository": "Foxlight-Foundation/Skulk",
+    "tree": "a739d46a64f19122499b4e28034af64e26ed5c59",
+    "generator": "scripts/export_openapi.py:write_openapi",
+    "scope": "Exact mirror and public-copy review OpenAPI fragment; no runtime or completion claim.",
+    "revision": "9d516de5969b5e719bb1b81624f504563b4e0528",
+    "reviewed_head": "9555380ed0748e33e15ddf5cd84f018a6b2e8214"
+  },
+  "paths": {
+    "/preservation/public-copies/{copy_id}/review": {
+      "get": {
+        "tags": [
+          "Model Preservation"
+        ],
+        "summary": "Review every accepted public-copy member offline",
+        "description": "Authenticate the exact enrolled public archive and, for supported PMF, its original signed source profile. Return every member's original terms, notice paths, declared file count and size in a bounded all-or-nothing response. No weights, model parsing, registry connection, network, trust enrollment, conversion, sharing or deletion occurs. Metadata review is not a fresh byte-completion check or redistribution permission.",
+        "operationId": "public_copy_review_preservation_public_copies__copy_id__review_get",
+        "parameters": [
+          {
+            "name": "copy_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+              "title": "Copy Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicCopyReview"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/preservation/mirror": {
+      "get": {
+        "tags": [
+          "Model Preservation"
+        ],
+        "summary": "Read the managed mirror without starting sharing",
+        "description": "Read one bounded page of selected public copies, actual resource/transport settings, standing permission and live owned activity. Ports and native worker counts describe local ownership, not public reachability. Reading never starts a controller, follows a source or deletes data; private paths, executable selection and signing custody stay on Core.",
+        "operationId": "mirror_preservation_mirror_get",
+        "parameters": [
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MirrorPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/preservation/mirror/jobs": {
+      "post": {
+        "tags": [
+          "Model Preservation"
+        ],
+        "summary": "Start one explicit permanent mirror decision",
+        "description": "Configure offline, retain an exact already accepted public copy with reviewed every-member terms, select a finite public run or separately approved standing resume, control pin/block/retry, or confirm exact stopped-owner deletion. The immutable client operation observes its original job on replay. Every new effect binds current policy; installation, metadata reads, receiving, or a source file grant no sharing. Configuration and local admission clear restart authority as appropriate; no policy evicts retained copies. Direct public PMF transport remains unavailable.",
+        "operationId": "start_preservation_mirror_jobs_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MirrorRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MirrorJob"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Model Preservation"
+        ],
+        "summary": "Read permanent mirror job history",
+        "description": "Read up to twenty owned control/byte/controller receipts, optionally filtered by client namespace. Network, filesystem and worker effects are never replayed. Old process observations are not substituted for live listeners after restart; existing finite preservation/sharing job contracts are unchanged.",
+        "operationId": "jobs_preservation_mirror_jobs_get",
+        "parameters": [
+          {
+            "name": "owner_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Owner Id"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MirrorJobsPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/preservation/mirror/jobs/{job_id}": {
+      "get": {
+        "tags": [
+          "Model Preservation"
+        ],
+        "summary": "Observe one durable mirror operation",
+        "description": "Read an exact known job without replaying work, refreshing metadata or extending its grant. Activity is live only while Core owns that worker; worker counts include preparation/drain and are not reachable replica counts.",
+        "operationId": "job_preservation_mirror_jobs__job_id__get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MirrorJob"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Model Preservation"
+        ],
+        "summary": "Stop the exact owned mirror operation and retain its copies",
+        "description": "Record cancellation before signalling and drain the actual process group. Stopping an active controller also clears Core's running intent and durably pauses its role; saved copies, private partial metadata, keys, resource reservations and deletion tombstones remain. Stopping an old terminal receipt does not stop a newer controller. Closing a client does not release ongoing worker ownership or authorize a retry.",
+        "operationId": "stop_preservation_mirror_jobs__job_id__delete",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MirrorJob"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "MirrorJob": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Job Id",
+            "description": "Host-owned permanent job identity."
+          },
+          "owner_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "title": "Owner Id",
+            "description": "Original submitting client."
+          },
+          "operation_id": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9._:@-]+$",
+            "title": "Operation Id",
+            "description": "Original permanent operation identity."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "configure",
+              "retain",
+              "run",
+              "grant_resume",
+              "revoke_resume",
+              "model",
+              "prune"
+            ],
+            "title": "Kind",
+            "description": "Selected operation, immutable after admission."
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "cancelling",
+              "succeeded",
+              "failed",
+              "cancelled",
+              "interrupted"
+            ],
+            "title": "State",
+            "description": "Durable owned job lifecycle."
+          },
+          "created_at": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Created At",
+            "description": "Admission Unix time."
+          },
+          "updated_at": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Updated At",
+            "description": "Last durable observation Unix time."
+          },
+          "manifest_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manifest Id",
+            "description": "Exact selected model, when applicable."
+          },
+          "activity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MirrorActivity"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Live observations only while the exact controller is owned."
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code",
+            "description": "Safe bounded refusal; no path/exception text."
+          },
+          "bytes_hashed": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Bytes Hashed",
+            "description": "Observed verification bytes for this attempt.",
+            "default": 0
+          },
+          "bytes_copied": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Bytes Copied",
+            "description": "Observed local copy bytes for this attempt.",
+            "default": 0
+          },
+          "bytes_received": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Bytes Received",
+            "description": "Observed receive bytes, not a new budget grant.",
+            "default": 0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "job_id",
+          "owner_id",
+          "operation_id",
+          "kind",
+          "state",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "MirrorJob",
+        "description": "Durable control/worker receipt separate from existing finite copy jobs."
+      },
+      "MirrorActivity": {
+        "properties": {
+          "running": {
+            "type": "boolean",
+            "title": "Running",
+            "description": "False only after owned work/listeners drain."
+          },
+          "http_port": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 65535.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Http Port",
+            "description": "Actual owned local listener, if enabled."
+          },
+          "native_workers": {
+            "type": "integer",
+            "maximum": 4.0,
+            "minimum": 0.0,
+            "title": "Native Workers",
+            "description": "Live native workers, including preparation and drain."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "running",
+          "native_workers"
+        ],
+        "title": "MirrorActivity",
+        "description": "Live owned activity, never a count of publicly reachable replicas."
+      },
+      "MirrorPage": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "skulk.preservation-mirror.v1",
+            "title": "Schema Version",
+            "description": "Additive dedicated control contract.",
+            "default": "skulk.preservation-mirror.v1"
+          },
+          "configured": {
+            "type": "boolean",
+            "title": "Configured",
+            "description": "Whether Core enrolled its managed mirror directory."
+          },
+          "available": {
+            "type": "boolean",
+            "title": "Available",
+            "description": "Bounded local observation succeeded; false also covers a busy filesystem."
+          },
+          "policy_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Policy Id",
+            "description": "Exact current policy to review before a new action."
+          },
+          "configuration": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MirrorConfiguration"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Actual offline settings without executable paths."
+          },
+          "paused": {
+            "type": "boolean",
+            "title": "Paused",
+            "description": "Durable Stop fence, independent of retained bytes.",
+            "default": true
+          },
+          "restart_expires": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Restart Expires",
+            "description": "Saved standing permission expiry, not an active session."
+          },
+          "restart_allowed": {
+            "type": "boolean",
+            "title": "Restart Allowed",
+            "description": "Exact unexpired policy permission; does not start work.",
+            "default": false
+          },
+          "controller_job_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Controller Job Id",
+            "description": "Currently owned controller job, if any."
+          },
+          "activity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MirrorActivity"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Actual owned controller activity; no historical port substitution."
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/MirrorModel"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Models",
+            "description": "One bounded retained-selection page.",
+            "default": []
+          },
+          "model_count": {
+            "type": "integer",
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Model Count",
+            "description": "All selected identities, including deletion tombstones.",
+            "default": 0
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset",
+            "description": "Next model-page offset."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "configured",
+          "available"
+        ],
+        "title": "MirrorPage",
+        "description": "Read-only page; constructing or observing it never starts sharing."
+      },
+      "MirrorModel": {
+        "properties": {
+          "manifest_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Manifest Id",
+            "description": "Original exact signed manifest identity."
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "retained",
+              "removed"
+            ],
+            "title": "State",
+            "description": "Custody receipt, not public availability."
+          },
+          "pinned": {
+            "type": "boolean",
+            "title": "Pinned",
+            "description": "Operator pin; prune must refuse while pinned."
+          },
+          "blocked": {
+            "type": "boolean",
+            "title": "Blocked",
+            "description": "Operator serving block; source loss never deletes bytes."
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code",
+            "description": "Safe intake/verification refusal, if any."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "manifest_id",
+          "state",
+          "pinned",
+          "blocked"
+        ],
+        "title": "MirrorModel",
+        "description": "Bounded retained-selection status with no private authority or paths."
+      },
+      "MirrorConfiguration": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "description": "Operator's mirror name."
+          },
+          "disk_bytes": {
+            "type": "integer",
+            "maximum": 9007199254740991.0,
+            "minimum": 268435456.0,
+            "title": "Disk Bytes",
+            "description": "Retained/partial/cache disk allowance."
+          },
+          "ingress_daily": {
+            "type": "integer",
+            "maximum": 9007199254740991.0,
+            "minimum": 1.0,
+            "title": "Ingress Daily",
+            "description": "Daily network intake allowance; local retention spends none."
+          },
+          "egress_daily": {
+            "type": "integer",
+            "maximum": 9007199254740991.0,
+            "minimum": 1.0,
+            "title": "Egress Daily",
+            "description": "Conservatively reserved daily upload allowance."
+          },
+          "egress_monthly": {
+            "type": "integer",
+            "maximum": 9007199254740991.0,
+            "minimum": 1.0,
+            "title": "Egress Monthly",
+            "description": "Conservatively reserved monthly upload allowance."
+          },
+          "http": {
+            "type": "boolean",
+            "title": "Http",
+            "description": "Separately select HTTP serving; no listener starts on save.",
+            "default": false
+          },
+          "exposure": {
+            "type": "string",
+            "enum": [
+              "loopback",
+              "network"
+            ],
+            "title": "Exposure",
+            "description": "Numeric HTTP bind scope, not proof of public routing.",
+            "default": "loopback"
+          },
+          "port": {
+            "type": "integer",
+            "maximum": 65535.0,
+            "minimum": 0.0,
+            "title": "Port",
+            "description": "HTTP port; zero requests an ephemeral port.",
+            "default": 8080
+          },
+          "ipfs": {
+            "type": "boolean",
+            "title": "Ipfs",
+            "description": "Select separately configured native IPFS sharing.",
+            "default": false
+          },
+          "torrent": {
+            "type": "boolean",
+            "title": "Torrent",
+            "description": "Select public BitTorrent sharing; receiving never implies this.",
+            "default": false
+          },
+          "peer_setup_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Peer Setup Id",
+            "description": "Exact reviewed Core peer settings when selecting IPFS."
+          },
+          "max_active": {
+            "type": "integer",
+            "maximum": 4.0,
+            "minimum": 1.0,
+            "title": "Max Active",
+            "description": "Maximum owned native workers, including preparation.",
+            "default": 2
+          },
+          "session_seconds": {
+            "type": "integer",
+            "maximum": 86400.0,
+            "minimum": 1.0,
+            "title": "Session Seconds",
+            "description": "Finite native session duration inside the controller.",
+            "default": 3600
+          },
+          "session_bytes": {
+            "type": "integer",
+            "maximum": 9007199254740991.0,
+            "minimum": 1.0,
+            "title": "Session Bytes",
+            "description": "Upload reservation per native session, spent before startup.",
+            "default": 67108864
+          },
+          "upload_rate": {
+            "type": "integer",
+            "maximum": 104857600.0,
+            "minimum": 1024.0,
+            "title": "Upload Rate",
+            "description": "Native upload rate in bytes per second.",
+            "default": 1048576
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "disk_bytes",
+          "ingress_daily",
+          "egress_daily",
+          "egress_monthly"
+        ],
+        "title": "MirrorConfiguration",
+        "description": "Offline serving/resource choices; saving never starts a listener or router."
+      },
+      "MirrorRequest": {
+        "properties": {
+          "owner_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "title": "Owner Id",
+            "description": "Client namespace, retained across page reload."
+          },
+          "operation_id": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9._:@-]+$",
+            "title": "Operation Id",
+            "description": "Permanent client operation identity."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "configure",
+              "retain",
+              "run",
+              "grant_resume",
+              "revoke_resume",
+              "model",
+              "prune"
+            ],
+            "title": "Kind",
+            "description": "Exactly one mirror control or byte operation."
+          },
+          "policy_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Policy Id",
+            "description": "Exact current reviewed policy; absent only at first configuration."
+          },
+          "configuration": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MirrorConfiguration"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Offline policy, required only for configure."
+          },
+          "copy_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Copy Id",
+            "description": "Already accepted public Library copy, never a host path."
+          },
+          "manifest_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manifest Id",
+            "description": "Exact selected signed model identity."
+          },
+          "action": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "pin",
+                  "unpin",
+                  "block",
+                  "unblock",
+                  "retry"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action",
+            "description": "Explicit pin/block/retry action; deletion is separate."
+          },
+          "confirm_redistribution": {
+            "type": "boolean",
+            "title": "Confirm Redistribution",
+            "description": "Review redistribution terms for every selected member.",
+            "default": false
+          },
+          "confirm_reintake": {
+            "type": "boolean",
+            "title": "Confirm Reintake",
+            "description": "Deliberately re-admit a removed selection without resetting accounting.",
+            "default": false
+          },
+          "public_participation": {
+            "type": "boolean",
+            "title": "Public Participation",
+            "description": "Separate explicit public serving permission for this run.",
+            "default": false
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "finite",
+              "resume"
+            ],
+            "title": "Mode",
+            "description": "Finite manual run or separately approved standing grant.",
+            "default": "finite"
+          },
+          "seconds": {
+            "type": "integer",
+            "maximum": 86400.0,
+            "minimum": 1.0,
+            "title": "Seconds",
+            "description": "Finite manual duration; never a restart grant.",
+            "default": 3600
+          },
+          "resume_expires": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resume Expires",
+            "description": "Exact separately confirmed standing-grant expiry, Unix seconds."
+          },
+          "confirm_resume": {
+            "type": "boolean",
+            "title": "Confirm Resume",
+            "description": "Explicit standing permission, independent of model and transport trust.",
+            "default": false
+          },
+          "confirm_delete_manifest": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirm Delete Manifest",
+            "description": "Exact operator deletion confirmation; no automatic eviction."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "owner_id",
+          "operation_id",
+          "kind"
+        ],
+        "title": "MirrorRequest",
+        "description": "One permanently identified decision; replay observes the original job."
+      },
+      "PublicationMember": {
+        "properties": {
+          "member_id": {
+            "type": "string",
+            "maxLength": 64,
+            "title": "Member Id",
+            "description": "Exact signed member selection."
+          },
+          "role": {
+            "type": "string",
+            "maxLength": 64,
+            "title": "Role",
+            "description": "Declared closure role."
+          },
+          "repository": {
+            "type": "string",
+            "maxLength": 512,
+            "title": "Repository",
+            "description": "Original repository identity."
+          },
+          "revision": {
+            "type": "string",
+            "maxLength": 40,
+            "title": "Revision",
+            "description": "Exact original revision."
+          },
+          "format": {
+            "type": "string",
+            "maxLength": 128,
+            "title": "Format",
+            "description": "Declared file format."
+          },
+          "size_bytes": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Size Bytes",
+            "description": "Declared selected member bytes."
+          },
+          "file_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "File Count",
+            "description": "Declared selected file count."
+          },
+          "license_id": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "License Id",
+            "description": "Existing terms hint only."
+          },
+          "terms_reference": {
+            "type": "string",
+            "maxLength": 2048,
+            "title": "Terms Reference",
+            "description": "Existing terms reference."
+          },
+          "notice_paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Notice Paths",
+            "description": "Original required public notices."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "member_id",
+          "role",
+          "repository",
+          "revision",
+          "format",
+          "size_bytes",
+          "file_count",
+          "license_id",
+          "terms_reference",
+          "notice_paths"
+        ],
+        "title": "PublicationMember",
+        "description": "One retained member's public-facing terms hints; never a rights grant."
+      },
+      "PublicCopyReview": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "skulk.preservation-public-review.v1",
+            "title": "Schema Version",
+            "description": "Versioned all-member offline review contract.",
+            "default": "skulk.preservation-public-review.v1"
+          },
+          "copy_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
+            "title": "Copy Id",
+            "description": "Exact accepted public-copy handle."
+          },
+          "manifest_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Manifest Id",
+            "description": "Exact enrolled signed archive identity."
+          },
+          "archive_format": {
+            "type": "string",
+            "enum": [
+              "preservation-v1",
+              "pmf-v0.1"
+            ],
+            "title": "Archive Format",
+            "description": "Original archive format; review does not convert the archive."
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Name",
+            "description": "Existing signed display name."
+          },
+          "size_bytes": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Size Bytes",
+            "description": "Declared complete member file bytes."
+          },
+          "workloads": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Workloads",
+            "description": "Declared workloads, without runtime parsing."
+          },
+          "runtime_requirements": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Runtime Requirements",
+            "description": "Declared runtime requirements."
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/PublicationMember"
+            },
+            "type": "array",
+            "maxItems": 256,
+            "minItems": 1,
+            "title": "Members",
+            "description": "Every signed member and all its notice paths; oversized reviews refuse rather than omit members."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "copy_id",
+          "manifest_id",
+          "archive_format",
+          "name",
+          "size_bytes",
+          "workloads",
+          "runtime_requirements",
+          "members"
+        ],
+        "title": "PublicCopyReview",
+        "description": "Authenticated public-copy terms; no byte check or redistribution grant."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "MirrorJobsPage": {
+        "properties": {
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/MirrorJob"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Jobs",
+            "description": "One mirror receipt page.",
+            "default": []
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 4096.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset",
+            "description": "Next history offset, if any."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "MirrorJobsPage",
+        "description": "Bounded permanent mirror history, independent of finite sharing jobs."
+      }
+    }
+  }
+}

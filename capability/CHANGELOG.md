@@ -4,6 +4,21 @@ Skulk Library is versioned separately from the portable core. Releases are
 tagged `library-v*`; versions without a tag are source previews installed from
 `main` (see [README](README.md)).
 
+## 0.13.0
+
+- Manage separate retained public copies from Sharing: explicit resource settings,
+  HTTP/IPFS/BitTorrent choices, complete member-term review and durable jobs.
+- Keep Start, Stop and expiring restart permission separate. Observe the actual
+  controller after reopening Library; Stop remains available through stale or
+  failed receipts and while another intake cancellation is pending.
+- Add pin, block, retry and exact confirmed removal controls. Keep unavailable
+  storage distinct from an empty mirror; no automatic eviction or trust grants.
+- Check versioned Core authority/lifecycle schemas and complete review separately,
+  preserving existing Stop when a host lacks the new intake review endpoint.
+- Pin the accepted Core source for public-copy review and persistent ownership.
+  Preserve original cards, companions and signed provenance; direct public PMF
+  mirror transport and retained-copy recipient export remain separate work.
+
 ## 0.12.0
 
 - Follow authenticated sources through an explicitly selected I2P HTTP proxy;

@@ -196,7 +196,7 @@ class CopyResult(Contract):
     member_count: int | None = Field(default=None, ge=1)
 
 
-BUNDLE_VERSION = "0.12.0"
+BUNDLE_VERSION = "0.13.0"
 """Managed bundle version; tests keep it equal to this package's version."""
 
 

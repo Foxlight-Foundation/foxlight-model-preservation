@@ -5,7 +5,7 @@ everyday use, and Activity through Skulk Core's durable preservation host. It
 uses local HTTP; its optional managed adapter uses the capability authoring SDK. It includes no Skulk imports,
 private owner code, signing keys, verifier, artifact transfer or byte worker.
 
-Library 0.12.0 includes explicit [I2P HTTP source and receiving controls](#i2p-source-and-receiving-controls)
+Library 0.13.0 adds [persistent mirror controls](#keep-models-available) and retains explicit [I2P HTTP source and receiving controls](#i2p-source-and-receiving-controls)
 with its pinned compatible Core, alongside the peer setup, PMF and one-file
 sharing workflows below. These are public previews with separate networking and
 trust decisions, not a qualified anonymity mode.
@@ -27,10 +27,10 @@ cards and signed provenance with the existing owner/code permissions.
 
 Closing Library leaves the reviewed Core job running. Stop waits for native
 serving to drain and retains the archive, file and native cache. Cache cleanup is
-an explicit stopped-job action; restart never resumes public serving. Native
+an explicit stopped-job action; Core restart never resumes those finite peer sessions. Native
 wire thresholds include routing overhead and can overshoot. These controls do
 not impose hard filesystem/network quotas, arrange reachability or provide
-anonymity. Persistent catalog mirroring is separate work.
+anonymity. Persistent mirror controls have separate settings and restart permission below.
 
 The same file works with the [standalone tools](../docs/handoffs.md), without
 Skulk or this capability. Standalone tools also wrap source references; **Add a
@@ -91,7 +91,7 @@ allowance. The suggested finite allowance scales with the selected copy
 suggestion. It resets when choosing a different copy. BitTorrent also has an upload-speed limit. Confirm the separate sharing
 choice to start. Core verifies all bytes before serving. You can close Library;
 Core retains the session. **Stop sharing** waits for the owned worker to stop and
-keeps the verified public copy. Core restart ends sessions and never replays them.
+keeps the verified public copy. Core restart ends these finite sessions and never replays them. Persistent mirroring below has its own separately confirmed restart permission.
 
 HTTP counts full reserved response bytes, including interrupted responses, and
 has no speed cap. BitTorrent reports observed payload; its stop threshold can
@@ -103,9 +103,7 @@ fingerprints independently and select the exact manifest ID.
 
 Network mode binds all IPv4 interfaces. Arrange firewall/routing, DNS and TLS
 separately; a supplied mirror address is a hint, not verified reachability. Core
-builds without the compatible native BitTorrent adapter retain HTTP. Additional
-Direct object-store adapters, unattended continuous hosting
-remain separate enhancements. An unclean Core exit
+builds without the compatible native BitTorrent adapter retain HTTP. Direct object-store adapters remain separate enhancements. Persistent hosting has its own explicit controls below. An unclean Core exit
 can leave model-sized temporary torrent exports in Core-owned work storage.
 Activity lists known stopped jobs with **Review temporary files**. Inspect the
 logical regular-file size (a lower bound when inspection reaches its limit),
@@ -122,6 +120,65 @@ operator/other peers; neither is anonymous. Library 0.12.0 separately supports
 through an explicitly chosen local proxy. It is a functional pilot without
 qualified anonymity, not a routing mode for other Library/Core traffic. The
 standalone I2PSnark recovery-kit pilot remains separate from Library.
+
+## Keep models available
+
+In **Sharing → Keep models available**, choose **Set up mirror**. Name the
+mirror and set its storage, daily download, daily upload and monthly upload
+allowances. The allowance includes space needed for safe preparation, not just
+model files. Reaching an allowance stops new work; it never authorizes deletion.
+All transports start off. Choose HTTP, public IPFS and public BitTorrent
+separately, then **Save settings**. Saving starts no listener or peer session.
+IPFS uses the existing reviewed peer-software and starting-contact setup.
+
+**HTTP mirror** defaults to this device only. To accept connections from other
+devices, separately select that exposure and arrange firewall/routing, hostname
+and TLS as needed. Local ports and native-worker counts describe this host's
+activity; they do not establish reachable or independently operated replicas.
+Public IPFS/BitTorrent and direct HTTP can expose addresses and offered content.
+These controls do not provide anonymity.
+
+Open **Keep another public copy**, then **Keep available** beside an accepted
+public Library copy. Review the exact signed identity and every member's original
+license declaration, terms reference and required notice paths, including
+companions and notice-only members. Confirm that you reviewed those terms and
+may redistribute the complete selection. These references are not a new license
+grant. Core checks and retains the original envelope, cards and every required
+file in separate managed storage. Retaining starts no sharing or model loading.
+Direct public PMF mirror transport is not available in this adapter yet: its
+metadata can be reviewed, but its original PMF archive is kept and intake refuses.
+
+Choose **Start sharing**, review the exact settings and finite duration, then
+confirm serving. Jobs belong to Core and continue when Library closes. Reopen
+Library to inspect the same owner and choose **Stop sharing**. Stop waits for the
+actual listener and owned workers to drain, clears running intent and retains
+models. A delayed or failed historical receipt does not hide Stop for a current
+controller. Cancelling another intake operation does not disable that controller's
+Stop.
+
+**Restart permission** is a separate, expiring decision for the exact reviewed
+policy. Permission alone starts no sharing. To use it, separately Start and select
+the saved permission instead of a finite run. Core resumes only with the exact
+unexpired grant and prior running intent. New intake or changed settings require
+fresh permission; Stop clears intent. Closing Library grants nothing.
+
+Each retained copy's **⋯** menu offers **Pin mirror copy**, **Block future
+serving**, retry for pending intake and **Remove mirror copy**. Pin protects
+against removal; block keeps bytes while withholding future serving. Stop active
+sharing before changes. Removal requires unpinning and fresh confirmation for the
+exact selected identity, and deletes only that mirror's selected copy. Recipient
+copies remain theirs. Removed identities stay recorded; returning one needs a
+separate deliberate reintake. Storage pressure and source withdrawal never grant
+automatic deletion. **Mirror activity and decisions** retains the host's jobs.
+
+These controls need Core's persistent-mirror API. Retaining a new copy also needs
+complete public-copy review; an older host missing that endpoint can still expose
+its existing Stop controls. Unavailable storage is reported explicitly and is
+not shown as an empty mirror. The [compatible preview](preview.md) pins these
+APIs. Library itself still needs a compatible running Core, while the
+[standalone mirror tools](../docs/persistent-mirrors.md) work without Skulk. Recipient export
+from a retained mirror after the original Library copy receipt is lost remains a
+separate enhancement; current public-copy sharing paths follow below.
 
 ## Send and receive a model
 
@@ -189,11 +246,11 @@ Core on the same model-store host. Its wheel includes the interface; Node.js,
 Skulk's Python package and the managed SDK are not installation dependencies.
 
 ```sh
-uv tool install https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.12.0/foxlight_preservation_library-0.12.0-py3-none-any.whl
+uv tool install https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.13.0/foxlight_preservation_library-0.13.0-py3-none-any.whl
 foxlight-preservation-library
 ```
 
-The 0.12.0 pre-release includes PMF, followed sources, peer receiving/native setup
+The 0.13.0 pre-release includes persistent mirror controls, PMF, followed sources, peer receiving/native setup
 and one-file sharing, plus explicit I2P source/receiving controls. For exact dependency versions and offline retention, use
 the [hash-locked installation archive](../docs/installation.md) instead of an
 unconstrained tool install. [Verify the release](../docs/releases.md) before

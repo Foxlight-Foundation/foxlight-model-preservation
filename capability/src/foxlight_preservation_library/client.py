@@ -41,6 +41,9 @@ class CoreClient:
         self.discovery_owner_id = hashlib.sha256(
             (owner_id + "\x00discovery").encode()
         ).hexdigest()
+        self.mirror_owner_id = hashlib.sha256(
+            (owner_id + "\x00persistent-mirror").encode()
+        ).hexdigest()
         self.http = httpx.AsyncClient(
             base_url=settings.skulk_api_url,
             timeout=10,
@@ -78,7 +81,9 @@ class CoreClient:
                     if len(data) > 65536:
                         raise CoreRefused("host_response_too_large")
                 if response.status_code == 404 and (
-                    path.startswith(
+                    path in {"mirror", "mirror/jobs"}
+                    or path.startswith(("mirror?", "mirror/jobs?"))
+                    or path.startswith(
                         (
                             "kit-uploads",
                             "kits/",

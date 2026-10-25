@@ -142,6 +142,7 @@ h1:focus,h2:focus {outline:none;}
 .sk-warn {color:var(--ink-bad);}
 .sk-pad {margin-bottom:12px;}
 .sk-meta {font-size:13px;color:var(--muted);margin-top:2px;overflow-wrap:anywhere;}
+.sk-mirror-member {min-width:0;overflow-wrap:anywhere;}
 .sk-num {font-family:var(--mono);font-size:.88em;font-variant-numeric:tabular-nums;color:var(--text-1);}
 .sk-sep {margin:0 8px;color:var(--text-5);}
 .sk-fine {display:flex;gap:8px;align-items:flex-start;font-size:13px;line-height:1.5;color:var(--muted);margin:12px 0;}

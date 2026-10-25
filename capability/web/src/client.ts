@@ -21,6 +21,18 @@ export function bytes(value:number):string {return value < 1024 ? `${value} B` :
 /** Stable codes are translated here; raw exceptions never become product copy. */
 export function errorText(code:string):string {
   const labels:Record<string,string> = {
+    public_copy_review_changed:'The complete signed-copy review could not be verified. Refresh Library and review the exact selection again.',
+    mirror_policy_changed:'Mirror settings or selections changed. Close this review and review the current choices again.',
+    mirror_policy_review_required:'Review the current mirror policy before changing its settings.',
+    mirror_not_configured:'Set up this host’s mirror storage and allowances first.',
+    mirror_directory_changed:'The managed mirror storage changed. Reconnect its original storage before continuing.',
+    mirror_resume_permission_required:'Review fresh restart permission for the current policy, then explicitly start sharing again.',
+    previous_mirror_still_draining:'Earlier sharing is still stopping. Keep its retained copies and wait for the host to confirm the stop.',
+    mirror_stop_incomplete:'The host could not confirm that all sharing stopped. Keep using Stop for this exact session and inspect host diagnostics.',
+    mirror_busy_try_again:'Another mirror operation is still finishing. Wait for its receipt before reviewing new work.',
+    public_mirror_pmf_transport_unavailable:'This mirror adapter cannot serve PMF directly yet. Keep the original archive; this operation does not convert it.',
+    metadata_preview_too_large:'The complete review is too large for this Library view. Keep the original archive and use the standalone tools.',
+    invalid_job_identity:'The job reply did not match this decision. Check activity before retrying the unchanged review.',
     source_i2p_policy_changed:'This source’s saved I2P policy changed. Reopen Sources and review its current settings.',
     source_i2p_policy_invalid:'This source’s protected I2P policy cannot be verified. Connections are blocked; retained evidence is kept.',
     i2p_metadata_mirror_required:'Provide a supported I2P metadata mirror from this source’s operator. No direct connection was attempted.',

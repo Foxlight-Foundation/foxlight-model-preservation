@@ -10,7 +10,8 @@ release.
 ## Current development cohort
 
 Portable handoffs, finite peer sharing, PMF, peer receiving and I2P source/receiving controls are included in
-Library 0.12.0 and its immutable compatible Core pin. Install the verified
+Library 0.13.0 and its immutable compatible Core pin, including persistent mirror
+controls. Install the verified
 [hash-locked release archive](../docs/installation.md), then explicitly run
 `foxlight-preservation-preview setup` from that environment. The installer retains
 the source record and original wheel; preview setup checks those against installed
@@ -48,7 +49,7 @@ recovery kits do not contain the runtime and its dependencies; retain those
 separately for offline recovery.
 
 ```sh
-uv tool install --python 3.13 https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.12.0/foxlight_preservation_library-0.12.0-py3-none-any.whl
+uv tool install --python 3.13 https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.13.0/foxlight_preservation_library-0.13.0-py3-none-any.whl
 foxlight-preservation-preview setup
 ```
 
@@ -108,7 +109,9 @@ software and dependencies must already be present.
 Core uses API port 53415 and Model Store port 13415; its libp2p port is assigned
 by the OS. A conflicting service is not replaced. Stop each foreground command
 with Ctrl+C. Closing Library does not stop jobs accepted by Core. Stopping Core
-interrupts uncertain work for explicit review and never restarts sharing.
+interrupts uncertain work for explicit review. Finite sessions do not restart.
+Persistent mirroring resumes only with its exact unexpired permission and prior
+running intent; Stop clears that intent.
 
 To inspect a running Core without opening Library or creating storage:
 
@@ -118,7 +121,8 @@ To inspect a running Core without opening Library or creating storage:
 
 The check reads the actual Model Store owner and its bounded API description.
 It reports Library, peer discovery, peer software setup, source discovery,
-folder storage, recovery-kit and publishing/receiving API availability, and
+folder storage, recovery-kit, publishing/receiving, persistent-mirror and complete
+public-copy review API availability, and
 exits with status 2 when any group is missing. It does not qualify filesystem behavior, network reachability,
 engine execution or hardware. Current packaged Skulk 2.0.2 does not provide all
 these APIs. Existing compatible operators can install only Library and use its

@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import httpx
 import pytest
+from pydantic import JsonValue
 
 from foxlight_preservation_library.client import CoreClient, CoreRefused
 from foxlight_preservation_library.compatibility import GROUPS, check_core
@@ -88,6 +92,69 @@ async def test_native_setup_support_is_reported_separately_without_acquisition()
         report = await check_core(client)
         assert report["Library"] and report["Peer discovery"]
         assert not report["Peer software setup"]
+        assert requests == ["GET /preservation/library", "GET /api/openapi.json"]
+    finally:
+        await client.close()
+
+
+@pytest.mark.parametrize(
+    "schema,field,mirrors,review",
+    [
+        (None, None, True, True),
+        ("route", None, True, False),
+        ("MirrorRequest", "confirm_delete_manifest", False, True),
+        ("MirrorRequest", "confirm_resume", False, True),
+        ("PublicCopyReview", "members", True, False),
+        ("PublicationMember", "notice_paths", True, False),
+        ("MirrorJob", "owner_id", False, True),
+        ("MirrorPage", "schema_version", False, True),
+        ("PublicCopyReview", "schema_version", True, False),
+    ],
+)
+async def test_actual_mirror_contract_keeps_stop_and_terms_support_distinct(
+    schema: str | None, field: str | None, mirrors: bool, review: bool
+) -> None:
+    """Negotiate a generated Core fragment and refuse missing authority fields.
+
+    An older owner without the new terms view must still expose its existing
+    persistent-controller Stop contract. Neither check acquires software, starts
+    a byte job or grants network permission.
+    """
+    value: JsonValue = json.loads(
+        (Path(__file__).parent / "fixtures/core-mirror-contract-v1.json").read_text()
+    )
+    assert isinstance(value, dict)
+    paths, components = value["paths"], value["components"]
+    assert isinstance(paths, dict) and isinstance(components, dict)
+    if schema == "route":
+        paths.pop("/preservation/public-copies/{copy_id}/review")
+    elif schema is not None:
+        schemas = components["schemas"]
+        assert isinstance(schemas, dict)
+        model = schemas[schema]
+        assert isinstance(model, dict)
+        properties = model["properties"]
+        assert isinstance(properties, dict) and field is not None
+        if field == "schema_version":
+            properties[field] = {"const": "unknown.future.version"}
+        else:
+            properties.pop(field)
+    requests: list[str] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request.method + " " + request.url.path)
+        return httpx.Response(
+            200,
+            json={"jobs": []} if request.url.path == "/preservation/library" else value,
+        )
+
+    client = CoreClient(
+        Settings(), "library-local", transport=httpx.MockTransport(respond)
+    )
+    try:
+        report = await check_core(client)
+        assert report["Persistent mirrors"] is mirrors
+        assert report["Public copy review"] is review
         assert requests == ["GET /preservation/library", "GET /api/openapi.json"]
     finally:
         await client.close()
