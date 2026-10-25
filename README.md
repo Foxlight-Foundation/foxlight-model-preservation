@@ -16,20 +16,37 @@ verified models under explicit model/terms policy. Choose HTTP independently of
 is separate, budgets are durable and deletion stays with the operator. Skulk is
 optional.
 
-The [independent Sovereign Library source preview](docs/sovereign-desktop.md)
+The [independent Sovereign Library](docs/sovereign-desktop.md)
 adds built-in signed catalog browsing, private download/preservation and offline
-kit recovery without Skulk. The Mac preview bundles its own runtime; public
-notarized desktop distribution is not claimed by this source change.
+kit recovery without Skulk. The public Library 0.16 installation archive includes both public packages.
+The Mac source preview bundles its own runtime; notarized Mac/APT distribution
+remains separate.
+
+For the independent interface, authenticate and extract the
+[Library 0.16 archive](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/library-v0.16.0),
+then select its desktop profile:
+
+```sh
+python3 install.py --directory "$HOME/sovereign-desktop" \
+  --requirements requirements-desktop.lock
+"$HOME/sovereign-desktop/bin/foxlight-sovereign"
+```
+
+This Python installation path needs Python 3.13+ and uv. Follow the
+[verification and offline installation guide](docs/installation.md) before
+executing the helper. First launch offers **Browse public models** and
+**Open recovery kit**. No Skulk or managed SDK is required.
 
 ## Current public previews
 
-- **Standalone 0.20.0** includes persistent HTTP/IPFS/BitTorrent mirrors,
+- **Standalone 0.21.0** includes persistent HTTP/IPFS/BitTorrent mirrors,
   offline local-copy intake, portable handoffs, signed source following,
   retained-copy inspection/recovery-kit export, offline completion recovery,
   PirateFace lookup/intake and
   the separately opted-in I2P pilots.
-- **Library 0.15.0** provides a local interface through its separately pinned
-  compatible Skulk Core. It includes PMF preservation/recovery, one-file sharing,
+- **Library 0.16.0** adds the independent Find/Library/Activity interface through
+  its `requirements-desktop.lock` installation profile. The default profile keeps
+  the local interface through its separately pinned compatible Skulk Core. It includes PMF preservation/recovery, one-file sharing,
   peer setup/receiving, persistent mirror controls and explicit I2P
   source/receiving controls. Installing the Library package does not install
   Core or start networking. Retained recovery-kit preparation, native download
@@ -50,13 +67,13 @@ censorship resistance for at-risk users.
 ## Install
 
 Python 3.11+ on Linux or macOS, with an authenticated Python/uv toolchain. Use the
-[0.20.0 installation archive](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/v0.20.0)
+[0.21.0 installation archive](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/v0.21.0)
 and its detached attestation bundle. [Verify it first](docs/installation.md),
 extract it, then install into a new directory:
 
 ```sh
-python3 install.py --directory "$HOME/sovereign-0.19.0"
-"$HOME/sovereign-0.19.0/bin/model-preserve" --help
+python3 install.py --directory "$HOME/sovereign-0.21.0"
+"$HOME/sovereign-0.21.0/bin/model-preserve" --help
 ```
 
 The archive contains the exact package wheel, source, hash-locked dependencies
