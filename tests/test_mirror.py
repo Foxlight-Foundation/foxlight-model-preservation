@@ -22,6 +22,7 @@ from foxlight_model_preservation.mirror import (
     reconcile,
     run_mirror,
 )
+from foxlight_model_preservation.mirror_intake import retain_local
 from foxlight_model_preservation.mirror_models import SourceGrant, Terms
 from foxlight_model_preservation.mirror_prune import prune
 from foxlight_model_preservation.mirror_state import (
@@ -32,7 +33,7 @@ from foxlight_model_preservation.mirror_state import (
 )
 from foxlight_model_preservation.models import PreservationError
 from foxlight_model_preservation.operations import OperationControl
-from foxlight_model_preservation.signing import digest, encode_record
+from foxlight_model_preservation.signing import encode_record
 from foxlight_model_preservation.storage import (
     manifest_path,
     object_path,
@@ -275,27 +276,14 @@ def test_pin_block_prune_protects_shared_objects_and_refuses_active_owner(
         capture.store,
         (capture.key,),
     )
-    fetch(
+    retain_local(
+        ledger,
+        capture.store,
         other,
-        capture.trust,
-        (str(capture.store),),
-        ledger.path / "store",
-        TransferPolicy(max_bytes=10**6),
-    )
-    held = ledger.read().models[capture.identity]
-    ledger.update(
-        lambda s: s.model_copy(
-            update={
-                "models": dict(
-                    s.models,
-                    **{
-                        other: held.model_copy(
-                            update={"operation_id": "m" + digest(other.encode())[:63]}
-                        )
-                    },
-                )
-            }
-        )
+        SourceGrant(
+            trust=capture.trust,
+            terms=(Terms(license_id="test-only", terms_reference="LICENSE"),),
+        ),
     )
     model_action(ledger, capture.identity, "block")
     model_action(ledger, capture.identity, "pin")

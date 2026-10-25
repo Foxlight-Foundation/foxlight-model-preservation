@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+## 0.20.0
+
+- Save source-fed mirror intake's original authenticated signed wrapper privately
+  before receiving objects. Pin its exact bytes, source/catalog/entry attribution,
+  independently selected trust/terms and original transfer allowance. Retry uses
+  that wrapper rather than replacing provenance from an available supplier.
+- Extend offline inspection/recovery and explicit operator prune to these
+  unfinished source copies. Complete bytes can recover after source/catalog loss;
+  partial, corrupt, changed-authority and removed selections refuse. Shared objects
+  remain protected by other unfinished selections; no deletion or sharing is
+  automatic. Existing recovery kits and signed archive identities stay unchanged.
+- Require owner-state v5 for source metadata custody so older mirror owners refuse
+  instead of ignoring partial source references during deletion. Existing v1-v4
+  wire/policy identities stay unchanged; local/native/HTTP configuration cannot
+  downgrade v5. Legacy unattended restart requires a renewed explicit grant;
+  ordinary manual startup can upgrade before any listener/worker starts.
+- Add `transfer.inspect_envelope` and optional exact original-wrapper fetch.
+  Supplied metadata is reauthenticated before any objects; a different valid
+  destination wrapper refuses rather than stripping its existing signatures.
+
 ## 0.19.0
 
 - Add explicit offline `mirror recover` and its cancellable embedding API for

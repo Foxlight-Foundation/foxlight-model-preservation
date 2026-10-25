@@ -270,7 +270,7 @@ def test_partial_copy_needs_operator_retry_and_never_fetches(
 
     monkeypatch.setattr("foxlight_model_preservation.mirror.fetch", forbidden)
     monkeypatch.setattr(
-        "foxlight_model_preservation.mirror.inspect_manifest", forbidden
+        "foxlight_model_preservation.mirror.inspect_envelope", forbidden
     )
     reconcile(ledger, OperationControl())
     assert ledger.read().models[capture.identity].state == "pending"

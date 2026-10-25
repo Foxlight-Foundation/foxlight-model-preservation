@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import Field
 
-from .mirror import selection_manifest
+from .mirror import selection_envelope, selection_manifest
 from .mirror_models import HeldModel, NativeCustodyName
 from .mirror_native import prune_native
 from .mirror_state import MAX_STATE, MirrorLedger, encode_state
@@ -19,7 +19,6 @@ from .storage import (
     object_path,
     open_file,
     parent_directory,
-    read_metadata,
     unique_objects,
     writer_lock,
 )
@@ -54,11 +53,7 @@ def _selection(
     # The private pinned local intent survives partial publication and damage to
     # the complete envelope. It grants deletion only after the operator's exact
     # blocked/unpinned confirmation, never unauthenticated object discovery.
-    if held.origin == "local":
-        with ledger.child("scratch") as scratch:
-            envelope = read_metadata(scratch, "local-intake/" + identity + ".json")
-    else:
-        envelope = read_metadata(store, manifest_path(identity))
+    envelope = selection_envelope(ledger, store, identity, held, prefer_private=True)
     return selection_manifest(envelope, identity, held)
 
 
@@ -124,12 +119,12 @@ def prune(ledger: MirrorLedger, manifest: str, confirmation: str) -> dict[str, o
                     )
                 value = _selection(ledger, store, identity, other)
                 references.update(file.sha256 for file in unique_objects(value))
-            # A local partial selection has authenticated metadata before its
+            # A pinned partial selection has authenticated metadata before its
             # complete store envelope exists. Protect those shared objects too.
             for identity, other in state.models.items():
                 if (
                     identity == manifest
-                    or other.origin != "local"
+                    or other.envelope_sha256 is None
                     or other.state == "removed"
                     or identity + ".json" in names
                 ):
@@ -152,9 +147,13 @@ def prune(ledger: MirrorLedger, manifest: str, confirmation: str) -> dict[str, o
                     pending_custody=intent.pending_custody,
                 )
             _unlink(store, manifest_path(manifest))
-            if held.origin == "local":
+            if held.envelope_sha256 is not None:
                 with ledger.child("scratch") as scratch:
-                    _unlink(scratch, "local-intake/" + manifest + ".json")
+                    _unlink(scratch, held.origin + "-intake/" + manifest + ".json")
+                    if held.origin == "source":
+                        _unlink(
+                            scratch, "source-intake/" + manifest + ".authority.json"
+                        )
             removed = 0
             for identity in intent.objects:
                 if identity not in references:

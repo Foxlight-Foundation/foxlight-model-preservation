@@ -12,7 +12,12 @@ from conftest import Capture
 from foxlight_model_preservation.models import PreservationError
 from foxlight_model_preservation.seed import SeedServer
 from foxlight_model_preservation.storage import manifest_path, object_path, verify_store
-from foxlight_model_preservation.transfer import TransferPolicy, fetch, response
+from foxlight_model_preservation.transfer import (
+    TransferPolicy,
+    fetch,
+    inspect_envelope,
+    response,
+)
 
 
 @contextmanager
@@ -43,6 +48,78 @@ def test_corrupt_first_mirror_falls_back(capture: Capture, tmp_path: Path) -> No
     assert result == manifest
     assert not (target / ".seed").exists()
     verify_store(target, capture.identity, capture.trust)
+
+
+def test_original_envelope_fetch_needs_no_later_metadata(capture, tmp_path):
+    from test_discovery import mirror
+
+    path = capture.store / manifest_path(capture.identity)
+    original = path.read_bytes() + b" \n"
+    path.write_bytes(original)
+    policy = TransferPolicy(allow_http=True, allow_private=True)
+    with mirror(capture.store) as (url, requests):
+        envelope = inspect_envelope(capture.identity, capture.trust, (url,), policy)
+        assert envelope == original
+        path.unlink()
+        target = tmp_path / "received"
+        fetch(
+            capture.identity,
+            capture.trust,
+            (url,),
+            target,
+            policy,
+            envelope=envelope,
+        )
+    assert requests.count("/" + manifest_path(capture.identity)) == 1
+    assert (target / manifest_path(capture.identity)).read_bytes() == original
+    verify_store(target, capture.identity, capture.trust)
+
+
+@pytest.mark.parametrize("fault", ["signature", "identity", "budget", "sources"])
+def test_supplied_envelope_reauthenticates_before_objects(
+    capture, tmp_path, monkeypatch, fault
+):
+    envelope = (capture.store / manifest_path(capture.identity)).read_bytes()
+    if fault == "signature":
+        envelope = b"{}"
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("unaccepted wrapper opened object routes")
+
+    monkeypatch.setattr("foxlight_model_preservation.transfer._download", forbidden)
+    target = tmp_path / "refused"
+    with pytest.raises(ValueError):
+        fetch(
+            "a" * 64 if fault == "identity" else capture.identity,
+            capture.trust,
+            () if fault == "sources" else (str(capture.store),),
+            target,
+            TransferPolicy(max_bytes=1 if fault == "budget" else 10**6),
+            envelope=envelope,
+        )
+    assert not target.exists()
+
+
+def test_supplied_wrapper_cannot_strip_existing_signatures(capture, tmp_path):
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    from foxlight_model_preservation.storage import pack
+
+    original = (capture.store / manifest_path(capture.identity)).read_bytes()
+    pack(
+        capture.recipe, capture.sources, capture.store, (Ed25519PrivateKey.generate(),)
+    )
+    current = (capture.store / manifest_path(capture.identity)).read_bytes()
+    assert current != original
+    with pytest.raises(PreservationError, match="different signed wrapper"):
+        fetch(
+            capture.identity,
+            capture.trust,
+            (str(capture.store),),
+            capture.store,
+            envelope=original,
+        )
+    assert (capture.store / manifest_path(capture.identity)).read_bytes() == current
 
 
 def test_http_range_resume_and_complete_partial(

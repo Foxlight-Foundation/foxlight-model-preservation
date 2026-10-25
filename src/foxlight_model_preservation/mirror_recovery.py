@@ -15,7 +15,7 @@ from pathlib import Path
 from pydantic import TypeAdapter
 
 from .kits import KitInspection, export_kit
-from .mirror import selection_manifest
+from .mirror import selection_envelope, selection_manifest
 from .mirror_models import HeldModel, MirrorState
 from .mirror_state import MirrorLedger
 from .models import Digest, Manifest, PreservationError
@@ -63,18 +63,9 @@ def _capture(
         raise PreservationError("kit export needs a retained mirror selection")
     with ledger.child("store") as store:
         info = os.fstat(store)
-        try:
-            envelope = read_metadata(store, manifest_path(manifest_id))
-        except FileNotFoundError:
-            if complete or held.origin != "local":
-                raise
-            # A pending local intake commits its authenticated private intent
-            # before objects or the complete generation exist. This is useful
-            # review metadata, never proof that its payload is available.
-            with ledger.child("scratch") as scratch:
-                envelope = read_metadata(
-                    scratch, "local-intake/" + manifest_id + ".json"
-                )
+        envelope = selection_envelope(
+            ledger, store, manifest_id, held, pending=not complete
+        )
         manifest = selection_manifest(envelope, manifest_id, held)
     return _SelectedCapture(held, manifest, envelope, (info.st_dev, info.st_ino))
 
@@ -86,7 +77,8 @@ def inspect_selection(ledger: MirrorLedger, manifest_id: str) -> Manifest:
     members remain in this bounded original manifest. The accepted model signer,
     exact identity and every member's previously reviewed public terms verify.
     No object hashing, network, signing, runtime admission or state update occurs.
-    A pending local intent may supply metadata; removed selections cannot.
+    A pinned pending local/source intent may supply metadata; removed selections
+    cannot. Historical source selections without that original record refuse.
     """
     return _capture(ledger, manifest_id).manifest
 
@@ -102,7 +94,7 @@ def recover_selection(
     Require a stopped controller and the selection's original independent trust,
     exact identity and every member's public terms. Verify every actual object;
     missing/corrupt bytes refuse without a fetch, retry or deletion. A local
-    write-ahead intake record may supply the exact original envelope if a crash
+    or source write-ahead record may supply the exact original envelope if a crash
     preceded its publication. Removed selections require separate reintake.
 
     Successful pending promotion clears its old failure and restart grant, while

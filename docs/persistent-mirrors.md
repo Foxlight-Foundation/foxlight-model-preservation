@@ -131,6 +131,34 @@ profile. PMF network transport remains separate: a PMF envelope refuses before
 selection or copying rather than being translated into a different identity.
 PMF's existing offline kit/restore tools remain available.
 
+## Original source metadata before downloading
+
+From standalone 0.20, source-fed admission authenticates the original wrapper and
+every member's public terms before object work. It durably writes that exact
+wrapper under private `scratch/source-intake/`, then pins its digest and a small
+authority record to the original selection. The source ID, catalog ID and entry,
+mirror hints, independently accepted model trust/terms, operation and original
+allowance remain bound. Historical source selections have no invented catalog ID.
+Retry reuses this original wrapper; it cannot silently substitute another valid
+supplier's signatures or normalize away original metadata.
+
+Private metadata and partial objects count toward disk usage. Metadata publication
+or owner-state failure prevents object receiving. A crash can leave an unpinned
+private record; it grants no recovery, object ownership or serving authority.
+Only a verified complete closure publishes a store manifest. Inspection/recovery
+still needs the accepted owner ledger, and partial bytes cannot become a kit.
+
+Owner-state **v5** makes this custody explicit. Older owners refuse it rather than
+ignoring unfinished source references while pruning another model. Existing v1-v4
+wire encodings and restart identities remain unchanged until explicit source
+configuration, manual startup or a renewed restart grant upgrades the owner.
+Legacy unattended resume refuses before listeners/network workers; grant restart
+again with the current tool or start manually. Native/local/HTTP settings preserve
+v5, including disabled HTTP. Normal source intake within an already approved v5
+policy retains that grant; source following still grants no new model trust.
+There is no downgrade of an upgraded owner directory. Unchanged recovery kits and
+portable complete stores continue to work with older compatible archive readers.
+
 ## Inspect and recover retained copies
 
 A retained model does not depend on its original catalog, publisher or Library
@@ -153,8 +181,8 @@ does not rely on source freshness, an application receipt or pagination.
 `inspect` authenticates the bounded original signed manifest against this
 selection's accepted keys, exact identity and every member's reviewed public
 terms. It returns all original card data, opaque extensions, companions and
-notice metadata without opening or hashing weight objects. A pending local
-intake can supply its authenticated private intent before object publication;
+notice metadata without opening or hashing weight objects. A pending local or
+v5 source intake can supply its authenticated private intent before publication;
 inspection does not claim its payload is complete or uncorrupted. Removed
 selections cannot supply inspection metadata after deliberate deletion.
 
@@ -168,8 +196,8 @@ model-preserve mirror recover --dir /srv/sovereign/example \
 ```
 
 `recover` authenticates the original model identity, accepted keys and every
-member's reviewed public terms, then hashes every actual object. A local
-write-ahead intake record can restore the exact original wrapper if the crash
+member's reviewed public terms, then hashes every actual object. A local or v5
+source write-ahead record can restore the exact original wrapper if the crash
 preceded its publication. This works after the original input, publisher,
 registry or catalog disappears. Missing or damaged bytes refuse recovery and
 remain on disk; this command does not fetch, retry a transfer, sign, delete,
@@ -181,13 +209,15 @@ An already retained copy is reverified without rewriting its receipt. Progress
 is bounded metadata on stderr; Ctrl-C/termination cooperatively stops hashing.
 Cancellation before the completion receipt keeps the selection pending. A crash
 between wrapper publication and receipt commit can leave a complete pending
-store; rerun this same offline command rather than deleting it.
+store; rerun this same offline command rather than deleting it. A historical
+source intake that lost its wrapper before this feature cannot reconstruct
+provenance from bare weights; recovery correctly refuses that missing evidence.
 
 Application hosts can run `mirror_recovery.recover_selection` in a durable
 cancellable worker. Inspection remains metadata-only and does not perform this
-promotion implicitly. The Library's existing retained-kit controls remain
-separate; pending-copy recovery needs a host/Library adapter before it appears
-there.
+promotion implicitly. Library 0.15 provides the pending-copy action on compatible
+Core hosts. The new source write-ahead path requires a host using standalone 0.20;
+installing this CLI does not upgrade an existing Core host or its pinned library.
 
 `export-kit` requires a retained selection and creates a new self-contained
 [recovery kit](protocol.md#self-contained-recovery-kits-v1). It preserves the
@@ -251,7 +281,9 @@ that ledger and use a separately configured state directory for additional
 intake rather than erasing deletion/accounting history. There is no default
 catalog or compulsory Foxlight key/service. Existing verified retained models
 remain available when catalogs expire, withdraw entries or disappear. A completed
-local pending capture can be recovered after a crash without the publisher.
+pending local or v5 source capture can be recovered without its publisher once
+all original objects are present. Receiving remaining objects still requires
+the original source freshness, route permissions and bounded operation policy.
 
 The `ready` receipt identifies a local listening port; it does not mean models
 have finished downloading or that the port is publicly reachable. Use status.

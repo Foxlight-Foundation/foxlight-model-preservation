@@ -150,7 +150,11 @@ def configure(
                 update={
                     "schema_version": state.schema_version
                     if state.schema_version
-                    in {"foxlight.mirror-state.v3", "foxlight.mirror-state.v4"}
+                    in {
+                        "foxlight.mirror-state.v3",
+                        "foxlight.mirror-state.v4",
+                        "foxlight.mirror-state.v5",
+                    }
                     else "foxlight.mirror-state.v2",
                     "native_policy": policy,
                     "restart": None,

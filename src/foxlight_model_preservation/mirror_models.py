@@ -94,6 +94,7 @@ class HeldModel(Record):
 
     origin: Literal["source", "local"] = "source"
     envelope_sha256: Digest | None = None
+    catalog_id: Digest | None = None
     source_id: Digest | None = None
     entry_id: str | None = Field(default=None, min_length=1, max_length=200)
     grant: SourceGrant
@@ -110,17 +111,13 @@ class HeldModel(Record):
     def selection_authority(self) -> HeldModel:
         """Local custody cannot invent source authority or a network retry route."""
         if self.origin == "source":
-            if (
-                self.source_id is None
-                or self.entry_id is None
-                or not self.mirrors
-                or self.envelope_sha256 is not None
-            ):
+            if self.source_id is None or self.entry_id is None or not self.mirrors:
                 raise PreservationError(
                     "source selection needs its original source and mirrors"
                 )
         elif (
             self.envelope_sha256 is None
+            or self.catalog_id is not None
             or self.source_id is not None
             or self.entry_id is not None
             or self.mirrors
@@ -142,6 +139,16 @@ class RestartGrant(Record):
     expires: int = Field(ge=1)
 
 
+class SourceIntake(Record):
+    """Private write-ahead binding, never a signed archive or complete receipt."""
+
+    schema_version: Literal["foxlight.mirror-source-intake.v1"] = (
+        "foxlight.mirror-source-intake.v1"
+    )
+    manifest: Digest
+    authority_sha256: Digest
+
+
 class MirrorState(Record):
     """One atomic owner-only policy/ledger with conservative durable reservations."""
 
@@ -150,6 +157,7 @@ class MirrorState(Record):
         "foxlight.mirror-state.v2",
         "foxlight.mirror-state.v3",
         "foxlight.mirror-state.v4",
+        "foxlight.mirror-state.v5",
     ] = "foxlight.mirror-state.v1"
     identity: dict[str, tuple[int, int]]
     name: str = Field(min_length=1, max_length=200)
@@ -197,8 +205,21 @@ class MirrorState(Record):
         ) and self.schema_version not in {
             "foxlight.mirror-state.v3",
             "foxlight.mirror-state.v4",
+            "foxlight.mirror-state.v5",
         }:
             raise PreservationError("local mirror selection requires state v3")
-        if not self.http_enabled and self.schema_version != "foxlight.mirror-state.v4":
+        if not self.http_enabled and self.schema_version not in {
+            "foxlight.mirror-state.v4",
+            "foxlight.mirror-state.v5",
+        }:
             raise PreservationError("separate HTTP transport policy requires state v4")
+        if (
+            any(
+                held.origin == "source"
+                and (held.envelope_sha256 is not None or held.catalog_id is not None)
+                for held in self.models.values()
+            )
+            and self.schema_version != "foxlight.mirror-state.v5"
+        ):
+            raise PreservationError("source metadata custody requires state v5")
         return self

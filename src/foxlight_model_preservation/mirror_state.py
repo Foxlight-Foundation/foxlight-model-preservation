@@ -28,11 +28,17 @@ DIRECTORIES = (".", "store", "public", "discovery", "scratch")
 def encode_state(state: MirrorState) -> bytes:
     """Preserve released legacy wire state while encoding explicit owner profiles."""
     value = state.model_dump(mode="json")
+    if state.schema_version != "foxlight.mirror-state.v5":
+        for held in value["models"].values():
+            held.pop("catalog_id")
     if state.schema_version in {"foxlight.mirror-state.v1", "foxlight.mirror-state.v2"}:
         for held in value["models"].values():
             held.pop("origin")
             held.pop("envelope_sha256")
-    if state.schema_version != "foxlight.mirror-state.v4":
+    if state.schema_version not in {
+        "foxlight.mirror-state.v4",
+        "foxlight.mirror-state.v5",
+    }:
         value.pop("http_enabled")
     if state.native_policy is None and not state.native_models:
         value.pop("native_policy")
@@ -355,10 +361,18 @@ def grant_restart(ledger: MirrorLedger, expires: int) -> MirrorState:
     now = int(time.time())
     if not now < expires <= now + 366 * 86400:
         raise PreservationError("resume expiry must be within the next 366 days")
-    return ledger.update(
-        lambda state: state.model_copy(
+
+    def grant(state: MirrorState) -> MirrorState:
+        # Explicit fresh consent may upgrade a legacy source owner. An unattended
+        # old-profile restart may not silently acquire a new policy identity.
+        if state.sources:
+            state = state.model_copy(
+                update={"schema_version": "foxlight.mirror-state.v5"}
+            )
+        return state.model_copy(
             update={
                 "restart": RestartGrant(policy_id=policy_id(state), expires=expires)
             }
         )
-    )
+
+    return ledger.update(grant)
