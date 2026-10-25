@@ -8,6 +8,7 @@ export separately verifies all actual bytes without serving or importing trust.
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -15,11 +16,18 @@ from pydantic import TypeAdapter
 
 from .kits import KitInspection, export_kit
 from .mirror import selection_manifest
-from .mirror_models import HeldModel
+from .mirror_models import HeldModel, MirrorState
 from .mirror_state import MirrorLedger
 from .models import Digest, Manifest, PreservationError
 from .operations import OperationControl
-from .storage import manifest_path, read_metadata
+from .storage import (
+    atomic_bytes,
+    manifest_path,
+    read_metadata,
+    unique_objects,
+    verify_object,
+    writer_lock,
+)
 
 _IDENTITY = TypeAdapter(Digest)
 
@@ -81,6 +89,87 @@ def inspect_selection(ledger: MirrorLedger, manifest_id: str) -> Manifest:
     A pending local intent may supply metadata; removed selections cannot.
     """
     return _capture(ledger, manifest_id).manifest
+
+
+def recover_selection(
+    ledger: MirrorLedger,
+    manifest_id: str,
+    *,
+    control: OperationControl | None = None,
+) -> Manifest:
+    """Recover one already selected complete closure offline after interruption.
+
+    Require a stopped controller and the selection's original independent trust,
+    exact identity and every member's public terms. Verify every actual object;
+    missing/corrupt bytes refuse without a fetch, retry or deletion. A local
+    write-ahead intake record may supply the exact original envelope if a crash
+    preceded its publication. Removed selections require separate reintake.
+
+    Successful pending promotion clears its old failure and restart grant, while
+    keeping pin, block, accepted policy and resource accounting unchanged. An
+    already retained selection is reverified without changing its receipt. Run
+    this byte work in an owned cancellable job when embedding it in a host.
+    """
+    active = control or OperationControl()
+    _IDENTITY.validate_python(manifest_id)
+    with (
+        active.operation("mirror_recover"),
+        ledger.service_lock(),
+        ledger.content_lock(),
+    ):
+        if (ledger.path / "prune.json").exists():
+            raise PreservationError("finish the interrupted operator prune first")
+        selected = _capture(ledger, manifest_id)
+        files = unique_objects(selected.manifest)
+        if sum(file.size for file in files) > selected.held.grant.max_bytes:
+            raise PreservationError("selection exceeds its accepted byte limit")
+        with ledger.child("store") as store, writer_lock(store):
+            info = os.fstat(store)
+            if (info.st_dev, info.st_ino) != selected.store_identity:
+                raise PreservationError("mirror store directory identity changed")
+            active.phase("checking")
+            for file in files:
+                verify_object(store, file, control=active)
+            active.phase("publishing")
+            # Model controls can change during hashing even with the service
+            # stopped. Refuse changed authority rather than undoing that choice.
+            if selection_status(ledger, manifest_id) != selected.held:
+                raise PreservationError("mirror selection changed during recovery")
+            try:
+                existing = read_metadata(store, manifest_path(manifest_id))
+            except FileNotFoundError:
+                atomic_bytes(store, manifest_path(manifest_id), selected.envelope)
+            else:
+                if existing != selected.envelope:
+                    raise PreservationError("original mirror wrapper changed")
+
+            def promote(state: MirrorState) -> MirrorState:
+                current = state.models.get(manifest_id)
+                if current is None or current != selected.held:
+                    raise PreservationError("mirror selection changed during recovery")
+                return state.model_copy(
+                    update={
+                        "models": dict(
+                            state.models,
+                            **{
+                                manifest_id: current.model_copy(
+                                    update={
+                                        "state": "retained",
+                                        "error": None,
+                                        "verified_at": int(time.time()),
+                                    }
+                                )
+                            },
+                        ),
+                        "restart": None,
+                    }
+                )
+
+            if selected.held.state == "pending":
+                active.checkpoint()
+                ledger.update(promote)
+            active.mark_committed()
+        return selected.manifest
 
 
 def export_selection_kit(

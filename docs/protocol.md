@@ -100,6 +100,13 @@ lower threshold cannot strip another signer. An unparseable or different
 envelope is replaced. Verify always rehashes actual stored bytes. A previously
 verified store can later be corrupted and must be checked again.
 
+An explicitly selected mirror can recover an interrupted completion offline with
+`mirror recover`. It checks the original accepted authority and every actual
+object before publishing a missing local-intake wrapper and the retained receipt.
+Partial bytes are never promoted. This local operation changes no signed format
+or identity, starts no networking, and preserves operator block/pin and resource
+policy. See [mirror recovery](persistent-mirrors.md#inspect-and-recover-retained-copies).
+
 Restore verifies the store, copies and verifies each declared file into a fresh
 private tree, then publishes that tree into a newly reserved empty destination.
 It refuses existing destinations and never adds files to an existing installation.
