@@ -4,6 +4,23 @@ Skulk Library is versioned separately from the portable core. Releases are
 tagged `library-v*`; versions without a tag are source previews installed from
 `main` (see [README](README.md)).
 
+## 0.16.0
+
+- Add independent `foxlight-sovereign` with Find models, Library and Activity.
+  Start with authenticated public catalog browsing; keep search local/offline.
+  Review complete mapped selections before private download/preservation.
+- Open complete recovery kits, show exact capture keys/thresholds and restore
+  files without Core or a registry. Save a kit with one action and native download
+  dialog; reopen directly into Library once copies exist. Preserve the existing
+  Core-backed launcher and managed adapter.
+- Add a self-contained Mac source-preview shell, native file dialogs and safe
+  owner shutdown. Disable runtime bytecode writes inside the sealed bundle.
+  This does not by itself publish a notarized Mac app or an APT package.
+- Include the public core wheel and hash-locked `requirements-desktop.lock` in
+  v2 installation archives. Default installation remains the Core client; the
+  explicitly selected desktop profile installs both verified public wheels with
+  no private SDK, Python source build, runtime service, model trust or sharing.
+
 ## 0.15.0
 
 - Check a pending mirror copy's local bytes from Library, Guided first launch

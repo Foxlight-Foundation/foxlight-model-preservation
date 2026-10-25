@@ -1,9 +1,9 @@
 name: Library interface
 on:
   push:
-    paths: ['capability/**', 'src/foxlight_model_preservation/local_host/**', 'desktop/**', 'scripts/package_desktop.py', '.github/workflows/library-ui.yml']
+    paths: ['capability/**', 'src/foxlight_model_preservation/local_host/**', 'desktop/**', 'scripts/package_desktop.py', 'scripts/release_install.py', 'scripts/install_release.py', 'scripts/qualify_installed_desktop.py', '.github/workflows/library-ui.yml']
   pull_request:
-    paths: ['capability/**', 'src/foxlight_model_preservation/local_host/**', 'desktop/**', 'scripts/package_desktop.py', '.github/workflows/library-ui.yml']
+    paths: ['capability/**', 'src/foxlight_model_preservation/local_host/**', 'desktop/**', 'scripts/package_desktop.py', 'scripts/release_install.py', 'scripts/install_release.py', 'scripts/qualify_installed_desktop.py', '.github/workflows/library-ui.yml']
 permissions:
   contents: read
 jobs:
@@ -37,23 +37,27 @@ jobs:
           python-version: '3.13'
       - run: python -m pip install uv==0.12.23
       - run: uv build --project capability --out-dir dist-library
+      - run: uv build --wheel --out-dir dist-core
       - name: Install only the public wheel and exercise its local screen
         run: |
-          python scripts/release_install.py --project capability --dist dist-library --revision "$GITHUB_SHA"
+          python scripts/release_install.py --project capability --dist dist-library --revision "$GITHUB_SHA" --desktop-core-wheel dist-core/*.whl
           python dist-library/install.py --directory /tmp/library-public
           uv pip install --python /tmp/library-public/bin/python pytest pytest-asyncio
           cd /tmp
-          /tmp/library-public/bin/python -c "import importlib.util; assert importlib.util.find_spec('skulk_capability_sdk') is None; assert importlib.util.find_spec('skulk') is None"
+          /tmp/library-public/bin/python -c "import importlib.util; assert importlib.util.find_spec('skulk_capability_sdk') is None; assert importlib.util.find_spec('skulk') is None; assert importlib.util.find_spec('foxlight_model_preservation') is None"
           /tmp/library-public/bin/foxlight-preservation-library --help
           /tmp/library-public/bin/python -m pytest "$GITHUB_WORKSPACE/capability/tests/test_standalone.py" "$GITHUB_WORKSPACE/capability/tests/test_delivery.py" "$GITHUB_WORKSPACE/capability/tests/test_storage.py" "$GITHUB_WORKSPACE/capability/tests/test_compatibility.py" "$GITHUB_WORKSPACE/capability/tests/test_preview.py" "$GITHUB_WORKSPACE/capability/tests/test_discovery.py" "$GITHUB_WORKSPACE/capability/tests/test_bundle_version.py" "$GITHUB_WORKSPACE/capability/tests/test_handoffs.py" "$GITHUB_WORKSPACE/capability/tests/test_mirrors.py" "$GITHUB_WORKSPACE/capability/tests/test_mirror_recovery.py" "$GITHUB_WORKSPACE/capability/tests/test_pending_recovery.py" -q
       - name: Exercise the independently installed owner without Core or SDK
         run: |
-          uv build --wheel --out-dir dist-core
-          uv pip install --python /tmp/library-public/bin/python dist-core/*.whl
+          python dist-library/install.py --directory /tmp/sovereign-public --requirements requirements-desktop.lock
+          /tmp/sovereign-public/bin/python -I scripts/qualify_installed_desktop.py
+          python -m pip download --require-hashes --only-binary=:all: --find-links dist-library --dest /tmp/desktop-wheelhouse -r dist-library/requirements-desktop.lock
+          python dist-library/install.py --directory /tmp/sovereign-offline --requirements requirements-desktop.lock --offline --wheelhouse /tmp/desktop-wheelhouse
+          /tmp/sovereign-offline/bin/python -I scripts/qualify_installed_desktop.py
+          uv pip install --python /tmp/sovereign-public/bin/python pytest pytest-asyncio
           cd /tmp
-          /tmp/library-public/bin/python -c "import importlib.util; assert importlib.util.find_spec('skulk') is None; assert importlib.util.find_spec('skulk_capability_sdk') is None"
-          /tmp/library-public/bin/foxlight-sovereign --help
-          /tmp/library-public/bin/python -m pytest "$GITHUB_WORKSPACE/capability/tests/test_desktop.py" -q
+          /tmp/sovereign-public/bin/foxlight-sovereign --help
+          /tmp/sovereign-public/bin/python -m pytest "$GITHUB_WORKSPACE/capability/tests/test_desktop.py" -q
       - uses: actions/upload-artifact@v4
         with:
           name: preservation-library-public

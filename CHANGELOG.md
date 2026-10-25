@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## 0.21.0
+
+- Add the independent Sovereign local owner: authenticated preset discovery,
+  offline search, exact complete model/companion downloading and private PMF
+  custody without Skulk, a managed SDK, GPU or account. Retain all original card
+  data and signed registry evidence, including unknown properties.
+- Journal finite work before starting; never replay downloads after restart.
+  Keep completed receipts in paginated private history with durable request
+  bindings. Explicit input-transfer cleanup keeps originals, saved copies and
+  kits, and refuses transfers needed by active imports.
+- Preserve exact reviewed kit signature wrappers and capture thresholds during
+  fresh-owner import/restore. Check publication freshness against observed TUF
+  rollback floors. No model execution or sharing starts automatically.
+- Add the two-wheel public desktop installation profile. The Library archive
+  includes its exactly pinned core from the same release source, separate hashed
+  dependency locks, normal/offline installation and SDK-free local-host checks.
+  Existing v1 core installation records and model/archive wire formats remain.
+
 ## 0.20.0
 
 - Save source-fed mirror intake's original authenticated signed wrapper privately

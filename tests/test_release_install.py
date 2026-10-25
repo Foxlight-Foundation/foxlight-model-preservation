@@ -209,3 +209,137 @@ def test_generated_zip_has_a_complete_checked_installation_closure(
         archive.extractall(extracted)
     install_release.validate_assets(extracted, "requirements-peer.lock")
     install_release.validate_assets(extracted, "requirements-mirror.lock")
+
+
+def library_assets(tmp_path, monkeypatch):
+    project = tmp_path / "library"
+    project.mkdir()
+    (project / "pyproject.toml").write_text(
+        '[project]\nname="foxlight-preservation-library"\nversion="0.16.0"\n'
+        '[project.optional-dependencies]\ndesktop=["foxlight-model-preservation==0.21.0"]\n'
+    )
+    output = tmp_path / "release"
+    output.mkdir()
+    own = output / "foxlight_preservation_library-0.16.0-py3-none-any.whl"
+    core = tmp_path / "foxlight_model_preservation-0.21.0-py3-none-any.whl"
+    for path, name, version in (
+        (own, "foxlight-preservation-library", "0.16.0"),
+        (core, "foxlight-model-preservation", "0.21.0"),
+    ):
+        with zipfile.ZipFile(path, "w") as archive:
+            archive.writestr(
+                name.replace("-", "_") + "-" + version + ".dist-info/METADATA",
+                "Name: " + name + "\nVersion: " + version + "\n",
+            )
+    (output / "foxlight_preservation_library-0.16.0.tar.gz").write_bytes(b"source")
+    calls = []
+
+    class Export:
+        stdout = "example==1 --hash=sha256:" + "a" * 64 + "\n"
+
+    def export(command, **kwargs):
+        calls.append(command)
+        return Export()
+
+    monkeypatch.setattr(release_install.subprocess, "run", export)
+    release_install.generate(project, output, "b" * 40, desktop_core_wheel=core)
+    return output, calls
+
+
+def test_desktop_bundle_binds_both_wheels_and_keeps_default_core_free(
+    tmp_path, monkeypatch
+):
+    root, calls = library_assets(tmp_path, monkeypatch)
+    record = install_release.validate_assets(root, "requirements-desktop.lock")
+    assert record["schema_version"] == "foxlight.software-install.v2"
+    assert record["components"][0]["source_revision"] == record["source_revision"]
+    assert (
+        "foxlight-model-preservation==" not in (root / "requirements.lock").read_text()
+    )
+    assert "--no-emit-package" in calls[1] and "desktop" in calls[1]
+    install_release.validate_assets(root, "requirements.lock")
+    extracted = tmp_path / "extracted"
+    extracted.mkdir()
+    with zipfile.ZipFile(
+        root / "foxlight-preservation-library-0.16.0-install.zip"
+    ) as archive:
+        archive.extractall(extracted)
+    install_release.validate_assets(extracted, "requirements-desktop.lock")
+    monkeypatch.setattr(install_release.shutil, "which", lambda _: "/verified/uv")
+    monkeypatch.setattr(install_release.subprocess, "run", lambda *args, **kwargs: None)
+    result = install_release.install(
+        extracted, tmp_path / "installed", selected="requirements-desktop.lock"
+    )
+    assert len(result["components_installed"]) == 1
+    assert (
+        tmp_path / "installed/sovereign-release" / record["components"][0]["wheel"]
+    ).is_file()
+    default = install_release.install(extracted, tmp_path / "default")
+    assert default["components_installed"] == []
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "different_source",
+        "different_version",
+        "different_project",
+        "missing_wheel",
+        "missing_core_lock",
+        "second_hash",
+        "default_enrolls_core",
+    ],
+)
+def test_desktop_component_mismatch_refuses_before_mutation(
+    tmp_path, monkeypatch, mutation
+):
+    root, _ = library_assets(tmp_path, monkeypatch)
+    record = json.loads((root / "INSTALL.json").read_text())
+    component = record["components"][0]
+    if mutation == "different_source":
+        component["source_revision"] = "c" * 40
+    elif mutation == "different_version":
+        component["version"] = "0.22.0"
+    elif mutation == "different_project":
+        component["project"] = "unrelated-model-verifier"
+    elif mutation == "missing_wheel":
+        (root / component["wheel"]).unlink()
+    elif mutation == "missing_core_lock":
+        (root / "requirements-desktop.lock").write_text(
+            (root / "requirements.lock").read_text()
+        )
+    elif mutation == "second_hash":
+        p = root / "requirements-desktop.lock"
+        p.write_text(
+            p.read_text().replace(
+                component["wheel_sha256"],
+                component["wheel_sha256"] + " --hash=sha256:" + "c" * 64,
+            )
+        )
+    else:
+        (root / "requirements.lock").write_text(
+            (root / "requirements-desktop.lock").read_text()
+        )
+    (root / "INSTALL.json").write_text(json.dumps(record))
+    # Even re-hashed malformed metadata must refuse; checksums are not authorship.
+    resign(root)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("installation mutation before component verification")
+
+    monkeypatch.setattr(install_release.subprocess, "run", forbidden)
+    with pytest.raises(ValueError):
+        install_release.install(
+            root,
+            tmp_path / "new",
+            selected="requirements.lock"
+            if mutation == "default_enrolls_core"
+            else "requirements-desktop.lock",
+        )
+    assert not (tmp_path / "new").exists()
+
+
+def test_older_installation_records_cannot_silently_select_desktop(tmp_path):
+    root = assets(tmp_path / "release")
+    with pytest.raises(ValueError, match="profile"):
+        install_release.validate_assets(root, "requirements-desktop.lock")

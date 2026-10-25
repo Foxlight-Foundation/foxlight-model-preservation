@@ -105,7 +105,11 @@ jobs:
       - name: Build the sdist and wheel
         env:
           PROJECT: ${{ steps.release.outputs.project }}
-        run: uv build --no-sources --project "$PROJECT" --out-dir dist
+        run: |
+          uv build --no-sources --project "$PROJECT" --out-dir dist
+          if [ "$PROJECT" = capability ]; then
+            uv build --no-sources --project . --wheel --out-dir desktop-core
+          fi
       - name: Check the built metadata and write SHA256SUMS
         id: dist
         env:
@@ -155,7 +159,13 @@ jobs:
           with open(os.environ["GITHUB_OUTPUT"], "a") as output:
               output.write(f"name={canonical(project['name'])}\n")
           PY
-          python scripts/release_install.py --project "$PROJECT" --dist dist --revision "$GITHUB_SHA"
+          desktop_args=()
+          if [ "$PROJECT" = capability ]; then
+            desktop_wheels=(desktop-core/*.whl)
+            test "${#desktop_wheels[@]}" -eq 1
+            desktop_args=(--desktop-core-wheel "${desktop_wheels[0]}")
+          fi
+          python scripts/release_install.py --project "$PROJECT" --dist dist --revision "$GITHUB_SHA" "${desktop_args[@]}"
           cd dist
           sha256sum --check --strict SHA256SUMS
           echo "sums-sha256=$(sha256sum SHA256SUMS | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
@@ -323,7 +333,19 @@ jobs:
       - name: Select only the distributions
         run: |
           mkdir dist
-          cp release/*.whl release/*.tar.gz dist/
+          python - <<'PY'
+          import json
+          import shutil
+          from pathlib import Path
+          root = Path("release")
+          record = json.loads((root / "INSTALL.json").read_text())
+          # The desktop core is an installation component, not this project's
+          # PyPI upload. It has its own separately authorized publisher.
+          wheel = root / record["wheel"]
+          shutil.copyfile(wheel, Path("dist") / wheel.name)
+          for source in root.glob("*.tar.gz"):
+              shutil.copyfile(source, Path("dist") / source.name)
+          PY
       - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
         with:
           packages-dir: dist/

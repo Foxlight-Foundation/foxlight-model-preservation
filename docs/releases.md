@@ -4,7 +4,10 @@ Each release tag has a GitHub pre-release: `vX.Y.Z` for standalone preservation
 and `library-vX.Y.Z` for the optional Library. Starting at `v0.12.0` and
 `library-v0.11.0`, it contains the wheel, sdist, hash-locked requirements,
 `INSTALL.json`, `install.py`, a single installation archive, outer `SHA256SUMS`
-and a detached `release.sigstore.json` verification bundle. See the
+and a detached `release.sigstore.json` verification bundle. Library v2
+installation archives additionally include the exactly pinned public core wheel
+and a separate desktop dependency lock. Both components come from the same
+release revision; their hashes are bound by the archive and software record. See the
 [installation walkthrough](installation.md).
 Releases after `v0.6.0` and `library-v0.6.0` are built by the
 [release workflow](../.github/workflows/release.yml) on GitHub-hosted runners from

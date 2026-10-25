@@ -1,11 +1,12 @@
 # Reproducible public installation
 
 The standalone core needs no Skulk, SDK, GPU or hosted account. Library is an
-optional separate application that connects to a compatible Skulk Core. Installing
+optional application with independent Sovereign and compatible Skulk Core modes.
+Older releases provide only the Core-backed client. Installing
 software does not follow sources, trust model keys, set up Core, download models,
 install native peer software or grant public serving.
 
-The `v0.19.0` core and `library-v0.15.0` Library pre-releases provide one installation
+The `v0.20.0` core and `library-v0.15.0` Library pre-releases provide one installation
 archive each, plus `release.sigstore.json`, a detached build-attestation bundle.
 The archive contains a wheel, source distribution, `INSTALL.json`, hash-locked
 runtime requirements, `install.py` and inner checksums. An optional standalone
@@ -19,15 +20,15 @@ Choose the standalone core, or the optional Library with Python 3.13+:
 
 | Role | Tag | Archive |
 | --- | --- | --- |
-| Standalone | `v0.19.0` | `foxlight-model-preservation-0.19.0-install.zip` |
+| Standalone | `v0.20.0` | `foxlight-model-preservation-0.20.0-install.zip` |
 | Optional Library | `library-v0.15.0` | `foxlight-preservation-library-0.15.0-install.zip` |
 
 Download the archive and `release.sigstore.json` from the same chosen release.
 Public asset downloads need no account. For the standalone core:
 
 ```sh
-base=https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/v0.19.0
-curl --fail --location --proto '=https' -O "$base/foxlight-model-preservation-0.19.0-install.zip"
+base=https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/v0.20.0
+curl --fail --location --proto '=https' -O "$base/foxlight-model-preservation-0.20.0-install.zip"
 curl --fail --location --proto '=https' -O "$base/release.sigstore.json"
 ```
 
@@ -37,11 +38,11 @@ authenticated archive hash is another bootstrap path; same-source checksums
 alone do not identify a publisher.
 
 ```sh
-gh attestation verify foxlight-model-preservation-0.19.0-install.zip \
+gh attestation verify foxlight-model-preservation-0.20.0-install.zip \
   --bundle release.sigstore.json \
   --repo Foxlight-Foundation/foxlight-model-preservation \
   --signer-workflow Foxlight-Foundation/foxlight-model-preservation/.github/workflows/release.yml \
-  --source-ref refs/tags/v0.19.0 --deny-self-hosted-runners
+  --source-ref refs/tags/v0.20.0 --deny-self-hosted-runners
 ```
 
 Use the corresponding archive/tag for Library. Pin `--source-digest COMMIT` as
@@ -58,10 +59,10 @@ Use Python 3.11+ for standalone or Python 3.13+ for Library and an authenticated
 binaries separately for offline use; this helper never acquires Python for you.
 
 ```sh
-unzip foxlight-model-preservation-0.19.0-install.zip -d sovereign-install
+unzip foxlight-model-preservation-0.20.0-install.zip -d sovereign-install
 cd sovereign-install
-python3 install.py --directory "$HOME/sovereign-0.19.0"
-"$HOME/sovereign-0.19.0/bin/model-preserve" --help
+python3 install.py --directory "$HOME/sovereign-0.20.0"
+"$HOME/sovereign-0.20.0/bin/model-preserve" --help
 ```
 
 The parent must exist and the target must be new. The helper verifies every
@@ -98,6 +99,40 @@ pinned Core and its prerequisites. Retained Library wheel evidence is checked
 against actual installed files before choosing its immutable public source.
 A copied version label alone does not qualify a local package for this setup.
 
+## Select the independent desktop profile
+
+Library installation archives with `foxlight.software-install.v2` include
+`requirements-desktop.lock` and the exactly pinned public preservation-core
+wheel. Both wheels are built from the same release revision, included in the
+same authenticated archive, and individually covered by the release workflow's
+attestations. Authenticate that archive before using its helper. Earlier v1
+Library archives do not offer this profile; they refuse it rather than silently
+installing a Core-dependent client as an independent application.
+
+From a verified archive that contains the desktop profile, with Python 3.13+:
+
+```sh
+python3 install.py --directory "$HOME/sovereign-desktop" \
+  --requirements requirements-desktop.lock
+"$HOME/sovereign-desktop/bin/foxlight-sovereign"
+```
+
+This opens the independent Library without installing Skulk or the managed SDK.
+First launch offers **Browse public models** and **Open recovery kit**. Each
+model transfer or capture-key acceptance still requires its own review. See
+[everyday use and privacy](sovereign-desktop.md). Closing the browser leaves the
+application working; quitting the launcher stops its private owner safely.
+
+The helper validates both component identities, their common source revision,
+exact wheel hashes and the selected lock before creating an environment. It
+retains both wheels as software evidence for this profile. Omitting the profile
+keeps the original Core-backed Library installation and does not install the
+core wheel. The standalone preservation release remains independently usable.
+
+This installation path requires an authenticated Python/uv toolchain. It is
+separate from a bundled Mac application, notarization or APT distribution; those
+are not established by a Python installation archive.
+
 ## Retain a wheelhouse and install offline
 
 While the dependency sources are available, retain the platform-compatible
@@ -108,7 +143,9 @@ python3 -m pip download --only-binary=:all: --require-hashes \
   --find-links . --dest wheelhouse -r requirements.lock
 ```
 
-Choose `requirements-peer.lock` instead when retaining that standalone profile.
+Choose `requirements-peer.lock` for the standalone peer profile, or
+`requirements-desktop.lock` for the independent Library. Use that same profile
+with the offline installation command.
 A wheelhouse is specific to Python/ABI/platform; test it on the intended recovery
 host. Save the installation archive, wheelhouse, Python/uv, verifier, detached
 attestation and trusted-root snapshot on storage independent of Foxlight/GitHub.
