@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Expose the bounded pure model metadata projection for hosts with installed cards
+  that lack portable envelopes or pinned revisions. No card identity or trust is
+  manufactured, and original metadata remains unchanged.
+
 - Add bounded descriptive views of preserved PMF metadata and original retained
   cards for the independent Library. Keep descriptions, tasks, origin, license
   attribution, text context and runtime notes separate from verification and

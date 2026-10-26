@@ -1,3 +1,4 @@
+import {ModelInformation} from './model-info';
 import {SovereignBrand} from './brand';
 import { StrictMode, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -162,7 +163,7 @@ function LibraryArea({page,location,online,busy,available,onStorage,onPlan,onPub
       {page.models.map(model=><ModelCard key={model.model_id} model={model} jobs={page.jobs.filter(job=>job.model_id===model.model_id)} copies={page.copies.filter(copy=>copy.model_id===model.model_id)} label={label} disabled={busy||!online} onPreserve={()=>onPlan('preserve',model)} copyAvailable={copy=>!busy&&available(copy.location_id)} onCheck={copy=>onPlan('check',copy)} onKit={copy=>onPlan('kit_export',copy)} onPublish={onPublish}/>)}
       {orphans.map(copy=>{const enabled=!busy&&available(copy.location_id);return <article className="sk-card sk-model" key={copy.copy_id} aria-label={copy.model_id}>
         <div className="sk-model-head"><Monogram text={initials(copy.model_id)}/><div className="sk-model-title"><h2><ModelName id={copy.model_id}/></h2><p className="sk-meta">Saved copy · <span className="sk-num">{bytes(copy.size_bytes)}</span> · model not installed</p></div><div className="sk-model-side"><Pill tone="ok">verified</Pill><button className="sk-btn sk-outline" disabled={!enabled} onClick={()=>onPlan('recover',copy)}><Icon name="restore"/>Restore</button></div></div>
-        <ul className="sk-copies"><CopyRow copy={copy} label={label(copy.location_id)} enabled={enabled} checkLabel="Check files" onCheck={()=>onPlan('check',copy)} onKit={()=>onPlan('kit_export',copy)} onPublish={()=>onPublish(copy)}/></ul>
+        <ModelInformation details={page.copy_details?.[copy.copy_id]}/><ul className="sk-copies"><CopyRow copy={copy} label={label(copy.location_id)} enabled={enabled} checkLabel="Check files" onCheck={()=>onPlan('check',copy)} onKit={()=>onPlan('kit_export',copy)} onPublish={()=>onPublish(copy)}/></ul>
       </article>;})}
     </div>
   </section>;
@@ -177,6 +178,7 @@ function ModelCard({model,jobs,copies,label,disabled,copyAvailable,onPreserve,on
   const [tone,status]:[Tone,string]=working?['live',liveLabel[working.kind]??'working…']:unresolved?['info','needs check']:copies.length?['ok','verified']:['muted','not preserved'];
   return <article className="sk-card sk-model" data-live={working?'true':undefined} aria-label={model.model_id}>
     <div className="sk-model-head"><Monogram text={initials(model.model_id)}/><div className="sk-model-title"><h2><ModelName id={model.model_id}/></h2><p className="sk-meta">Installed · <span className="sk-num">{bytes(model.size_bytes)}</span> · {model.verification==='registry_verified'?'registry verified':'owner capture'}</p></div><div className="sk-model-side"><Pill tone={tone}>{status}</Pill><button className="sk-btn sk-outline" disabled={disabled} onClick={onPreserve}><Icon name="shield"/>Preserve</button></div></div>
+    <ModelInformation details={model.details} installed/>
     {working&&<Progress label={`${model.model_id} ${liveLabel[working.kind]??'working'}`}/>}
     {copies.length>0?<><Label>Saved copies · {copies.length}</Label><ul className="sk-copies">{copies.map(copy=><CopyRow key={copy.copy_id} copy={copy} label={label(copy.location_id)} enabled={copyAvailable(copy)} checkLabel="Check copy" onCheck={()=>onCheck(copy)} onKit={()=>onKit(copy)} onPublish={()=>onPublish(copy)}/>)}</ul></>
     :<p className="sk-hint">{unresolved?'An earlier preserve was interrupted. Check its outcome in Activity.':'No saved copy yet. Preserve keeps a verified copy, including required companion files.'}</p>}

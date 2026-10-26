@@ -118,9 +118,19 @@ def purpose_ids(tasks: list[str], capabilities: list[str]) -> list[str]:
     return [purpose for purpose, names in _PURPOSES.items() if tokens & names]
 
 
-def card_summary(card: ModelCardEnvelope) -> dict[str, JsonValue]:
-    """Project publisher-provided metadata without fetching or rewriting its card."""
-    body = card.card
+def model_summary(
+    body: dict[str, JsonValue],
+    *,
+    repository: str | None = None,
+    artifact_format: str | None = None,
+    quantization: str | None = None,
+) -> dict[str, JsonValue]:
+    """Describe existing model metadata without requiring a portable envelope.
+
+    Hosts may project installed cards with mutable or unknown revisions. This
+    pure, bounded view neither manufactures a card identity nor validates any
+    claim. Original card bytes, signatures and runtime admission stay separate.
+    """
     tasks, capabilities = (
         _strings(body.get("tasks"), max_items=None),
         _strings(body.get("capabilities"), max_items=None),
@@ -131,11 +141,11 @@ def card_summary(card: ModelCardEnvelope) -> dict[str, JsonValue]:
     return _bounded(
         {
             "description": _text(body.get("description")) or _text(body.get("summary")),
-            "publisher": card.artifact.repository.split("/", 1)[0],
-            "repository": card.artifact.repository,
+            "publisher": repository.split("/", 1)[0] if repository else None,
+            "repository": repository,
             "base_model": _text(body.get("base_model"), 512),
-            "format": card.artifact.format,
-            "quantization": card.artifact.quantization,
+            "format": artifact_format,
+            "quantization": quantization,
             "workloads": cast(list[JsonValue], tasks[:8]),
             "capabilities": cast(list[JsonValue], capabilities[:8]),
             "purposes": cast(list[JsonValue], purpose_ids(tasks, capabilities)),
@@ -155,6 +165,16 @@ def card_summary(card: ModelCardEnvelope) -> dict[str, JsonValue]:
             "metadata_source": "model-card",
             "metadata_status": "available",
         }
+    )
+
+
+def card_summary(card: ModelCardEnvelope) -> dict[str, JsonValue]:
+    """Project publisher-provided metadata without fetching or rewriting its card."""
+    return model_summary(
+        card.card,
+        repository=card.artifact.repository,
+        artifact_format=card.artifact.format,
+        quantization=card.artifact.quantization,
     )
 
 

@@ -63,3 +63,15 @@ for(const [state,label] of [['imported','Imported offline listings'],['retained'
  await expect(page.getByText(label,{exact:true})).toBeVisible();await expect(page.getByText('Status unavailable',{exact:false})).toHaveCount(0);
  await expect(page.getByRole('heading',{name:model.name,exact:true})).toBeVisible();
 });
+
+for(const [task,label] of [['CodeGeneration','Coding'],['VisualQuestionAnswering','Understanding images'],['Reranking','Search & embeddings']])test(`source task ${task} has a human purpose`,async({page})=>{
+ await page.route('**/api/desktop-source-read',route=>route.fulfill({json:{sources:[source]}}));
+ await page.route('**/api/desktop-source-search',route=>route.fulfill({json:{results:[{...model,workloads:[task]}],total:1,next_offset:null}}));
+ await page.goto('/');
+ const card=page.getByRole('article').filter({has:page.getByRole('heading',{name:model.name,exact:true})});
+ await expect(card.getByText(label,{exact:true})).toBeVisible();
+ await expect(card.getByText('Purpose not described',{exact:true})).toHaveCount(0);
+ await card.getByRole('button',{name:'About model descriptions',exact:true}).click();
+ await expect(page.getByRole('tooltip')).toContainText('this source’s listing');
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
+});

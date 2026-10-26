@@ -11,9 +11,29 @@ from foxlight_model_preservation.local_host.owner import LocalOwner
 from foxlight_model_preservation.local_host.presentation import (
     card_summary,
     copy_summary,
+    model_summary,
 )
 from foxlight_model_preservation.models import PreservationError, TrustProfile
 from foxlight_model_preservation.storage import directory, manifest_path, open_file
+
+
+def test_installed_card_projection_needs_no_revision_envelope_or_runtime():
+    original = {
+        "tasks": ["CodeGeneration", "VisualQuestionAnswering", "Reranking"],
+        "context_length": 8192,
+        "future_metadata": {"keep": "original"},
+    }
+    before = json.dumps(original)
+    details = model_summary(
+        original, repository="example/model", artifact_format="gguf"
+    )
+    assert details["purposes"] == ["coding", "vision", "search"]
+    assert details["context_length"] == 8192
+    assert details["repository"] == "example/model"
+    assert details["format"] == "gguf"
+    assert "card_id" not in details and "source_revision" not in details
+    assert len(json.dumps(details, separators=(",", ":"))) <= 1536
+    assert json.dumps(original) == before
 
 
 def test_everyday_find_is_local_and_filters_declared_purpose(tmp_path, monkeypatch):
