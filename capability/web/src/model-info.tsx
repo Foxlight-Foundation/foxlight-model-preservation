@@ -17,7 +17,7 @@ export const purposes:Record<string,{label:string;description:string;words:strin
   video:{label:'Video',description:'Generates video from the text, image or reference inputs listed in its card.',words:'video videos animation animate movie'},
   search:{label:'Search & embeddings',description:'Represents text for uses such as similarity search and document retrieval.',words:'search embedding embeddings similarity retrieval documents'},
 };
-const taskPurpose:Record<string,string>={textgeneration:'chat',text:'chat',code:'coding',texttoimage:'images',imagetoimage:'images',imagegen:'images',imageedit:'images',vision:'vision',imagetotext:'vision',speechtotext:'speech',speechtranslation:'speech',texttospeech:'speech',stt:'speech',tts:'speech',texttomusic:'music',texttoaudio:'music',texttovideo:'video',imagetovideo:'video',referencetovideo:'video',videogen:'video',textembedding:'search',embedding:'search',featureextraction:'search'};
+const taskPurpose:Record<string,string>={textgeneration:'chat',text:'chat',code:'coding',codegeneration:'coding',texttoimage:'images',imagetoimage:'images',imagegen:'images',imageedit:'images',vision:'vision',visualquestionanswering:'vision',imagetotext:'vision',speechtotext:'speech',speechtranslation:'speech',texttospeech:'speech',stt:'speech',tts:'speech',texttomusic:'music',texttoaudio:'music',texttovideo:'video',imagetovideo:'video',referencetovideo:'video',videogen:'video',textembedding:'search',embedding:'search',reranking:'search',featureextraction:'search'};
 /** Older hosts still provide useful category labels from their existing tasks. */
 export function modelPurposes(details?:ModelDetails,tasks:string[]=[]):string[] {
   return [...new Set([...(details?.purposes??[]),...[...(details?.workloads??tasks),...(details?.capabilities??[])].map(task=>taskPurpose[task.toLowerCase().replace(/[^a-z0-9]/g,'')]).filter(Boolean)])].filter(id=>id in purposes);
@@ -34,10 +34,11 @@ export function PurposeFilter({id,value,onChange}:{id:string;value:string;onChan
 }
 /** Human-readable model context, with technical attributes kept available. */
 export function ModelInformation({details,tasks=[],format,quantization}:{details?:ModelDetails;tasks?:string[];format?:string;quantization?:string}) {
+  const fromListing=details?.metadata_source==='source-listing';
   const ids=modelPurposes(details,tasks),known=!['unavailable','partial'].includes(details?.metadata_status??'');
   const workloads=details?.workloads??tasks;
   return <div className="sk-model-info">
-    <div className="sk-purpose-tags">{ids.length?ids.map(id=><span className="sk-tag" key={id}>{purposes[id].label}</span>):<span className="sk-hint">Purpose not described</span>}<Help label="About model descriptions">These are descriptions and capabilities stated in the saved card or archive. Checking a signature does not prove their quality, safety or compatibility with your device.</Help></div>
+    <div className="sk-purpose-tags">{ids.length?ids.map(id=><span className="sk-tag" key={id}>{purposes[id].label}</span>):<span className="sk-hint">Purpose not described</span>}<Help label="About model descriptions">{fromListing?'These descriptions come from this source’s listing. They do not amend the signed model card or establish registry trust.':'These are descriptions and capabilities stated in the saved card or archive. Checking a signature does not prove their quality, safety or compatibility with your device.'}</Help></div>
     <p className="sk-model-description">{details?.description||ids.slice(0,2).map(id=>purposes[id].description).join(' ')||'This copy has no readable description yet. Its original documents stay with the archive.'}</p>
     {details?.attribution&&<p className="sk-meta">Model attribution: {details.attribution}</p>}
     {details?.license_notice&&<p className="sk-hint">License note: {details.license_notice}</p>}

@@ -6,6 +6,12 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Render optional Core-host card descriptions and saved-copy metadata in Library;
+  show each source listing’s declared purposes in Find without merging its claims
+  with signed cards. Older hosts keep working with honest missing-data states.
+- Recognize code generation, visual question answering and reranking in source
+  listings. Explain that source descriptions do not establish registry trust.
+
 - Put model purpose and preserved descriptions before technical identity in the
   independent Find and Library screens. Add local saved-model search, everyday
   purpose filters, source/license/context details and honest missing-data states.

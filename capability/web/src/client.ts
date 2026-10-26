@@ -1,9 +1,10 @@
+import type {ModelDetails} from './model-info';
 /** Exact public control projections; model bytes and signing keys stay in Core. */
 export interface Location {location_id:string; label:string; purpose:'private'|'public'; reachable:boolean; free_bytes:number|null; publisher_key_id:string}
-export interface Model {model_id:string; generation_id:string; size_bytes:number; verification:string}
+export interface Model {model_id:string; generation_id:string; size_bytes:number; verification:string;details?:ModelDetails}
 export interface Copy {copy_id:string; model_id:string; location_id:string; manifest_id:string; audience:'private'|'public'; size_bytes:number; checked_at:number; member_count:number; publisher_key_ids?:string[]}
 export interface Job {job_id:string; operation_id:string; plan_id:string; kind:string; model_id:string; state:string; stage:string; created_at:number; bytes_copied:number; bytes_hashed:number; expected_manifest_id:string|null; copy_id:string|null; error_code:string|null; location_id?:string|null; sharing_policy?:{peer_private?:boolean;public_network:boolean;duration_seconds:number;upload_limit_bytes:number;upload_rate_bytes:number;advertised_url:string|null}|null; sharing?:{handoff_sha256?:string|null;ready:boolean;listen_port:number;charged_bytes:number;accounting:string;connected_peers:number;metainfo_sha256?:string|null}|null}
-export interface Page {default_location_id?:string|null; locations:Location[]; models:Model[]; copies:Copy[]; jobs:Job[]; uploads?:Upload[]; public_copies?:Copy[]; publishing?:Location|null; bittorrent_available?:boolean; temporary_work_jobs?:string[]; next_offset:number|null}
+export interface Page {default_location_id?:string|null; locations:Location[]; models:Model[]; copies:Copy[]; jobs:Job[]; uploads?:Upload[]; public_copies?:Copy[]; publishing?:Location|null; bittorrent_available?:boolean; temporary_work_jobs?:string[]; next_offset:number|null;copy_details?:Record<string,ModelDetails>}
 export interface Plan {archive_format?:'preservation-v1'|'pmf-v0.1';plan_id:string; kind:'preserve'|'check'|'kit_export'|'recover'|'mirror_import'|'http_share'|'torrent_share'|'peer_share'|'publish'|'receive'; receiving?:ReceivingPolicy|null; resume_job_id?:string|null; model_id:string; location_id:string; size_bytes:number; members:string[]; member_count:number; expires_at:number; upload_id?:string|null; historical?:boolean; existing_companions?:string[]; deleted_aliases?:string[]; publisher_key_ids?:string[]; requires_owner_acceptance?:boolean; requires_code_permission?:boolean; publication?:string|null; file_coverage?:string|null;manifest_id?:string|null;sharing?:{peer_private?:boolean;public_network:boolean;listen_port:number;duration_seconds:number;upload_rate_bytes:number;upload_limit_bytes:number;advertised_url:string|null}|null}
 
 /** Same-origin ticket-scoped controls; no supplier or analytics requests. */
@@ -185,7 +186,7 @@ export interface DiscoveryPage {sources:ModelSource[];jobs:DiscoveryJob[];next_o
 /** Exact file review performed offline before source enrollment. */
 export interface SourceReview {contacts?:string[];transport?:'http'|'peer';ipns_name?:string|null;snapshot_count?:number;review_id:string;source_id:string;bootstrap_id:string;name:string;endpoints:string[];expires_at:number}
 /** One attributed statement; original signed data stays in Core. */
-export interface ModelSupplier {transport?:'http'|'peer'|'i2p';source_id:string;source_name:string;entry_id:string;name:string;summary:string;freshness:string;model_keys_available:boolean}
+export interface ModelSupplier {transport?:'http'|'peer'|'i2p';source_id:string;source_name:string;entry_id:string;name:string;summary:string;workloads?:string[];freshness:string;model_keys_available:boolean}
 /** Exact identity grouping keeps conflicting source statements separate. */
 export interface FoundModel {manifest_id:string;suppliers:ModelSupplier[];supplier_count:number;next_supplier_offset:number|null}
 export interface DiscoveryResults {results:FoundModel[];next_offset:number|null}
