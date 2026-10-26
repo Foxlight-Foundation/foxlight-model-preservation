@@ -331,3 +331,19 @@ def test_explicit_separate_music_task_is_kept_alongside_joint_video_modes():
     )
     assert details["purposes"] == ["music", "video"]
     assert "sound-generate" in details["feature_ids"]
+
+
+@pytest.mark.parametrize(
+    "selected,expected",
+    [
+        (("model.gguf",), ["vision-companion-unlisted"]),
+        (("model.gguf", "mmproj.gguf"), []),
+    ],
+)
+def test_direct_card_projector_declaration_is_compared_to_selected_files(
+    selected, expected
+):
+    details = capability_details(
+        {"vision": {"projector_file": "mmproj.gguf"}}, selected_files=selected
+    )
+    assert details["artifact_notes"] == expected

@@ -48,6 +48,11 @@ explained separately, with help describing image projectors. A repository listin
 or a claim marked `complete` does not prove that the selected download contains
 that companion. Missing-file-map and unsupported-companion guards stay in force.
 The review remains authoritative about the exact selection being preserved.
+For saved copies, presence caveats use the archive's root-member file list,
+including additional captured files, rather than the earlier download's map.
+File presence is still distinct from registry coverage or usable runtime support.
+Explicit input/output direction survives preservation; only independently added
+PMF workloads contribute additional default modalities.
 
 Saved-copy descriptions can read original retained-card documents up to the
 existing 8 MiB metadata limit, accommodating ordinary registry publication proofs

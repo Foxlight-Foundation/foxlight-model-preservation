@@ -205,8 +205,17 @@ def capability_details(
                 "referencetovideo": reference_inputs,
             }.get(normalized)
             add(_ALIASES.get(normalized, ()), task_inputs, declared_outputs)
-    if isinstance(body.get("vision"), dict) and body["vision"]:
+    vision = body.get("vision")
+    if isinstance(vision, dict) and vision:
         add(("vision",))
+        projector = vision.get("projector_file")
+        if (
+            isinstance(projector, str)
+            and projector
+            and selected is not None
+            and projector not in selected
+        ):
+            notes.add("vision-companion-unlisted")
     direction(declared_inputs, declared_outputs, tuple(features))
 
     own_claims = body.get("capability_claims")

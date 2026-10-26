@@ -751,3 +751,118 @@ def test_large_descriptions_paginate_inside_the_existing_control_budget(tmp_path
         offset = result["next_offset"]
     assert len(seen) == len(set(seen)) == len(cards)
     assert pages[0] < 24
+
+
+def preserved_presentation_case(
+    tmp_path, monkeypatch, metadata=None, catalog_metadata=None
+):
+    from foxlight_model_preservation.local_host.owner import Journal
+    from foxlight_model_preservation.pmf import verify_pmf_manifest
+
+    catalog, repo, data = accepted_catalog(
+        tmp_path, companion=False, metadata=metadata, catalog_metadata=catalog_metadata
+    )
+
+    def download(repository, revision, file, destination, control, **kwargs):
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(data)
+
+    monkeypatch.setattr(
+        "foxlight_model_preservation.local_host.owner.download_file", download
+    )
+    home = tmp_path / "owner"
+    owner = LocalOwner(home, catalog=catalog)
+    try:
+        found = catalog.search()["results"][0]["details"]
+        plan = owner.control(
+            "plan",
+            {
+                "kind": "receive",
+                "catalog_id": catalog.search()["catalog_id"],
+                "card_id": repo.card.card_id,
+            },
+        )
+        assert finish(owner, submit(owner, plan))["state"] == "succeeded"
+    finally:
+        owner.close()
+    copy = Journal.model_validate_json((home / "journal.json").read_bytes()).copies[0]
+    store = home / "copies" / copy.copy_id
+    manifest = verify_pmf_manifest(
+        (store / manifest_path(copy.manifest_id)).read_bytes(),
+        copy.trust,
+        copy.manifest_id,
+    )
+    return home, store, copy, manifest, found
+
+
+@pytest.mark.parametrize(
+    "task,outputs", [("ReferenceToVideo", ["video"]), ("ImageToImage", ["image"])]
+)
+def test_saved_copy_keeps_explicit_image_only_direction(
+    tmp_path, monkeypatch, task, outputs
+):
+    home, store, copy, manifest, found = preserved_presentation_case(
+        tmp_path,
+        monkeypatch,
+        metadata={
+            "tasks": [task],
+            "input_modalities": ["image"],
+            "output_modalities": outputs,
+        },
+    )
+    before = (home / "journal.json").read_bytes()
+    saved = copy_summary(store, copy.manifest_id, copy.trust)
+    assert saved["input_modalities"] == found["input_modalities"] == ["image"]
+    assert saved["output_modalities"] == found["output_modalities"] == outputs
+    assert (home / "journal.json").read_bytes() == before
+
+
+def test_saved_root_additional_projector_removes_only_presence_caveat(
+    tmp_path, monkeypatch
+):
+    from test_model_capabilities import claim
+
+    from foxlight_model_preservation.pmf_models import PMF_TYPE
+    from foxlight_model_preservation.signing import (
+        digest,
+        encode_record,
+        load_key,
+        sign_record,
+    )
+
+    home, store, copy, manifest, found = preserved_presentation_case(
+        tmp_path,
+        monkeypatch,
+        catalog_metadata={
+            "capability_claims": [
+                claim("vision.understand", details={"companion_files": ["mmproj.gguf"]})
+            ]
+        },
+    )
+    assert found["artifact_notes"] == ["vision-companion-unlisted"]
+    member = next(
+        item for item in manifest.members if item.member_id == manifest.root_member
+    )
+    added = member.files[0].model_copy(update={"path": "mmproj.gguf"})
+    changed = manifest.model_copy(
+        update={
+            "members": tuple(
+                item.model_copy(update={"files": (*item.files, added)})
+                if item.member_id == member.member_id
+                else item
+                for item in manifest.members
+            )
+        }
+    )
+    identity = digest(encode_record(changed))
+    (store / manifest_path(identity)).write_bytes(
+        encode_record(
+            sign_record(changed, (load_key(home / "capture-key.pem", None),), PMF_TYPE)
+        )
+    )
+    before = (home / "journal.json").read_bytes()
+    saved = copy_summary(store, identity, copy.trust)
+    assert saved["artifact_notes"] == []
+    assert "vision" in saved["purposes"]
+    assert "trust" not in saved and "verification" not in saved
+    assert (home / "journal.json").read_bytes() == before

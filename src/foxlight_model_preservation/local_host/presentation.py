@@ -7,6 +7,7 @@ help people browse their copies without changing the versioned owner journal.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterable
 from pathlib import Path
 from typing import cast
@@ -185,16 +186,21 @@ def model_summary(
 
 
 def card_summary(
-    card: ModelCardEnvelope, *, metadata: dict[str, JsonValue] | None = None
+    card: ModelCardEnvelope,
+    *,
+    metadata: dict[str, JsonValue] | None = None,
+    selected_files: Iterable[str] | None = None,
 ) -> dict[str, JsonValue]:
-    """Project publisher-provided metadata without fetching or rewriting its card."""
+    """Describe original metadata and listed files, without granting coverage/trust."""
     return model_summary(
         card.card,
         repository=card.artifact.repository,
         artifact_format=card.artifact.format,
         quantization=card.artifact.quantization,
         claims=metadata.get("capability_claims") if metadata else None,
-        selected_files=(file.path for file in card.artifact.bundle.files)
+        selected_files=selected_files
+        if selected_files is not None
+        else (file.path for file in card.artifact.bundle.files)
         if card.artifact.bundle
         else (),
     )
@@ -314,8 +320,38 @@ def copy_metadata(
                 metadata = captured_card_metadata(captured.registry_proof, retained)
                 searchable += " " + identity_json(retained.card).decode()
                 searchable += " " + identity_json(metadata).decode()
-                projected = card_summary(retained, metadata=metadata)
-                # A recognized ecosystem card must not erase common PMF claims.
+                member = next(
+                    item
+                    for item in manifest.members
+                    if item.member_id == manifest.root_member
+                )
+                projected = card_summary(
+                    retained,
+                    metadata=metadata,
+                    selected_files=(file.path for file in member.files),
+                )
+                # Preserve explicit direction for workloads already described
+                # by the retained card. Defaults apply only to added PMF uses.
+                declared = {
+                    re.sub(r"[^a-z0-9]", "", task.casefold())
+                    for task in (
+                        _strings(retained.card.get("tasks"), max_items=None)
+                        + _strings(retained.card.get("pipeline_tag"), max_items=None)
+                    )
+                }
+                additional = capability_details(
+                    {
+                        "tasks": cast(
+                            list[JsonValue],
+                            [
+                                task
+                                for task in manifest.workloads
+                                if re.sub(r"[^a-z0-9]", "", task.casefold())
+                                not in declared
+                            ],
+                        )
+                    }
+                )
                 for field in (
                     "purposes",
                     "feature_ids",
@@ -328,7 +364,7 @@ def copy_metadata(
                         list[JsonValue],
                         list(
                             dict.fromkeys(
-                                _strings(summary.get(field), max_items=None)
+                                _strings(additional.get(field), max_items=None)
                                 + _strings(projected.get(field), max_items=None)
                             )
                         ),
