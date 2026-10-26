@@ -169,6 +169,25 @@ def capability_details(
         ):
             add(("sound-generate",), ins, outs)
 
+    declared_inputs = [
+        item for item in _strings(body.get("input_modalities")) if item in _MODALITIES
+    ]
+    declared_outputs = [
+        item for item in _strings(body.get("output_modalities")) if item in _MODALITIES
+    ]
+    video = body.get("video")
+    limits = video.get("reference_limits") if isinstance(video, dict) else None
+    reference_inputs = ["text"]
+    if isinstance(limits, dict):
+        for key, modality in (
+            ("max_images", "image"),
+            ("max_videos", "video"),
+            ("max_audio_clips", "audio"),
+        ):
+            maximum = limits.get(key)
+            if type(maximum) is int and maximum > 0:
+                reference_inputs.append(modality)
+
     for declaration in tasks + _strings(body.get("capabilities")):
         normalized = _token(declaration)
         # "text" is also a coarse modality/compatibility flag on embedding and
@@ -181,25 +200,14 @@ def capability_details(
         ):
             add(("text",))
         else:
-            task_inputs = {
+            task_inputs = declared_inputs or {
                 "imagetovideo": ["image", "text"],
-                "referencetovideo": ["image", "video", "audio", "text"],
+                "referencetovideo": reference_inputs,
             }.get(normalized)
-            add(_ALIASES.get(normalized, ()), task_inputs)
+            add(_ALIASES.get(normalized, ()), task_inputs, declared_outputs)
     if isinstance(body.get("vision"), dict) and body["vision"]:
         add(("vision",))
-    direction(
-        [
-            item
-            for item in _strings(body.get("input_modalities"))
-            if item in _MODALITIES
-        ],
-        [
-            item
-            for item in _strings(body.get("output_modalities"))
-            if item in _MODALITIES
-        ],
-    )
+    direction(declared_inputs, declared_outputs, tuple(features))
 
     own_claims = body.get("capability_claims")
     captured = [
@@ -264,7 +272,15 @@ def capability_details(
             else []
         )
         if (
-            "vision" in names
+            (
+                "vision" in names
+                or (
+                    scope == "model"
+                    and source == "upstream_structured"
+                    and "image" in ins
+                    and "text" in outs
+                )
+            )
             and companions
             and selected is not None
             and any(path not in selected for path in companions)

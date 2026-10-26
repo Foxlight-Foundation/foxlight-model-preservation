@@ -239,3 +239,68 @@ def test_selected_projector_presence_is_a_file_map_fact_not_a_trust_or_runtime_g
         "vision-companion-unlisted",
         "vision-files-unconfirmed",
     }
+
+
+@pytest.mark.parametrize(
+    ("limits", "expected"),
+    [
+        ({"max_images": 2, "max_videos": 0, "max_audio_clips": 0}, ["text", "image"]),
+        ({"max_videos": 1, "max_audio_clips": 1}, ["text", "video", "audio"]),
+        ({"max_images": False, "max_videos": -1}, ["text"]),
+        (None, ["text"]),
+    ],
+)
+def test_reference_video_lists_only_explicitly_supported_reference_types(
+    limits, expected
+):
+    details = capability_details(
+        {"tasks": ["ReferenceToVideo"], "video": {"reference_limits": limits}}
+    )
+    assert details["input_modalities"] == expected
+    assert details["purposes"] == ["video"]
+
+
+@pytest.mark.parametrize(
+    ("task", "inputs", "outputs", "feature", "absent"),
+    [
+        ("ImageToImage", ["image", "text"], ["image"], "image-edit", "image-generate"),
+        ("TextToSpeech", ["text"], ["audio"], "speech-synthesize", "sound-generate"),
+    ],
+)
+def test_explicit_card_direction_keeps_known_task_distinctions(
+    task, inputs, outputs, feature, absent
+):
+    details = capability_details(
+        {"tasks": [task], "input_modalities": inputs, "output_modalities": outputs}
+    )
+    assert feature in details["feature_ids"]
+    assert absent not in details["feature_ids"]
+
+
+def test_reference_video_respects_explicit_portable_modalities_without_skulk_limits():
+    details = capability_details(
+        {
+            "tasks": ["ReferenceToVideo"],
+            "input_modalities": ["image"],
+            "output_modalities": ["video"],
+        }
+    )
+    assert details["input_modalities"] == ["image"]
+    assert details["output_modalities"] == ["video"]
+
+
+def test_direction_derived_vision_keeps_unlisted_companion_warning():
+    details = capability_details(
+        {},
+        claims=[
+            claim(
+                "future.example",
+                inputs=("image",),
+                outputs=("text",),
+                details={"companion_files": ["mmproj.gguf"]},
+            )
+        ],
+        selected_files=("model.gguf",),
+    )
+    assert details["feature_ids"] == ["vision"]
+    assert details["artifact_notes"] == ["vision-companion-unlisted"]
