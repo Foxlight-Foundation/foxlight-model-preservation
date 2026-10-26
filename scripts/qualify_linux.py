@@ -54,6 +54,7 @@ def qualify_cli(root: Path) -> dict[str, object]:
 
     command(["/usr/bin/model-preserve", "--help"])
     command(["/usr/bin/foxlight-sovereign", "--help"])
+    command(["/usr/bin/xdg-open", "--version"])
     command(
         [
             str(RESOURCES / "python/bin/python3"),
@@ -240,11 +241,20 @@ def qualify_gui(root: Path) -> dict[str, object]:
                 except (OSError, KeyError):
                     continue
             require(sandboxed, "native WebKit namespace/seccomp sandbox not observed")
+            # Accessibility can appear before the compositor paints its first
+            # frame. Require actual visible pixels, not only a populated tree.
+            time.sleep(2)
             screen = Gdk.get_default_root_window()
             image = Gdk.pixbuf_get_from_window(
                 screen, 0, 0, screen.get_width(), screen.get_height()
             )
             image.savev(str(root / "native-first-launch.png"), "png", [], [])
+            pixels = bytes(image.get_pixels())
+            colors = {
+                pixels[index : index + 3]
+                for index in range(0, len(pixels) - 3, image.get_n_channels())
+            }
+            require(len(colors) > 32, "native interface remained visually blank")
             require(action("Open recovery kit"), "native file chooser control missing")
             canceled = False
             deadline = time.monotonic() + 20

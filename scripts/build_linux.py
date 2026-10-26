@@ -243,7 +243,7 @@ def main() -> None:
         f"Architecture: {args.architecture}\n"
         "Maintainer: Foxlight Foundation\nSection: utils\nPriority: optional\n"
         "Depends: apparmor (>= 4.0), python3 (>= 3.11), python3-gi, gir1.2-gtk-3.0, "
-        "gir1.2-webkit2-4.1, ca-certificates, libc6 (>= 2.35), "
+        "gir1.2-webkit2-4.1, xdg-utils, ca-certificates, libc6 (>= 2.35), "
         "libgcc-s1, libstdc++6\n"
         f"Installed-Size: {(size + 1023) // 1024}\n"
         "Homepage: https://github.com/Foxlight-Foundation/foxlight-model-preservation\n"
