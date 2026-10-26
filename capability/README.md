@@ -5,13 +5,16 @@ everyday use, and Activity through Skulk Core's durable preservation host. It
 uses local HTTP; its optional managed adapter uses the capability authoring SDK. It includes no Skulk imports,
 private owner code, signing keys, verifier, artifact transfer or byte worker.
 
-The optional **Sovereign** source preview adds an independent owner through
+The optional **Sovereign** independent mode adds a local owner through
 `foxlight-sovereign` with the public core installed. Source builds use the `desktop` extra;
 v2 public installation archives provide the hash-locked
 [`requirements-desktop.lock` profile](../docs/installation.md#select-the-independent-desktop-profile). It supplies built-in signed registry browsing, private PMF preservation,
-recovery kits and file restore without Core or the managed SDK. Its native Mac
+recovery kits and file restore without Core or the managed SDK. Library 0.17
+also follows independently reviewed sources, updates their signed listings,
+searches offline and preserves exact external captures after a separate model-key
+decision. See [source following and trust](../docs/sovereign-desktop.md#follow-independent-sources). Its native Mac
 shell bundles both public packages and Python. See the [independent desktop
-guide](../docs/sovereign-desktop.md) for behavior and source-preview distribution
+guide](../docs/sovereign-desktop.md) for behavior and native distribution
 limits. The existing `foxlight-preservation-library` launcher and managed entry
 point retain their Core adapter. Neither mode starts sharing on launch.
 
@@ -348,11 +351,11 @@ Core on the same model-store host. Its wheel includes the interface; Node.js,
 Skulk's Python package and the managed SDK are not installation dependencies.
 
 ```sh
-uv tool install https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.15.0/foxlight_preservation_library-0.15.0-py3-none-any.whl
+uv tool install https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.17.0/foxlight_preservation_library-0.17.0-py3-none-any.whl
 foxlight-preservation-library
 ```
 
-The 0.15.0 pre-release includes persistent mirror controls, PMF, followed sources, peer receiving/native setup
+The 0.17.0 pre-release includes persistent mirror controls, PMF, followed sources, peer receiving/native setup
 and one-file sharing, plus explicit I2P source/receiving controls. For exact dependency versions and offline retention, use
 the [hash-locked installation archive](../docs/installation.md) instead of an
 unconstrained tool install. [Verify the release](../docs/releases.md) before

@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+## 0.22.0
+
+- Follow independently reviewed HTTP(S) source bootstraps and offline caches from
+  the independent local owner. Keep explicit authenticated updates, local search,
+  model-metadata inspection and copy-scoped key acceptance separate.
+- Preserve complete source-fed models and companions into PMF, pinning the
+  original signed wrapper and reviewed mirror routes before any object fetch.
+  Keep durable cancellation/history and no automatic network replay or sharing.
+- Retain public original-capture key candidates, thresholds and revocations in
+  the optional `foxlight.preservation-source-keys.v1` PMF profile. Default
+  conversion identities remain unchanged; old generic PMF readers preserve the
+  optional record. Reverse conversion still requires independent original trust.
+- Add `pmf-import-preservation --retain-source-keys` and preserve the candidate
+  record in a reverse-conversion sidecar. Never turn embedded keys into authority.
+- Add relocatable bundled Mac commands and a separate final-container verification
+  and attestation publication lane. Python releases and recipes do not themselves
+  publish a signed native app. Existing archive/kit identities remain unchanged.
+- New source job kinds require the updated independent owner for Activity history.
+  Older owners refuse unknown journal records; this does not invalidate portable
+  archives or authorize resetting local state during a downgrade.
+
 ## 0.21.0
 
 - Add the independent Sovereign local owner: authenticated preset discovery,

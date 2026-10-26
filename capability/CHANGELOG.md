@@ -4,6 +4,22 @@ Skulk Library is versioned separately from the portable core. Releases are
 tagged `library-v*`; versions without a tag are source previews installed from
 `main` (see [README](README.md)).
 
+## 0.17.0
+
+- Add independent source/cache review, authenticated updates, offline attributed
+  search and signed model-detail inspection in Sovereign's Find models area.
+- Require a separate original capture-key decision before Download & preserve.
+  Keep source-update, metadata and payload connection permissions separate; no
+  new serving, router, runtime execution or global key enrollment starts.
+- Preserve complete companion closure, original envelopes/cards and public
+  source-key candidates through private PMF custody, recovery kits and restore.
+- Fence delayed source responses after membership changes and dismissal. Keep
+  newer navigation and trust decisions authoritative while durable jobs persist.
+- Apply the supplied Sovereign branding to the independent app and Skulk Library.
+  Include native icon assets in the Mac recipe; native public delivery is separate.
+- Pair the independent desktop profile with core 0.22.0. Keep the existing
+  Core-backed and managed interfaces with their separate compatible Core pin.
+
 ## 0.16.0
 
 - Add independent `foxlight-sovereign` with Find models, Library and Activity.
