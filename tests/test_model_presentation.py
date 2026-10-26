@@ -97,7 +97,9 @@ def test_model_details_survive_restart_without_journal_or_object_changes(
     details = copy_summary(
         store,
         saved["manifest_id"],
-        TrustProfile.model_validate_json(identity_json(saved["trust"])),
+        TrustProfile.model_validate_json(
+            identity_json(json.loads(journal)["copies"][0]["trust"])
+        ),
     )
     if len(description) < 600:
         assert details["description"] == description
@@ -310,6 +312,113 @@ def test_oversized_descriptor_does_not_prevent_library_actions(tmp_path):
         assert found["results"][0]["details"]["metadata_status"] == "unavailable"
         assert found["results"][0]["copy_id"] == identifier
     finally:
+        owner.close()
+
+
+def test_long_valid_revocation_history_stays_in_journal_not_browsing(tmp_path):
+    import base64
+    from pathlib import Path
+
+    from foxlight_model_preservation.local_host.owner import Copy, Journal
+
+    vector = json.loads(
+        (Path(__file__).parents[1] / "examples/conformance/pmf-v0.1.json").read_bytes()
+    )
+    trust_body = {
+        **vector["trust"],
+        "revoked_keys": [f"ed25519:{index:064x}" for index in range(300)],
+    }
+    trust = TrustProfile.model_validate_json(json.dumps(trust_body))
+    identifier = vector["manifest_id"]
+    home = tmp_path / "owner"
+    owner = LocalOwner(home)
+    owner.close()
+    manifest = home / "copies" / identifier / "manifests" / (identifier + ".json")
+    manifest.parent.mkdir(parents=True)
+    manifest.write_bytes(base64.b64decode(vector["envelope_base64"]))
+    copy = Copy(
+        copy_id=identifier,
+        manifest_id=identifier,
+        name="Imported offline model",
+        size_bytes=1,
+        member_count=1,
+        trust=trust,
+    )
+    (home / "journal.json").write_bytes(
+        Journal(copies=(copy,)).model_dump_json().encode()
+    )
+    owner = LocalOwner(home)
+    before = (home / "journal.json").read_bytes()
+    try:
+        assert len(json.dumps(copy.model_dump(mode="json"))) > 16_000
+        shell = owner.read()
+        assert len(json.dumps(shell)) < 65536
+        assert "trust" not in shell["copies"][0]
+        result = owner.control("copy-search", {})
+        assert (
+            result["results"][0]["details"]["description"]
+            == vector["manifest"]["annotations"]["description"]
+        )
+        assert "trust" not in result["results"][0]
+        assert (home / "journal.json").read_bytes() == before
+        assert json.loads(before)["copies"][0]["trust"] == trust_body
+    finally:
+        owner.close()
+
+
+def test_child_verification_progress_is_visible_and_root_cancel_still_stops_it(
+    tmp_path, monkeypatch
+):
+    import threading
+
+    from foxlight_model_preservation.local_host import owner as module
+
+    catalog, repo, data = accepted_catalog(tmp_path)
+
+    def download(repository, revision, file, destination, control, **kwargs):
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(data)
+
+    monkeypatch.setattr(module, "download_file", download)
+    owner = LocalOwner(tmp_path / "owner", catalog=catalog)
+    release, entered = threading.Event(), threading.Event()
+    try:
+        plan = owner.control(
+            "plan",
+            {
+                "kind": "receive",
+                "catalog_id": catalog.search()["catalog_id"],
+                "card_id": repo.card.card_id,
+            },
+        )
+        assert finish(owner, submit(owner, plan))["state"] == "succeeded"
+        copy = owner.read()["copies"][0]
+        real_control = module.OperationControl
+
+        def hold_child_progress(observer):
+            def observe(snapshot):
+                observer(snapshot)
+                if snapshot.stage == "checking" and not entered.is_set():
+                    entered.set()
+                    assert release.wait(5)
+
+            return real_control(observe)
+
+        monkeypatch.setattr(module, "OperationControl", hold_child_progress)
+        plan = owner.control("plan", {"kind": "kit_export", "copy_id": copy["copy_id"]})
+        job = submit(owner, plan)
+        assert entered.wait(5)
+        visible = next(
+            row for row in owner.read()["jobs"] if row["job_id"] == job["job_id"]
+        )
+        assert visible["stage"] == "checking"
+        assert owner._controls[job["job_id"]].progress.stage == "starting"
+        owner.control("cancel", {"job_id": job["job_id"]})
+        release.set()
+        assert finish(owner, job)["state"] == "cancelled"
+        assert owner.read()["copies"][0]["manifest_id"] == copy["manifest_id"]
+    finally:
+        release.set()
         owner.close()
 
 

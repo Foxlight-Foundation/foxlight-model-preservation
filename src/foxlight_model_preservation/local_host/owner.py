@@ -25,7 +25,7 @@ from ..archives import verify_archive
 from ..cards import ArtifactFile, ModelCardEnvelope, identity_json
 from ..kits import export_kit, import_kit, inspect_kit, read_kit_envelope
 from ..models import Manifest, PreservationError, Record, TrustProfile
-from ..operations import OperationControl, failure_code
+from ..operations import OperationControl, Progress, failure_code
 from ..pmf import restore_pmf
 from ..pmf_models import PMFManifest
 from ..pmf_preservation import import_preservation
@@ -119,6 +119,7 @@ class LocalOwner:
                 max_workers=1, thread_name_prefix="sovereign"
             )
             self._controls: dict[str, OperationControl] = {}
+            self._progress: dict[str, Progress] = {}
             self._summaries: dict[str, dict[str, JsonValue]] = {}
             self._closed = False
             try:
@@ -169,7 +170,7 @@ class LocalOwner:
         self._stack.close()
 
     def read(self, offset: int = 0) -> dict[str, JsonValue]:
-        """Read safe receipts and public capture keys; no signing material or paths."""
+        """Read compact receipts; paths and complete trust history stay private."""
         with self._lock:
             self._check()
             if not 0 <= offset <= 2**31:
@@ -195,13 +196,11 @@ class LocalOwner:
                 [
                     {
                         **item.model_dump(mode="json"),
-                        "stage": self._controls[item.job_id].progress.stage
-                        if item.job_id in self._controls
+                        "stage": self._progress[item.job_id].stage
+                        if item.job_id in self._progress
                         else item.state,
-                        "bytes_received": self._controls[
-                            item.job_id
-                        ].progress.bytes_received
-                        if item.job_id in self._controls
+                        "bytes_received": self._progress[item.job_id].bytes_received
+                        if item.job_id in self._progress
                         else 0,
                     }
                     for item in selected
@@ -210,7 +209,10 @@ class LocalOwner:
                 byte_limit=32_000,
             )
             copies = metadata_page(
-                (item.model_dump(mode="json") for item in self._journal.copies),
+                (
+                    item.model_dump(mode="json", exclude={"trust"})
+                    for item in self._journal.copies
+                ),
                 byte_limit=16_000,
             )
             return {
@@ -243,7 +245,7 @@ class LocalOwner:
                 summary = {"metadata_status": "unavailable"}
             self._summaries[item.copy_id] = summary
         return {
-            **item.model_dump(mode="json"),
+            **item.model_dump(mode="json", exclude={"trust"}),
             "details": self._summaries[item.copy_id],
         }
 
@@ -729,7 +731,13 @@ class LocalOwner:
             update={"jobs": (*self._journal.jobs, job)}
         )
         self._save()
-        control = OperationControl()
+
+        def observe(snapshot: Progress) -> None:
+            with self._lock:
+                self._progress[job.job_id] = snapshot
+
+        control = OperationControl(observe)
+        self._progress[job.job_id] = control.progress
         self._controls[job.job_id] = control
         self._executor.submit(self._run, job, plan, control)
         return job.model_dump(mode="json")
@@ -819,6 +827,7 @@ class LocalOwner:
         finally:
             with self._lock:
                 self._controls.pop(job.job_id, None)
+                self._progress.pop(job.job_id, None)
 
     def _capture_trust(self) -> TrustProfile:
         with self._lock:

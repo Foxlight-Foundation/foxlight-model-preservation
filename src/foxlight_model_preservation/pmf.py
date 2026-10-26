@@ -227,6 +227,7 @@ def restore_pmf(
                     ("documents/" + item.document_id, item)
                     for item in manifest.documents
                 ]
+                active.phase("copying")
                 for path, file in paths:
                     with open_file(source, object_path(file.sha256)) as origin:
                         with open_file(target, path, write=True) as output:

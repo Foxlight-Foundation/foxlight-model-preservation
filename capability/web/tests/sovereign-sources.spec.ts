@@ -54,3 +54,12 @@ for(const pause of ['follow','plan'])test(`dismissed review stays closed after d
  await page.waitForTimeout(300);
  await expect(page.getByRole('dialog')).toHaveCount(0);expect(started).toBe(0);
 });
+
+
+for(const [state,label] of [['imported','Imported offline listings'],['retained','Saved listings retained']])test(`offline source ${state} has an honest readable status`,async({page})=>{
+ await page.route('**/api/desktop-source-read',route=>route.fulfill({json:{sources:[{...source,freshness:state}]}}));
+ await page.route('**/api/desktop-source-search',route=>route.fulfill({json:{results:[{...model,freshness:state}],total:1,next_offset:null}}));
+ await page.goto('/');await page.getByText('Sources & updates',{exact:true}).click();
+ await expect(page.getByText(label,{exact:true})).toBeVisible();await expect(page.getByText('Status unavailable',{exact:false})).toHaveCount(0);
+ await expect(page.getByRole('heading',{name:model.name,exact:true})).toBeVisible();
+});

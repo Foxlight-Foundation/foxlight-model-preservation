@@ -158,3 +158,15 @@ test('other model sources are one visible jump away without any network enrollme
  await expect(page.getByRole('region',{name:'Independent model sources',exact:true})).toBeFocused();
  expect(effects).toEqual([]);
 });
+
+
+test('hover help stays readable while the pointer crosses to its explanation',async({page})=>{
+ await page.goto('/');const card=page.getByRole('article').filter({has:page.getByRole('heading',{name:copies[0].name,exact:true})});
+ await card.getByText('Verification details',{exact:true}).click();
+ await page.getByRole('heading',{name:'Your Library',exact:true}).click();
+ const help=card.getByRole('button',{name:'About digital fingerprints',exact:true});
+ await help.hover();const tip=page.getByRole('tooltip');await tip.hover();
+ // Outlast the intentional crossing delay while hovering the explanation itself.
+ await page.waitForTimeout(300);await expect(tip).toBeVisible();
+ await page.mouse.move(0,0);await expect(tip).toHaveCount(0);
+});
