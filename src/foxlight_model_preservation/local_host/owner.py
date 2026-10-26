@@ -41,6 +41,7 @@ from ..transfer import TransferPolicy, fetch
 from .catalog import RegistryCatalog
 from .presentation import (
     PURPOSE_WORDS,
+    captured_card_metadata,
     card_summary,
     copy_metadata,
     manifest_summary,
@@ -489,7 +490,9 @@ class LocalOwner:
                             "catalog_id": body["catalog_id"],
                             "card_id": card.card_id,
                             "recipe": recipe.model_dump(mode="json"),
-                            "details": card_summary(card),
+                            "details": card_summary(
+                                card, metadata=captured_card_metadata(proof, card)
+                            ),
                             "historical": historical,
                             "members": [
                                 item.origin_repository for item in recipe.members

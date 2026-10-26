@@ -6,6 +6,21 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+## 0.19.0
+
+- Show readable uses, declared inputs and outputs in Find, Library and shared
+  Core-host model information. Image understanding appears alongside text use;
+  video understanding, video generation, speech directions and document-search
+  models remain distinct. Older hosts keep task-based descriptions.
+- Explain unlisted image companions and incomplete file-version claims without
+  treating descriptions, automated interpretations or repository inventories as
+  runtime qualification or verified download completeness.
+- Keep additional automated interpretations in attributed, unverified notes;
+  main capability labels use declared cards and structured source evidence.
+- Preserve the source of capability information and unknown metadata. Pair the
+  independent desktop profile with public core 0.24.0; native packaging and Core
+  host adoption remain separate from this Python/UI release.
+
 ## 0.18.0
 
 - Render optional Core-host card descriptions and saved-copy metadata in Library;

@@ -196,3 +196,10 @@ CLI's `inspect-evidence`, it does not read stored object bytes. Call
 `storage.verify_store` first. These values are reports, not transferable runtime
 authorization tokens. The receiver must derive decisions from verified input,
 not trust a serialized report supplied by a peer.
+
+The [Library's model descriptions](sovereign-desktop.md#model-information) are
+optional display projections of those original documents. They distinguish
+declared model uses and input/output types from selected-file coverage and
+runtime qualification. Captured automated interpretations stay attributed and
+do not supply primary capability labels. Reading a description grants no trust
+and never rewrites a card, proof or archive identity.

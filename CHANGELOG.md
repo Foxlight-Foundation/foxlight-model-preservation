@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 0.24.0
+
+- Describe model uses and input/output direction from complete captured tasks,
+  structured capability claims and modalities, including image-text-to-text,
+  reasoning and video understanding. Do not infer capabilities from model names
+  or turn text compatibility flags on embedding models into chat support.
+- Include the exact selected card’s signed-catalog sidecar in local Find/review
+  and saved-copy search. Retain claim source and selected-file limitations; a
+  repository projector inventory is not proof it is in a selected download.
+- Read original retained-card documents up to the existing 8 MiB metadata limit
+  for optional descriptions, accommodating normal publication proofs above the
+  former 512 KiB preview limit. Keep 1,536-byte display summaries, complete
+  original objects, archive identities, trust checks and owner journals unchanged.
+
 - Target native Mac build 4 at the attested core 0.23 / Library 0.18 cohort,
   including the human-centered browsing, metadata and recovery interface. Native
   signing, notarization, installation and public final-container publication
