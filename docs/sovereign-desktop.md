@@ -13,9 +13,10 @@ and its broader installed qualification remain separate from those candidates.
 ## Model information
 
 Core 0.24 / Library 0.19 describe model uses from captured tasks, capabilities,
-pipeline tags, structured source claims and declared input/output types. Native
-build 4 still pins the earlier core 0.23 / Library 0.18 cohort; Python releases
-and source changes do not silently replace an installed native app.
+pipeline tags, structured source claims and declared input/output types. The native
+build 5 recipe pins that same authenticated public cohort. Native signing,
+notarization, installation and public final-container publication remain
+separate checks; Python releases do not silently replace an installed app.
 
 Find accepts everyday terms such as **writing**, **images**, **voice** or a model
 name. **What would you like to do?** filters declared uses. Matching descriptions
