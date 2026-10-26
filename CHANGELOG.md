@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.23.0
+
 - Expose the bounded pure model metadata projection for hosts with installed cards
   that lack portable envelopes or pinned revisions. No card identity or trust is
   manufactured, and original metadata remains unchanged.

@@ -351,11 +351,11 @@ Core on the same model-store host. Its wheel includes the interface; Node.js,
 Skulk's Python package and the managed SDK are not installation dependencies.
 
 ```sh
-uv tool install https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.17.0/foxlight_preservation_library-0.17.0-py3-none-any.whl
+uv tool install https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.18.0/foxlight_preservation_library-0.18.0-py3-none-any.whl
 foxlight-preservation-library
 ```
 
-The 0.17.0 pre-release includes persistent mirror controls, PMF, followed sources, peer receiving/native setup
+The 0.18.0 pre-release includes persistent mirror controls, PMF, followed sources, peer receiving/native setup
 and one-file sharing, plus explicit I2P source/receiving controls. For exact dependency versions and offline retention, use
 the [hash-locked installation archive](../docs/installation.md) instead of an
 unconstrained tool install. [Verify the release](../docs/releases.md) before
