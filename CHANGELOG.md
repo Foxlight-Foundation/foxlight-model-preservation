@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Target native Mac build 5 at the attested core 0.24 / Library 0.19 cohort,
+  including multimodal descriptions, declared input/output direction and
+  selected-file caveats. Native signing, installation and publication remain
+  separate from this recipe update.
+
 ## 0.24.0
 
 - Describe model uses and input/output direction from complete captured tasks,
