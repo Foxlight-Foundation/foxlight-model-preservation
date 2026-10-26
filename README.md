@@ -20,8 +20,10 @@ The [independent Sovereign Library](docs/sovereign-desktop.md)
 adds built-in signed catalog browsing, private download/preservation and offline
 kit recovery without Skulk. The public Library 0.16 installation archive includes
 both public packages.
-The Mac source preview bundles its own runtime; notarized Mac/APT distribution
-remains separate.
+The Mac app bundles its own runtime. Its separate [native release lane and
+verification guide](docs/macos-distribution.md#public-download-verification)
+cover notarized downloads; merging a recipe alone does not publish a release.
+Linux/APT distribution remains separate.
 
 For the independent interface, authenticate and extract the
 [Library 0.16 archive](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/library-v0.16.0),

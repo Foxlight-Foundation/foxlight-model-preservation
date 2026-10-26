@@ -6,10 +6,57 @@ discovery, private preservation and recovery. Recipients do not install Python,
 uv, Skulk, a managed SDK or a source checkout. It starts no sharing, router or
 automatic model download. Linux/APT distribution is a separate delivery.
 
-This recipe and its CI produce an **ad hoc candidate**, not an automatically
-published notarized download. Developer ID signing, Apple notarization and an
-installed-app journey are separate checks. A locally passing Gatekeeper check
-does not establish clean-host acceptance, model compatibility or anonymity.
+The build recipe and its CI produce an **ad hoc candidate**. The separate
+[native release workflow](../.github/workflows/macos-release.yml) can verify and
+publish reviewed Developer ID signed, notarized final containers without
+rebuilding or signing them. Developer ID signing, Apple notarization and an
+installed-app journey remain separate checks. A locally passing Gatekeeper
+check does not establish clean-host acceptance, model compatibility or anonymity.
+
+## Public download verification
+
+Native releases use a separate `sovereign-macos-vVERSION-buildN` pre-release.
+The workflow is explicit: a reviewed recipe alone does not mean its release has
+been published. Download the DMG or ZIP and the neighboring `SHA256SUMS`,
+`native-release.json`, `verification.json` and
+`native-verification.sigstore.json` from the public GitHub release. Check the
+download against its checksum, then authenticate it with GitHub CLI:
+
+```sh
+TAG=sovereign-macos-v0.1.0-build2
+FILE=Sovereign-0.1.0-macos-arm64.dmg
+shasum -a 256 "$FILE"  # compare the corresponding line in SHA256SUMS
+gh attestation verify "$FILE" \
+  --repo Foxlight-Foundation/foxlight-model-preservation \
+  --signer-workflow Foxlight-Foundation/foxlight-model-preservation/.github/workflows/macos-release.yml \
+  --source-ref "refs/tags/$TAG" \
+  --predicate-type https://foxlight.ai/attestations/macos-verification/v1 \
+  --bundle native-verification.sigstore.json --deny-self-hosted-runners
+```
+
+Repeat for the ZIP if you choose it, and for the manifest, predicate and checksum
+file. Use `--source-digest VERIFIED_PUBLICATION_COMMIT` to pin the verifier
+revision independently. This differs from `native-release.json`'s older
+`source_revision`, which identifies the already-built app. This custom predicate
+asserts **verification of existing files**, not native build provenance. It
+records the exact host, performed checks and qualification limits; inspect those
+claims along with the [software trust limits](releases.md#what-a-pass-establishes).
+Retain the bundle and trusted roots for [offline verification](releases.md#keep-offline-evidence).
+
+For Apple silicon, open the verified DMG and drag **Sovereign** to
+**Applications**, then open it normally. The ZIP contains the same signed app.
+Apple checks its Developer ID and notarization. First launch opens the independent
+Library with public model listings. Search, review a model's complete storage
+requirements, and choose preservation; no model downloads or sharing begin merely
+by opening the app. A retained recovery kit can be opened and restored without
+Skulk or the original registry. A new capture key still requires explicit trust
+acceptance; software signing never grants that model authority.
+
+The build 2 manifest pins the final DMG/ZIP, Developer ID team `ZP9J3449GF` and
+certificate fingerprint `A148825F0E5B1F0F29C7A314129AB6D090EF9FF5`.
+Its declared minimum is macOS 13; actual GUI evidence is macOS 26.6.2, with
+synthetic offline CLI coverage on macOS 15 and 26.6.2. Full OS-range, clean-host,
+real-model and public-network privacy qualification are separate open gates.
 
 ## Build without a signing key
 

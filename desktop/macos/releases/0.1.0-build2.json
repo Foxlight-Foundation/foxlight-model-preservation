@@ -1,0 +1,36 @@
+{
+  "source_revision": "03bac586e707338d98f078a1a941733808ce71dd",
+  "team": "ZP9J3449GF",
+  "certificate_sha1": "A148825F0E5B1F0F29C7A314129AB6D090EF9FF5",
+  "app_codedirectory_sha256": "bc0198cf9ab5946a345d388a0200a10cc839d4a99a56302e6968a6fae8df0165",
+  "inputs": {
+    "architecture": "arm64",
+    "build_number": "2",
+    "library": {
+      "sha256": "1c10e6d4bce0a8b02a8658a17ff83d69457e02bbc370b2ec81af1299b91d2353",
+      "source_revision": "a7b33b92640750dd9aad10e2d8cc8f5248e4d716",
+      "url": "https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.16.0/foxlight-preservation-library-0.16.0-install.zip"
+    },
+    "minimum_macos": "13.0",
+    "python": {
+      "sha256": "0a1956c23fcc2a800fc5ffe61632dbade3d8e1b4ab94aeb0cc47e028892cac97",
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.13.13%2B20260408-aarch64-apple-darwin-install_only_stripped.tar.gz"
+    },
+    "schema_version": "sovereign.macos-inputs.v1",
+    "version": "0.1.0"
+  },
+  "artifacts": {
+    "Sovereign-0.1.0-macos-arm64.dmg": "06220c81e7885c1c7f89925bad12c0c4bb18e8651c91478a0541b028e315f5b8",
+    "Sovereign-0.1.0-macos-arm64.zip": "89d6f126ab49e46a2a422ff676649b1619f9664c4b2ed563e6d9fefdee88d904"
+  },
+  "app_notarization": "098472e7-ccc6-4fc3-8d12-fbb3592a1d7d",
+  "dmg_notarization": "9effacca-8616-467e-b1bb-77429d2828cb",
+  "schema_version": "sovereign.macos-publication.v1",
+  "tag": "sovereign-macos-v0.1.0-build2",
+  "predicate_type": "https://foxlight.ai/attestations/macos-verification/v1",
+  "qualification_limits": [
+    "Apple silicon; installed GUI on macOS 26.6.2 and offline CLI on macOS 15/26.6.2.",
+    "Declared minimum macOS 13 is not full OS-range qualification.",
+    "Synthetic PMF/complete recovery kits; no full real-model, inference, clean-host or public-network privacy qualification."
+  ]
+}
