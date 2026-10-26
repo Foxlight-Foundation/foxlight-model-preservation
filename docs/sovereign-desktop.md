@@ -1,10 +1,10 @@
-# Independent Sovereign Library (source preview)
+# Independent Sovereign Library
 
 Sovereign can browse the public model catalog, privately preserve a supported
 exact model selection, save a portable recovery kit and restore its files without
 Skulk Core, a managed capability SDK, a GPU or a hosted account. The native macOS
-shell uses the same Library interface as the public local launcher. This source
-preview is not a published notarized Mac application or an APT release.
+shell uses the same Library interface as the public local launcher. The public Python installation archive provides this interface; signed native
+Mac and APT releases have separate publication and qualification gates.
 
 ## Everyday use
 
@@ -43,10 +43,10 @@ Unknown card data and source documents remain opaque and are preserved.
 
 ### Follow independent sources
 
-This source-preview interface requires matching core **0.22.0** and Library
+Independent source following requires matching core **0.22.0** and Library
 **0.17.0** packages. Earlier published 0.21/0.16 installations retain their
 registry catalog and recovery features; they do not include these new controls.
-Committing this interface does not publish a new signed native application.
+A Python package release does not publish a new signed native application.
 
 In **Find models → Independent sources**, choose **Add source file**. The desktop
 accepts a direct HTTP(S) source bootstrap or exported offline source cache up to
@@ -140,6 +140,10 @@ runtime-owned stores are not modified. Capturing can require several times the
 selected bytes for private working copies; insufficient local space refuses the
 download before object requests. Storage needs normal POSIX rename/fsync/flock
 semantics. No Windows support is claimed.
+
+See [upgrade and downgrade boundaries](installation.md#upgrade-and-downgrade-boundaries)
+before changing the software that owns an existing private home. Archive recovery
+compatibility does not make an older application a reader for new Activity kinds.
 
 ## Reproducible local Mac preview
 

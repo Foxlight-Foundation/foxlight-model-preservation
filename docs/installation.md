@@ -6,7 +6,7 @@ Older releases provide only the Core-backed client. Installing
 software does not follow sources, trust model keys, set up Core, download models,
 install native peer software or grant public serving.
 
-The `v0.21.0` core and `library-v0.16.0` Library pre-releases provide one installation
+The `v0.22.0` core and `library-v0.17.0` Library pre-releases provide one installation
 archive each, plus `release.sigstore.json`, a detached build-attestation bundle.
 Each archive contains its primary wheel, source distribution, `INSTALL.json`, hash-locked
 runtime requirements, `install.py` and inner checksums. Library additionally
@@ -21,15 +21,15 @@ Choose the standalone core, or the optional Library with Python 3.13+:
 
 | Role | Tag | Archive |
 | --- | --- | --- |
-| Standalone | `v0.21.0` | `foxlight-model-preservation-0.21.0-install.zip` |
-| Optional Library | `library-v0.16.0` | `foxlight-preservation-library-0.16.0-install.zip` |
+| Standalone | `v0.22.0` | `foxlight-model-preservation-0.22.0-install.zip` |
+| Optional Library | `library-v0.17.0` | `foxlight-preservation-library-0.17.0-install.zip` |
 
 Download the archive and `release.sigstore.json` from the same chosen release.
 Public asset downloads need no account. For the standalone core:
 
 ```sh
-base=https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/v0.21.0
-curl --fail --location --proto '=https' -O "$base/foxlight-model-preservation-0.21.0-install.zip"
+base=https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/v0.22.0
+curl --fail --location --proto '=https' -O "$base/foxlight-model-preservation-0.22.0-install.zip"
 curl --fail --location --proto '=https' -O "$base/release.sigstore.json"
 ```
 
@@ -39,11 +39,11 @@ authenticated archive hash is another bootstrap path; same-source checksums
 alone do not identify a publisher.
 
 ```sh
-gh attestation verify foxlight-model-preservation-0.21.0-install.zip \
+gh attestation verify foxlight-model-preservation-0.22.0-install.zip \
   --bundle release.sigstore.json \
   --repo Foxlight-Foundation/foxlight-model-preservation \
   --signer-workflow Foxlight-Foundation/foxlight-model-preservation/.github/workflows/release.yml \
-  --source-ref refs/tags/v0.21.0 --deny-self-hosted-runners
+  --source-ref refs/tags/v0.22.0 --deny-self-hosted-runners
 ```
 
 Use the corresponding archive/tag for Library. Pin `--source-digest COMMIT` as
@@ -60,10 +60,10 @@ Use Python 3.11+ for standalone or Python 3.13+ for Library and an authenticated
 binaries separately for offline use; this helper never acquires Python for you.
 
 ```sh
-unzip foxlight-model-preservation-0.21.0-install.zip -d sovereign-install
+unzip foxlight-model-preservation-0.22.0-install.zip -d sovereign-install
 cd sovereign-install
-python3 install.py --directory "$HOME/sovereign-0.21.0"
-"$HOME/sovereign-0.21.0/bin/model-preserve" --help
+python3 install.py --directory "$HOME/sovereign-0.22.0"
+"$HOME/sovereign-0.22.0/bin/model-preserve" --help
 ```
 
 The parent must exist and the target must be new. The helper verifies every
@@ -133,6 +133,23 @@ core wheel. The standalone preservation release remains independently usable.
 This installation path requires an authenticated Python/uv toolchain. It is
 separate from a bundled Mac application, notarization or APT distribution; those
 are not established by a Python installation archive.
+
+## Upgrade and downgrade boundaries
+
+Install a new software cohort into a new environment; keep the previous one and
+verified recovery kits until you accept the update. Stop the existing owner
+before opening its private home with another version. Do not start two writers
+against one home or copy active state as a substitute for a recovery kit.
+
+Core 0.22 / Library 0.17 adds source Activity job kinds. An earlier independent
+owner can refuse that newer journal rather than ignoring or rewriting records.
+An app downgrade is therefore not a supported history reader. Keep the updated
+owner available; never delete or reset its journal to make old software open it.
+Portable model archives and kits have separate format/version contracts and
+remain recoverable with compatible standalone tools. The optional public source
+key profile is preservable by earlier generic PMF readers; an older reverse
+converter can need an update to interpret it. Embedded keys remain candidates,
+not inherited model or registry authority.
 
 ## Retain a wheelhouse and install offline
 
