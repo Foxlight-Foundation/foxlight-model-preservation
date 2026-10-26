@@ -200,12 +200,20 @@ def qualify_gui(root: Path) -> dict[str, object]:
         try:
             deadline = time.monotonic() + 60
             rendered = False
+            bounds = None
             while time.monotonic() < deadline:
                 require(app.poll() is None, "native app exited: " + log.read_text())
                 names = []
                 for node in accessible_nodes():
                     try:
                         names.append(node.name)
+                        if (
+                            node.name == "Sovereign"
+                            and node.getRole() == pyatspi.ROLE_FRAME
+                        ):
+                            bounds = node.queryComponent().getExtents(
+                                pyatspi.DESKTOP_COORDS
+                            )
                     except (GLib.Error, RuntimeError):
                         pass
                 if any("Find a model. Keep your own copy." in name for name in names):
@@ -241,20 +249,27 @@ def qualify_gui(root: Path) -> dict[str, object]:
                 except (OSError, KeyError):
                     continue
             require(sandboxed, "native WebKit namespace/seccomp sandbox not observed")
-            # Accessibility can appear before the compositor paints its first
-            # frame. Require actual visible pixels, not only a populated tree.
-            time.sleep(2)
+            # Accessibility can precede painting. A background gradient alone
+            # also has many colors: require dark foreground text inside the
+            # actual app window, excluding the black Xvfb desktop border.
+            require(bounds is not None, "native window bounds unavailable")
             screen = Gdk.get_default_root_window()
-            image = Gdk.pixbuf_get_from_window(
-                screen, 0, 0, screen.get_width(), screen.get_height()
-            )
+            deadline = time.monotonic() + 20
+            dark = 0
+            while time.monotonic() < deadline:
+                image = Gdk.pixbuf_get_from_window(
+                    screen, bounds.x, bounds.y, bounds.width, bounds.height
+                )
+                pixels = bytes(image.get_pixels())
+                dark = sum(
+                    max(pixels[index : index + 3]) < 140
+                    for index in range(0, len(pixels) - 3, image.get_n_channels())
+                )
+                if dark > 1000:
+                    break
+                time.sleep(0.25)
             image.savev(str(root / "native-first-launch.png"), "png", [], [])
-            pixels = bytes(image.get_pixels())
-            colors = {
-                pixels[index : index + 3]
-                for index in range(0, len(pixels) - 3, image.get_n_channels())
-            }
-            require(len(colors) > 32, "native interface remained visually blank")
+            require(dark > 1000, "native interface remained visually blank")
             require(action("Open recovery kit"), "native file chooser control missing")
             canceled = False
             deadline = time.monotonic() + 20

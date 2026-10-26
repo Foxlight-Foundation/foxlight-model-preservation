@@ -150,6 +150,11 @@ def main() -> None:
             # Never persist the session ticket or relax TLS.
             context.connect("download-started", self.download)
             self.view = WebKit2.WebView.new_with_context(context)
+            # This metadata/file-management UI needs no GPU. Keep it usable on
+            # software-rendered desktops and avoid partial accelerated frames.
+            self.view.get_settings().set_hardware_acceleration_policy(
+                WebKit2.HardwareAccelerationPolicy.NEVER
+            )
             self.view.connect("decide-policy", self.policy)
             self.view.connect(
                 "permission-request", lambda _, request: request.deny() or True
