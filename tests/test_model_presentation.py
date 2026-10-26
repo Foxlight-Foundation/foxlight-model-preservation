@@ -117,7 +117,7 @@ def test_model_details_survive_restart_without_journal_or_object_changes(
     owner.close()
     restarted = LocalOwner(home)
     try:
-        assert restarted.read()["copies"][0]["details"] == details
+        assert restarted.control("copy-search", {})["results"][0]["details"] == details
         assert restarted.read()["copies"][0]["manifest_id"] == saved["manifest_id"]
     finally:
         restarted.close()
@@ -163,6 +163,154 @@ def test_descriptive_projection_is_bounded_and_does_not_rewrite_the_card():
     assert len(json.dumps(card_summary(card), separators=(",", ":"))) <= 1536
     assert identity_json(card.model_dump(mode="json")) == original
     assert card.card["future_properties"] == value["future_properties"]
+
+
+def test_long_license_metadata_cannot_break_purpose_filtering(tmp_path):
+    catalog, _, _ = accepted_catalog(
+        tmp_path,
+        metadata={
+            "license": {
+                "name": "Apache-2.0",
+                "display_name": "🌱" * 600,
+                "notice": "模型" * 600,
+            },
+        },
+    )
+    found = catalog.search(purpose="chat")
+    assert found["total"] == 1
+    assert found["results"][0]["details"]["purposes"] == ["chat"]
+    assert catalog.search(purpose="video")["total"] == 0
+
+
+def test_full_library_search_and_activity_are_bounded_and_last_copy_restores(
+    tmp_path, monkeypatch
+):
+    import shutil
+
+    from foxlight_model_preservation.local_host.owner import Job, Journal
+
+    catalog, repo, data = accepted_catalog(
+        tmp_path, metadata={"description": "A writing model. " * 35}
+    )
+
+    def download(repository, revision, file, destination, control, **kwargs):
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(data)
+
+    monkeypatch.setattr(
+        "foxlight_model_preservation.local_host.owner.download_file", download
+    )
+    home = tmp_path / "owner"
+    owner = LocalOwner(home, catalog=catalog)
+    plan = owner.control(
+        "plan",
+        {
+            "kind": "receive",
+            "catalog_id": catalog.search()["catalog_id"],
+            "card_id": repo.card.card_id,
+        },
+    )
+    assert finish(owner, submit(owner, plan))["state"] == "succeeded"
+    owner.close()
+    journal = Journal.model_validate_json((home / "journal.json").read_bytes())
+    seed = journal.copies[0]
+    copies = []
+    for index in range(256):
+        identifier = f"{index:064x}"
+        shutil.copytree(home / "copies" / seed.copy_id, home / "copies" / identifier)
+        copies.append(
+            seed.model_copy(update={"copy_id": identifier, "name": f"Copy{index:03d}"})
+        )
+    jobs = tuple(
+        Job(
+            job_id=f"{index:064x}",
+            operation_id=f"operation-{index}",
+            plan_id="a" * 64,
+            kind="receive",
+            state="succeeded",
+            created_at=index,
+            name="模型" * 160,
+        )
+        for index in range(48)
+    )
+    (home / "journal.json").write_bytes(
+        journal.model_copy(update={"copies": tuple(copies), "jobs": jobs})
+        .model_dump_json()
+        .encode()
+    )
+    owner = LocalOwner(home)
+    before = (home / "journal.json").read_bytes()
+    try:
+        page = owner.read()
+        assert page["copy_count"] == 256
+        assert page["copies_next_offset"] is not None
+        assert len(json.dumps(page).encode()) <= 65536
+        # Loading the shell does not parse 256 descriptors or read model weights.
+        assert not owner._summaries
+        offset, seen = 0, []
+        while True:
+            page = owner.control("copy-search", {"offset": offset})
+            assert len(json.dumps(page).encode()) <= 65536
+            assert page["results"]
+            seen.extend(item["copy_id"] for item in page["results"])
+            if page["next_offset"] is None:
+                break
+            offset = page["next_offset"]
+        assert len(seen) == len(set(seen)) == 256
+        offset, seen_jobs = 0, []
+        while True:
+            page = owner.read(offset)
+            assert len(json.dumps(page).encode()) <= 65536
+            seen_jobs.extend(item["job_id"] for item in page["jobs"])
+            if page["next_offset"] is None:
+                break
+            offset = page["next_offset"]
+        assert len(seen_jobs) == len(set(seen_jobs)) == 48
+        assert (
+            owner.control("job-read", {"job_id": jobs[0].job_id})["job_id"]
+            == jobs[0].job_id
+        )
+        found = owner.control("copy-search", {"query": "Copy255", "purpose": "chat"})
+        assert found["total"] == 1
+        assert found["results"][0]["copy_id"] == copies[-1].copy_id
+        assert (home / "journal.json").read_bytes() == before
+        restore = owner.control(
+            "plan", {"kind": "restore", "copy_id": copies[-1].copy_id}
+        )
+        assert finish(owner, submit(owner, restore))["state"] == "succeeded"
+    finally:
+        owner.close()
+
+
+def test_oversized_descriptor_does_not_prevent_library_actions(tmp_path):
+    from foxlight_model_preservation.local_host.owner import Copy, Journal
+
+    owner = LocalOwner(tmp_path / "owner")
+    trust = owner._capture_trust()
+    owner.close()
+    home = tmp_path / "owner"
+    identifier = "a" * 64
+    store = home / "copies" / identifier
+    (store / "manifests").mkdir(parents=True)
+    (store / "manifests" / (identifier + ".json")).write_bytes(b"x" * (512 * 1024 + 1))
+    copy = Copy(
+        copy_id=identifier,
+        manifest_id=identifier,
+        name="Large descriptor",
+        size_bytes=1,
+        member_count=1,
+        trust=trust,
+    )
+    (home / "journal.json").write_bytes(
+        Journal(copies=(copy,)).model_dump_json().encode()
+    )
+    owner = LocalOwner(home)
+    try:
+        found = owner.control("copy-search", {})
+        assert found["results"][0]["details"]["metadata_status"] == "unavailable"
+        assert found["results"][0]["copy_id"] == identifier
+    finally:
+        owner.close()
 
 
 def test_large_descriptions_paginate_inside_the_existing_control_budget(tmp_path):

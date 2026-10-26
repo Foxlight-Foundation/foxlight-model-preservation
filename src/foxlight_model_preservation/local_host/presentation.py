@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Iterable
 from pathlib import Path
 from typing import cast
 
@@ -15,11 +16,34 @@ from pydantic import JsonValue
 
 from ..assurance import load_retained_card
 from ..cards import ModelCardEnvelope
-from ..models import TrustProfile
+from ..models import PreservationError, TrustProfile
 from ..pmf import verify_pmf_manifest
 from ..pmf_models import PMFManifest
 from ..signing import digest
-from ..storage import directory, manifest_path, object_path, open_file, read_metadata
+from ..storage import directory, manifest_path, object_path, open_file
+
+
+def metadata_page(
+    rows: Iterable[dict[str, JsonValue]],
+    *,
+    max_rows: int = 24,
+    byte_limit: int = 58_000,
+) -> list[dict[str, JsonValue]]:
+    """Bound actual JSON wire bytes, leaving space for page metadata and cursors."""
+    page: list[dict[str, JsonValue]] = []
+    used = 0
+    for row in rows:
+        if len(page) >= max_rows:
+            break
+        size = len(json.dumps(row, separators=(",", ":"))) + 1
+        if used + size > byte_limit:
+            if not page:
+                raise PreservationError("metadata_preview_too_large")
+            break
+        page.append(row)
+        used += size
+    return page
+
 
 PURPOSE_WORDS = {
     "chat": "chat writing write email summarize summarise questions conversation text",
@@ -64,9 +88,9 @@ def _bounded(summary: dict[str, JsonValue]) -> dict[str, JsonValue]:
     for key in (
         "metadata_status",
         "metadata_source",
+        "purposes",
         "attribution",
         "license_notice",
-        "purposes",
         "workloads",
         "format",
         "quantization",
@@ -184,9 +208,11 @@ def copy_summary(
     leaves common PMF metadata usable; it does not prevent recovery or grant trust.
     """
     with directory(store) as root:
-        manifest = verify_pmf_manifest(
-            read_metadata(root, manifest_path(manifest_id)), trust, manifest_id
-        )
+        with open_file(root, manifest_path(manifest_id)) as stream:
+            envelope = stream.read(512 * 1024 + 1)
+        if len(envelope) > 512 * 1024:
+            raise PreservationError("metadata_preview_too_large")
+        manifest = verify_pmf_manifest(envelope, trust, manifest_id)
         summary = manifest_summary(manifest)
         for profile in manifest.profiles:
             if (

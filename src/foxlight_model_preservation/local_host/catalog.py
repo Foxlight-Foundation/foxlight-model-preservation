@@ -276,7 +276,7 @@ class RegistryCatalog:
             from .presentation import card_summary, search_words
 
             details = card_summary(card)
-            if purpose and purpose not in cast(list[str], details["purposes"]):
+            if purpose and purpose not in cast(list[str], details.get("purposes", [])):
                 continue
             haystack = (
                 identity_json(card.model_dump(mode="json")).decode()

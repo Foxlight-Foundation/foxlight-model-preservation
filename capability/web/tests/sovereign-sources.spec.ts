@@ -3,6 +3,7 @@ const id='a'.repeat(64),source={source_id:id,name:'Independent source',enabled:t
 const model={manifest_id:id,source_id:id,source_name:source.name,entry_id:'sample',name:'Independent model',summary:'Saved listing',formats:[],workloads:[],freshness:'fresh',has_candidate_keys:true};
 
 test.beforeEach(async({page})=>{
+ await page.route('**/api/desktop-copy-search',route=>route.fulfill({json:{results:[],total:0,stored_total:0,next_offset:null}}));
  await page.route('**/api/library*',route=>route.fulfill({json:{host_kind:'sovereign',copies:[],jobs:[],next_offset:null}}));
  await page.route('**/api/desktop-search',route=>route.fulfill({json:{catalog_id:null,results:[],total:0,next_offset:null}}));
 });

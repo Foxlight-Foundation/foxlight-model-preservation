@@ -7,6 +7,7 @@ const copies=[{copy_id:id,manifest_id:id,name:'My writing model',size_bytes:1024
 const cards=copies.map((copy,index)=>({card_id:'card_'+(index?'b':'a').repeat(52),name:copy.name,workloads:copy.details.workloads,format:copy.details.format,quantization:'',size_bytes:copy.size_bytes,publisher:'example',details:copy.details,download_support:'ready'}));
 
 test.beforeEach(async({page})=>{
+ await page.route('**/api/desktop-copy-search',route=>{const body=route.request().postDataJSON();const found=copies.filter(copy=>(!body.purpose||copy.details.purposes.includes(body.purpose))&&(!body.query||`${copy.name} ${copy.details.description} ${copy.details.purposes.includes('chat')?'email':''}`.toLowerCase().includes(body.query.toLowerCase())));return route.fulfill({json:{results:found,total:found.length,stored_total:copies.length,next_offset:null}});});
  await page.route('**/api/desktop-source-read',route=>route.fulfill({json:{sources:[]}}));
  await page.route('**/api/desktop-source-search',route=>route.fulfill({json:{results:[],total:0,next_offset:null}}));
  await page.route('**/api/library*',route=>route.fulfill({json:{host_kind:'sovereign',copies,jobs:[],uploads:[],next_offset:null}}));
@@ -76,6 +77,7 @@ test('Find uses ordinary purposes without treating file size or a signature as d
 
 test('missing card metadata stays honest and untrusted descriptions render as text',async({page})=>{
  const malicious='<img src="https://unknown.invalid/pixel" onerror="alert(1)">';
+ await page.route('**/api/desktop-copy-search',route=>route.fulfill({json:{results:[{...copies[0],details:{description:malicious,metadata_status:'available'}},{...copies[1],details:{metadata_status:'unavailable'}}],total:2,stored_total:2,next_offset:null}}));
  await page.route('**/api/library*',route=>route.fulfill({json:{host_kind:'sovereign',copies:[{...copies[0],details:{description:malicious,metadata_status:'available'}},{...copies[1],details:{metadata_status:'unavailable'}}],jobs:[],next_offset:null}}));
  await page.goto('/');
  await expect(page.getByText(malicious,{exact:true})).toBeVisible();
@@ -85,6 +87,7 @@ test('missing card metadata stays honest and untrusted descriptions render as te
 });
 
 test('matching file variants share a description but retain their own exact review',async({page})=>{
+ await page.addInitScript(()=>{const request=window.requestAnimationFrame.bind(window),cancel=window.cancelAnimationFrame.bind(window),frames=new Map<number,FrameRequestCallback>();window.requestAnimationFrame=callback=>{const id=request(()=>{});frames.set(id,callback);return id;};window.cancelAnimationFrame=id=>{frames.delete(id);cancel(id);};(window as Window&{testFocusFrames:{count:()=>number;flush:()=>void}}).testFocusFrames={count:()=>frames.size,flush:()=>{const callbacks=[...frames.values()];frames.clear();callbacks.forEach(callback=>callback(performance.now()));}};});
  const versions=[{...cards[0],quantization:'Q4',file_label:'writing-Q4.gguf',details:{...writing,quantization:'Q4'}},{...cards[0],card_id:'card_'+'b'.repeat(52),quantization:'Q8',size_bytes:4096,file_label:'writing-Q8.gguf',details:{...writing,quantization:'Q8'}}];
  let selected:string|undefined;
  await page.route('**/api/desktop-search',route=>route.fulfill({json:{catalog_id:id,results:versions,total:2,next_offset:null}}));
@@ -99,9 +102,31 @@ test('matching file variants share a description but retain their own exact revi
  expect(selected).toBe(versions[1].card_id);
  await expect(page.getByRole('button',{name:'Download & preserve',exact:true})).toBeDisabled();
  const dialog=page.getByRole('dialog'),help=dialog.getByRole('button',{name:'About digital fingerprints',exact:true});
- await help.focus();await expect(page.getByRole('tooltip')).toBeVisible();
+ await expect.poll(()=>page.evaluate(()=>(window as Window&{testFocusFrames:{count:()=>number}}).testFocusFrames.count())).toBeGreaterThan(0);
+ await help.focus();await page.evaluate(()=>(window as Window&{testFocusFrames:{flush:()=>void}}).testFocusFrames.flush());await expect(help).toBeFocused();await expect(page.getByRole('tooltip')).toBeVisible();
  await help.press('Escape');await expect(dialog).toBeVisible();await expect(page.getByRole('tooltip')).toHaveCount(0);
- await help.press('Escape');await expect(dialog).toHaveCount(0);
+ // Hover does not move focus. Escape dismisses the viewport-level help first.
+ await dialog.getByRole('heading',{name:'Download & preserve',exact:true}).focus();
+ await help.hover();await expect(page.getByRole('tooltip')).toBeVisible();
+ const tip=await page.getByRole('tooltip').boundingBox(),viewport=page.viewportSize()!;
+ expect(tip!.x).toBeGreaterThanOrEqual(0);expect(tip!.x+tip!.width).toBeLessThanOrEqual(viewport.width);expect(tip!.y+tip!.height).toBeLessThanOrEqual(viewport.height);
+ await page.keyboard.press('Escape');await expect(dialog).toBeVisible();await expect(page.getByRole('tooltip')).toHaveCount(0);
+ await page.keyboard.press('Escape');await expect(dialog).toHaveCount(0);
+});
+
+test('all saved models remain searchable across size-bounded Library pages',async({page})=>{
+ const offsets:number[]=[];
+ await page.route('**/api/library*',route=>route.fulfill({json:{host_kind:'sovereign',copy_count:256,copies:[copies[0]],jobs:[],next_offset:null}}));
+ await page.route('**/api/desktop-copy-search',route=>{const body=route.request().postDataJSON();offsets.push(body.offset);const filtered=Boolean(body.query);return route.fulfill({json:{results:[filtered?{...copies[1],name:'Copy255'}:copies[0]],total:filtered?1:256,stored_total:256,next_offset:filtered?null:body.offset<26?body.offset+13:null}});});
+ await page.goto('/');
+ await expect(page.getByText('256 matches among 256 saved models',{exact:false})).toBeVisible();
+ await page.getByRole('button',{name:'More saved models',exact:true}).click();await expect.poll(()=>offsets.at(-1)).toBe(13);
+ await page.getByRole('button',{name:'More saved models',exact:true}).click();await expect.poll(()=>offsets.at(-1)).toBe(26);
+ await page.getByRole('button',{name:'Previous saved models',exact:true}).click();await expect.poll(()=>offsets.at(-1)).toBe(13);
+ await page.getByLabel('Search your saved models',{exact:true}).fill('Copy255');
+ await expect(page.getByRole('heading',{name:'Copy255',exact:true})).toBeVisible();await expect.poll(()=>offsets.at(-1)).toBe(0);
+ await expect(page.getByRole('button',{name:'Restore files',exact:true})).toBeVisible();
+ await expect(page.getByText('1 matches among 256 saved models',{exact:false})).toBeVisible();
 });
 
 test('size-bounded catalog pages return to their actual previous offset',async({page})=>{

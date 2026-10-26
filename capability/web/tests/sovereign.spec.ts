@@ -6,10 +6,12 @@ const empty={host_kind:'sovereign',locations:[],models:[],copies:[],jobs:[],next
 test.beforeEach(async({page})=>{
  await page.route('**/api/desktop-source-read',route=>route.fulfill({json:{sources:[]}}));
  await page.route('**/api/desktop-source-search',route=>route.fulfill({json:{results:[],total:0,next_offset:null}}));
+ await page.route('**/api/desktop-copy-search',route=>route.fulfill({json:{results:[],total:0,stored_total:0,next_offset:null}}));
 });
 
 test('returning users start in Library and can release private kit transfers',async({page})=>{
  const copy={copy_id:id,manifest_id:id,name:'My saved model',size_bytes:16,member_count:2};
+ await page.route('**/api/desktop-copy-search',route=>route.fulfill({json:{results:[copy],total:1,stored_total:1,next_offset:null}}));
  let removed=false;
  await page.route('**/api/library*',route=>route.fulfill({json:{...empty,copies:[copy],uploads:removed?[]:[{upload_id:'b'.repeat(32),size_bytes:16,offset:16,complete:true}]}}));
  await page.route('**/api/desktop-search',route=>route.fulfill({json:{catalog_id:null,results:[],total:0,next_offset:null}}));
@@ -84,8 +86,11 @@ test('source authority is not granted by accepting an imported kit key',async({p
 test('saved-copy kit action prepares a download without regranting model trust',async({page})=>{
  let started=false;
  const copy={copy_id:id,manifest_id:id,name:'Kept model',size_bytes:16,member_count:2};
+ await page.route('**/api/desktop-copy-search',route=>route.fulfill({json:{results:[copy],total:1,stored_total:1,next_offset:null}}));
  const job={job_id:id,kind:'kit_export',state:'succeeded',name:copy.name,error_code:null,output:null,copy_id:id};
- await page.route('**/api/library*',route=>route.fulfill({json:{...empty,copies:[copy],jobs:started?[job]:[]}}));
+ // A busy or size-bounded Activity page need not include this exact job.
+ await page.route('**/api/library*',route=>route.fulfill({json:{...empty,copies:[copy],jobs:[]}}));
+ await page.route('**/api/desktop-job-read',route=>{expect(started).toBe(true);expect(route.request().postDataJSON()).toEqual({job_id:id});return route.fulfill({json:job});});
  await page.route('**/api/desktop-search',route=>route.fulfill({json:{catalog_id:null,results:[],total:0,next_offset:null}}));
  await page.route('**/api/desktop-plan',route=>route.fulfill({json:{plan_id:id,kind:'kit_export',name:copy.name,size_bytes:16,member_count:2,expires_at:9999999999}}));
  await page.route('**/api/desktop-start',route=>{started=true;expect(route.request().postDataJSON()).toEqual({plan_id:id,operation_id:expect.any(String),confirmed:true});return route.fulfill({json:job});});

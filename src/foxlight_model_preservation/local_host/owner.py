@@ -39,7 +39,14 @@ from ..signing import (
 from ..storage import atomic_bytes, directory, pack, read_metadata, writer_lock
 from ..transfer import TransferPolicy, fetch
 from .catalog import RegistryCatalog
-from .presentation import PURPOSE_WORDS, card_summary, copy_summary, manifest_summary
+from .presentation import (
+    PURPOSE_WORDS,
+    card_summary,
+    copy_summary,
+    manifest_summary,
+    metadata_page,
+    search_words,
+)
 from .selection import NOTICE, NOTICE_PATH, download_file, registry_recipe
 from .sources import SourceLibrary
 
@@ -184,12 +191,8 @@ class LocalOwner:
                 for name in sorted(os.listdir(source)):
                     if re.fullmatch(r"[0-9a-f]{32}\.json", name):
                         uploads.append(self._upload(name[:-5]))
-            return {
-                "host_kind": "sovereign",
-                "locations": [],
-                "models": [],
-                "copies": [self._copy_view(item) for item in self._journal.copies],
-                "jobs": [
+            jobs = metadata_page(
+                [
                     {
                         **item.model_dump(mode="json"),
                         "stage": self._controls[item.job_id].progress.stage
@@ -203,10 +206,27 @@ class LocalOwner:
                     }
                     for item in selected
                 ],
+                max_rows=48,
+                byte_limit=32_000,
+            )
+            copies = metadata_page(
+                (item.model_dump(mode="json") for item in self._journal.copies),
+                byte_limit=16_000,
+            )
+            return {
+                "host_kind": "sovereign",
+                "locations": [],
+                "models": [],
+                "copies": cast(list[JsonValue], copies),
+                "copy_count": len(self._journal.copies),
+                "copies_next_offset": len(copies)
+                if len(copies) < len(self._journal.copies)
+                else None,
+                "jobs": cast(list[JsonValue], jobs),
                 "uploads": uploads,
                 "active_count": len(self._controls),
-                "next_offset": offset + 48
-                if offset + 48 < len(recent) + len(history)
+                "next_offset": offset + len(jobs)
+                if offset + len(jobs) < len(recent) + len(history)
                 else None,
                 "storage_label": "Sovereign on this device",
             }
@@ -225,6 +245,41 @@ class LocalOwner:
         return {
             **item.model_dump(mode="json"),
             "details": self._summaries[item.copy_id],
+        }
+
+    def _search_copies(
+        self, query: str, purpose: str, offset: int
+    ) -> dict[str, JsonValue]:
+        """Search retained metadata locally with bounded copy pages."""
+        selected = list(self._journal.copies)
+        if query or purpose:
+            terms = query.casefold().split()
+            matched: list[Copy] = []
+            for item in selected:
+                details = cast(dict[str, JsonValue], self._copy_view(item)["details"])
+                categories = details.get("purposes", [])
+                if purpose and (
+                    not isinstance(categories, list) or purpose not in categories
+                ):
+                    continue
+                text = (
+                    item.name
+                    + " "
+                    + identity_json(details).decode()
+                    + " "
+                    + search_words(details)
+                ).casefold()
+                if all(term in text for term in terms):
+                    matched.append(item)
+            selected = matched
+        rows = metadata_page(self._copy_view(item) for item in selected[offset:])
+        return {
+            "results": cast(list[JsonValue], rows),
+            "total": len(selected),
+            "stored_total": len(self._journal.copies),
+            "next_offset": offset + len(rows)
+            if offset + len(rows) < len(selected)
+            else None,
         }
 
     def _history_names(self) -> list[str]:
@@ -317,6 +372,8 @@ class LocalOwner:
         """Validate explicit view controls; never accept arbitrary API forwarding."""
         with self._lock:
             self._check()
+            if action == "job-read" and set(body) == {"job_id"}:
+                return self._job(str(body["job_id"])).model_dump(mode="json")
             if action == "source-read" and not body:
                 return self.sources.read()
             if action == "source-search":
@@ -370,7 +427,7 @@ class LocalOwner:
                         self.sources.http_mirrors(record.selection.mirrors)
                     ),
                 }
-            if action == "search":
+            if action in {"search", "copy-search"}:
                 if (
                     set(body) - {"query", "offset", "purpose"}
                     or not isinstance(body.get("query", ""), str)
@@ -381,6 +438,10 @@ class LocalOwner:
                 offset = body.get("offset", 0)
                 if type(offset) is not int or not 0 <= offset <= 100_000:
                     raise PreservationError("invalid_control")
+                if action == "copy-search":
+                    return self._search_copies(
+                        str(body.get("query", "")), str(body.get("purpose", "")), offset
+                    )
                 return self.catalog.search(
                     str(body.get("query", "")), offset, str(body.get("purpose", ""))
                 )
