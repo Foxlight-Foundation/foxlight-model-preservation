@@ -68,9 +68,19 @@ export function CopyButton({value,label}:{value:string;label:string}) {
   return <button type="button" className="sk-copy" aria-label={copied?`${label} copied`:`Copy ${label}`} title={copied?'Copied':`Copy ${label}`} onClick={()=>{void navigator.clipboard.writeText(value).then(()=>setCopied(true)).catch(()=>setCopied(false));}}><Icon name={copied?'check':'copy'} size={14}/><span className="sk-sr" aria-live="polite">{copied?'Copied':''}</span></button>;
 }
 
-/** Fingerprints, manifest IDs and addresses: JetBrains Mono, wrapped, copyable. */
+/** Explanations work on hover, keyboard focus and touch without a network call. */
+export function Help({label,children}:{label:string;children:ReactNode}) {
+  const id=useId(),[open,setOpen]=useState(false),[position,setPosition]=useState({left:12,top:12});
+  const pinned=useRef(false),container=useRef<HTMLSpanElement>(null);
+  useEffect(()=>{if(!open)return;const outside=(event:PointerEvent)=>{if(event.target instanceof Node&&!container.current?.contains(event.target)){pinned.current=false;setOpen(false);}};document.addEventListener('pointerdown',outside,true);return()=>document.removeEventListener('pointerdown',outside,true);},[open]);
+  const show=(button:HTMLButtonElement)=>{const rect=button.getBoundingClientRect(),width=Math.min(288,window.innerWidth-24);setPosition({left:Math.max(12,Math.min(rect.left,window.innerWidth-width-12)),top:Math.max(12,Math.min(rect.bottom+8,window.innerHeight-232))});setOpen(true);};
+  return <span className="sk-help" ref={container}><button type="button" className="sk-help-button" aria-label={label} aria-describedby={open?id:undefined} aria-expanded={open} onMouseEnter={event=>show(event.currentTarget)} onMouseLeave={event=>{if(!pinned.current&&document.activeElement!==event.currentTarget)setOpen(false);}} onFocus={event=>show(event.currentTarget)} onClick={event=>{if(pinned.current){pinned.current=false;setOpen(false);}else{pinned.current=true;show(event.currentTarget);}}} onBlur={()=>{pinned.current=false;setOpen(false);}} onKeyDown={event=>{if(event.key==='Escape'&&open){event.stopPropagation();event.preventDefault();pinned.current=false;setOpen(false);}}}><Icon name="info" size={15}/></button>{open&&<span id={id} role="tooltip" className="sk-help-tip" style={position}>{children}</span>}</span>;
+}
+
+/** Fingerprints stay exact and copyable, with their meaning beside the value. */
 export function Mono({value,label,copy=true}:{value:string;label:string;copy?:boolean}) {
-  return <span className="sk-value"><code>{value}</code>{copy&&<CopyButton value={value} label={label}/>}</span>;
+  const key=value.startsWith('ed25519:'),fingerprint=/^[0-9a-f]{64}$/.test(value)||/^(card_|bundle_)/.test(value);
+  return <span className="sk-identity">{(key||fingerprint)&&<span className="sk-identity-caption">{key?'Verification key':'Digital fingerprint'}<Help label={key?'About verification keys':'About digital fingerprints'}>{key?'This key checks whether a signature matches this copy. Compare the full key with information from a person or publisher you already trust before accepting it. A matching signature alone does not prove who the signer is.':'This long code is calculated from the saved contents and helps detect changes. You usually do not need to read it. Compare the complete code when someone you trust asks you to verify an exact copy. It does not rate quality or safety.'}</Help></span>}<span className="sk-value"><code>{value}</code>{copy&&<CopyButton value={value} label={label}/>}</span></span>;
 }
 
 /** Key/value row inside a summary card. */

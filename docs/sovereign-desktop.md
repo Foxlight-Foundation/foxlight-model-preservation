@@ -10,6 +10,32 @@ The [Linux desktop recipe](linux-distribution.md) builds offline Debian candidat
 with a native GTK/WebKit window and bundled public runtime. Signed APT publication
 and its broader installed qualification remain separate from those candidates.
 
+## Current-source card information
+
+The current source adds richer model descriptions, local saved-model search,
+purpose filters and contextual help. These additions are not in the immutable
+public core0.22/Library0.17 archives or native build3. Build matching current
+core and Library sources to preview them; a source merge is not a native update.
+
+Find accepts everyday terms such as **writing**, **images**, **voice** or a model
+name. **What would you like to do?** filters declared uses. Matching descriptions
+share a card on each results page; file format, precision and file label still
+identify each independently reviewable version. Counts refer to model versions,
+not unique model families. No variant is recommended or downloaded automatically.
+
+Library searches the descriptions already saved on the device. **About this
+model** shows available source, base model, stated text context, listed languages,
+license and runtime notes. Common PMF metadata works without a Skulk profile;
+recognized retained cards add their existing metadata. Missing descriptions or
+unreadable optional details remain explicit. These excerpts never rewrite the
+original cards, unknown properties, signed wrappers or recovery data.
+
+**Verification details** explains why an exact digital fingerprint is retained.
+Info buttons work on hover, keyboard focus and touch. Accepting a sender's key
+still requires an independent trusted comparison; descriptions and signed
+listings do not establish quality, safety, current registry approval or runtime
+compatibility. Data size means storage, not the memory needed to run a model.
+
 ## Everyday use
 
 Select `requirements-desktop.lock` from a verified v2 Library installation

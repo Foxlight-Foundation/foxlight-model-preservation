@@ -481,3 +481,26 @@ main[inert] .sk-scrim {opacity:0;}
   .sk-pill,.sk-card,.sk-consent,.sk-radio,.sk-sheet,.sk-btn {border:1px solid CanvasText;}
   .sk-progress > span {background:Highlight;}
 }
+
+/* Model meaning comes before archive mechanics. */
+.sk-model-toolbar {display:grid;grid-template-columns:minmax(0,1fr) minmax(180px,260px);align-items:end;gap:16px;margin:16px 0;}
+.sk-model-toolbar .sk-search,.sk-model-toolbar .sk-field {margin:0;}
+.sk-model-toolbar .sk-field {font-size:14px;color:var(--text-2);}
+.sk-model-info {margin:16px 0;}
+.sk-purpose-tags {display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:10px;}
+.sk-purpose-tags .sk-tag {font:500 13px/1.3 var(--sans);text-transform:none;letter-spacing:0;padding:5px 9px;color:var(--text-2);}
+.sk-model-description {font-size:16px;line-height:1.6;max-width:78ch;color:var(--text-2);white-space:pre-line;overflow-wrap:anywhere;}
+.sk-library-guide {font-size:14px;line-height:1.7;color:var(--text-2);margin:16px 0;}
+.sk-identity {display:grid;gap:5px;min-width:0;}
+.sk-identity-caption {display:inline-flex;align-items:center;gap:5px;font:400 12px/1.5 var(--sans);color:var(--muted);}
+.sk-help {display:inline-flex;vertical-align:middle;}
+.sk-help-button {display:inline-flex;align-items:center;justify-content:center;min-width:28px;min-height:28px;padding:4px;color:var(--starlight);border:0;border-radius:50%;background:transparent;cursor:help;}
+.sk-help-button:hover,.sk-help-button:focus-visible {background:var(--fill-hover);outline:2px solid var(--line-star);outline-offset:2px;}
+.sk-help-tip {position:fixed;z-index:10000;width:min(288px,calc(100vw - 24px));max-height:min(220px,calc(100vh - 24px));overflow:auto;box-sizing:border-box;padding:12px 14px;border:1px solid var(--line-strong);border-radius:10px;background:var(--ridge-2);box-shadow:var(--shadow-pop);font:400 14px/1.5 var(--sans);text-align:left;white-space:normal;text-transform:none;letter-spacing:normal;color:var(--text-1);}
+@media(max-width:640px) {.sk-model-toolbar {grid-template-columns:minmax(0,1fr);}.sk-model-info .sk-row-k {max-width:100%;}.sk-model-description {font-size:15px;}}
+
+.sk-variants {display:grid;gap:18px;margin-top:16px;}
+.sk-variant {border-top:1px solid var(--line-card);padding-top:14px;}
+.sk-variant-heading {display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;}
+.sk-variant-heading h3 {font-size:15px;margin:0;}
+.sk-wrap {overflow-wrap:anywhere;}

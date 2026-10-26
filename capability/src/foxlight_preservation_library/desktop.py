@@ -109,6 +109,7 @@ class DesktopClient(CoreClient):
                 "public_model_mirror_required",
                 "receiving_allowance_too_small",
                 "model_metadata_unavailable",
+                "metadata_preview_too_large",
             }
             raise CoreRefused(
                 code if code in allowed else "invalid_or_unsafe"

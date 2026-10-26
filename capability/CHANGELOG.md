@@ -4,6 +4,21 @@ Skulk Library is versioned separately from the portable core. Releases are
 tagged `library-v*`; versions without a tag are source previews installed from
 `main` (see [README](README.md)).
 
+## Unreleased
+
+- Put model purpose and preserved descriptions before technical identity in the
+  independent Find and Library screens. Add local saved-model search, everyday
+  purpose filters, source/license/context details and honest missing-data states.
+- Group matching descriptions on each catalog page while keeping file variants,
+  exact card reviews and consent separate. Count model versions explicitly.
+- Explain digital fingerprints and verification keys beside their exact values.
+  Add contextual help usable by hover, keyboard and touch, and explain recovery
+  kits, restored folders, storage sizes and advanced download allowances.
+- Translate active stages, terminal states and unknown errors into readable
+  guidance; remove authoring notes from accessible logo descriptions. Shared
+  identity/help components also apply to Skulk Library. Core-host metadata
+  adoption and native/public package publication remain separate deliveries.
+
 ## 0.17.0
 
 - Add independent source/cache review, authenticated updates, offline attributed

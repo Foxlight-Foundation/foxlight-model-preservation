@@ -27,6 +27,7 @@ from ..kits import export_kit, import_kit, inspect_kit, read_kit_envelope
 from ..models import Manifest, PreservationError, Record, TrustProfile
 from ..operations import OperationControl, failure_code
 from ..pmf import restore_pmf
+from ..pmf_models import PMFManifest
 from ..pmf_preservation import import_preservation
 from ..signing import (
     create_key,
@@ -38,6 +39,7 @@ from ..signing import (
 from ..storage import atomic_bytes, directory, pack, read_metadata, writer_lock
 from ..transfer import TransferPolicy, fetch
 from .catalog import RegistryCatalog
+from .presentation import PURPOSE_WORDS, card_summary, copy_summary, manifest_summary
 from .selection import NOTICE, NOTICE_PATH, download_file, registry_recipe
 from .sources import SourceLibrary
 
@@ -110,6 +112,7 @@ class LocalOwner:
                 max_workers=1, thread_name_prefix="sovereign"
             )
             self._controls: dict[str, OperationControl] = {}
+            self._summaries: dict[str, dict[str, JsonValue]] = {}
             self._closed = False
             try:
                 self._journal = Journal.model_validate_json(
@@ -185,12 +188,13 @@ class LocalOwner:
                 "host_kind": "sovereign",
                 "locations": [],
                 "models": [],
-                "copies": [
-                    item.model_dump(mode="json") for item in self._journal.copies
-                ],
+                "copies": [self._copy_view(item) for item in self._journal.copies],
                 "jobs": [
                     {
                         **item.model_dump(mode="json"),
+                        "stage": self._controls[item.job_id].progress.stage
+                        if item.job_id in self._controls
+                        else item.state,
                         "bytes_received": self._controls[
                             item.job_id
                         ].progress.bytes_received
@@ -206,6 +210,22 @@ class LocalOwner:
                 else None,
                 "storage_label": "Sovereign on this device",
             }
+
+    def _copy_view(self, item: Copy) -> dict[str, JsonValue]:
+        # Immutable identities make this a display cache, never an authority or
+        # a journal migration. Actual export/restore still reverify every byte.
+        if item.copy_id not in self._summaries:
+            try:
+                summary: dict[str, JsonValue] = copy_summary(
+                    self.home / "copies" / item.copy_id, item.manifest_id, item.trust
+                )
+            except (ValueError, OSError):
+                summary = {"metadata_status": "unavailable"}
+            self._summaries[item.copy_id] = summary
+        return {
+            **item.model_dump(mode="json"),
+            "details": self._summaries[item.copy_id],
+        }
 
     def _history_names(self) -> list[str]:
         current = {job.job_id for job in self._journal.jobs}
@@ -352,15 +372,18 @@ class LocalOwner:
                 }
             if action == "search":
                 if (
-                    set(body) - {"query", "offset"}
+                    set(body) - {"query", "offset", "purpose"}
                     or not isinstance(body.get("query", ""), str)
                     or len(str(body.get("query", ""))) > 500
+                    or body.get("purpose", "") not in ("", *PURPOSE_WORDS)
                 ):
                     raise PreservationError("invalid_control")
                 offset = body.get("offset", 0)
                 if type(offset) is not int or not 0 <= offset <= 100_000:
                     raise PreservationError("invalid_control")
-                return self.catalog.search(str(body.get("query", "")), offset)
+                return self.catalog.search(
+                    str(body.get("query", "")), offset, str(body.get("purpose", ""))
+                )
             if action == "refresh" and not body:
                 return self._start(
                     self._plan(
@@ -399,6 +422,7 @@ class LocalOwner:
                             "catalog_id": body["catalog_id"],
                             "card_id": card.card_id,
                             "recipe": recipe.model_dump(mode="json"),
+                            "details": card_summary(card),
                             "historical": historical,
                             "members": [
                                 item.origin_repository for item in recipe.members
@@ -429,6 +453,7 @@ class LocalOwner:
                             "name": copy.name,
                             "manifest_id": copy.manifest_id,
                             "size_bytes": copy.size_bytes,
+                            "details": self._copy_view(copy)["details"],
                             "member_count": copy.member_count,
                             "keys": [key.key_id for key in copy.trust.keys],
                         }
@@ -443,6 +468,9 @@ class LocalOwner:
                             "kind": kind,
                             "upload_id": body["upload_id"],
                             "name": info.manifest.name,
+                            "details": manifest_summary(info.manifest)
+                            if isinstance(info.manifest, PMFManifest)
+                            else None,
                             "manifest_id": info.manifest_id,
                             "envelope_sha256": digest(
                                 read_kit_envelope(

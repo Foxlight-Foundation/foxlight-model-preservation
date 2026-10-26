@@ -25,9 +25,10 @@ from foxlight_model_preservation.signing import digest, encode_record
 from foxlight_model_preservation.storage import atomic_bytes, directory
 
 
-def accepted_catalog(tmp_path, *, companion=True):
+def accepted_catalog(tmp_path, *, companion=True, metadata=None):
     data = b"Synthetic model bytes, never executable.\n"
     card_body = body()
+    card_body.update(metadata or {})
     files = (
         ArtifactFile(
             path="model.bin", size_bytes=len(data), object_id="sha256:" + digest(data)
