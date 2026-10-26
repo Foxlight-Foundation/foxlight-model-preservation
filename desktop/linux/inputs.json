@@ -1,0 +1,34 @@
+{
+  "schema_version": "sovereign.linux-inputs.v1",
+  "version": "0.1.0",
+  "revision": "1",
+  "library": {
+    "url": "https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.17.0/foxlight-preservation-library-0.17.0-install.zip",
+    "sha256": "c9b2001bef7f2a480d31a731f72cb2dbbc77d3f846b7ba1ed314e939ec6df904",
+    "source_revision": "3934c03cad6d3f0cd20c12c96057cadbd9f6c25f"
+  },
+  "architectures": {
+    "amd64": {
+      "machine": "x86_64",
+      "python": {
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.13.13%2B20260408-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
+        "sha256": "a1dbc39f9c7b7d4ff3074fa18de66714c4e4400643bd657894a65803b0362a92"
+      },
+      "notices": {
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.13.13%2B20260408-x86_64-unknown-linux-gnu-pgo%2Blto-full.tar.zst",
+        "sha256": "7d38ec873b2f924fb51892ecacd1fa0d5fecd64ee57f7420f81d45f680f1c27c"
+      }
+    },
+    "arm64": {
+      "machine": "aarch64",
+      "python": {
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.13.13%2B20260408-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz",
+        "sha256": "f06466ac56cdc185d61190ea89f9c4e84ff4fc03ac08793151970a1fea86410b"
+      },
+      "notices": {
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.13.13%2B20260408-aarch64-unknown-linux-gnu-pgo%2Blto-full.tar.zst",
+        "sha256": "540d010fdc40b7f1251f3ba7bffcece36f59179ec25e83400a998db1db9567cd"
+      }
+    }
+  }
+}

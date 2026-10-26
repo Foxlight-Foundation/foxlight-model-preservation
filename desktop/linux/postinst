@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+# Reload only our conffile if AppArmor is already active. Start no service.
+if [ "$1" = configure ] && [ -d /sys/kernel/security/apparmor ]; then
+    /usr/sbin/apparmor_parser -r /etc/apparmor.d/ai.foxlight.sovereign
+fi

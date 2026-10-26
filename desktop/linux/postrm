@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+# Removal never walks a user's Library or changes another application's policy.
+if [ "$1" = remove ] && [ -d /sys/kernel/security/apparmor ] && [ -f /etc/apparmor.d/ai.foxlight.sovereign ]; then
+    /usr/sbin/apparmor_parser -R /etc/apparmor.d/ai.foxlight.sovereign
+fi

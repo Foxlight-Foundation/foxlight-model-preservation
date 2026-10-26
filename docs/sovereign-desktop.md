@@ -6,6 +6,10 @@ Skulk Core, a managed capability SDK, a GPU or a hosted account. The native macO
 shell uses the same Library interface as the public local launcher. The public Python installation archive provides this interface; signed native
 Mac and APT releases have separate publication and qualification gates.
 
+The [Linux desktop recipe](linux-distribution.md) builds offline Debian candidates
+with a native GTK/WebKit window and bundled public runtime. Signed APT publication
+and its broader installed qualification remain separate from those candidates.
+
 ## Everyday use
 
 Select `requirements-desktop.lock` from a verified v2 Library installation

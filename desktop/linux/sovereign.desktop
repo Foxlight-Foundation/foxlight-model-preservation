@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Sovereign
+Comment=Find, preserve and recover AI models independently
+Exec=/usr/bin/sovereign
+Icon=ai.foxlight.Sovereign
+Terminal=false
+Categories=Utility;Network;
+StartupNotify=true

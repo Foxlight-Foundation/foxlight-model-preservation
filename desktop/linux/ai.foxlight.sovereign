@@ -1,0 +1,9 @@
+# Allow this fixed application to create WebKit's sandbox on Ubuntu 24.04+.
+# This is a user-namespace grant, not full application confinement. Never grant
+# it globally to Python, shells or bubblewrap, or disable the kernel restriction.
+abi <abi/4.0>,
+include <tunables/global>
+profile ai.foxlight.sovereign /usr/bin/sovereign flags=(unconfined) {
+  userns,
+  include if exists <local/ai.foxlight.sovereign>
+}
