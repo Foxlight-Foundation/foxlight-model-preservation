@@ -388,6 +388,12 @@ def test_child_verification_progress_is_visible_and_root_cancel_still_stops_it(
     from foxlight_model_preservation.local_host import owner as module
 
     catalog, repo, data = accepted_catalog(tmp_path)
+    real_control = module.OperationControl
+    monkeypatch.setattr(
+        module,
+        "OperationControl",
+        lambda observer: real_control(observer, interval_seconds=0),
+    )
     transfer_started, transfer_release = threading.Event(), threading.Event()
 
     def download(repository, revision, file, destination, control, **kwargs):
@@ -419,7 +425,6 @@ def test_child_verification_progress_is_visible_and_root_cancel_still_stops_it(
         transfer_release.set()
         assert finish(owner, receiving)["state"] == "succeeded"
         copy = owner.read()["copies"][0]
-        real_control = module.OperationControl
 
         def hold_child_progress(observer):
             def observe(snapshot):
@@ -428,7 +433,7 @@ def test_child_verification_progress_is_visible_and_root_cancel_still_stops_it(
                     entered.set()
                     assert release.wait(5)
 
-            return real_control(observe)
+            return real_control(observe, interval_seconds=0)
 
         monkeypatch.setattr(module, "OperationControl", hold_child_progress)
         plan = owner.control("plan", {"kind": "kit_export", "copy_id": copy["copy_id"]})
