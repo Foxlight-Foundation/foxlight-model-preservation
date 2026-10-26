@@ -135,7 +135,16 @@ def main() -> None:
                 return False
             self.base = address
             context = WebKit2.WebContext.new_ephemeral()
-            # Never persist the session ticket or relax WebKit's sandbox/TLS.
+            # GTK contexts need explicit sandbox enrollment before any web
+            # process exists. Never inherit a distro-dependent default here.
+            context.set_sandbox_enabled(True)
+            if not context.get_sandbox_enabled():
+                self.status.set_text(
+                    "Sovereign could not enable its browser sandbox. "
+                    "Your saved copies are kept. Close this window to stop."
+                )
+                return False
+            # Never persist the session ticket or relax TLS.
             context.connect("download-started", self.download)
             self.view = WebKit2.WebView.new_with_context(context)
             self.view.connect("decide-policy", self.policy)
