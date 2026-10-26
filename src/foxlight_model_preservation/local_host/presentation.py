@@ -71,13 +71,13 @@ def _text(value: JsonValue, limit: int = 600) -> str | None:
     return value.strip()[:limit] if isinstance(value, str) and value.strip() else None
 
 
-def _strings(value: JsonValue) -> list[str]:
+def _strings(value: JsonValue, *, max_items: int | None = 8) -> list[str]:
     if isinstance(value, str):
         value = [value]
     if not isinstance(value, list):
         return []
     return list(dict.fromkeys(item[:100] for item in value if isinstance(item, str)))[
-        :8
+        :max_items
     ]
 
 
@@ -122,8 +122,8 @@ def card_summary(card: ModelCardEnvelope) -> dict[str, JsonValue]:
     """Project publisher-provided metadata without fetching or rewriting its card."""
     body = card.card
     tasks, capabilities = (
-        _strings(body.get("tasks")),
-        _strings(body.get("capabilities")),
+        _strings(body.get("tasks"), max_items=None),
+        _strings(body.get("capabilities"), max_items=None),
     )
     context = body.get("context_length")
     license_info = body.get("license")
@@ -136,8 +136,8 @@ def card_summary(card: ModelCardEnvelope) -> dict[str, JsonValue]:
             "base_model": _text(body.get("base_model"), 512),
             "format": card.artifact.format,
             "quantization": card.artifact.quantization,
-            "workloads": cast(list[JsonValue], tasks),
-            "capabilities": cast(list[JsonValue], capabilities),
+            "workloads": cast(list[JsonValue], tasks[:8]),
+            "capabilities": cast(list[JsonValue], capabilities[:8]),
             "purposes": cast(list[JsonValue], purpose_ids(tasks, capabilities)),
             "context_length": context
             if type(context) is int and 0 < context < 2**53

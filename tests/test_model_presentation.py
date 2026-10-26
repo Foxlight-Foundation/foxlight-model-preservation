@@ -184,6 +184,20 @@ def test_long_license_metadata_cannot_break_purpose_filtering(tmp_path):
     assert catalog.search(purpose="video")["total"] == 0
 
 
+@pytest.mark.parametrize("field", ["tasks", "capabilities"])
+def test_purpose_filter_uses_declarations_beyond_display_excerpt(tmp_path, field):
+    declared = [f"FutureTask{index}" for index in range(8)] + ["TextGeneration"]
+    catalog, repo, _ = accepted_catalog(
+        tmp_path, metadata={"tasks": [], field: declared}
+    )
+    found = catalog.search(purpose="chat")
+    assert found["total"] == 1
+    summary = found["results"][0]["details"]
+    assert summary["purposes"] == ["chat"]
+    assert len(summary["workloads" if field == "tasks" else field]) == 8
+    assert repo.card.card[field] == declared
+
+
 def test_full_library_search_and_activity_are_bounded_and_last_copy_restores(
     tmp_path, monkeypatch
 ):
