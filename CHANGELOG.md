@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Target native Mac build 4 at the attested core 0.23 / Library 0.18 cohort,
+  including the human-centered browsing, metadata and recovery interface. Native
+  signing, notarization, installation and public final-container publication
+  remain separate from this recipe update.
+
 ## 0.23.0
 
 - Expose the bounded pure model metadata projection for hosts with installed cards
