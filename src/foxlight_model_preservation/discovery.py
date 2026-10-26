@@ -1005,7 +1005,7 @@ def search_sources(
     cache: Path, query: str, *, limit: int = 100
 ) -> tuple[SearchResult, ...]:
     """Search locally, grouping exact manifests while retaining source statements."""
-    if len(query) > 500 or not 1 <= limit <= 1000:
+    if len(query) > 500 or not 1 <= limit <= MAX_SOURCES * 1000:
         raise PreservationError("search query/result limit exceeds bounds")
     if not cache.exists():
         return ()
@@ -1074,6 +1074,38 @@ def select_entry(
             "selected catalog entry changed; review a new exact selection"
         )
     return selected
+
+
+def inspect_selection(
+    cache: Path, source_id: str, entry_id: str, expected_manifest: str
+) -> SearchLocation:
+    """Read one exact cached supplier statement without networking or model trust.
+
+    The complete candidate key policy is retained for a later, separate model
+    review. This does not enroll those keys or assert that a mirror is available.
+    """
+    with _cache(cache) as root:
+        state = _read(root, source_id)
+    if not state.enabled:
+        raise PreservationError("source is no longer followed")
+    catalog, custom, _ = _verify_cached(state)
+    entry = next((item for item in catalog.entries if item.entry_id == entry_id), None)
+    if entry is None or entry.manifest != expected_manifest:
+        raise PreservationError(
+            "selected catalog entry changed; review a new exact selection"
+        )
+    status = _status(source_id, state)
+    return SearchLocation(
+        source_id=source_id,
+        source_name=state.bootstrap.name,
+        entry_id=entry_id,
+        mirrors=entry.mirrors,
+        freshness=status.freshness,
+        accepted_at=state.accepted_at,
+        description=next(
+            (item for item in custom.descriptions if item.entry_id == entry_id), None
+        ),
+    )
 
 
 def fetch_selection(

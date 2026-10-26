@@ -36,8 +36,21 @@ from ..signing import (
     strict_json,
 )
 from ..storage import atomic_bytes, directory, pack, read_metadata, writer_lock
+from ..transfer import TransferPolicy, fetch
 from .catalog import RegistryCatalog
 from .selection import NOTICE, NOTICE_PATH, download_file, registry_recipe
+from .sources import SourceLibrary
+
+JobKind = Literal[
+    "catalog_refresh",
+    "receive",
+    "kit_export",
+    "restore",
+    "kit_import",
+    "source_refresh",
+    "source_metadata",
+    "source_receive",
+]
 
 
 class Copy(Record):
@@ -57,7 +70,7 @@ class Job(Record):
     job_id: str = Field(pattern=r"^[0-9a-f]{64}$")
     operation_id: str
     plan_id: str = Field(pattern=r"^[0-9a-f]{64}$")
-    kind: Literal["catalog_refresh", "receive", "kit_export", "restore", "kit_import"]
+    kind: JobKind
     state: Literal[
         "queued", "running", "succeeded", "failed", "cancelled", "interrupted"
     ]
@@ -90,6 +103,7 @@ class LocalOwner:
             self._stack.enter_context(writer_lock(self._root))
             self._identity = self._fingerprint()
             self.catalog = catalog or RegistryCatalog(home / "registry")
+            self.sources = SourceLibrary(self.home)
             self._lock = threading.RLock()
             self._catalog_lock = threading.RLock()
             self._executor = ThreadPoolExecutor(
@@ -274,7 +288,7 @@ class LocalOwner:
             **{
                 key: item
                 for key, item in value.items()
-                if key not in {"recipe", "trust"}
+                if key not in {"recipe", "trust", "selection", "source_policy"}
             },
             "plan_id": plan_id,
         }
@@ -283,6 +297,59 @@ class LocalOwner:
         """Validate explicit view controls; never accept arbitrary API forwarding."""
         with self._lock:
             self._check()
+            if action == "source-read" and not body:
+                return self.sources.read()
+            if action == "source-search":
+                return self.sources.search(body)
+            if action == "source-review" and set(body) == {"upload_id"}:
+                from ..discovery_models import MAX_STATE_BYTES
+                from ..storage import open_file
+
+                uploaded = self._upload(str(body["upload_id"]))
+                if (
+                    not uploaded["complete"]
+                    or cast(int, uploaded["size_bytes"]) > MAX_STATE_BYTES
+                ):
+                    raise PreservationError("source_document_too_large")
+                with (
+                    directory(self.home / "uploads") as root,
+                    open_file(root, str(body["upload_id"])) as stream,
+                ):
+                    document = stream.read(MAX_STATE_BYTES + 1)
+                return self.sources.review(document)
+            if action in {"source-follow", "source-remove"}:
+                if any(
+                    job.kind in {"source_refresh", "source_metadata"}
+                    and job.job_id in self._controls
+                    for job in self._journal.jobs
+                ):
+                    raise PreservationError("discovery_busy_try_again")
+                if action == "source-follow":
+                    return self.sources.follow(body)
+                if set(body) == {"source_id"}:
+                    return self.sources.remove(str(body["source_id"]))
+                raise PreservationError("invalid_control")
+            if action == "source-reference" and set(body) == {"job_id"}:
+                job = self._job(str(body["job_id"]))
+                if job.kind != "source_metadata" or job.state != "succeeded":
+                    raise PreservationError("model_metadata_unavailable")
+                record, _, manifest, candidates = self.sources.reference(job.job_id)
+                return {
+                    "reference_job_id": job.job_id,
+                    "manifest_id": record.manifest_id,
+                    "name": manifest.name,
+                    "size_bytes": manifest.total_bytes,
+                    "member_count": len(manifest.members),
+                    "members": [
+                        member.origin_repository for member in manifest.members[:8]
+                    ],
+                    "keys": [key.key_id for key in candidates.keys],
+                    "threshold": candidates.threshold,
+                    "revoked_keys": list(candidates.revoked_keys),
+                    "mirrors": list(
+                        self.sources.http_mirrors(record.selection.mirrors)
+                    ),
+                }
             if action == "search":
                 if (
                     set(body) - {"query", "offset"}
@@ -306,6 +373,13 @@ class LocalOwner:
                 )
             if action == "plan":
                 kind = body.get("kind")
+                if kind in {"source_refresh", "source_metadata"}:
+                    return self._plan(self.sources.plan(body))
+                if kind == "source_receive":
+                    job = self._job(str(body.get("reference_job_id")))
+                    if job.kind != "source_metadata" or job.state != "succeeded":
+                        raise PreservationError("model_metadata_unavailable")
+                    return self._plan(self.sources.receive_plan(body))
                 if kind == "receive" and set(body) == {"kind", "catalog_id", "card_id"}:
                     with self._catalog_lock:
                         card, proof = self.catalog.select(
@@ -540,10 +614,10 @@ class LocalOwner:
         if len(self._controls) >= 4:
             raise PreservationError("sovereign_job_capacity_reached")
         if (
-            plan["kind"] in {"receive", "kit_import"}
+            plan["kind"] in {"receive", "kit_import", "source_receive"}
             and len(self._journal.copies)
             + sum(
-                job.kind in {"receive", "kit_import"}
+                job.kind in {"receive", "kit_import", "source_receive"}
                 and job.state in {"queued", "running"}
                 for job in self._journal.jobs
             )
@@ -557,12 +631,7 @@ class LocalOwner:
             ),
             operation_id=operation_id,
             plan_id=plan_id,
-            kind=cast(
-                Literal[
-                    "catalog_refresh", "receive", "kit_export", "restore", "kit_import"
-                ],
-                plan["kind"],
-            ),
+            kind=cast(JobKind, plan["kind"]),
             state="queued",
             created_at=time.time(),
             name=str(plan["name"]),
@@ -606,6 +675,10 @@ class LocalOwner:
                 self._receive(job, plan, control)
             elif job.kind == "kit_import":
                 self._import(job, plan, control)
+            elif job.kind in {"source_refresh", "source_metadata"}:
+                self.sources.run(job.job_id, plan, control)
+            elif job.kind == "source_receive":
+                self._source_receive(job, plan, control)
             else:
                 with self._lock:
                     copy = self._copy(str(plan["copy_id"]))
@@ -644,6 +717,9 @@ class LocalOwner:
                 "selected_kit_envelope_changed",
                 "sovereign_capture_trust_missing",
                 "plan_changed",
+                "source_review_changed",
+                "source_model_reference_changed",
+                "source_update_failed",
             }:
                 code = str(error)
             self._update(
@@ -668,6 +744,64 @@ class LocalOwner:
                 trust = create_key(key_path, None)
                 atomic_bytes(self._root, "capture-trust.json", encode_record(trust))
                 return trust
+
+    def _source_receive(
+        self, job: Job, plan: dict[str, JsonValue], control: OperationControl
+    ) -> None:
+        record, envelope, _, _ = self.sources.reference(str(plan["reference_job_id"]))
+        if (
+            record.envelope_sha256 != plan["envelope_sha256"]
+            or record.manifest_id != plan["manifest_id"]
+        ):
+            raise PreservationError("source_model_reference_changed")
+        trust = TrustProfile.model_validate_json(identity_json(plan["trust"]))
+        if (
+            shutil.disk_usage(self.home).free
+            < cast(int, plan["size_bytes"]) * 4 + 32 * 1024**2
+        ):
+            raise PreservationError("insufficient_space")
+        original = self.home / "work" / job.job_id / "original"
+        fetch(
+            record.manifest_id,
+            trust,
+            self.sources.http_mirrors(record.selection.mirrors),
+            original,
+            TransferPolicy(
+                max_bytes=cast(int, plan["max_bytes"]),
+                deadline_seconds=86400,
+                allow_http=plan["allow_http"] is True,
+                allow_private=plan["allow_private"] is True,
+            ),
+            control=control.fork(),
+            operation_id="receive_" + job.job_id[:56],
+            envelope=envelope,
+        )
+        owner_trust = self._capture_trust()
+        destination = self.home / "copies" / job.job_id
+        with directory(destination.parent, create=True):
+            pass
+        conversion = import_preservation(
+            original,
+            record.manifest_id,
+            trust,
+            destination,
+            (load_key(self.home / "capture-key.pem", None),),
+            control=control.fork(),
+        )
+        manifest = verify_archive(
+            destination, conversion.output_identity, owner_trust, control=control.fork()
+        )
+        self._record_copy(
+            job,
+            Copy(
+                copy_id=job.job_id,
+                manifest_id=conversion.output_identity,
+                name=manifest.name,
+                size_bytes=manifest.total_bytes,
+                member_count=len(manifest.members),
+                trust=owner_trust,
+            ),
+        )
 
     def _receive(
         self, job: Job, plan: dict[str, JsonValue], control: OperationControl
