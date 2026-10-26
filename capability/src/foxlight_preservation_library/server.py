@@ -614,6 +614,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                         "api/peer-read",
                         "api/core-features",
                         "api/desktop-search",
+                        "api/desktop-copy-search",
+                        "api/desktop-job-read",
                         "api/desktop-source-read",
                         "api/desktop-source-search",
                         "api/desktop-source-review",

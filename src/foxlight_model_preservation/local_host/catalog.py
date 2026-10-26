@@ -6,6 +6,7 @@ catalog bytes and proof roles are retained for independent offline verification.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import time
@@ -261,7 +262,9 @@ class RegistryCatalog:
             minimum_versions=VersionFloor(**floors),
         )
 
-    def search(self, query: str = "", offset: int = 0) -> dict[str, JsonValue]:
+    def search(
+        self, query: str = "", offset: int = 0, purpose: str = ""
+    ) -> dict[str, JsonValue]:
         """Search accepted local data only; queries never go to suppliers."""
         try:
             raw, proof = self.snapshot()
@@ -270,11 +273,20 @@ class RegistryCatalog:
         rows: list[dict[str, JsonValue]] = []
         terms = query.casefold().split()
         for card in self._cards(raw):
-            haystack = identity_json(card.model_dump(mode="json")).decode().casefold()
+            from .presentation import card_summary, search_words
+
+            details = card_summary(card)
+            if purpose and purpose not in cast(list[str], details.get("purposes", [])):
+                continue
+            haystack = (
+                identity_json(card.model_dump(mode="json")).decode()
+                + " "
+                + search_words(details)
+            ).casefold()
             if not all(term in haystack for term in terms):
                 continue
             bundle = card.artifact.bundle
-            tasks = card.card.get("tasks", [])
+            tasks = details.get("workloads", [])
             from .selection import registry_recipe
 
             try:
@@ -289,8 +301,14 @@ class RegistryCatalog:
                         "-", " "
                     ),
                     "selection": card.alias,
+                    "file_label": (
+                        card.artifact.selected_file.rsplit("/", 1)[-1][:240]
+                        if card.artifact.selected_file
+                        else None
+                    ),
                     "publisher": card.artifact.repository.split("/", 1)[0],
                     "download_support": support,
+                    "details": details,
                     "format": card.artifact.format,
                     "quantization": card.artifact.quantization,
                     "size_bytes": bundle.download_size if bundle else None,
@@ -312,11 +330,23 @@ class RegistryCatalog:
                 str(row["name"]),
             )
         )
+        page: list[dict[str, JsonValue]] = []
+        page_bytes = 0
+        for row in rows[offset : offset + 24]:
+            size = len(json.dumps(row, separators=(",", ":"))) + 1
+            if page_bytes + size > 58_000:
+                break
+            page.append(row)
+            page_bytes += size
+        if not page and rows[offset:]:
+            raise PreservationError("metadata_preview_too_large")
         return {
             "catalog_id": digest(raw),
-            "results": cast(list[JsonValue], rows[offset : offset + 24]),
+            "results": cast(list[JsonValue], page),
             "total": len(rows),
-            "next_offset": offset + 24 if offset + 24 < len(rows) else None,
+            "next_offset": offset + len(page)
+            if offset + len(page) < len(rows)
+            else None,
             "source": "Foxlight public registry",
             "anchor_sha256": proof.anchor_sha256,
             "freshness": "saved",

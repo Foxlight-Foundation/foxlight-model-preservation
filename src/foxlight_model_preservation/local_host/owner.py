@@ -25,8 +25,9 @@ from ..archives import verify_archive
 from ..cards import ArtifactFile, ModelCardEnvelope, identity_json
 from ..kits import export_kit, import_kit, inspect_kit, read_kit_envelope
 from ..models import Manifest, PreservationError, Record, TrustProfile
-from ..operations import OperationControl, failure_code
+from ..operations import OperationControl, Progress, failure_code
 from ..pmf import restore_pmf
+from ..pmf_models import PMFManifest
 from ..pmf_preservation import import_preservation
 from ..signing import (
     create_key,
@@ -38,6 +39,14 @@ from ..signing import (
 from ..storage import atomic_bytes, directory, pack, read_metadata, writer_lock
 from ..transfer import TransferPolicy, fetch
 from .catalog import RegistryCatalog
+from .presentation import (
+    PURPOSE_WORDS,
+    card_summary,
+    copy_metadata,
+    manifest_summary,
+    metadata_page,
+    search_words,
+)
 from .selection import NOTICE, NOTICE_PATH, download_file, registry_recipe
 from .sources import SourceLibrary
 
@@ -110,6 +119,9 @@ class LocalOwner:
                 max_workers=1, thread_name_prefix="sovereign"
             )
             self._controls: dict[str, OperationControl] = {}
+            self._progress: dict[str, Progress] = {}
+            self._summaries: dict[str, dict[str, JsonValue]] = {}
+            self._search_metadata: dict[str, str] = {}
             self._closed = False
             try:
                 self._journal = Journal.model_validate_json(
@@ -159,7 +171,7 @@ class LocalOwner:
         self._stack.close()
 
     def read(self, offset: int = 0) -> dict[str, JsonValue]:
-        """Read safe receipts and public capture keys; no signing material or paths."""
+        """Read compact receipts; paths and complete trust history stay private."""
         with self._lock:
             self._check()
             if not 0 <= offset <= 2**31:
@@ -181,31 +193,100 @@ class LocalOwner:
                 for name in sorted(os.listdir(source)):
                     if re.fullmatch(r"[0-9a-f]{32}\.json", name):
                         uploads.append(self._upload(name[:-5]))
-            return {
-                "host_kind": "sovereign",
-                "locations": [],
-                "models": [],
-                "copies": [
-                    item.model_dump(mode="json") for item in self._journal.copies
-                ],
-                "jobs": [
+            jobs = metadata_page(
+                [
                     {
                         **item.model_dump(mode="json"),
-                        "bytes_received": self._controls[
-                            item.job_id
-                        ].progress.bytes_received
-                        if item.job_id in self._controls
+                        "stage": self._progress[item.job_id].stage
+                        if item.job_id in self._progress
+                        else item.state,
+                        "bytes_received": self._progress[item.job_id].bytes_received
+                        if item.job_id in self._progress
                         else 0,
                     }
                     for item in selected
                 ],
+                max_rows=48,
+                byte_limit=32_000,
+            )
+            copies = metadata_page(
+                (
+                    item.model_dump(mode="json", exclude={"trust"})
+                    for item in self._journal.copies
+                ),
+                byte_limit=16_000,
+            )
+            return {
+                "host_kind": "sovereign",
+                "locations": [],
+                "models": [],
+                "copies": cast(list[JsonValue], copies),
+                "copy_count": len(self._journal.copies),
+                "copies_next_offset": len(copies)
+                if len(copies) < len(self._journal.copies)
+                else None,
+                "jobs": cast(list[JsonValue], jobs),
                 "uploads": uploads,
                 "active_count": len(self._controls),
-                "next_offset": offset + 48
-                if offset + 48 < len(recent) + len(history)
+                "next_offset": offset + len(jobs)
+                if offset + len(jobs) < len(recent) + len(history)
                 else None,
                 "storage_label": "Sovereign on this device",
             }
+
+    def _copy_view(self, item: Copy) -> dict[str, JsonValue]:
+        # Immutable identities make this a display cache, never an authority or
+        # a journal migration. Actual export/restore still reverify every byte.
+        if item.copy_id not in self._summaries:
+            summary: dict[str, JsonValue]
+            try:
+                summary, searchable = copy_metadata(
+                    self.home / "copies" / item.copy_id, item.manifest_id, item.trust
+                )
+            except (ValueError, OSError):
+                summary = {"metadata_status": "unavailable"}
+                searchable = ""
+            self._summaries[item.copy_id] = summary
+            self._search_metadata[item.copy_id] = searchable
+        return {
+            **item.model_dump(mode="json", exclude={"trust"}),
+            "details": self._summaries[item.copy_id],
+        }
+
+    def _search_copies(
+        self, query: str, purpose: str, offset: int
+    ) -> dict[str, JsonValue]:
+        """Search retained metadata locally with bounded copy pages."""
+        selected = list(self._journal.copies)
+        if query or purpose:
+            terms = query.casefold().split()
+            matched: list[Copy] = []
+            for item in selected:
+                details = cast(dict[str, JsonValue], self._copy_view(item)["details"])
+                categories = details.get("purposes", [])
+                if purpose and (
+                    not isinstance(categories, list) or purpose not in categories
+                ):
+                    continue
+                text = (
+                    item.name
+                    + " "
+                    + self._search_metadata[item.copy_id]
+                    + " "
+                    + search_words(details)
+                ).casefold()
+                if all(term in text for term in terms):
+                    matched.append(item)
+            selected = matched
+        rows = metadata_page(self._copy_view(item) for item in selected[offset:])
+        return {
+            "results": cast(list[JsonValue], rows),
+            "total": len(selected),
+            "stored_total": len(self._journal.copies),
+            "next_offset": offset + len(rows)
+            if offset + len(rows) < len(selected)
+            else None,
+        }
 
     def _history_names(self) -> list[str]:
         current = {job.job_id for job in self._journal.jobs}
@@ -297,6 +378,8 @@ class LocalOwner:
         """Validate explicit view controls; never accept arbitrary API forwarding."""
         with self._lock:
             self._check()
+            if action == "job-read" and set(body) == {"job_id"}:
+                return self._job(str(body["job_id"])).model_dump(mode="json")
             if action == "source-read" and not body:
                 return self.sources.read()
             if action == "source-search":
@@ -350,17 +433,24 @@ class LocalOwner:
                         self.sources.http_mirrors(record.selection.mirrors)
                     ),
                 }
-            if action == "search":
+            if action in {"search", "copy-search"}:
                 if (
-                    set(body) - {"query", "offset"}
+                    set(body) - {"query", "offset", "purpose"}
                     or not isinstance(body.get("query", ""), str)
                     or len(str(body.get("query", ""))) > 500
+                    or body.get("purpose", "") not in ("", *PURPOSE_WORDS)
                 ):
                     raise PreservationError("invalid_control")
                 offset = body.get("offset", 0)
                 if type(offset) is not int or not 0 <= offset <= 100_000:
                     raise PreservationError("invalid_control")
-                return self.catalog.search(str(body.get("query", "")), offset)
+                if action == "copy-search":
+                    return self._search_copies(
+                        str(body.get("query", "")), str(body.get("purpose", "")), offset
+                    )
+                return self.catalog.search(
+                    str(body.get("query", "")), offset, str(body.get("purpose", ""))
+                )
             if action == "refresh" and not body:
                 return self._start(
                     self._plan(
@@ -399,6 +489,7 @@ class LocalOwner:
                             "catalog_id": body["catalog_id"],
                             "card_id": card.card_id,
                             "recipe": recipe.model_dump(mode="json"),
+                            "details": card_summary(card),
                             "historical": historical,
                             "members": [
                                 item.origin_repository for item in recipe.members
@@ -429,6 +520,7 @@ class LocalOwner:
                             "name": copy.name,
                             "manifest_id": copy.manifest_id,
                             "size_bytes": copy.size_bytes,
+                            "details": self._copy_view(copy)["details"],
                             "member_count": copy.member_count,
                             "keys": [key.key_id for key in copy.trust.keys],
                         }
@@ -443,6 +535,9 @@ class LocalOwner:
                             "kind": kind,
                             "upload_id": body["upload_id"],
                             "name": info.manifest.name,
+                            "details": manifest_summary(info.manifest)
+                            if isinstance(info.manifest, PMFManifest)
+                            else None,
                             "manifest_id": info.manifest_id,
                             "envelope_sha256": digest(
                                 read_kit_envelope(
@@ -640,7 +735,13 @@ class LocalOwner:
             update={"jobs": (*self._journal.jobs, job)}
         )
         self._save()
-        control = OperationControl()
+
+        def observe(snapshot: Progress) -> None:
+            with self._lock:
+                self._progress[job.job_id] = snapshot
+
+        control = OperationControl(observe)
+        self._progress[job.job_id] = control.progress
         self._controls[job.job_id] = control
         self._executor.submit(self._run, job, plan, control)
         return job.model_dump(mode="json")
@@ -730,6 +831,7 @@ class LocalOwner:
         finally:
             with self._lock:
                 self._controls.pop(job.job_id, None)
+                self._progress.pop(job.job_id, None)
 
     def _capture_trust(self) -> TrustProfile:
         with self._lock:
@@ -829,6 +931,7 @@ class LocalOwner:
             pass
         sources: dict[str, Path] = {}
         deadline = time.monotonic() + 86400
+        control.phase("downloading")
         for member in recipe.members:
             selected = work / member.member_id
             with directory(selected, create=True):

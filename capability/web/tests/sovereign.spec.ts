@@ -6,10 +6,12 @@ const empty={host_kind:'sovereign',locations:[],models:[],copies:[],jobs:[],next
 test.beforeEach(async({page})=>{
  await page.route('**/api/desktop-source-read',route=>route.fulfill({json:{sources:[]}}));
  await page.route('**/api/desktop-source-search',route=>route.fulfill({json:{results:[],total:0,next_offset:null}}));
+ await page.route('**/api/desktop-copy-search',route=>route.fulfill({json:{results:[],total:0,stored_total:0,next_offset:null}}));
 });
 
 test('returning users start in Library and can release private kit transfers',async({page})=>{
  const copy={copy_id:id,manifest_id:id,name:'My saved model',size_bytes:16,member_count:2};
+ await page.route('**/api/desktop-copy-search',route=>route.fulfill({json:{results:[copy],total:1,stored_total:1,next_offset:null}}));
  let removed=false;
  await page.route('**/api/library*',route=>route.fulfill({json:{...empty,copies:[copy],uploads:removed?[]:[{upload_id:'b'.repeat(32),size_bytes:16,offset:16,complete:true}]}}));
  await page.route('**/api/desktop-search',route=>route.fulfill({json:{catalog_id:null,results:[],total:0,next_offset:null}}));
@@ -50,6 +52,7 @@ test('standalone first launch browses preset without Core or bootstrap hunting',
  await expect(page.getByText('No account or source-file setup.')).toBeVisible();
  expect(updates).toBe(0);
  await page.getByRole('button',{name:'Browse public models'}).first().click();
+ await expect(page.getByRole('status')).toContainText('Listing update started. See Activity for the result.');
  await page.getByLabel('Search models',{exact:true}).fill('Portable');
  await expect(page.getByRole('heading',{name:model.name,exact:true})).toBeVisible();
  expect(updates).toBe(1);expect(requests.some(url=>url.includes('core-features')||url.includes('source-follow'))).toBe(false);
@@ -84,8 +87,11 @@ test('source authority is not granted by accepting an imported kit key',async({p
 test('saved-copy kit action prepares a download without regranting model trust',async({page})=>{
  let started=false;
  const copy={copy_id:id,manifest_id:id,name:'Kept model',size_bytes:16,member_count:2};
+ await page.route('**/api/desktop-copy-search',route=>route.fulfill({json:{results:[copy],total:1,stored_total:1,next_offset:null}}));
  const job={job_id:id,kind:'kit_export',state:'succeeded',name:copy.name,error_code:null,output:null,copy_id:id};
- await page.route('**/api/library*',route=>route.fulfill({json:{...empty,copies:[copy],jobs:started?[job]:[]}}));
+ // A busy or size-bounded Activity page need not include this exact job.
+ await page.route('**/api/library*',route=>route.fulfill({json:{...empty,copies:[copy],jobs:[]}}));
+ await page.route('**/api/desktop-job-read',route=>{expect(started).toBe(true);expect(route.request().postDataJSON()).toEqual({job_id:id});return route.fulfill({json:job});});
  await page.route('**/api/desktop-search',route=>route.fulfill({json:{catalog_id:null,results:[],total:0,next_offset:null}}));
  await page.route('**/api/desktop-plan',route=>route.fulfill({json:{plan_id:id,kind:'kit_export',name:copy.name,size_bytes:16,member_count:2,expires_at:9999999999}}));
  await page.route('**/api/desktop-start',route=>{started=true;expect(route.request().postDataJSON()).toEqual({plan_id:id,operation_id:expect.any(String),confirmed:true});return route.fulfill({json:job});});
@@ -93,5 +99,7 @@ test('saved-copy kit action prepares a download without regranting model trust',
  await page.goto('/');await page.getByRole('button',{name:'Library',exact:true}).click();
  const download=page.waitForEvent('download');await page.getByRole('button',{name:'Save recovery kit',exact:true}).click();
  await download;await expect(page.getByRole('heading',{name:'Activity',exact:true})).toBeVisible();
+ await expect(page.getByRole('status')).toContainText('Your recovery kit is ready.');
+ await expect(page.getByRole('status')).not.toContainText('Preparing your complete recovery kit.');
  await expect(page.getByLabel('Proceed with this exact private selection.')).toHaveCount(0);
 });

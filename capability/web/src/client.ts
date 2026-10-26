@@ -124,7 +124,7 @@ export function errorText(code:string):string {
     invalid_or_unsafe:'The selected files or metadata could not be verified. Keep the source and check the installation before trying again.',
     worker_unavailable:'The byte worker did not complete. Check the retained job before trying again.',
     host_unavailable:'Skulk could not be reached. Your submitted jobs remain owned by Core; refresh to check their state.',
-  }; return labels[code] ?? `The operation could not continue (${code.replaceAll('_',' ')}).`;
+  }; return labels[code] ?? 'This action could not be completed. Check Activity for its outcome before trying again.';
 }
 
 export interface Upload {upload_id:string; size_bytes:number; offset:number; complete:boolean; purpose?:'kit'|'invitation'|'publication'|'source'}

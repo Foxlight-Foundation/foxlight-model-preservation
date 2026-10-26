@@ -3,6 +3,7 @@ const id='a'.repeat(64),source={source_id:id,name:'Independent source',enabled:t
 const model={manifest_id:id,source_id:id,source_name:source.name,entry_id:'sample',name:'Independent model',summary:'Saved listing',formats:[],workloads:[],freshness:'fresh',has_candidate_keys:true};
 
 test.beforeEach(async({page})=>{
+ await page.route('**/api/desktop-copy-search',route=>route.fulfill({json:{results:[],total:0,stored_total:0,next_offset:null}}));
  await page.route('**/api/library*',route=>route.fulfill({json:{host_kind:'sovereign',copies:[],jobs:[],next_offset:null}}));
  await page.route('**/api/desktop-search',route=>route.fulfill({json:{catalog_id:null,results:[],total:0,next_offset:null}}));
 });
@@ -52,4 +53,13 @@ for(const pause of ['follow','plan'])test(`dismissed review stays closed after d
  await expect(page.getByText('Sources & updates',{exact:true})).toBeVisible();
  await page.waitForTimeout(300);
  await expect(page.getByRole('dialog')).toHaveCount(0);expect(started).toBe(0);
+});
+
+
+for(const [state,label] of [['imported','Imported offline listings'],['retained','Saved listings retained']])test(`offline source ${state} has an honest readable status`,async({page})=>{
+ await page.route('**/api/desktop-source-read',route=>route.fulfill({json:{sources:[{...source,freshness:state}]}}));
+ await page.route('**/api/desktop-source-search',route=>route.fulfill({json:{results:[{...model,freshness:state}],total:1,next_offset:null}}));
+ await page.goto('/');await page.getByText('Sources & updates',{exact:true}).click();
+ await expect(page.getByText(label,{exact:true})).toBeVisible();await expect(page.getByText('Status unavailable',{exact:false})).toHaveCount(0);
+ await expect(page.getByRole('heading',{name:model.name,exact:true})).toBeVisible();
 });

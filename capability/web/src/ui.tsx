@@ -1,4 +1,5 @@
 import {createContext,useCallback,useContext,useEffect,useId,useRef,useState,type KeyboardEvent,type ReactNode} from 'react';
+import {createPortal} from 'react-dom';
 
 /** Feather-style inline icons; no icon font, no network request. */
 const paths:Record<string,ReactNode> = {
@@ -68,9 +69,22 @@ export function CopyButton({value,label}:{value:string;label:string}) {
   return <button type="button" className="sk-copy" aria-label={copied?`${label} copied`:`Copy ${label}`} title={copied?'Copied':`Copy ${label}`} onClick={()=>{void navigator.clipboard.writeText(value).then(()=>setCopied(true)).catch(()=>setCopied(false));}}><Icon name={copied?'check':'copy'} size={14}/><span className="sk-sr" aria-live="polite">{copied?'Copied':''}</span></button>;
 }
 
-/** Fingerprints, manifest IDs and addresses: JetBrains Mono, wrapped, copyable. */
+/** Explanations work on hover, keyboard focus and touch without a network call. */
+export function Help({label,children}:{label:string;children:ReactNode}) {
+  const id=useId(),[open,setOpen]=useState(false),[position,setPosition]=useState({left:12,top:12});
+  const pinned=useRef(false),container=useRef<HTMLSpanElement>(null),tip=useRef<HTMLSpanElement>(null),leave=useRef<ReturnType<typeof setTimeout>|null>(null);
+  const keep=()=>{if(leave.current!==null){clearTimeout(leave.current);leave.current=null;}};
+  const later=()=>{keep();if(!pinned.current&&!container.current?.contains(document.activeElement))leave.current=setTimeout(()=>setOpen(false),200);};
+  useEffect(()=>()=>{if(leave.current!==null)clearTimeout(leave.current);},[]);
+  useEffect(()=>{if(!open)return;const dismiss=()=>{pinned.current=false;setOpen(false);};const outside=(event:PointerEvent)=>{if(event.target instanceof Node&&!container.current?.contains(event.target)&&!tip.current?.contains(event.target))dismiss();};const escape=(event:globalThis.KeyboardEvent)=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();dismiss();}};document.addEventListener('pointerdown',outside,true);document.addEventListener('keydown',escape,true);return()=>{document.removeEventListener('pointerdown',outside,true);document.removeEventListener('keydown',escape,true);};},[open]);
+  const show=(button:HTMLButtonElement)=>{keep();const rect=button.getBoundingClientRect(),width=Math.min(288,window.innerWidth-24);setPosition({left:Math.max(12,Math.min(rect.left,window.innerWidth-width-12)),top:Math.max(12,Math.min(rect.bottom+8,window.innerHeight-232))});setOpen(true);};
+  return <span className="sk-help" ref={container}><button type="button" className="sk-help-button" aria-label={label} aria-describedby={open?id:undefined} aria-expanded={open} onMouseEnter={event=>show(event.currentTarget)} onMouseLeave={later} onFocus={event=>show(event.currentTarget)} onClick={event=>{if(pinned.current){pinned.current=false;setOpen(false);}else{pinned.current=true;show(event.currentTarget);}}} onBlur={()=>{pinned.current=false;setOpen(false);}} onKeyDown={event=>{if(event.key==='Escape'&&open){event.stopPropagation();event.preventDefault();pinned.current=false;setOpen(false);}}}><Icon name="info" size={15}/></button>{open&&createPortal(<span ref={tip} id={id} role="tooltip" className="sk-help-tip" style={position} onMouseEnter={keep} onMouseLeave={later}>{children}</span>,document.body)}</span>;
+}
+
+/** Fingerprints stay exact and copyable, with their meaning beside the value. */
 export function Mono({value,label,copy=true}:{value:string;label:string;copy?:boolean}) {
-  return <span className="sk-value"><code>{value}</code>{copy&&<CopyButton value={value} label={label}/>}</span>;
+  const key=value.startsWith('ed25519:'),fingerprint=/^[0-9a-f]{64}$/.test(value)||/^(card_|bundle_)/.test(value);
+  return <span className="sk-identity">{(key||fingerprint)&&<span className="sk-identity-caption">{key?'Verification key':'Digital fingerprint'}<Help label={key?'About verification keys':'About digital fingerprints'}>{key?'This key checks whether a signature matches this copy. Compare the full key with information from a person or publisher you already trust before accepting it. A matching signature alone does not prove who the signer is.':'This long code is calculated from the saved contents and helps detect changes. You usually do not need to read it. Compare the complete code when someone you trust asks you to verify an exact copy. It does not rate quality or safety.'}</Help></span>}<span className="sk-value"><code>{value}</code>{copy&&<CopyButton value={value} label={label}/>}</span></span>;
 }
 
 /** Key/value row inside a summary card. */
@@ -131,7 +145,7 @@ export function Sheet({kicker,title,subtitle,back,onClose,footer,children,wide}:
     const active=document.activeElement instanceof HTMLElement&&document.activeElement!==document.body?document.activeElement:null;
     const opener=active??lastFocused;
     locks++;document.documentElement.classList.add('sk-locked');
-    const frame=requestAnimationFrame(()=>heading.current?.focus({preventScroll:true}));
+    const frame=requestAnimationFrame(()=>{const current=document.activeElement;if(!panel.current?.contains(current)&&(current===active||current===document.body))heading.current?.focus({preventScroll:true});});
     function key(event:globalThis.KeyboardEvent){if(event.key==='Escape'&&top.current&&!event.defaultPrevented){event.preventDefault();close.current();}}
     document.addEventListener('keydown',key);
     const sheet=panel.current;

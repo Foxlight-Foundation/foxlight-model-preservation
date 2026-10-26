@@ -22,7 +22,8 @@ jobs:
       - run: uv run ruff check
       - run: uv run ruff format --check
       - run: uv run basedpyright
-      - run: uv run pytest
+      # Keep named failures visible even when a synthetic binary assertion fails.
+      - run: uv run pytest -ra --tb=short -o verbosity_assertions=0
       - name: Qualify optional BitTorrent with real local peers
         run: |
           uv sync --locked --dev --extra bittorrent

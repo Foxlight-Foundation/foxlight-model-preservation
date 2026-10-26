@@ -50,6 +50,7 @@ def verify_archive(
 ) -> ArchiveManifest:
     """Authenticate a selected legacy or PMF archive and hash every actual object."""
     with (control or OperationControl()).operation("verify") as active:
+        active.phase("checking")
         with directory(store) as source:
             manifest = verify_archive_manifest(
                 read_metadata(source, manifest_path(manifest_id)), trust, manifest_id

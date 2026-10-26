@@ -186,6 +186,7 @@ def export_kit(
                 )
                 output.write(trust_bytes)
                 output.write(envelope)
+                active.phase("copying")
                 for file in sorted(
                     archive_objects(manifest), key=lambda item: item.sha256
                 ):
@@ -289,6 +290,7 @@ def import_kit(
         os.mkdir(pending, mode=0o700, dir_fd=parent)
         try:
             with directory(destination.parent / pending) as target:
+                active.phase("copying")
                 for file in sorted(
                     archive_objects(info.manifest), key=lambda item: item.sha256
                 ):

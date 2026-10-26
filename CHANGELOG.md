@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Add bounded descriptive views of preserved PMF metadata and original retained
+  cards for the independent Library. Keep descriptions, tasks, origin, license
+  attribution, text context and runtime notes separate from verification and
+  execution authority. Unknown profiles stay opaque; original objects and the
+  versioned owner journal are unchanged.
+- Support local everyday-purpose search and filters in the saved registry
+  catalog. Bound descriptive responses inside the existing control-plane limit
+  with exact forward pagination. Display reads fetch no weights or metadata.
+- Expose the actual active operation stage for plain-language progress; retain
+  explicit starts, per-copy key acceptance and complete export/restore checks.
+
 ## 0.22.0
 
 - Follow independently reviewed HTTP(S) source bootstraps and offline caches from
