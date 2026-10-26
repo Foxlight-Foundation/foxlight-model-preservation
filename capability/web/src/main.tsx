@@ -1,3 +1,4 @@
+import {SovereignBrand} from './brand';
 import { StrictMode, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { api, bytes, errorText, kitDownload, type Copy, type Job, type Location, type Model, type Page, type Plan } from './client';
@@ -11,7 +12,7 @@ import {Find} from './discovery';
 import {useI2PAvailability} from './i2p';
 import {RetainedLibrary} from './retained-recovery';
 import {TemporaryJobs,TemporaryFilesReview,type TemporaryWork} from './maintenance';
-import {Callout,Empty,Icon,Label,Menu,Monogram,PageBanner,Pill,Progress,SheetHost,SkulkMark,ago,initials,readTheme,useTheme,type IconName,type Tone} from './ui';
+import {Callout,Empty,Icon,Label,Menu,Monogram,PageBanner,Pill,Progress,SheetHost,ago,initials,readTheme,useTheme,type IconName,type Tone} from './ui';
 
 type Area = 'library'|'storage'|'activity'|'sharing'|'find';
 type Review = {plan:Plan; operationId:string};
@@ -43,6 +44,7 @@ function App() {
 
 /** Real Library/Guided interface; all effects begin with explicit reviewed controls. */
 function CoreApp() {
+  useEffect(()=>{document.title='Sovereign · Skulk Library';},[]);
   const i2pAvailable=useI2PAvailability();
   const [page,setPage] = useState<Page|null>(null);
   const [area,setArea] = useState<Area>('library');
@@ -111,7 +113,7 @@ function CoreApp() {
   return <SheetHost banner={banner}><div className="sk-app">
     <a className="sk-skip" href="#library-main">Skip to content</a>
     <header className="sk-header"><div className="sk-header-inner">
-      <span className="sk-brand"><SkulkMark/><span className="sk-wordmark">Skulk</span><span className="sk-product">Library</span></span>
+      <span className="sk-brand"><SovereignBrand theme={theme}/><span className="sk-product">via Skulk</span></span>
       <nav className="sk-nav" aria-label="Library areas">{areas.map(item=><button key={item.id} className="sk-nav-item" aria-current={area===item.id?'page':undefined} aria-describedby={item.id==='activity'&&count?'activity-count':undefined} onClick={()=>navigate(item.id)}><Icon name={item.icon} size={18}/><span>{item.label}</span>{item.id==='activity'&&count>0&&<span className="sk-count" aria-hidden="true">{count}</span>}</button>)}</nav>
       {count>0&&<span id="activity-count" className="sk-sr">{count} {count===1?'job':'jobs'} in progress</span>}
       <div className="sk-header-actions">
@@ -121,9 +123,9 @@ function CoreApp() {
     </div></header>
     <main id="library-main" className="sk-main" inert={Boolean(sheet)}>
       <PageBanner/>
-      {!page ? <div className="sk-loading" aria-busy={!(error||loadError)}><SkulkMark size={40}/><p>{(error||loadError)?'Library unavailable.':'Opening your Library…'}</p></div>
+      {!page ? <div className="sk-loading" aria-busy={!(error||loadError)}><SovereignBrand theme={theme} symbol/><p>{(error||loadError)?'Library unavailable.':'Opening your Library…'}</p></div>
       : area==='find' ? <Find i2pAvailable={i2pAvailable} onReview={currentReview} uploads={page.uploads??[]} onChange={refresh}/>
-      : area==='library' ? <><div inert={retainedOverlay}>{guided?<Guided busy={busy} onDevice={()=>void setup()} onFolder={()=>navigate('storage')} onFind={()=>navigate('find')}/>:<LibraryArea page={page} location={location} online={online} busy={busy} available={available} onStorage={()=>navigate('storage')} onPlan={(kind,selection)=>void plan(kind,selection)} onPublish={openPublish}/>}</div><RetainedLibrary blocked={Boolean(sheet)} onOverlayChange={setRetainedOverlay} onSharing={()=>navigate('sharing')}/></>
+      : area==='library' ? <><div inert={retainedOverlay}>{guided?<Guided theme={theme} busy={busy} onDevice={()=>void setup()} onFolder={()=>navigate('storage')} onFind={()=>navigate('find')}/>:<LibraryArea page={page} location={location} online={online} busy={busy} available={available} onStorage={()=>navigate('storage')} onPlan={(kind,selection)=>void plan(kind,selection)} onPublish={openPublish}/>}</div><RetainedLibrary blocked={Boolean(sheet)} onOverlayChange={setRetainedOverlay} onSharing={()=>navigate('sharing')}/></>
       : area==='storage' ? <Storage locations={page.locations} defaultId={defaultId} busy={busy} onDevice={()=>void setup()} onChange={refresh}/>
       : area==='activity' ? <ActivityArea page={page} busy={busy} available={available} onCancel={job=>void cancel(job)} onCheck={job=>void plan('check',job)} onReclaim={job=>void reclaim(job)} onRetry={job=>void retry(job)} onReceive={openReceive} onSharing={()=>navigate('sharing')} onInspect={job=>void inspectWork(job)}/>
       : <Sharing page={page} busy={busy} onReceive={()=>openReceive()} onKit={copy=>void plan('kit_export',copy)} onRestore={copy=>void plan('recover',copy)} onImport={()=>{setPublicImport(true);setReview(null);}} onReview={currentReview} onStop={job=>void cancel(job)}/>}
@@ -135,9 +137,9 @@ function CoreApp() {
 }
 
 /** First run: two clear storage choices, plus finding a shared model. */
-function Guided({busy,onDevice,onFolder,onFind}:{busy:boolean;onDevice:()=>void;onFolder:()=>void;onFind:()=>void}) {
+function Guided({theme,busy,onDevice,onFolder,onFind}:{theme:'night'|'noon';busy:boolean;onDevice:()=>void;onFolder:()=>void;onFind:()=>void}) {
   return <section className="sk-guided" aria-labelledby="guided-title">
-    <div className="sk-guided-hero"><span className="sk-guided-mark"><SkulkMark size={44}/></span><p className="sk-label">Get started · step 1 of 2</p><h1 id="guided-title">Keep your models within reach.</h1><p className="sk-lede">Preserve a verified copy of any installed model, together with the files it needs to work. First, choose where copies live.</p></div>
+    <div className="sk-guided-hero"><span className="sk-guided-mark"><SovereignBrand theme={theme} symbol/></span><p className="sk-label">Get started · step 1 of 2</p><h1 id="guided-title">Keep your models within reach.</h1><p className="sk-lede">Preserve a verified copy of any installed model, together with the files it needs to work. First, choose where copies live.</p></div>
     <div className="sk-choices">
       <button className="sk-choice" disabled={busy} aria-labelledby="choice-device" aria-describedby="choice-device-note" onClick={onDevice}><span className="sk-choice-icon"><Icon name="device" size={22}/></span><span className="sk-choice-title" id="choice-device">Use this device</span><span className="sk-choice-note" id="choice-device-note">Skulk creates private storage and a protected signing key on this model-store host.</span><span className="sk-choice-go">{busy?'Preparing…':'Set up in one step'}<Icon name="arrow" size={14}/></span></button>
       <button className="sk-choice" aria-labelledby="choice-folder" aria-describedby="choice-folder-note" onClick={onFolder}><span className="sk-choice-icon"><Icon name="folder" size={22}/></span><span className="sk-choice-title" id="choice-folder">Use a folder or NAS</span><span className="sk-choice-note" id="choice-folder-note">Pick a dedicated folder on a connected drive. You review it before anything is created.</span><span className="sk-choice-go">Choose a folder<Icon name="storage" size={14}/></span></button>

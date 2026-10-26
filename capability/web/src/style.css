@@ -97,6 +97,8 @@ h1:focus,h2:focus {outline:none;}
 .sk-header::after {content:'';position:absolute;left:0;right:0;bottom:0;height:1px;background:linear-gradient(to right,var(--line-strong),var(--line-hair) 70%,transparent);}
 .sk-header-inner {position:relative;height:100%;max-width:1080px;margin:0 auto;padding:0 32px;display:flex;align-items:center;gap:20px;}
 .sk-brand {display:flex;align-items:center;gap:10px;color:var(--text-1);flex:none;}
+.sovereign-logo {display:block;width:142px;height:auto;flex:none;}
+.sovereign-symbol {display:block;width:64px;height:64px;}
 .sk-mark {color:var(--text-1);}
 .sk-wordmark {font-size:19px;font-weight:700;letter-spacing:-.02em;}
 .sk-product {font-size:15px;font-weight:500;color:var(--text-3);padding-left:10px;border-left:1px solid var(--line-card);line-height:18px;}
@@ -411,6 +413,7 @@ main[inert] .sk-scrim {opacity:0;}
   .sk-header-inner {padding:0 8px 0 16px;gap:10px;}
   .sk-wordmark {font-size:18px;}
   .sk-product {font-size:14px;}
+  .sovereign-logo {width:126px;}
   .sk-restore > span {display:none;}
   .sk-restore {width:40px;padding:0;}
   .sk-nav {position:fixed;left:0;right:0;bottom:0;z-index:30;margin:0;height:var(--tab);padding:0 4px env(safe-area-inset-bottom);display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:0;background:var(--header);-webkit-backdrop-filter:blur(14px) saturate(140%);backdrop-filter:blur(14px) saturate(140%);border-top:1px solid var(--line-card);}
