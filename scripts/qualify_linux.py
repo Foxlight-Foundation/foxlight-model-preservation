@@ -12,11 +12,8 @@ import argparse
 import base64
 import json
 import os
-import runpy
 import subprocess
-import sys
 import time
-import urllib.request
 from pathlib import Path
 
 PROJECT = Path(__file__).resolve().parents[1]
@@ -135,103 +132,165 @@ def qualify_cli(root: Path) -> dict[str, object]:
 
 
 def qualify_gui(root: Path) -> dict[str, object]:
-    """Render the actual installed GTK/WebKit shell and cancel its real picker."""
+    """Launch the installed identity, inspect native accessibility and stop it."""
     import gi
+    import pyatspi
 
-    gi.require_version("Gtk", "3.0")
     gi.require_version("Gdk", "3.0")
-    gi.require_version("WebKit2", "4.1")
-    from gi.repository import Gdk, GLib, Gtk, WebKit2
+    from gi.repository import Gdk, GLib
 
-    state = {"rendered": False, "picker": False, "pending": False}
-    failure: list[str] = []
-    started = time.monotonic()
-    main_window = None
-    view = None
+    def descendants(pid: int) -> set[int]:
+        parents = {}
+        for item in Path("/proc").iterdir():
+            if not item.name.isdigit():
+                continue
+            try:
+                value = (item / "stat").read_text().rsplit(")", 1)[1].split()
+                parents[int(item.name)] = int(value[1])
+            except (OSError, ValueError, IndexError):
+                continue
+        result = {pid}
+        while True:
+            children = {child for child, parent in parents.items() if parent in result}
+            if children <= result:
+                return result
+            result |= children
 
-    def close() -> None:
-        if main_window is not None:
-            main_window.emit("delete-event", None)
+    def accessible_nodes():
+        pending = [(pyatspi.Registry.getDesktop(0), 0)]
+        visited = 0
+        while pending and visited < 10000:
+            node, depth = pending.pop()
+            visited += 1
+            try:
+                yield node
+                if depth < 30:
+                    pending.extend((child, depth + 1) for child in node if child)
+            except (GLib.Error, RuntimeError):
+                continue
 
-    def inspected(widget, result, _data) -> None:
-        state["pending"] = False
+    def action(name: str) -> bool:
+        for node in accessible_nodes():
+            try:
+                if node.name == name and node.getRole() == pyatspi.ROLE_PUSH_BUTTON:
+                    actions = node.queryAction()
+                    if actions.nActions and actions.doAction(0):
+                        return True
+            except (GLib.Error, RuntimeError):
+                continue
+        return False
+
+    home = root / "native-library"
+    log = root / "native-stderr.log"
+    with log.open("wb") as stream:
+        app = subprocess.Popen(  # noqa: S603 - actual installed fixed launcher
+            ["/usr/bin/sovereign", "--data-directory", str(home)],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=stream,
+            env={
+                **os.environ,
+                "NO_AT_BRIDGE": "0",
+                "GTK_MODULES": "gail:atk-bridge",
+                "GTK_USE_PORTAL": "0",
+                "GDK_BACKEND": "x11",
+            },
+        )
         try:
-            text = widget.run_javascript_finish(result).get_js_value().to_string()
-            if "Find a model. Keep your own copy." not in text:
-                return
-            require("Skulk is optional" in text, "independent Library was not rendered")
-            require(view.get_context().is_ephemeral(), "browser session persists")
-            require(view.get_context().get_sandbox_enabled(), "WebKit sandbox disabled")
-            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-            with opener.open(
-                view.get_uri() + "api/library?offset=0", timeout=5
-            ) as response:
-                page = json.load(response)
+            deadline = time.monotonic() + 60
+            rendered = False
+            while time.monotonic() < deadline:
+                require(app.poll() is None, "native app exited: " + log.read_text())
+                names = []
+                for node in accessible_nodes():
+                    try:
+                        names.append(node.name)
+                    except (GLib.Error, RuntimeError):
+                        pass
+                if any("Find a model. Keep your own copy." in name for name in names):
+                    rendered = True
+                    break
+                time.sleep(0.25)
             require(
-                page["host_kind"] == "sovereign" and not page["jobs"],
-                "opening the application started model work",
+                rendered, "actual native Library did not render: " + log.read_text()
             )
-            native = main_window.get_window()
+            profile = Path(f"/proc/{app.pid}/attr/current").read_text()
+            require(
+                profile.startswith("ai.foxlight.sovereign "),
+                "installed launcher did not enter its scoped AppArmor profile",
+            )
+            parent_map = Path(f"/proc/{app.pid}/uid_map").read_text()
+            sandboxed = False
+            for pid in descendants(app.pid):
+                try:
+                    command = Path(f"/proc/{pid}/cmdline").read_bytes()
+                    if b"WebKitWebProcess" not in command:
+                        continue
+                    status = dict(
+                        line.split(":", 1)
+                        for line in Path(f"/proc/{pid}/status").read_text().splitlines()
+                    )
+                    child_map = Path(f"/proc/{pid}/uid_map").read_text()
+                    if (
+                        status["NoNewPrivs"].strip() == "1"
+                        and status["Seccomp"].strip() == "2"
+                        and child_map != parent_map
+                    ):
+                        sandboxed = True
+                except (OSError, KeyError):
+                    continue
+            require(sandboxed, "native WebKit namespace/seccomp sandbox not observed")
+            screen = Gdk.get_default_root_window()
             image = Gdk.pixbuf_get_from_window(
-                native,
-                0,
-                0,
-                main_window.get_allocated_width(),
-                main_window.get_allocated_height(),
+                screen, 0, 0, screen.get_width(), screen.get_height()
             )
             image.savev(str(root / "native-first-launch.png"), "png", [], [])
-            state["rendered"] = True
-            view.run_javascript(
-                "document.querySelector('input[aria-label="
-                '"Open recovery kit"]\').click()',
-                None,
-                None,
-                None,
-            )
-        except Exception as error:
-            failure.append(type(error).__name__ + ": " + str(error))
-            close()
-
-    def observe() -> bool:
-        nonlocal main_window, view
-        try:
-            if time.monotonic() - started > 60:
-                raise RuntimeError("native first launch or file chooser timed out")
-            windows = Gtk.Window.list_toplevels()
-            for window in windows:
-                if window.get_title() == "Sovereign":
-                    main_window = window
-                    child = window.get_child()
-                    if isinstance(child, WebKit2.WebView):
-                        view = child
-                if isinstance(window, Gtk.FileChooserDialog) and window.get_visible():
-                    state["picker"] = True
-                    window.response(Gtk.ResponseType.CANCEL)
-                    GLib.timeout_add(200, lambda: close() or False)
-                    return False
-            if view is not None and not state["rendered"] and not state["pending"]:
-                state["pending"] = True
-                view.run_javascript("document.body.innerText", None, inspected, None)
-            return True
-        except Exception as error:
-            failure.append(type(error).__name__ + ": " + str(error))
-            close()
-            return False
-
-    GLib.timeout_add(250, observe)
-    home = root / "native-library"
-    sys.argv = ["sovereign", "--data-directory", str(home)]
-    runpy.run_path(str(RESOURCES / "sovereign-linux.py"), run_name="__main__")
-    require(not failure, "; ".join(failure))
-    require(state["rendered"] and state["picker"], "native controls not observed")
-    require(home.is_dir(), "independent owner did not retain its Library")
+            require(action("Open recovery kit"), "native file chooser control missing")
+            canceled = False
+            deadline = time.monotonic() + 20
+            while time.monotonic() < deadline:
+                if action("Cancel"):
+                    canceled = True
+                    break
+                time.sleep(0.25)
+            require(canceled, "native file chooser did not open or cancel")
+        finally:
+            if app.poll() is None:
+                app.terminate()
+            app.wait(timeout=30)
+        require(app.returncode == 0, "native Quit did not finish cooperatively")
+    # The actual owner must have released its lock. Reopening locally may not
+    # replay jobs or manufacture a model after first launch/picker cancellation.
+    result = subprocess.run(  # noqa: S603 - fixed isolated installed runtime
+        [
+            str(RESOURCES / "python/bin/python3"),
+            "-I",
+            "-B",
+            "-c",
+            "import sys,json;sys.path.insert(0,sys.argv[1]);"
+            "from foxlight_model_preservation.local_host.owner import LocalOwner;"
+            "owner=LocalOwner(__import__('pathlib').Path(sys.argv[2]));"
+            "page=owner.read();owner.close();"
+            "print(json.dumps({'jobs':page['jobs'],'copies':page['copies']}))",
+            str(RESOURCES / "site-packages"),
+            str(home),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    require(result.returncode == 0, "owned child did not release its Library")
+    require(
+        json.loads(result.stdout) == {"jobs": [], "copies": []},
+        "opening or canceling started model work",
+    )
     return {
         "actual_installed_native_window": True,
-        "ephemeral_browser": True,
-        "webkit_sandbox_enabled": True,
+        "scoped_apparmor_launcher": True,
+        "webkit_namespace_seccomp_sandbox": True,
         "native_file_picker_cancel": True,
         "fresh_launch_started_no_jobs": True,
-        "cooperative_quit": True,
+        "cooperative_quit_and_owner_lock_reopen": True,
         "full_native_recovery_or_real_model_qualification": False,
     }
 

@@ -28,7 +28,7 @@ jobs:
       - name: Install native desktop and package-build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3-gi gir1.2-gtk-3.0 gir1.2-webkit2-4.1 xvfb dbus-x11 zstd desktop-file-utils
+          sudo apt-get install -y python3-gi python3-pyatspi at-spi2-core gir1.2-gtk-3.0 gir1.2-webkit2-4.1 xvfb dbus-x11 zstd desktop-file-utils
       - name: Fetch only pinned public inputs and hash-locked wheels
         env:
           ARCHITECTURE: ${{ matrix.architecture }}
@@ -54,10 +54,12 @@ jobs:
           python scripts/build_linux.py --architecture "$ARCHITECTURE" --library-archive /tmp/library.archive --python-archive /tmp/python.archive --notices-archive /tmp/notices.archive --wheelhouse /tmp/sovereign-wheelhouse --directory /tmp/sovereign-linux-b
           cmp /tmp/sovereign-linux-a/*.deb /tmp/sovereign-linux-b/*.deb
           desktop-file-validate /tmp/sovereign-linux-a/package/usr/share/applications/ai.foxlight.Sovereign.desktop
-          test "$(find /tmp/sovereign-linux-a/package/DEBIAN -type f -printf '%f\n')" = control
+          test "$(find /tmp/sovereign-linux-a/package/DEBIAN -type f -printf '%f\n' | sort | tr '\n' ' ')" = 'conffiles control postinst postrm '
           test -z "$(find /tmp/sovereign-linux-a/package -iname '*systemd*' -o -iname '*cron*')"
       - name: Install the actual package and exercise its native session
         run: |
+          cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns > /tmp/sovereign-userns-before
+          test "$(cat /tmp/sovereign-userns-before)" = 1
           sudo apt-get install -y /tmp/sovereign-linux-a/*.deb
           cd /tmp
           dbus-run-session -- xvfb-run -a /usr/bin/python3 -I -B "$GITHUB_WORKSPACE/scripts/qualify_linux.py" --directory /tmp/sovereign-linux-qualification
@@ -71,6 +73,7 @@ jobs:
           pathlib.Path('/tmp/sovereign-linux-retained.json').write_text(json.dumps(values))
           PY
           sudo apt-get purge -y foxlight-sovereign
+          cmp /tmp/sovereign-userns-before /proc/sys/kernel/apparmor_restrict_unprivileged_userns
           python - <<'PY'
           import hashlib, json, pathlib
           root = pathlib.Path('/tmp/sovereign-linux-qualification/native-library')

@@ -70,6 +70,9 @@ def main() -> None:
     gi.require_version("WebKit2", "4.1")
     from gi.repository import Gio, GLib, Gtk, WebKit2
 
+    GLib.set_prgname("Sovereign")
+    GLib.set_application_name("Sovereign")
+
     class Window:
         def __init__(self) -> None:
             self.base = ""

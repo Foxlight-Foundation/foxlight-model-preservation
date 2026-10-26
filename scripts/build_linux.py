@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Build a native Debian candidate offline from pinned public software inputs.
 
-The result is an unsigned local/CI candidate, not a signed APT publication. No
-maintainer scripts, services, account changes or network installers are included.
+The result is an unsigned local/CI candidate, not a signed APT publication. Only
+its own AppArmor policy is reloaded; no services, account or network installers.
 """
 
 from __future__ import annotations
@@ -189,12 +189,36 @@ def main() -> None:
     commands = tree / "usr/bin"
     commands.mkdir(parents=True)
     for name, source in (
-        ("sovereign", "gui.sh"),
         ("model-preserve", "launcher.sh"),
         ("foxlight-sovereign", "launcher.sh"),
     ):
         shutil.copyfile(PROJECT / "desktop/linux" / source, commands / name)
         (commands / name).chmod(0o755)
+    subprocess.run(  # noqa: S603 - fixed compiler, application-specific identity
+        [
+            "/usr/bin/cc",
+            "-O2",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-fPIE",
+            "-fstack-protector-strong",
+            "-D_FORTIFY_SOURCE=3",
+            "-pie",
+            "-Wl,-z,relro,-z,now",
+            str(PROJECT / "desktop/linux/launcher.c"),
+            "-o",
+            str(commands / "sovereign"),
+        ],
+        check=True,
+        env=environment,
+    )
+    policy = tree / "etc/apparmor.d"
+    policy.mkdir(parents=True)
+    shutil.copyfile(
+        PROJECT / "desktop/linux/ai.foxlight.sovereign",
+        policy / "ai.foxlight.sovereign",
+    )
     applications = tree / "usr/share/applications"
     applications.mkdir(parents=True)
     shutil.copyfile(
@@ -218,7 +242,7 @@ def main() -> None:
         f"Package: foxlight-sovereign\nVersion: {version}\n"
         f"Architecture: {args.architecture}\n"
         "Maintainer: Foxlight Foundation\nSection: utils\nPriority: optional\n"
-        "Depends: python3 (>= 3.11), python3-gi, gir1.2-gtk-3.0, "
+        "Depends: apparmor (>= 4.0), python3 (>= 3.11), python3-gi, gir1.2-gtk-3.0, "
         "gir1.2-webkit2-4.1, ca-certificates, libc6 (>= 2.35), "
         "libgcc-s1, libstdc++6\n"
         f"Installed-Size: {(size + 1023) // 1024}\n"
@@ -227,6 +251,10 @@ def main() -> None:
         " Find, privately preserve and restore exact models, companions and signed\n"
         " provenance without Skulk. Installation starts no services or sharing.\n"
     )
+    (control / "conffiles").write_text("/etc/apparmor.d/ai.foxlight.sovereign\n")
+    for name in ("postinst", "postrm"):
+        shutil.copyfile(PROJECT / "desktop/linux" / name, control / name)
+        (control / name).chmod(0o755)
     for path in tree.rglob("*"):
         if path.is_dir():
             path.chmod(0o755)
