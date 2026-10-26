@@ -138,6 +138,10 @@ def main() -> None:
     resources = contents / "Resources"
     (contents / "MacOS").mkdir(parents=True)
     resources.mkdir()
+    shutil.copyfile(
+        project / "desktop/macos/Resources/Sovereign.icns",
+        resources / "Sovereign.icns",
+    )
     shutil.copy2(Path(binary) / "Sovereign", contents / "MacOS/Sovereign")
     shutil.copytree(
         args.runtime,
@@ -176,6 +180,7 @@ def main() -> None:
                 "CFBundleIdentifier": "ai.foxlight.sovereign",
                 "CFBundleName": "Sovereign",
                 "CFBundleDisplayName": "Sovereign",
+                "CFBundleIconFile": "Sovereign.icns",
                 "CFBundlePackageType": "APPL",
                 "CFBundleShortVersionString": args.version,
                 "CFBundleVersion": args.build_number,
