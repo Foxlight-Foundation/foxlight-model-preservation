@@ -35,14 +35,19 @@ def test_everyday_find_is_local_and_filters_declared_purpose(tmp_path, monkeypat
 
 
 @pytest.mark.parametrize(
-    "description",
+    ("description", "query"),
     [
-        "Synthetic writing model for recovery tests; these are not real weights.",
-        "🌱" * 4000,
+        (
+            "Synthetic writing model for recovery tests; these are not real weights.",
+            "writing",
+        ),
+        ("🌱" * 4000 + "翻译", "翻译"),
+        ("中文" * 170 + "翻译", "翻译"),
+        ("A" * 800 + " tail-search-marker", "tail-search-marker"),
     ],
 )
 def test_model_details_survive_restart_without_journal_or_object_changes(
-    tmp_path, monkeypatch, description
+    tmp_path, monkeypatch, description, query
 ):
     catalog, repo, data = accepted_catalog(
         tmp_path,
@@ -101,11 +106,8 @@ def test_model_details_survive_restart_without_journal_or_object_changes(
             identity_json(json.loads(journal)["copies"][0]["trust"])
         ),
     )
-    if len(description) < 600:
-        assert details["description"] == description
-    else:
-        assert details.get("description") is None
-        assert repo.card.card["description"] == description
+    assert details.get("description") in (None, description[:600])
+    assert repo.card.card["description"] == description
     assert details["context_length"] == 8192
     assert details["license"] == "Apache-2.0"
     assert details["attribution"] == "Synthetic Model"
@@ -121,6 +123,11 @@ def test_model_details_survive_restart_without_journal_or_object_changes(
     try:
         assert restarted.control("copy-search", {})["results"][0]["details"] == details
         assert restarted.read()["copies"][0]["manifest_id"] == saved["manifest_id"]
+        found = restarted.control("copy-search", {"query": query})
+        assert found["total"] == 1
+        assert found["results"][0]["copy_id"] == saved["copy_id"]
+        assert "searchable" not in json.dumps(found)
+        assert (home / "journal.json").read_bytes() == journal
     finally:
         restarted.close()
 

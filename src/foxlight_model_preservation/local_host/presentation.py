@@ -15,7 +15,7 @@ from typing import cast
 from pydantic import JsonValue
 
 from ..assurance import load_retained_card
-from ..cards import ModelCardEnvelope
+from ..cards import ModelCardEnvelope, identity_json
 from ..models import PreservationError, TrustProfile
 from ..pmf import verify_pmf_manifest
 from ..pmf_models import PMFManifest
@@ -199,11 +199,13 @@ def manifest_summary(manifest: PMFManifest) -> dict[str, JsonValue]:
     return _bounded(summary)
 
 
-def copy_summary(
+def copy_metadata(
     store: Path, manifest_id: str, trust: TrustProfile
-) -> dict[str, JsonValue]:
+) -> tuple[dict[str, JsonValue], str]:
     """Read authenticated metadata only, never weights, network or executable code.
 
+    Return a bounded display summary and complete searchable supported metadata.
+    The latter stays inside the host cache, not its response or authority journal.
     Unknown profiles remain opaque. An unavailable or oversized optional card
     leaves common PMF metadata usable; it does not prevent recovery or grant trust.
     """
@@ -214,6 +216,7 @@ def copy_summary(
             raise PreservationError("metadata_preview_too_large")
         manifest = verify_pmf_manifest(envelope, trust, manifest_id)
         summary = manifest_summary(manifest)
+        searchable = manifest.model_dump_json()
         for profile in manifest.profiles:
             if (
                 profile.profile_id != "skulk.retained-card.v1"
@@ -233,7 +236,9 @@ def copy_summary(
                     data = stream.read(512 * 1024 + 1)
                 if len(data) != document.size or digest(data) != document.sha256:
                     break
-                projected = card_summary(load_retained_card(data).envelope)
+                retained = load_retained_card(data).envelope
+                searchable += " " + identity_json(retained.card).decode()
+                projected = card_summary(retained)
                 projected["runtime_requirements"] = summary.get(
                     "runtime_requirements", []
                 )
@@ -243,7 +248,14 @@ def copy_summary(
                 projected["license"] = projected.get("license") or summary.get(
                     "license"
                 )
-                return _bounded(projected)
+                return _bounded(projected), searchable
             except (ValueError, OSError):
                 break
-        return _bounded(summary)
+        return _bounded(summary), searchable
+
+
+def copy_summary(
+    store: Path, manifest_id: str, trust: TrustProfile
+) -> dict[str, JsonValue]:
+    """Return only the bounded descriptive view of authenticated archive metadata."""
+    return copy_metadata(store, manifest_id, trust)[0]

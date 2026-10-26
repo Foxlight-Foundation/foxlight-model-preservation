@@ -42,7 +42,7 @@ from .catalog import RegistryCatalog
 from .presentation import (
     PURPOSE_WORDS,
     card_summary,
-    copy_summary,
+    copy_metadata,
     manifest_summary,
     metadata_page,
     search_words,
@@ -121,6 +121,7 @@ class LocalOwner:
             self._controls: dict[str, OperationControl] = {}
             self._progress: dict[str, Progress] = {}
             self._summaries: dict[str, dict[str, JsonValue]] = {}
+            self._search_metadata: dict[str, str] = {}
             self._closed = False
             try:
                 self._journal = Journal.model_validate_json(
@@ -237,13 +238,16 @@ class LocalOwner:
         # Immutable identities make this a display cache, never an authority or
         # a journal migration. Actual export/restore still reverify every byte.
         if item.copy_id not in self._summaries:
+            summary: dict[str, JsonValue]
             try:
-                summary: dict[str, JsonValue] = copy_summary(
+                summary, searchable = copy_metadata(
                     self.home / "copies" / item.copy_id, item.manifest_id, item.trust
                 )
             except (ValueError, OSError):
                 summary = {"metadata_status": "unavailable"}
+                searchable = ""
             self._summaries[item.copy_id] = summary
+            self._search_metadata[item.copy_id] = searchable
         return {
             **item.model_dump(mode="json", exclude={"trust"}),
             "details": self._summaries[item.copy_id],
@@ -267,7 +271,7 @@ class LocalOwner:
                 text = (
                     item.name
                     + " "
-                    + identity_json(details).decode()
+                    + self._search_metadata[item.copy_id]
                     + " "
                     + search_words(details)
                 ).casefold()
