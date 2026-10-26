@@ -46,6 +46,7 @@ from foxlight_model_preservation.pmf_models import (
 from foxlight_model_preservation.pmf_preservation import (
     export_preservation,
     import_preservation,
+    inspect_preservation_pmf,
 )
 from foxlight_model_preservation.signing import (
     canonical_bytes,
@@ -700,3 +701,62 @@ def test_public_pmf_vector_and_signature_domain(tmp_path):
             raw["schema_version"] = "pmf.manifest.v99"
         with pytest.raises(ValueError):
             load_pmf(canonical_bytes(raw))
+
+
+def test_optional_source_keys_survive_without_becoming_authority(tmp_path, capture):
+    key = Ed25519PrivateKey.generate()
+    trust = new_trust(key)
+    store = tmp_path / "key-profile"
+    converted = import_preservation(
+        capture.store,
+        capture.identity,
+        capture.trust,
+        store,
+        (key,),
+        source_key_candidates=capture.trust,
+    )
+    manifest = verify_pmf(store, converted.output_identity, trust)
+    original = (capture.store / manifest_path(capture.identity)).read_bytes()
+    with pytest.raises(PreservationError, match="threshold"):
+        inspect_preservation_pmf(manifest, original, source_trust=trust)
+    with pytest.raises(PreservationError, match="threshold"):
+        export_preservation(
+            store,
+            converted.output_identity,
+            trust,
+            tmp_path / "wrong-authority",
+            source_trust=trust,
+            expected_source_manifest_id=capture.identity,
+        )
+    output = tmp_path / "files"
+    restore_pmf(store, converted.output_identity, trust, output)
+    assert (
+        output / "documents/preservation-source-keys"
+    ).read_bytes() == encode_record(capture.trust)
+    restored = tmp_path / "original-recovered"
+    export_preservation(
+        store,
+        converted.output_identity,
+        trust,
+        restored,
+        source_trust=capture.trust,
+        expected_source_manifest_id=capture.identity,
+    )
+    assert (restored / manifest_path(capture.identity)).read_bytes() == original
+    assert (restored / "source-key-candidates.json").read_bytes() == encode_record(
+        capture.trust
+    )
+
+
+def test_source_key_candidates_cannot_replace_input_authority(tmp_path, capture):
+    key = Ed25519PrivateKey.generate()
+    with pytest.raises(PreservationError, match="threshold"):
+        import_preservation(
+            capture.store,
+            capture.identity,
+            new_trust(key),
+            tmp_path / "refused",
+            (key,),
+            source_key_candidates=capture.trust,
+        )
+    assert not (tmp_path / "refused").exists()

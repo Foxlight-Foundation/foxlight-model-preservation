@@ -41,6 +41,57 @@ Unknown card data and source documents remain opaque and are preserved.
 
 ## Trust, privacy and limits
 
+### Follow independent sources
+
+This source-preview interface requires matching core **0.22.0** and Library
+**0.17.0** packages. Earlier published 0.21/0.16 installations retain their
+registry catalog and recovery features; they do not include these new controls.
+Committing this interface does not publish a new signed native application.
+
+In **Find models → Independent sources**, choose **Add source file**. The desktop
+accepts a direct HTTP(S) source bootstrap or exported offline source cache up to
+32 MiB. Opening the file inspects it locally. Check its bootstrap fingerprint,
+root keys and threshold with its publisher before choosing **Follow source**.
+Source trust authorizes listings only; it does not accept model keys or confer
+registry authority. Following a bootstrap offers an update review without
+starting a connection. An imported cache is searchable as historical evidence.
+
+**Sources & updates → Review update** starts a finite authenticated TUF metadata
+job only after confirmation. Failed updates preserve the last accepted listings
+and rollback floors. Search stays on the device, including after restart and
+when source hosts are unavailable. Results retain their individual source
+attribution and exact manifest IDs. **Stop following** hides that source's
+listings and prevents updates; it keeps rollback protection, already inspected
+model references, saved copies and recovery kits. No automatic eviction or
+deletion is added.
+
+**Review signed details** contacts the selected mirrors for the original signed
+manifest, using source-supplied candidate keys only to inspect its signatures.
+It fetches no weights and enrolls no model signer. Open the successful metadata
+job in **Activity → Review signed model**, independently check the capture-key
+fingerprints, and select which keys to accept for that exact copy. The original
+threshold and revocations still apply. Review the complete selected byte count,
+companions, mirrors and received-byte allowance before **Download & preserve**.
+The original signed envelope is pinned byte for byte across this review and
+download. Every file verifies before a PMF copy appears in Library; the complete
+original archive and signed evidence remain inside it. Existing kit export and
+offline restore then work without the source, registry or original host.
+The original public capture-key candidates, threshold and revocations travel in
+an optional PMF document too. They can be checked after recovery, but remain
+candidates requiring independent fingerprint authentication, not inherited trust.
+
+HTTP and private-address permissions are separate for source updates, model
+details and weight downloads. Changing metadata connection settings requires a
+new review before starting. Direct mirrors see the recipient's address and
+requested paths. None of these operations starts serving, a swarm, a router,
+runtime execution or global model-key enrollment. The desktop source adapter
+currently accepts direct HTTP(S) sources and v1 signed preservation manifests.
+Peer/I2P source following and direct PMF network transport remain separate
+command/Core adapters; unsupported routes are never silently enabled. Skulk's
+existing source interface and admission checks remain separate.
+
+### Built-in registry source
+
 The bundled [registry root](../src/foxlight_model_preservation/resources/foxlight_registry_root.json)
 is a preset supplied by the application, not a key obtained from the endpoint.
 Stock TUF verifies current updates and rollback protection. Original accepted

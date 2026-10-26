@@ -31,6 +31,30 @@ async def test_independent_owner_opens_empty_offline_and_keeps_ticket_boundary(
             )
             assert response.status_code == 200
             assert response.json()["total"] == 0
+            for action, expected in (
+                ("desktop-source-read", {"sources": []}),
+                (
+                    "desktop-source-search",
+                    {"results": [], "total": 0, "next_offset": None},
+                ),
+            ):
+                path = server.url + "api/" + action
+                assert (await browser.post(path, json={})).status_code == 400
+                response = await browser.post(
+                    path, json={}, headers={"X-Preservation-Action": "operator"}
+                )
+                assert response.status_code == 200
+                assert response.json() == expected
+                assert (
+                    await browser.post(
+                        path,
+                        json={},
+                        headers={
+                            "X-Preservation-Action": "operator",
+                            "Origin": "https://attacker.invalid",
+                        },
+                    )
+                ).status_code == 403
             assert (
                 await browser.get(
                     server.url + "api/library", headers={"Host": "attacker.invalid"}

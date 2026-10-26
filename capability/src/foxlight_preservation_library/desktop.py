@@ -97,6 +97,18 @@ class DesktopClient(CoreClient):
                 "sovereign_library_capacity_reached",
                 "kit_upload_in_use",
                 "remove_unused_kit_uploads",
+                "source_document_too_large",
+                "source_transport_unavailable",
+                "source_trust_confirmation_required",
+                "source_review_changed",
+                "source_no_longer_followed",
+                "source_model_reference_changed",
+                "source_update_failed",
+                "discovery_busy_try_again",
+                "candidate_bundle_keys_required",
+                "public_model_mirror_required",
+                "receiving_allowance_too_small",
+                "model_metadata_unavailable",
             }
             raise CoreRefused(
                 code if code in allowed else "invalid_or_unsafe"

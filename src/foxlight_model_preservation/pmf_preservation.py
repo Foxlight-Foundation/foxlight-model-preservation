@@ -46,6 +46,8 @@ from .storage import (
 
 PRESERVATION_PROFILE = "foxlight.preservation.v1"
 SKULK_PROFILE = "skulk.retained-card.v1"
+SOURCE_KEYS_PROFILE = "foxlight.preservation-source-keys.v1"
+SOURCE_KEYS_DOCUMENT = "preservation-source-keys"
 CONVERTER = "foxlight-model-preservation/pmf-preservation-v0.1"
 
 
@@ -165,6 +167,7 @@ def import_preservation(
     destination: Path,
     keys: tuple[Ed25519PrivateKey, ...],
     *,
+    source_key_candidates: TrustProfile | None = None,
     control: OperationControl | None = None,
 ) -> PMFConversion:
     """Convert an exact v1 capture (including Skulk captures) into signed PMF.
@@ -172,12 +175,45 @@ def import_preservation(
     Every original member and signed record is retained. No card deserialization
     is needed, so future card properties/profiles survive without a new runtime.
     The new signature describes the conversion; it is not a registry signature.
+    Optional public source keys are retained as an opaque, optional profile.
+    They remain candidates, never a replacement for the receiver's trust choice.
+    Omitting them preserves the original projection and all existing identities.
     """
     with (control or OperationControl()).operation("pack") as active:
         with directory(store) as source:
             envelope = read_metadata(source, manifest_path(manifest_id))
             original = verify_manifest(envelope, trust, manifest_id)
             manifest, records = _project(original, envelope)
+            if source_key_candidates is not None:
+                # Check the proposed public candidates without adopting them as
+                # the independent authority used above to authenticate the input.
+                verify_manifest(envelope, source_key_candidates, manifest_id)
+                data = encode_record(source_key_candidates)
+                manifest = manifest.model_copy(
+                    update={
+                        "documents": (
+                            *manifest.documents,
+                            PMFDocument(
+                                document_id=SOURCE_KEYS_DOCUMENT,
+                                role="verification-key-candidates",
+                                media_type="application/json",
+                                schema_version=source_key_candidates.schema_version,
+                                sha256=digest(data),
+                                size=len(data),
+                            ),
+                        ),
+                        "profiles": (
+                            *manifest.profiles,
+                            PMFProfile(
+                                profile_id=SOURCE_KEYS_PROFILE,
+                                documents=(SOURCE_KEYS_DOCUMENT,),
+                            ),
+                        ),
+                    }
+                )
+                # Revalidate the complete descriptor, including the metadata cap.
+                manifest = PMFManifest.model_validate_json(encode_record(manifest))
+                records[SOURCE_KEYS_DOCUMENT] = data
             identity, signed = sign_pmf_manifest(manifest, keys)
             with new_pmf_tree(destination, active) as target:
                 check_pmf_space(target, manifest)
@@ -195,6 +231,44 @@ def import_preservation(
         output_schema=PMF_VERSION,
         output_identity=identity,
         source_envelope_sha256=digest(envelope),
+    )
+
+
+def _without_source_keys(manifest: PMFManifest) -> PMFManifest:
+    profile = next(
+        (item for item in manifest.profiles if item.profile_id == SOURCE_KEYS_PROFILE),
+        None,
+    )
+    if profile is None:
+        return manifest
+    document = next(
+        (
+            item
+            for item in manifest.documents
+            if item.document_id == SOURCE_KEYS_DOCUMENT
+        ),
+        None,
+    )
+    if (
+        profile.member_id is not None
+        or profile.required
+        or profile.documents != (SOURCE_KEYS_DOCUMENT,)
+        or document is None
+        or document.member_id is not None
+        or document.role != "verification-key-candidates"
+        or document.media_type != "application/json"
+        or document.schema_version != "foxlight.model-preservation.trust.v1"
+    ):
+        raise PreservationError("unsupported source key candidate profile")
+    return manifest.model_copy(
+        update={
+            "documents": tuple(
+                item
+                for item in manifest.documents
+                if item.document_id != SOURCE_KEYS_DOCUMENT
+            ),
+            "profiles": tuple(item for item in manifest.profiles if item != profile),
+        }
     )
 
 
@@ -240,7 +314,7 @@ def export_preservation(
                 envelope, source_trust, expected_source_manifest_id
             )
             expected, records = _project(original, envelope)
-            if manifest != expected:
+            if _without_source_keys(manifest) != expected:
                 raise PreservationError(
                     "PMF projection cannot be exported losslessly to its original"
                 )
@@ -252,6 +326,23 @@ def export_preservation(
                     raise PreservationError(
                         "PMF source document differs from its original"
                     )
+            candidate_bytes: bytes | None = None
+            candidate_document = next(
+                (
+                    item
+                    for item in manifest.documents
+                    if item.document_id == SOURCE_KEYS_DOCUMENT
+                ),
+                None,
+            )
+            if candidate_document is not None:
+                candidate_bytes = read_metadata(
+                    source, object_path(candidate_document.sha256)
+                )
+                candidates = TrustProfile.model_validate_json(
+                    canonical_bytes(strict_json(candidate_bytes))
+                )
+                verify_manifest(envelope, candidates, expected_source_manifest_id)
             with new_pmf_tree(destination, active) as target:
                 check_pmf_space(target, manifest)
                 for file in unique_objects(original):
@@ -261,6 +352,10 @@ def export_preservation(
                 atomic_bytes(
                     target, manifest_path(expected_source_manifest_id), envelope
                 )
+                if candidate_bytes is not None:
+                    # A sidecar preserves the optional transport metadata without
+                    # modifying the original signed format or granting authority.
+                    atomic_bytes(target, "source-key-candidates.json", candidate_bytes)
     return PMFConversion(
         source_schema=PMF_VERSION,
         source_identity=manifest_id,
@@ -298,7 +393,7 @@ def inspect_preservation_pmf(
     source_identity = digest(decode_base64(signed.payload))
     original = verify_manifest(envelope, source_trust, source_identity)
     expected, _records = _project(original, envelope)
-    if manifest != expected:
+    if _without_source_keys(manifest) != expected:
         raise PreservationError(
             "PMF projection cannot be exported losslessly to its original"
         )

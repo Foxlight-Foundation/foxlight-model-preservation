@@ -95,6 +95,7 @@ class Arguments(
     source_trust: Path
     expected_source_manifest_id: str
     accept_kit_key: bool = False
+    retain_source_keys: bool = False
     bundle_trust: Path | None = None
     index: Path
     catalog: str
@@ -236,6 +237,12 @@ def argument_parser() -> argparse.ArgumentParser:
             _trust_options(pmf)
         if name in {"pmf-pack", "pmf-import-preservation"}:
             _key_options(pmf)
+        if name == "pmf-import-preservation":
+            pmf.add_argument(
+                "--retain-source-keys",
+                action="store_true",
+                help="retain public verification-key candidates; grants no trust",
+            )
         if name not in {"pmf-pack", "pmf-verify"}:
             pmf.add_argument("--output", type=Path, required=True)
         if name == "pmf-export-preservation":
@@ -572,6 +579,7 @@ def _pmf_commands(
             trust,
             arguments.output,
             (load_key(arguments.key, _password(arguments)),),
+            source_key_candidates=trust if arguments.retain_source_keys else None,
             control=control,
         )
         return converted.model_dump(mode="json")
