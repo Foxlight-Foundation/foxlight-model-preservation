@@ -12,10 +12,10 @@ and its broader installed qualification remain separate from those candidates.
 
 ## Model information
 
-Core 0.23 / Library 0.18 include richer model descriptions, local saved-model
-search, purpose filters and contextual help. Native build 4 pins this public
-cohort; the recipe alone does not publish a signed native update. The older
-core 0.22 / Library 0.17 archives and native build 3 remain unchanged.
+Core 0.24 / Library 0.19 describe model uses from captured tasks, capabilities,
+pipeline tags, structured source claims and declared input/output types. Native
+build 4 still pins the earlier core 0.23 / Library 0.18 cohort; Python releases
+and source changes do not silently replace an installed native app.
 
 Find accepts everyday terms such as **writing**, **images**, **voice** or a model
 name. **What would you like to do?** filters declared uses. Matching descriptions
@@ -29,6 +29,39 @@ license and runtime notes. Common PMF metadata works without a Skulk profile;
 recognized retained cards add their existing metadata. Missing descriptions or
 unreadable optional details remain explicit. These excerpts never rewrite the
 original cards, unknown properties, signed wrappers or recovery data.
+
+**Works with** and **Produces** distinguish understanding pictures from creating
+them, video understanding from video generation, and speech input from speech
+output. Reasoning and document-search uses remain visible alongside other model
+capabilities. Names, file sizes and a coarse text-compatibility flag do not invent
+uses. A source listing can declare `image-text-to-text` without requiring Skulk.
+
+Main capability labels use the captured model card and structured source/file
+evidence. **About this model** names those information sources. Additional
+automated interpretations remain attributed, with bounded unverified notes when
+available; they do not supply capability labels or input/output types. They can
+describe an internal component rather than a usable model feature, and may be
+mistaken. Sovereign does not rewrite the original claims or their confidence.
+
+A reported image companion that is not listed with a selected download is
+explained separately, with help describing image projectors. A repository listing
+or a claim marked `complete` does not prove that the selected download contains
+that companion. Missing-file-map and unsupported-companion guards stay in force.
+The review remains authoritative about the exact selection being preserved.
+For saved copies, presence caveats use the archive's root-member file list,
+including additional captured files, rather than the earlier download's map.
+File presence is still distinct from registry coverage or usable runtime support.
+Explicit input/output direction survives preservation; only independently added
+PMF workloads contribute additional default modalities.
+
+Saved-copy descriptions can read original retained-card documents up to the
+existing 8 MiB metadata limit, accommodating ordinary registry publication proofs
+larger than the former 512 KiB preview cap. These reads remain optional, local and
+independent of restoring/verifying the copy; no weight file is read to describe it.
+The display summary stays bounded to 1,536 serialized JSON bytes. Original card,
+catalog and proof bytes, unknown properties, archive identities and trust checks
+remain unchanged. Core-backed pages use the same presentation when their host
+supplies the optional details; older hosts retain task-based descriptions.
 
 **Verification details** explains why an exact digital fingerprint is retained.
 Info buttons work on hover, keyboard focus and touch. Accepting a sender's key

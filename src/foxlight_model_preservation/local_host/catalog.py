@@ -272,14 +272,27 @@ class RegistryCatalog:
             return {"catalog_id": None, "results": [], "total": 0, "next_offset": None}
         rows: list[dict[str, JsonValue]] = []
         terms = query.casefold().split()
+        parsed = strict_json(raw)
+        captured_metadata = (
+            parsed.get("card_metadata") if isinstance(parsed, dict) else None
+        )
         for card in self._cards(raw):
             from .presentation import card_summary, search_words
 
-            details = card_summary(card)
+            metadata = (
+                captured_metadata.get(card.card_id)
+                if isinstance(captured_metadata, dict)
+                else None
+            )
+            details = card_summary(
+                card, metadata=metadata if isinstance(metadata, dict) else None
+            )
             if purpose and purpose not in cast(list[str], details.get("purposes", [])):
                 continue
             haystack = (
                 identity_json(card.model_dump(mode="json")).decode()
+                + " "
+                + identity_json(metadata).decode()
                 + " "
                 + search_words(details)
             ).casefold()

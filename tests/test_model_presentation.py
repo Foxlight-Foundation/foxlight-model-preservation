@@ -9,12 +9,147 @@ from test_local_owner import accepted_catalog, finish, submit
 from foxlight_model_preservation.cards import create_card, identity_json
 from foxlight_model_preservation.local_host.owner import LocalOwner
 from foxlight_model_preservation.local_host.presentation import (
+    captured_card_metadata,
     card_summary,
     copy_summary,
     model_summary,
 )
 from foxlight_model_preservation.models import PreservationError, TrustProfile
 from foxlight_model_preservation.storage import directory, manifest_path, open_file
+
+
+def test_catalog_claims_in_search_and_review(tmp_path, monkeypatch):
+    from test_model_capabilities import claim
+
+    catalog, repo, _ = accepted_catalog(
+        tmp_path,
+        catalog_metadata={"capability_claims": [claim("vision.understand")]},
+    )
+    before = repo.target
+    monkeypatch.setattr(
+        "socket.socket", lambda *a, **k: pytest.fail("browsing used network")
+    )
+    found = catalog.search("pictures", purpose="vision")
+    assert found["total"] == 1
+    details = found["results"][0]["details"]
+    assert "vision" in details["purposes"]
+    assert "image" in details["input_modalities"]
+    assert details["output_modalities"] == ["text"]
+    owner = LocalOwner(tmp_path / "owner", catalog=catalog)
+    try:
+        plan = owner.control(
+            "plan",
+            {
+                "kind": "receive",
+                "catalog_id": found["catalog_id"],
+                "card_id": repo.card.card_id,
+            },
+        )
+        assert plan["details"] == details
+        assert owner.read()["copies"] == []
+    finally:
+        owner.close()
+    assert repo.target == before
+
+
+def test_captured_claims_cannot_be_attached_to_a_different_or_changed_card(tmp_path):
+    import base64
+
+    from test_model_capabilities import claim
+
+    from foxlight_model_preservation.registry_proof import RegistryProof
+    from foxlight_model_preservation.signing import decode_base64, encode_record
+
+    _, repo, _ = accepted_catalog(
+        tmp_path, catalog_metadata={"capability_claims": [claim("vision.understand")]}
+    )
+    proof = repo.proof()
+    assert captured_card_metadata(proof, repo.card)["capability_claims"]
+    other = create_card({**repo.card.card, "description": "Another card"})
+    assert captured_card_metadata(proof, other) == {}
+    payload = json.loads(decode_base64(proof.target))
+    payload["cards"][0]["card"]["description"] = "Changed without its identity"
+    altered = RegistryProof.model_validate_json(
+        encode_record(
+            proof.model_copy(
+                update={"target": base64.b64encode(identity_json(payload)).decode()}
+            )
+        )
+    )
+    assert captured_card_metadata(altered, repo.card) == {}
+
+
+def test_large_proof_keeps_saved_capabilities_offline(tmp_path, monkeypatch):
+    from test_model_capabilities import claim
+
+    from foxlight_model_preservation.signing import digest
+
+    catalog, repo, data = accepted_catalog(
+        tmp_path,
+        catalog_metadata={
+            "capability_claims": [claim("vision.understand"), claim("text.reason")],
+            "future_catalog_extension": "x" * 600_000,
+        },
+    )
+
+    def download(repository, revision, file, destination, control, **kwargs):
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(data)
+
+    monkeypatch.setattr(
+        "foxlight_model_preservation.local_host.owner.download_file", download
+    )
+    home = tmp_path / "owner"
+    owner = LocalOwner(home, catalog=catalog)
+    found = owner.control("search", {})
+    plan = owner.control(
+        "plan",
+        {
+            "kind": "receive",
+            "catalog_id": found["catalog_id"],
+            "card_id": repo.card.card_id,
+        },
+    )
+    assert finish(owner, submit(owner, plan))["state"] == "succeeded"
+    saved = owner.read()["copies"][0]
+    owner.close()
+    journal = (home / "journal.json").read_bytes()
+    store = home / "copies" / saved["copy_id"]
+    originals = {p.name: p.read_bytes() for p in (store / "objects/sha256").iterdir()}
+    assert max(map(len, originals.values())) > 512 * 1024
+    trust = TrustProfile.model_validate_json(
+        identity_json(json.loads(journal)["copies"][0]["trust"])
+    )
+
+    def metadata_only(root, path, **kwargs):
+        assert not path.endswith(digest(data)), "description read weight bytes"
+        return open_file(root, path, **kwargs)
+
+    monkeypatch.setattr(
+        "foxlight_model_preservation.local_host.presentation.open_file", metadata_only
+    )
+    monkeypatch.setattr(
+        "socket.socket", lambda *a, **k: pytest.fail("saved search used network")
+    )
+    details = copy_summary(store, saved["manifest_id"], trust)
+    assert details["metadata_status"] == "available"
+    assert set(details["purposes"]) == {"chat", "vision", "reasoning"}
+    assert "image" in details["input_modalities"]
+    assert len(json.dumps(details, separators=(",", ":"))) <= 1536
+    restarted = LocalOwner(home)
+    try:
+        matches = restarted.control(
+            "copy-search", {"query": "pictures", "purpose": "vision"}
+        )
+        assert matches["total"] == 1
+        assert matches["results"][0]["details"] == details
+        assert len(json.dumps(matches)) < 64 * 1024
+    finally:
+        restarted.close()
+    assert (home / "journal.json").read_bytes() == journal
+    assert {
+        p.name: p.read_bytes() for p in (store / "objects/sha256").iterdir()
+    } == originals
 
 
 def test_installed_card_projection_needs_no_revision_envelope_or_runtime():
@@ -616,3 +751,118 @@ def test_large_descriptions_paginate_inside_the_existing_control_budget(tmp_path
         offset = result["next_offset"]
     assert len(seen) == len(set(seen)) == len(cards)
     assert pages[0] < 24
+
+
+def preserved_presentation_case(
+    tmp_path, monkeypatch, metadata=None, catalog_metadata=None
+):
+    from foxlight_model_preservation.local_host.owner import Journal
+    from foxlight_model_preservation.pmf import verify_pmf_manifest
+
+    catalog, repo, data = accepted_catalog(
+        tmp_path, companion=False, metadata=metadata, catalog_metadata=catalog_metadata
+    )
+
+    def download(repository, revision, file, destination, control, **kwargs):
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(data)
+
+    monkeypatch.setattr(
+        "foxlight_model_preservation.local_host.owner.download_file", download
+    )
+    home = tmp_path / "owner"
+    owner = LocalOwner(home, catalog=catalog)
+    try:
+        found = catalog.search()["results"][0]["details"]
+        plan = owner.control(
+            "plan",
+            {
+                "kind": "receive",
+                "catalog_id": catalog.search()["catalog_id"],
+                "card_id": repo.card.card_id,
+            },
+        )
+        assert finish(owner, submit(owner, plan))["state"] == "succeeded"
+    finally:
+        owner.close()
+    copy = Journal.model_validate_json((home / "journal.json").read_bytes()).copies[0]
+    store = home / "copies" / copy.copy_id
+    manifest = verify_pmf_manifest(
+        (store / manifest_path(copy.manifest_id)).read_bytes(),
+        copy.trust,
+        copy.manifest_id,
+    )
+    return home, store, copy, manifest, found
+
+
+@pytest.mark.parametrize(
+    "task,outputs", [("ReferenceToVideo", ["video"]), ("ImageToImage", ["image"])]
+)
+def test_saved_copy_keeps_explicit_image_only_direction(
+    tmp_path, monkeypatch, task, outputs
+):
+    home, store, copy, manifest, found = preserved_presentation_case(
+        tmp_path,
+        monkeypatch,
+        metadata={
+            "tasks": [task],
+            "input_modalities": ["image"],
+            "output_modalities": outputs,
+        },
+    )
+    before = (home / "journal.json").read_bytes()
+    saved = copy_summary(store, copy.manifest_id, copy.trust)
+    assert saved["input_modalities"] == found["input_modalities"] == ["image"]
+    assert saved["output_modalities"] == found["output_modalities"] == outputs
+    assert (home / "journal.json").read_bytes() == before
+
+
+def test_saved_root_additional_projector_removes_only_presence_caveat(
+    tmp_path, monkeypatch
+):
+    from test_model_capabilities import claim
+
+    from foxlight_model_preservation.pmf_models import PMF_TYPE
+    from foxlight_model_preservation.signing import (
+        digest,
+        encode_record,
+        load_key,
+        sign_record,
+    )
+
+    home, store, copy, manifest, found = preserved_presentation_case(
+        tmp_path,
+        monkeypatch,
+        catalog_metadata={
+            "capability_claims": [
+                claim("vision.understand", details={"companion_files": ["mmproj.gguf"]})
+            ]
+        },
+    )
+    assert found["artifact_notes"] == ["vision-companion-unlisted"]
+    member = next(
+        item for item in manifest.members if item.member_id == manifest.root_member
+    )
+    added = member.files[0].model_copy(update={"path": "mmproj.gguf"})
+    changed = manifest.model_copy(
+        update={
+            "members": tuple(
+                item.model_copy(update={"files": (*item.files, added)})
+                if item.member_id == member.member_id
+                else item
+                for item in manifest.members
+            )
+        }
+    )
+    identity = digest(encode_record(changed))
+    (store / manifest_path(identity)).write_bytes(
+        encode_record(
+            sign_record(changed, (load_key(home / "capture-key.pem", None),), PMF_TYPE)
+        )
+    )
+    before = (home / "journal.json").read_bytes()
+    saved = copy_summary(store, identity, copy.trust)
+    assert saved["artifact_notes"] == []
+    assert "vision" in saved["purposes"]
+    assert "trust" not in saved and "verification" not in saved
+    assert (home / "journal.json").read_bytes() == before

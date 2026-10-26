@@ -25,7 +25,7 @@ from foxlight_model_preservation.signing import digest, encode_record
 from foxlight_model_preservation.storage import atomic_bytes, directory
 
 
-def accepted_catalog(tmp_path, *, companion=True, metadata=None):
+def accepted_catalog(tmp_path, *, companion=True, metadata=None, catalog_metadata=None):
     data = b"Synthetic model bytes, never executable.\n"
     card_body = body()
     card_body.update(metadata or {})
@@ -73,7 +73,12 @@ def accepted_catalog(tmp_path, *, companion=True, metadata=None):
     repo.target = identity_json(
         {
             "cards": [repo.card.model_dump(mode="json")],
-            "card_metadata": {repo.card.card_id: {"provenance": "community"}},
+            "card_metadata": {
+                repo.card.card_id: {
+                    "provenance": "community",
+                    **(catalog_metadata or {}),
+                }
+            },
         }
     )
     repo.refresh(expires=datetime.now(UTC) + timedelta(days=1))
