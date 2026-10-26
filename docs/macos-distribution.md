@@ -13,12 +13,13 @@ rebuilding or signing them. Developer ID signing, Apple notarization and an
 installed-app journey remain separate checks. A locally passing Gatekeeper
 check does not establish clean-host acceptance, model compatibility or anonymity.
 
-The current recipe targets **0.1.0 build 3**, with the authenticated public core
-0.22 / Library 0.17 cohort. It includes Sovereign branding and independent source
-following, explicit authenticated updates, offline source search and separate
-capture-key review. The retained build 2 publication manifest below identifies
+The current recipe targets **0.1.0 build 4**, with the authenticated public core
+0.23 / Library 0.18 cohort. It includes readable model descriptions and purpose
+filters, local Library search, contextual identity help and recovery guidance,
+alongside Sovereign branding, independent source following, explicit authenticated
+updates, offline source search and separate capture-key review. The retained build 2 publication manifest below identifies
 its original signed containers; updating the recipe does not publish or replace
-those files. Build 3 needs its own reviewed final-container record and release.
+those files. Build 4 needs its own reviewed final-container record and release.
 
 ## Public download verification
 

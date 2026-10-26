@@ -10,12 +10,12 @@ The [Linux desktop recipe](linux-distribution.md) builds offline Debian candidat
 with a native GTK/WebKit window and bundled public runtime. Signed APT publication
 and its broader installed qualification remain separate from those candidates.
 
-## Current-source card information
+## Model information
 
-The current source adds richer model descriptions, local saved-model search,
-purpose filters and contextual help. These additions are not in the immutable
-public core0.22/Library0.17 archives or native build3. Build matching current
-core and Library sources to preview them; a source merge is not a native update.
+Core 0.23 / Library 0.18 include richer model descriptions, local saved-model
+search, purpose filters and contextual help. Native build 4 pins this public
+cohort; the recipe alone does not publish a signed native update. The older
+core 0.22 / Library 0.17 archives and native build 3 remain unchanged.
 
 Find accepts everyday terms such as **writing**, **images**, **voice** or a model
 name. **What would you like to do?** filters declared uses. Matching descriptions
