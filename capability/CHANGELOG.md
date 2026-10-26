@@ -6,6 +6,8 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+## 0.18.0
+
 - Render optional Core-host card descriptions and saved-copy metadata in Library;
   show each source listing’s declared purposes in Find without merging its claims
   with signed cards. Older hosts keep working with honest missing-data states.
