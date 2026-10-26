@@ -19,3 +19,15 @@ test('Core Library explains installed and orphaned saved models without effects'
  expect(effects).toBe(0);
  expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
 });
+
+for(const status of ['missing','unavailable','partial'])test(`installed ${status} metadata never claims an archive already exists`,async({page})=>{
+ await page.route('**/api/core-features',route=>route.fulfill({json:{'Portable handoffs':false}}));
+ await page.route('**/api/library?offset=*',route=>route.fulfill({json:{locations:[{location_id:'device',label:'This device',purpose:'private',reachable:true,free_bytes:100000,publisher_key_id:'capture'}],models:[{model_id:'example/unpreserved',generation_id:id,size_bytes:100,verification:'custom',...(status==='missing'?{}:{details:{metadata_status:status}})}],copies:[],jobs:[],next_offset:null}}));
+ await page.goto('/');const card=page.getByRole('article',{name:'example/unpreserved',exact:true});
+ await expect(card.getByText('No readable description is available for this installation.',{exact:true})).toBeVisible();
+ await expect(card.getByText('No saved copy yet.',{exact:false})).toBeVisible();
+ await card.getByText('About this model',{exact:true}).click();
+ await expect(card.getByText('Your copy is kept',{exact:false})).toHaveCount(0);
+ await expect(card.getByText('Its original documents stay with the archive.',{exact:false})).toHaveCount(0);
+ await expect(card.getByRole('button',{name:'Preserve',exact:true})).toBeEnabled();
+});
