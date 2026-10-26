@@ -260,12 +260,24 @@ def capability_details(
             for item in _strings(claim.get("output_modalities"))
             if item in _MODALITIES
         ]
+        details = claim.get("details")
+        video_modes = (
+            _strings(details.get("video_modes")) if isinstance(details, dict) else []
+        )
+        if (
+            _token(identifier) == "audiogenerate"
+            and video_modes
+            and all(mode in ("t2va", "fl2va", "ref2va") for mode in video_modes)
+        ):
+            # These explicitly joint modes describe a video's soundtrack,
+            # not a separate music/sound generation task.
+            names = ("video-generate",)
+            outs = list(dict.fromkeys([*outs, "video", "audio"]))
         add(names, ins, outs)
         # Explicit direction can describe a new namespaced capability. Input
         # image/video alone is not evidence of understanding or generation.
         if scope == "model" and source == "upstream_structured":
             direction(ins, outs, names)
-        details = claim.get("details")
         companions = (
             _strings(details.get("companion_files"))
             if isinstance(details, dict)

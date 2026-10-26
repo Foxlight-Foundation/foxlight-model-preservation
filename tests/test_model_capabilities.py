@@ -304,3 +304,30 @@ def test_direction_derived_vision_keeps_unlisted_companion_warning():
     )
     assert details["feature_ids"] == ["vision"]
     assert details["artifact_notes"] == ["vision-companion-unlisted"]
+
+
+@pytest.mark.parametrize("modes", [["t2va"], ["fl2va"], ["t2va", "fl2va", "ref2va"]])
+def test_video_soundtrack_claim_is_not_a_standalone_music_task(modes):
+    details = capability_details(
+        {"tasks": ["TextToVideo"]},
+        claims=[
+            claim("video.generate", outputs=("video",)),
+            claim("audio.generate", outputs=("audio",), details={"video_modes": modes}),
+        ],
+    )
+    assert details["purposes"] == ["video"]
+    assert details["output_modalities"] == ["video", "audio"]
+    assert "sound-generate" not in details["feature_ids"]
+
+
+def test_explicit_separate_music_task_is_kept_alongside_joint_video_modes():
+    details = capability_details(
+        {"tasks": ["TextToVideo", "TextToMusic"]},
+        claims=[
+            claim(
+                "audio.generate", outputs=("audio",), details={"video_modes": ["t2va"]}
+            )
+        ],
+    )
+    assert details["purposes"] == ["music", "video"]
+    assert "sound-generate" in details["feature_ids"]
