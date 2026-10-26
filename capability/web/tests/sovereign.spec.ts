@@ -52,6 +52,7 @@ test('standalone first launch browses preset without Core or bootstrap hunting',
  await expect(page.getByText('No account or source-file setup.')).toBeVisible();
  expect(updates).toBe(0);
  await page.getByRole('button',{name:'Browse public models'}).first().click();
+ await expect(page.getByRole('status')).toContainText('Listing update started. See Activity for the result.');
  await page.getByLabel('Search models',{exact:true}).fill('Portable');
  await expect(page.getByRole('heading',{name:model.name,exact:true})).toBeVisible();
  expect(updates).toBe(1);expect(requests.some(url=>url.includes('core-features')||url.includes('source-follow'))).toBe(false);

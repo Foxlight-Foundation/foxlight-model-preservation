@@ -148,3 +148,13 @@ test('Activity describes the actual stage without inventing a percentage',async(
  await expect(page.getByRole('progressbar')).not.toHaveAttribute('aria-valuenow');
  await expect(page.getByText('1.0 KB received',{exact:true})).toBeVisible();
 });
+
+
+test('other model sources are one visible jump away without any network enrollment',async({page})=>{
+ const effects:string[]=[];page.on('request',request=>{if(/desktop-(source-follow|source-plan|refresh|start)/.test(request.url()))effects.push(request.url());});
+ await page.goto('/');await page.getByRole('button',{name:'Find models',exact:true}).click();
+ await page.getByRole('link',{name:'Other model sources',exact:true}).click();
+ await expect(page.getByRole('region',{name:'Independent model sources',exact:true})).toBeInViewport();
+ await expect(page.getByRole('region',{name:'Independent model sources',exact:true})).toBeFocused();
+ expect(effects).toEqual([]);
+});
