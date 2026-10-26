@@ -1,0 +1,215 @@
+name: Verify and publish Sovereign for Mac
+# Existing signed bytes, not a public native build. See RELEASING.md.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Rehearse verification/attestation, or publish the same verified files
+        type: choice
+        options: [rehearse, publish]
+        default: rehearse
+        required: true
+      confirmation:
+        description: Type "verify Sovereign 0.1.0 build 2"
+        type: string
+        required: true
+permissions: {}
+concurrency:
+  group: sovereign-macos-v0.1.0-build2
+  cancel-in-progress: false
+env:
+  NATIVE_TAG: sovereign-macos-v0.1.0-build2
+  PREDICATE_TYPE: https://foxlight.ai/attestations/macos-verification/v1
+jobs:
+  intake:
+    name: Accept only reviewed final containers
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # GitHub draft releases require write access even to read their assets.
+    # This job only downloads/hashes containers; it never executes their code.
+    permissions:
+      contents: write
+    outputs:
+      release-id: ${{ steps.intake.outputs.release-id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Require the reviewed tag on main and explicit operation
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+          MODE: ${{ inputs.mode }}
+        run: |
+          test "$GITHUB_REPOSITORY" = Foxlight-Foundation/foxlight-model-preservation
+          test "$GITHUB_REF" = "refs/tags/$NATIVE_TAG"
+          test "$CONFIRMATION" = 'verify Sovereign 0.1.0 build 2'
+          test "$MODE" = rehearse -o "$MODE" = publish
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - name: Download the fixed draft without replacing assets
+        id: intake
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$NATIVE_TAG" > draft.json
+          python - <<'PY'
+          import json, os
+          release = json.load(open('draft.json'))
+          manifest = json.load(open('desktop/macos/releases/0.1.0-build2.json'))
+          assert release['draft'] is True and release['tag_name'] == manifest['tag']
+          assert {a['name'] for a in release['assets']} == set(manifest['artifacts'])
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f"release-id={release['id']}\n")
+          PY
+          gh release download "$NATIVE_TAG" --repo "$GITHUB_REPOSITORY" --dir incoming \
+            --pattern 'Sovereign-0.1.0-macos-arm64.*'
+          python3 scripts/verify_macos_release.py --directory incoming --hash-only
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-final-inputs
+          path: incoming/*
+          if-no-files-found: error
+          retention-days: 30
+
+  verify:
+    name: Verify Apple identity, tickets and offline recovery
+    needs: intake
+    runs-on: macos-15
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    outputs:
+      sums-sha256: ${{ steps.verify.outputs.sums-sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: native-final-inputs
+          path: incoming
+      - name: Verify both exact final containers before running bundled commands
+        id: verify
+        run: |
+          python scripts/verify_macos_release.py --directory incoming \
+            --scratch "$RUNNER_TEMP/native-checks" --output dist
+          cp incoming/* dist/
+          cd dist
+          shasum -a 256 -c SHA256SUMS
+          echo "sums-sha256=$(shasum -a 256 SHA256SUMS | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-verified
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
+
+  attest:
+    name: Attest verification of existing native bytes
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: native-verified
+          path: dist
+      - name: Require the exact verified inventory
+        env:
+          SUMS_SHA256: ${{ needs.verify.outputs.sums-sha256 }}
+        working-directory: dist
+        run: |
+          echo "$SUMS_SHA256  SHA256SUMS" | sha256sum --check --strict -
+          sha256sum --check --strict SHA256SUMS
+          test "$(find . -type f | wc -l)" -eq 5
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        id: attest
+        with:
+          subject-path: dist/*
+          predicate-type: https://foxlight.ai/attestations/macos-verification/v1
+          predicate-path: dist/verification.json
+          create-storage-record: false
+      - name: Retain detached verification evidence
+        env:
+          BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          mkdir evidence
+          cp -- "$BUNDLE_PATH" evidence/native-verification.sigstore.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-verification-evidence
+          path: evidence/native-verification.sigstore.json
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: Publish only the attested, unchanged files
+    needs: [intake, verify, attest]
+    if: inputs.mode == 'publish'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: native-verified
+          path: dist
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: native-verification-evidence
+          path: evidence
+      - name: Verify every subject against the exact tag, workflow and verifier revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SUMS_SHA256: ${{ needs.verify.outputs.sums-sha256 }}
+        run: |
+          cd dist
+          echo "$SUMS_SHA256  SHA256SUMS" | sha256sum --check --strict -
+          sha256sum --check --strict SHA256SUMS
+          test "$(find . -type f | wc -l)" -eq 5
+          for file in *; do
+            gh attestation verify "$file" --repo "$GITHUB_REPOSITORY" \
+              --bundle ../evidence/native-verification.sigstore.json \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/macos-release.yml" \
+              --source-ref "$GITHUB_REF" --source-digest "$GITHUB_SHA" \
+              --predicate-type "$PREDICATE_TYPE" --deny-self-hosted-runners
+          done
+      - name: Check retained draft, add evidence without replacement, and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ needs.intake.outputs.release-id }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$NATIVE_TAG" > draft.json
+          python3 - <<'PY'
+          import json, os
+          release = json.load(open('draft.json'))
+          assert release['draft'] is True and str(release['id']) == os.environ['RELEASE_ID']
+          PY
+          gh release download "$NATIVE_TAG" --repo "$GITHUB_REPOSITORY" --dir retained
+          python3 - <<'PY'
+          import hashlib
+          from pathlib import Path
+          expected = {p.name: p for root in ('dist', 'evidence') for p in Path(root).iterdir()}
+          required = {name for name in expected if name.endswith(('.dmg', '.zip'))}
+          assert required <= {p.name for p in Path('retained').iterdir()}
+          for path in Path('retained').iterdir():
+              assert path.name in expected
+              assert hashlib.sha256(path.read_bytes()).digest() == hashlib.sha256(expected[path.name].read_bytes()).digest()
+          PY
+          # Never replace an uploaded file. A failed publication can resume its
+          # publish job with the same verified artifacts and detached bundle.
+          for file in dist/native-release.json dist/verification.json dist/SHA256SUMS evidence/native-verification.sigstore.json; do
+            if [ ! -e "retained/$(basename "$file")" ]; then
+              gh release upload "$NATIVE_TAG" "$file" --repo "$GITHUB_REPOSITORY"
+            fi
+          done
+          gh release edit "$NATIVE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --draft=false --prerelease --latest=false

@@ -1,5 +1,10 @@
 # Verify a release
 
+The following build-provenance commands apply to **Python package releases**.
+Native Mac releases have a separate [verification workflow and predicate](macos-distribution.md#public-download-verification)
+for existing Developer ID signed, notarized containers. That attestation does
+not claim the native app was built by the public publication workflow.
+
 Each release tag has a GitHub pre-release: `vX.Y.Z` for standalone preservation
 and `library-vX.Y.Z` for the optional Library. Starting at `v0.12.0` and
 `library-v0.11.0`, it contains the wheel, sdist, hash-locked requirements,

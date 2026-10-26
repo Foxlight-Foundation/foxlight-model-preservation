@@ -2,12 +2,65 @@
 
 Release Python packages by pushing a tag. [release.yml](.github/workflows/release.yml) builds and
 checks the files, attests them, creates the GitHub pre-release and, once enabled,
-publishes to PyPI. Do not upload release files by hand: hand-built files carry no
-provenance. Users verify releases as described in [docs/releases.md](docs/releases.md).
+publishes to PyPI. Do not upload Python release files by hand: hand-built files
+carry no build provenance. Users verify releases as described in [docs/releases.md](docs/releases.md).
 The separate [Mac candidate recipe](docs/macos-distribution.md) pins these
 published inputs and records a distinct native-shell revision. Its signing and
-notarization step creates local candidates only; no public native upload lane is
-enabled by these scripts. It must not be called a GitHub-built Python release.
+notarization step creates candidates only. The separate reviewed
+[native publication lane](#publish-an-existing-signed-mac-candidate) verifies
+existing final bytes before public release. Its custom attestation must not be
+called native build provenance or a GitHub-built Python release.
+
+## Publish an existing signed Mac candidate
+
+[`macos-release.yml`](.github/workflows/macos-release.yml) accepts only the final
+DMG/ZIP named and SHA-256 pinned in
+[`0.1.0-build2.json`](desktop/macos/releases/0.1.0-build2.json). That reviewed
+record separates binary source, published public Python inputs, Developer ID
+certificate, complete app CodeDirectory and Apple submission identities. No
+signing key, Keychain prompt or Apple credential enters this workflow. Changing
+the files requires a new reviewed manifest and distinct release identity.
+
+After this lane is reviewed and merged:
+
+1. Create the record's tag at the reviewed publication commit on `main`; never
+   replace a published tag. The binary source remains the manifest's older exact
+   source; the tag names the verification workflow and recipe, not a rebuild.
+2. Prepare release notes stating the exact supported architecture, verification
+   scope/limits, installation steps and verification commands from
+   [Mac distribution](docs/macos-distribution.md#public-download-verification).
+   Create a **draft** pre-release at that existing tag. Upload **only** the two
+   final container files whose hashes match the reviewed manifest. This is
+   untrusted staging for verification, never a manual public release. Do not
+   upload local raw logs, private producer details, credentials or inventories.
+3. Dispatch `macos-release.yml` **at the tag**, `mode=rehearse`, confirmation
+   `verify Sovereign 0.1.0 build 2`. Intake checks a closed two-file inventory and
+   reviewed hashes. A fresh Apple silicon runner validates both containers,
+   Apple Developer ID certificate, complete app CodeDirectory, stapled tickets,
+   Gatekeeper and signed build receipts before running actual offline CLI PMF
+   recovery/tamper checks. It mounts the DMG read-only and always detaches it.
+4. A separate job with OIDC attests the final files, public manifest, verification
+   predicate and checksums using the custom Mac verification predicate. It runs
+   no downloaded app or build code. Rehearsal creates public verification
+   attestations but leaves the draft private. Inspect that exact run's result.
+5. Dispatch the same tag with `mode=publish` and the same confirmation. It repeats
+   verification, checks every attested subject against the exact workflow, tag
+   and verifier commit, re-downloads the draft to confirm unchanged bytes, adds
+   public evidence without replacing assets, then publishes the pre-release.
+   Only this final job publishes. If it fails after uploading evidence, resume
+   that **failed publish job** with the same run's artifacts; a complete new run
+   intentionally refuses a draft that already has extra files. Never clobber
+   assets or move a tag to get a failed check to pass.
+6. Download anonymously and verify the public files and retained attestation
+   bundle again. Check actual installation separately from workflow acceptance.
+
+This lane asserts verification of previously signed bytes, **not a native build
+in the public workflow**. Apple checks and synthetic recovery do not establish
+clean-host acceptance, full real-model preservation, inference qualification,
+all supported OS versions or public-network privacy. Model/source/registry trust
+is independent and unchanged. Draft download needs GitHub contents write
+permission; it is confined to intake and publication jobs, neither of which
+executes the incoming app. The Mac verification job has contents read only.
 
 | Tag | Project | Version | Changelog |
 | --- | --- | --- | --- |
