@@ -205,6 +205,81 @@ def test_purpose_filter_uses_declarations_beyond_display_excerpt(tmp_path, field
     assert repo.card.card[field] == declared
 
 
+def test_retained_card_does_not_erase_common_pmf_workload_claims(tmp_path, monkeypatch):
+    from foxlight_model_preservation.local_host.owner import Journal
+    from foxlight_model_preservation.pmf import verify_pmf_manifest
+    from foxlight_model_preservation.pmf_models import PMF_TYPE
+    from foxlight_model_preservation.signing import (
+        digest,
+        encode_record,
+        load_key,
+        sign_record,
+    )
+
+    catalog, repo, data = accepted_catalog(tmp_path)
+
+    def download(repository, revision, file, destination, control, **kwargs):
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(data)
+
+    monkeypatch.setattr(
+        "foxlight_model_preservation.local_host.owner.download_file", download
+    )
+    home = tmp_path / "owner"
+    owner = LocalOwner(home, catalog=catalog)
+    plan = owner.control(
+        "plan",
+        {
+            "kind": "receive",
+            "catalog_id": catalog.search()["catalog_id"],
+            "card_id": repo.card.card_id,
+        },
+    )
+    assert finish(owner, submit(owner, plan))["state"] == "succeeded"
+    owner.close()
+    journal = Journal.model_validate_json((home / "journal.json").read_bytes())
+    copy = journal.copies[0]
+    store = home / "copies" / copy.copy_id
+    manifest = verify_pmf_manifest(
+        (store / manifest_path(copy.manifest_id)).read_bytes(),
+        copy.trust,
+        copy.manifest_id,
+    )
+    original_objects = {
+        p.name: p.read_bytes() for p in (store / "objects/sha256").iterdir()
+    }
+    # The archive may add a workload claim without rewriting its original card.
+    changed = manifest.model_copy(update={"workloads": ("CodeGeneration",)})
+    identity = digest(encode_record(changed))
+    (store / manifest_path(identity)).write_bytes(
+        encode_record(
+            sign_record(changed, (load_key(home / "capture-key.pem", None),), PMF_TYPE)
+        )
+    )
+    (home / "journal.json").write_bytes(
+        journal.model_copy(
+            update={"copies": (copy.model_copy(update={"manifest_id": identity}),)}
+        )
+        .model_dump_json()
+        .encode()
+    )
+    owner = LocalOwner(home)
+    try:
+        found = owner.control(
+            "copy-search", {"purpose": "coding", "query": "programming"}
+        )
+        assert found["total"] == 1
+        details = found["results"][0]["details"]
+        assert set(details["purposes"]) == {"coding", "chat"}
+        assert set(details["workloads"]) == {"CodeGeneration", "TextGeneration"}
+        assert repo.card.card["tasks"] == ["TextGeneration"]
+        assert {
+            p.name: p.read_bytes() for p in (store / "objects/sha256").iterdir()
+        } == original_objects
+    finally:
+        owner.close()
+
+
 def test_full_library_search_and_activity_are_bounded_and_last_copy_restores(
     tmp_path, monkeypatch
 ):

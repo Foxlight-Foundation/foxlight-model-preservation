@@ -99,5 +99,7 @@ test('saved-copy kit action prepares a download without regranting model trust',
  await page.goto('/');await page.getByRole('button',{name:'Library',exact:true}).click();
  const download=page.waitForEvent('download');await page.getByRole('button',{name:'Save recovery kit',exact:true}).click();
  await download;await expect(page.getByRole('heading',{name:'Activity',exact:true})).toBeVisible();
+ await expect(page.getByRole('status')).toContainText('Your recovery kit is ready.');
+ await expect(page.getByRole('status')).not.toContainText('Preparing your complete recovery kit.');
  await expect(page.getByLabel('Proceed with this exact private selection.')).toHaveCount(0);
 });

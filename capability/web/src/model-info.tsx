@@ -9,9 +9,9 @@ export interface ModelDetails {
 }
 export const purposes:Record<string,{label:string;description:string;words:string}>={
   chat:{label:'Chat & writing',description:'Generates written responses to text prompts.',words:'chat writing write email summarize summarise questions conversation text'},
-  coding:{label:'Coding',description:'Its card lists support for working with code.',words:'coding code programming software'},
+  coding:{label:'Coding',description:'The saved metadata lists support for working with code.',words:'coding code programming software'},
   images:{label:'Images & editing',description:'Creates or changes images from the inputs described in its card.',words:'image images pictures drawing art edit editing'},
-  vision:{label:'Understanding images',description:'Its card lists support for understanding image inputs.',words:'vision understand describe photos photograph visual'},
+  vision:{label:'Understanding images',description:'The saved metadata lists support for understanding image inputs.',words:'vision understand describe photos photograph visual'},
   speech:{label:'Speech & transcription',description:'Works with spoken audio. Check the listed tasks for the direction it supports.',words:'speech voice audio transcription transcribe translation speak listening'},
   music:{label:'Music & sound',description:'Generates music or sound from prompts.',words:'music sound songs song'},
   video:{label:'Video',description:'Generates video from the text, image or reference inputs listed in its card.',words:'video videos animation animate movie'},
@@ -45,7 +45,7 @@ export function ModelInformation({details,tasks=[],format,quantization}:{details
       {!known&&<p>Some saved model details could not be read. Your copy is kept; restoring and exporting still perform their usual verification.</p>}
       <Row k="Model source">{details?.repository||details?.publisher||'Not listed in the saved metadata'}</Row>
       {details?.base_model&&<Row k="Based on">{details.base_model}</Row>}
-      {workloads.length>0&&<Row k="Tasks listed in its card">{workloads.map(task=>task.replace(/([a-z])([A-Z])/g,'$1 $2').replaceAll('-',' ')).join(', ')}</Row>}
+      {workloads.length>0&&<Row k="Declared tasks">{workloads.map(task=>task.replace(/([a-z])([A-Z])/g,'$1 $2').replaceAll('-',' ')).join(', ')}</Row>}
       {(details?.format||format)&&<Row k={<>File format <Help label="About file formats">The app you use to run a model must support this format. Saving a model in Sovereign does not install a compatible runtime.</Help></>}>{details?.format||format}</Row>}
       {(details?.quantization||quantization)&&<Row k={<>Weight precision <Help label="About weight precision">This identifies how the model weights are stored. Different variants can have different file sizes and quality. It is not a device compatibility rating.</Help></>}>{details?.quantization||quantization}</Row>}
       {details?.context_length!=null&&<Row k={<>Text context <Help label="About text context">The card’s stated maximum amount of text considered at once, measured in tokens (small pieces of text). A compatible app and enough memory are still needed.</Help></>}>{details.context_length.toLocaleString()} tokens, stated in card</Row>}

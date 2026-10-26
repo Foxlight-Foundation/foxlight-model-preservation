@@ -239,6 +239,25 @@ def copy_metadata(
                 retained = load_retained_card(data).envelope
                 searchable += " " + identity_json(retained.card).decode()
                 projected = card_summary(retained)
+                # A recognized ecosystem card must not erase common PMF claims.
+                projected["purposes"] = cast(
+                    list[JsonValue],
+                    list(
+                        dict.fromkeys(
+                            _strings(summary.get("purposes"), max_items=None)
+                            + _strings(projected.get("purposes"), max_items=None)
+                        )
+                    ),
+                )
+                projected["workloads"] = cast(
+                    list[JsonValue],
+                    list(
+                        dict.fromkeys(
+                            list(manifest.workloads)
+                            + _strings(retained.card.get("tasks"), max_items=None)
+                        )
+                    )[:8],
+                )
                 projected["runtime_requirements"] = summary.get(
                     "runtime_requirements", []
                 )
