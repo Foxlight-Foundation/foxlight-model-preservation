@@ -748,10 +748,15 @@ class LocalOwner:
     def _source_receive(
         self, job: Job, plan: dict[str, JsonValue], control: OperationControl
     ) -> None:
-        record, envelope, _, _ = self.sources.reference(str(plan["reference_job_id"]))
+        record, envelope, _, candidates = self.sources.reference(
+            str(plan["reference_job_id"])
+        )
         if (
             record.envelope_sha256 != plan["envelope_sha256"]
             or record.manifest_id != plan["manifest_id"]
+            or digest(encode_record(record)) != plan["reference_sha256"]
+            or list(self.sources.http_mirrors(record.selection.mirrors))
+            != plan["mirrors"]
         ):
             raise PreservationError("source_model_reference_changed")
         trust = TrustProfile.model_validate_json(identity_json(plan["trust"]))
@@ -764,7 +769,7 @@ class LocalOwner:
         fetch(
             record.manifest_id,
             trust,
-            self.sources.http_mirrors(record.selection.mirrors),
+            tuple(cast(list[str], plan["mirrors"])),
             original,
             TransferPolicy(
                 max_bytes=cast(int, plan["max_bytes"]),
@@ -786,6 +791,7 @@ class LocalOwner:
             trust,
             destination,
             (load_key(self.home / "capture-key.pem", None),),
+            source_key_candidates=candidates,
             control=control.fork(),
         )
         manifest = verify_archive(
@@ -940,6 +946,7 @@ class LocalOwner:
                 trust,
                 destination,
                 (load_key(self.home / "capture-key.pem", None),),
+                source_key_candidates=trust,
                 control=control.fork(),
             )
             manifest_id, copy_trust = conversion.output_identity, owner_trust

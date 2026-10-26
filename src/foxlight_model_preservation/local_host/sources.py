@@ -348,6 +348,7 @@ class SourceLibrary:
             "name": manifest.name,
             "manifest_id": record.manifest_id,
             "envelope_sha256": record.envelope_sha256,
+            "reference_sha256": digest(encode_record(record)),
             "size_bytes": manifest.total_bytes,
             "members": [member.origin_repository for member in manifest.members[:8]],
             "member_count": len(manifest.members),

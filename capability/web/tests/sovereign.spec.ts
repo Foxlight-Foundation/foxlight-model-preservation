@@ -3,6 +3,11 @@ const id='a'.repeat(64),card='card_'+ 'a'.repeat(52);
 const model={card_id:card,name:'example/Portable model',format:'gguf',quantization:'Q4',size_bytes:2048,workloads:['TextGeneration'],complete_file_map:true};
 const empty={host_kind:'sovereign',locations:[],models:[],copies:[],jobs:[],next_offset:null};
 
+test.beforeEach(async({page})=>{
+ await page.route('**/api/desktop-source-read',route=>route.fulfill({json:{sources:[]}}));
+ await page.route('**/api/desktop-source-search',route=>route.fulfill({json:{results:[],total:0,next_offset:null}}));
+});
+
 test('returning users start in Library and can release private kit transfers',async({page})=>{
  const copy={copy_id:id,manifest_id:id,name:'My saved model',size_bytes:16,member_count:2};
  let removed=false;

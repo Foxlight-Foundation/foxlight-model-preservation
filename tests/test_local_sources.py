@@ -1,5 +1,6 @@
 """Actual independent owner: source trust, finite work and complete offline custody."""
 
+import json
 import shutil
 import socket
 import threading
@@ -9,7 +10,7 @@ from test_discovery import Publisher, mirror
 from test_local_owner import finish, submit
 
 from foxlight_model_preservation.local_host.owner import LocalOwner
-from foxlight_model_preservation.models import PreservationError
+from foxlight_model_preservation.models import PreservationError, TrustProfile
 from foxlight_model_preservation.signing import encode_record
 from foxlight_model_preservation.storage import manifest_path
 
@@ -150,6 +151,10 @@ def test_independent_follow_search_receive_and_offline_restore(tmp_path, capture
             file.is_file() and file.read_bytes() == original_envelope
             for file in output.rglob("*")
         )
+        candidates = TrustProfile.model_validate_json(
+            (output / "documents/preservation-source-keys").read_bytes()
+        )
+        assert candidates == capture.trust
     finally:
         recipient.close()
 
@@ -274,7 +279,8 @@ def test_changed_source_selection_refuses_before_model_contact(tmp_path, capture
             owner.close()
 
 
-def test_model_detail_permissions_and_original_wrapper_pin(tmp_path, capture):
+@pytest.mark.parametrize("tamper", ["envelope", "mirrors"])
+def test_model_detail_permissions_and_original_wrapper_pin(tmp_path, capture, tamper):
     publisher = Publisher(tmp_path / "publisher", capture)
     with (
         mirror(publisher.path) as (endpoint, _),
@@ -324,10 +330,16 @@ def test_model_detail_permissions_and_original_wrapper_pin(tmp_path, capture):
                 "max_bytes": reference["size_bytes"] * 2,
             }
             planned = owner.control("plan", request)
-            raw = owner.home / "model-references" / (metadata["job_id"] + ".envelope")
-            raw.write_bytes(
-                raw.read_bytes() + b" "
-            )  # valid JSON/signatures, different original wrapper
+            if tamper == "envelope":
+                raw = (
+                    owner.home / "model-references" / (metadata["job_id"] + ".envelope")
+                )
+                raw.write_bytes(raw.read_bytes() + b" ")
+            else:
+                raw = owner.home / "model-references" / (metadata["job_id"] + ".json")
+                changed = json.loads(raw.read_bytes())
+                changed["selection"]["mirrors"] = ["https://unreviewed.invalid"]
+                raw.write_text(json.dumps(changed))
             refused = finish(owner, submit(owner, planned))
             assert refused["state"] == "failed"
             assert refused["error_code"] == "source_model_reference_changed"

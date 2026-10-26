@@ -76,6 +76,9 @@ The original signed envelope is pinned byte for byte across this review and
 download. Every file verifies before a PMF copy appears in Library; the complete
 original archive and signed evidence remain inside it. Existing kit export and
 offline restore then work without the source, registry or original host.
+The original public capture-key candidates, threshold and revocations travel in
+an optional PMF document too. They can be checked after recovery, but remain
+candidates requiring independent fingerprint authentication, not inherited trust.
 
 HTTP and private-address permissions are separate for source updates, model
 details and weight downloads. Changing metadata connection settings requires a

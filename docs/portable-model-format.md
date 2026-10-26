@@ -132,6 +132,34 @@ original v1 capture, so reverse conversion refuses. Generic PMF without that
 source profile can still be verified/restored; it cannot be labelled a Skulk
 archive by inventing an origin or new registry signature.
 
+### Optional source verification-key candidates
+
+Core 0.22 adds the optional `foxlight.preservation-source-keys.v1` profile. Its
+single global document, `preservation-source-keys`, has role
+`verification-key-candidates`, media type `application/json` and schema
+`foxlight.model-preservation.trust.v1`. The document retains public keys, the
+original candidate threshold/revocations and descriptive policy data. It contains
+no private key and grants no model, registry or runtime authority. A receiver
+still independently authenticates fingerprints and selects an original-capture
+trust policy; PMF owner authentication cannot substitute for that decision.
+
+The independent Library includes this profile when preserving an external source
+model or converting an imported v1 kit. The public Python converter accepts
+`source_key_candidates=...`; the CLI's `pmf-import-preservation --retain-source-keys`
+retains the explicitly supplied input verification profile. Both authenticate
+the original archive using independently supplied trust before retaining any
+candidate record. Omitting the option preserves existing converter output and
+identities. Existing archives and signed v1 contracts do not change.
+
+Generic PMF readers preserve and restore the optional profile without interpreting
+it. Its record appears at `documents/preservation-source-keys` after restore.
+Updated reverse converters recognize this one optional adjunct, retain its exact
+bytes in a `source-key-candidates.json` sidecar, and still require independent
+original trust before reproducing the unchanged v1 envelope and objects. Earlier
+reverse converters can refuse this new profile; ordinary PMF/kit recovery and
+existing archives remain usable. Unfamiliar additional profiles/annotations still
+refuse reverse conversion rather than being discarded.
+
 Conversion receipts identify the versioned converter (`pmf-preservation-v0.1`),
 installed package version, adapter module's source SHA-256, source/output
 schemas and payload digests, original envelope digest, and native,
