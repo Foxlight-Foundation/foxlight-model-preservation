@@ -388,8 +388,12 @@ def test_child_verification_progress_is_visible_and_root_cancel_still_stops_it(
     from foxlight_model_preservation.local_host import owner as module
 
     catalog, repo, data = accepted_catalog(tmp_path)
+    transfer_started, transfer_release = threading.Event(), threading.Event()
 
     def download(repository, revision, file, destination, control, **kwargs):
+        control.advance(received=len(data))
+        transfer_started.set()
+        assert transfer_release.wait(5)
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_bytes(data)
 
@@ -405,7 +409,15 @@ def test_child_verification_progress_is_visible_and_root_cancel_still_stops_it(
                 "card_id": repo.card.card_id,
             },
         )
-        assert finish(owner, submit(owner, plan))["state"] == "succeeded"
+        receiving = submit(owner, plan)
+        assert transfer_started.wait(5)
+        transfer = next(
+            row for row in owner.read()["jobs"] if row["job_id"] == receiving["job_id"]
+        )
+        assert transfer["stage"] == "downloading"
+        assert transfer["bytes_received"] == len(data)
+        transfer_release.set()
+        assert finish(owner, receiving)["state"] == "succeeded"
         copy = owner.read()["copies"][0]
         real_control = module.OperationControl
 
@@ -432,6 +444,7 @@ def test_child_verification_progress_is_visible_and_root_cancel_still_stops_it(
         assert finish(owner, job)["state"] == "cancelled"
         assert owner.read()["copies"][0]["manifest_id"] == copy["manifest_id"]
     finally:
+        transfer_release.set()
         release.set()
         owner.close()
 

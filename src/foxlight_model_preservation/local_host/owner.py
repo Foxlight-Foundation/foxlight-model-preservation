@@ -927,6 +927,7 @@ class LocalOwner:
             pass
         sources: dict[str, Path] = {}
         deadline = time.monotonic() + 86400
+        control.phase("downloading")
         for member in recipe.members:
             selected = work / member.member_id
             with directory(selected, create=True):
