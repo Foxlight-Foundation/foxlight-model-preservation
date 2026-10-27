@@ -4,6 +4,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 dist/
+desktop/macos/.build/
 *.egg-info/
 .DS_Store
 

@@ -20,6 +20,10 @@ The [independent Sovereign Library](docs/sovereign-desktop.md)
 adds built-in signed catalog browsing, independent source following and offline
 search, private download/preservation and kit recovery without Skulk. The public Library 0.17 installation archive includes
 both public packages.
+Current source also provides [remembered backup folders and explicit HTTP
+sharing](docs/sovereign-desktop.md#backup-folders-and-public-sharing-in-current-source),
+with offline sharing-file review and complete recovery-kit readback. Those changes
+require the matching next distribution; existing installed apps are unchanged.
 The Mac app bundles its own runtime. Its separate [native release lane and
 verification guide](docs/macos-distribution.md#public-download-verification)
 cover notarized downloads; merging a recipe alone does not publish a release.

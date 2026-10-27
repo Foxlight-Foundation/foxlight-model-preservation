@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -55,13 +56,38 @@ class DesktopClient(CoreClient):
         from foxlight_model_preservation.models import PreservationError
 
         try:
+            if method == "POST" and path == "desktop-folder-choose" and body == {}:
+                if sys.platform != "linux" or shutil.which("zenity") is None:
+                    raise CoreRefused("folder_picker_unavailable")
+                selected = await asyncio.to_thread(
+                    subprocess.run,
+                    [
+                        "zenity",
+                        "--file-selection",
+                        "--directory",
+                        "--title=Choose a backup drive or folder",
+                    ],
+                    capture_output=True,
+                    check=False,
+                    timeout=600,
+                    text=True,
+                )
+                if selected.returncode == 1:
+                    return {"path": None}
+                if selected.returncode != 0 or not selected.stdout.strip():
+                    raise CoreRefused("folder_picker_unavailable")
+                return {
+                    "path": str(Path(selected.stdout.strip()) / "Sovereign Backups")
+                }
             if (
                 method == "POST"
                 and path == "desktop-reveal"
                 and body is not None
                 and set(body) == {"job_id"}
             ):
-                output = self.owner.restored_directory(str(body["job_id"]))
+                output = await asyncio.to_thread(
+                    self.owner.artifact_directory, str(body["job_id"])
+                )
                 await asyncio.to_thread(
                     subprocess.run,
                     [
@@ -100,6 +126,7 @@ class DesktopClient(CoreClient):
                 "remove_unused_kit_uploads",
                 "source_document_too_large",
                 "source_transport_unavailable",
+                "handoff_transport_unavailable",
                 "source_trust_confirmation_required",
                 "source_review_changed",
                 "source_no_longer_followed",
@@ -111,6 +138,16 @@ class DesktopClient(CoreClient):
                 "receiving_allowance_too_small",
                 "model_metadata_unavailable",
                 "metadata_preview_too_large",
+                "backup_destination_changed",
+                "backup_requires_empty_private_folder",
+                "backup_destination_capacity",
+                "backup_busy_try_again",
+                "sharing_projection_unavailable",
+                "public_copy_review_changed",
+                "sharing_busy_try_again",
+                "sharing_not_ready",
+                "public_copy_capacity",
+                "public_copy_unavailable",
             }
             raise CoreRefused(
                 code if code in allowed else "invalid_or_unsafe"
@@ -119,6 +156,10 @@ class DesktopClient(CoreClient):
     async def local_artifact(self, job_id: str) -> BinaryIO:
         """Open only one successful local recovery-kit receipt for streaming."""
         return await asyncio.to_thread(self.owner.open_kit, job_id)
+
+    async def local_handoff(self, job_id: str) -> BinaryIO:
+        """Open metadata only from this owner's currently running sharing job."""
+        return await asyncio.to_thread(self.owner.open_handoff, job_id)
 
     async def close(self) -> None:
         """Finish cooperative local shutdown and retain durable receipts."""

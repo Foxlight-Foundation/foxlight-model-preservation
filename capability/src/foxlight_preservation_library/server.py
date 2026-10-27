@@ -546,6 +546,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         if re.fullmatch(r"api/desktop-kit/[0-9a-f]{64}", relative):
             self._local_download(app, relative.rsplit("/", 1)[1])
             return
+        if re.fullmatch(r"api/desktop-handoff/[0-9a-f]{64}", relative):
+            self._local_download(app, relative.rsplit("/", 1)[1], handoff=True)
+            return
         if re.fullmatch(r"api/mirror-kit/[0-9a-f]{64}", relative):
             self._mirror_download(app, relative.rsplit("/", 1)[1])
             return
@@ -620,6 +623,14 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                         "api/desktop-source-read",
                         "api/desktop-source-search",
                         "api/desktop-source-review",
+                        "api/desktop-handoff-review",
+                        "api/desktop-backup-read",
+                        "api/desktop-backup-review",
+                        "api/desktop-backup-setup",
+                        "api/desktop-backup-forget",
+                        "api/desktop-folder-choose",
+                        "api/desktop-sharing-read",
+                        "api/desktop-sharing-review",
                         "api/desktop-source-follow",
                         "api/desktop-source-remove",
                         "api/desktop-source-reference",
@@ -937,13 +948,18 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 self._reply(409, b'{"error":"kit_download_refused"}')
             self.close_connection = True
 
-    def _local_download(self, app: LibraryServer, job_id: str) -> None:
-        """Stream an independent own-job kit through the same private ticket."""
+    def _local_download(
+        self, app: LibraryServer, job_id: str, *, handoff: bool = False
+    ) -> None:
+        """Stream an independent own-job kit or handoff through its private ticket."""
         if app.startup is not None:
             self._reply(403, b'{"error":"operator_screen_required"}')
             return
         future = asyncio.run_coroutine_threadsafe(
-            app.client.local_artifact(job_id), app.loop
+            app.client.local_handoff(job_id)
+            if handoff
+            else app.client.local_artifact(job_id),
+            app.loop,
         )
         try:
             stream = future.result(timeout=12)
@@ -959,7 +975,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(length))
             self.send_header(
                 "Content-Disposition",
-                'attachment; filename="Sovereign-recovery.foxkit"',
+                'attachment; filename="Sovereign-sharing.foxhandoff"'
+                if handoff
+                else 'attachment; filename="Sovereign-recovery.foxkit"',
             )
             self.send_header("Cache-Control", "no-store")
             self.send_header("Referrer-Policy", "no-referrer")

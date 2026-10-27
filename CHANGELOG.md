@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- Add independent Horizon backup folders, complete recovery-kit readback and
+  standalone `kit-verify`; pin the original destination and refuse missing mounts,
+  changed markers, replacement folders and overwrite attempts. Forgetting a
+  destination keeps its files; no automatic retention or deletion is added.
+- Open HTTP sharing files offline in the independent app, retaining separate
+  exact-copy key acceptance, connection permissions and verified PMF custody.
+- Prepare separate public copies through the existing public-only projection,
+  preserving original card extensions and signed evidence. Require separate
+  consent for finite HTTP mirror sessions, retain durable upload accounting and
+  expose a recipient handoff only after verified serving selection. Stop keeps
+  copies; restart opens no listener. Native peer sharing remains separate.
+- Advance only the independent owner's private journal to v2, retaining validated
+  prior metadata. Signed card/archive/kit formats and trust roles are unchanged.
+- Add a narrowly scoped native Mac backup-folder picker and Linux picker
+  dependency; preserve correct `.foxhandoff` filenames in native save dialogs.
+
+
 - Preserve complete signed selections with vision/audio/video metadata, named
   projectors, video companions and same-repository draft/active MTP files.
   Refuse missing or size-conflicting companions before downloading; keep whole

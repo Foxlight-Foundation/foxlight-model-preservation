@@ -795,6 +795,8 @@ def run_mirror(
     ready: Callable[[int], None] | None = None,
     prepared: Callable[[int | None], None] | None = None,
     observe: Callable[[MirrorObservation], None] | None = None,
+    serving_selection: Callable[[tuple[str, ...]], None] | None = None,
+    expected_policy_id: str | None = None,
     native_peer_runner: PeerSessionRunner | None = None,
 ) -> dict[str, JsonValue]:
     """Own selected mirror transports until stop, pause/leave or grant expiry.
@@ -808,6 +810,10 @@ def run_mirror(
     Optional synchronous observations report owned activity at most once per
     second plus a drained final status. A failing observer stops and drains the
     controller; observers must remain short and must not grant any authority.
+    Serving_selection reports exact verified HTTP selections after reconciliation,
+    never external reachability or independent custody. It must return promptly.
+    Expected_policy_id optionally fences an embedding host's reviewed policy
+    inside the service lock before any listener or native worker is opened.
     A trusted embedding host may select a native peer runner under its own
     dedicated process owner; ordinary callers retain the standalone supervisor.
     The adapter does not bypass profile, trust, upload or session permission.
@@ -832,6 +838,8 @@ def run_mirror(
 
     with ledger.service_lock():
         state = ledger.read()
+        if expected_policy_id is not None and policy_id(state) != expected_policy_id:
+            raise PreservationError("mirror policy differs from the reviewed selection")
         if (ledger.path / "prune.json").exists():
             raise PreservationError(
                 "finish the interrupted operator prune before serving"
@@ -882,6 +890,22 @@ def run_mirror(
                         server.allowed, server.owners = public_selection(
                             ledger, active.fork()
                         )
+                        if serving_selection is not None:
+                            try:
+                                serving_selection(
+                                    tuple(
+                                        sorted(
+                                            {
+                                                identity
+                                                for identities in server.owners.values()
+                                                for identity in identities
+                                            }
+                                        )
+                                    )
+                                )
+                            except Exception as failure:
+                                error.append(failure)
+                                return
                 except OperationCancelled:
                     return
                 except (ValueError, OSError) as failure:
