@@ -88,6 +88,11 @@ def test_complete_named_companions_keep_the_exact_selection(tmp_path, metadata, 
     "metadata,paths,error",
     [
         (
+            {"runtime": {"served_spec_draft_repo": "example/synthetic"}},
+            ("model.bin",),
+            "complete_signed_companion_map_required",
+        ),
+        (
             {"vision": {"projector_file": "mmproj.gguf", "projector_size": DATA_SIZE}},
             ("model.bin",),
             "complete_signed_companion_map_required",

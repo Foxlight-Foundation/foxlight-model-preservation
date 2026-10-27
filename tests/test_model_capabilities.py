@@ -100,6 +100,24 @@ def test_exact_projector_selection_does_not_require_inventory_alternatives():
         body, claims=[inventory], selected_files=("mmproj-Q8.gguf",)
     )
     assert missing["artifact_notes"] == ["vision-companion-unlisted"]
+    mixed = claim(
+        "vision.understand",
+        scope="artifact",
+        source="artifact_manifest",
+        details={"companion_files": ["mmproj-BF16.gguf", "processor.json"]},
+    )
+    assert capability_details(
+        body, claims=[mixed], selected_files=("mmproj-BF16.gguf",)
+    )["artifact_notes"] == ["vision-companion-unlisted"]
+    other_directory = claim(
+        "vision.understand",
+        scope="artifact",
+        source="artifact_manifest",
+        details={"companion_files": ["mmproj-BF16.gguf", "other/mmproj-Q8.gguf"]},
+    )
+    assert capability_details(
+        body, claims=[other_directory], selected_files=("mmproj-BF16.gguf",)
+    )["artifact_notes"] == ["vision-companion-unlisted"]
     other = claim("vision.understand", details={"companion_files": ["processor.json"]})
     incomplete = claim("vision.understand", scope="artifact", status="incomplete")
     assert capability_details(

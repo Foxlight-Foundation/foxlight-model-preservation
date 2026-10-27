@@ -145,6 +145,11 @@ def registry_file_map(
         for field, value in runtime.items():
             if value and field.endswith(("_repo", "_repository")):
                 source(runtime, field)
+        if (
+            runtime.get("served_spec_draft_repo")
+            and runtime.get("served_spec_draft_file") is None
+        ):
+            raise PreservationError("complete_signed_companion_map_required")
         if runtime.get("served_spec_draft_file") is not None:
             required_file(base, runtime["served_spec_draft_file"])
         if runtime.get("mtp_sidecar_repo") and runtime.get("mtp_heads"):

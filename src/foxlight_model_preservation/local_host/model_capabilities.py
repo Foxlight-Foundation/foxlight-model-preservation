@@ -332,6 +332,16 @@ def capability_details(
                 and isinstance(projector, str)
                 and projector in selected
                 and projector in companions
+                and all(
+                    path.rpartition("/")[0] == projector.rpartition("/")[0]
+                    and re.fullmatch(
+                        r"mmproj(?:[-_.][^/]+)?\.gguf",
+                        path.rpartition("/")[2],
+                        re.IGNORECASE,
+                    )
+                    for path in companions
+                    if path not in selected
+                )
             )
         ):
             notes.add("vision-companion-unlisted")
