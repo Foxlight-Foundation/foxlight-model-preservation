@@ -19,7 +19,15 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import TYPE_CHECKING, BinaryIO
+
+if TYPE_CHECKING:
+    from gi.repository import Atspi
+
+JsonValue = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
+JsonObject = dict[str, JsonValue]
 
 RESOURCES = Path("/opt/foxlight/sovereign")
 
@@ -36,7 +44,7 @@ def digest(path: Path) -> str:
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
-def installed(arguments: list[str], *, timeout: int = 1800) -> dict:
+def installed(arguments: list[str], *, timeout: int = 1800) -> JsonObject:
     """Use only the published app's isolated Python and installed libraries."""
     result = subprocess.run(  # noqa: S603 - fixed installed runtime, no shell
         [
@@ -161,12 +169,12 @@ class NativeJourney:
 
         self.spi, self.gdk, self.glib = pyatspi, Gdk, GLib
         self.root, self.home = root, home
-        self.app = None
-        self.stream = None
+        self.app: subprocess.Popen[bytes] | None = None
+        self.stream: BinaryIO | None = None
         self.launches = 0
         self.operation_timeout = 120
 
-    def nodes(self):
+    def nodes(self) -> Iterator[Atspi.Accessible]:
         """Read bounded accessibility state from this disposable display."""
         pending = [(self.spi.Registry.getDesktop(0), 0)]
         visited = 0
@@ -193,7 +201,9 @@ class NativeJourney:
                 continue
         return result
 
-    def wait(self, condition, description: str, timeout: int = 120) -> None:
+    def wait(
+        self, condition: Callable[[], bool], description: str, timeout: int = 120
+    ) -> None:
         """Wait for a native UI milestone, retaining actionable failure evidence."""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -204,20 +214,29 @@ class NativeJourney:
         self.snapshot("failure")
         raise RuntimeError("Timed out: " + description)
 
-    def find(self, name: str, role=None):
+    def find(
+        self, name: str, role: int | None = None, *, showing: bool = True
+    ) -> Atspi.Accessible | None:
         """Find an exact accessible control, avoiding duplicate background controls."""
         for node in self.nodes():
             try:
                 if node.name == name and (role is None or node.getRole() == role):
-                    if node.getState().contains(self.spi.STATE_SHOWING):
+                    if not showing or node.getState().contains(self.spi.STATE_SHOWING):
                         return node
             except (self.glib.Error, RuntimeError):
                 continue
         return None
 
-    def click(self, name: str, role=None) -> None:
+    def click(self, name: str, role: int | None = None) -> None:
         """Activate a visible enabled native accessibility action."""
         role = role or self.spi.ROLE_PUSH_BUTTON
+        if self.find(name, role) is None:
+            self.wait(lambda: self.find(name, role, showing=False) is not None, name)
+            target = self.find(name, role, showing=False)
+            require(
+                target.queryComponent().scrollTo(self.spi.SCROLL_ANYWHERE),
+                name + " could not scroll into view",
+            )
         self.wait(
             lambda: (
                 self.find(name, role) is not None
@@ -263,7 +282,7 @@ class NativeJourney:
             "scoped installed AppArmor identity absent",
         )
 
-    def quit(self) -> dict:
+    def quit(self) -> JsonObject:
         """Quit cooperatively, then independently read durable owner state."""
         if self.app is not None and self.app.poll() is None:
             self.app.terminate()
@@ -281,7 +300,7 @@ class NativeJourney:
             timeout=10,
         )
 
-        def location():
+        def location() -> Atspi.Accessible | None:
             for node in self.nodes():
                 try:
                     if node.getRole() in {self.spi.ROLE_ENTRY, self.spi.ROLE_TEXT}:
@@ -315,7 +334,7 @@ class NativeJourney:
         require("Could not finish" not in self.texts(), "a GUI job failed")
 
 
-def run(root: Path, kit: Path | None, expected_path: Path | None) -> dict:
+def run(root: Path, kit: Path | None, expected_path: Path | None) -> JsonObject:
     """Recover all parts offline, restart twice, and compare exact pinned bytes."""
     require(
         not root.exists() and bool(os.environ.get("DISPLAY")), "new root/Xvfb required"
@@ -374,6 +393,7 @@ def run(root: Path, kit: Path | None, expected_path: Path | None) -> dict:
             "I checked and accept these keys for this exact capture.",
             journey.spi.ROLE_CHECK_BOX,
         )
+        journey.snapshot("02b-explicit-consent")
         journey.click("Import verified copy")
         journey.done(1)
         journey.click("Library")
