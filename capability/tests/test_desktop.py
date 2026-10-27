@@ -10,6 +10,39 @@ from foxlight_preservation_library.desktop import DesktopClient
 from foxlight_preservation_library.server import LibraryServer
 
 
+@pytest.mark.parametrize(
+    "error,expected",
+    [
+        (
+            "complete_signed_companion_map_required",
+            "complete_signed_companion_map_required",
+        ),
+        ("internal_failure_detail", "invalid_or_unsafe"),
+    ],
+)
+async def test_companion_refusal_crosses_only_the_allowed_error_boundary(
+    tmp_path,
+    monkeypatch,
+    error,
+    expected,
+):
+    from foxlight_model_preservation.models import PreservationError
+
+    from foxlight_preservation_library.client import CoreRefused
+
+    client = DesktopClient(tmp_path / "owner")
+
+    def refuse(*args):
+        raise PreservationError(error)
+
+    monkeypatch.setattr(client.owner, "control", refuse)
+    try:
+        with pytest.raises(CoreRefused, match=expected):
+            await client.request("POST", "desktop-plan", {"kind": "receive"})
+    finally:
+        await client.close()
+
+
 async def test_independent_owner_opens_empty_offline_and_keeps_ticket_boundary(
     tmp_path, monkeypatch
 ):

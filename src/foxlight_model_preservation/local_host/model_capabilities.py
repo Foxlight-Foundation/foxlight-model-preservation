@@ -206,9 +206,9 @@ def capability_details(
             }.get(normalized)
             add(_ALIASES.get(normalized, ()), task_inputs, declared_outputs)
     vision = body.get("vision")
+    projector = vision.get("projector_file") if isinstance(vision, dict) else None
     if isinstance(vision, dict) and vision:
         add(("vision",))
-        projector = vision.get("projector_file")
         if (
             isinstance(projector, str)
             and projector
@@ -217,6 +217,24 @@ def capability_details(
         ):
             notes.add("vision-companion-unlisted")
     direction(declared_inputs, declared_outputs, tuple(features))
+    # Reference audio is an input declaration, not evidence of transcription or
+    # audio understanding. Preserve more specific portable directions when set.
+    audio = body.get("audio")
+    modalities = body.get("modalities")
+    if not declared_inputs and (
+        isinstance(audio, dict)
+        and audio.get("supports_reference_audio") is True
+        or isinstance(modalities, dict)
+        and modalities.get("supports_audio_input") is True
+    ):
+        inputs.add("audio")
+    if (
+        not declared_outputs
+        and "video-generate" in features
+        and isinstance(video, dict)
+        and video.get("audio_output") is True
+    ):
+        outputs.add("audio")
 
     own_claims = body.get("capability_claims")
     captured = [
@@ -305,6 +323,16 @@ def capability_details(
             and companions
             and selected is not None
             and any(path not in selected for path in companions)
+            # A repository inventory may list alternative projector quants.
+            # The card's exact projector selects one; it does not require every
+            # sibling variant. Other missing-file/incomplete claims stay visible.
+            and not (
+                scope == "artifact"
+                and source == "artifact_manifest"
+                and isinstance(projector, str)
+                and projector in selected
+                and projector in companions
+            )
         ):
             notes.add("vision-companion-unlisted")
 

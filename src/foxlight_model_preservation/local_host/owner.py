@@ -22,7 +22,7 @@ from typing import BinaryIO, Literal, cast
 from pydantic import Field, JsonValue
 
 from ..archives import verify_archive
-from ..cards import ArtifactFile, ModelCardEnvelope, identity_json
+from ..cards import identity_json
 from ..kits import export_kit, import_kit, inspect_kit, read_kit_envelope
 from ..models import Manifest, PreservationError, Record, TrustProfile
 from ..operations import OperationControl, Progress, failure_code
@@ -48,7 +48,13 @@ from .presentation import (
     metadata_page,
     search_words,
 )
-from .selection import NOTICE, NOTICE_PATH, download_file, registry_recipe
+from .selection import (
+    NOTICE,
+    NOTICE_PATH,
+    download_file,
+    registry_file_map,
+    registry_recipe,
+)
 from .sources import SourceLibrary
 
 JobKind = Literal[
@@ -477,6 +483,13 @@ class LocalOwner:
                             str(body["catalog_id"]), str(body["card_id"])
                         )
                     recipe = registry_recipe(card, proof)
+                    selected_files = registry_file_map(card)
+                    vision = card.card.get("vision")
+                    projector = (
+                        vision.get("projector_file")
+                        if isinstance(vision, dict)
+                        else None
+                    )
                     # An offline snapshot never silently acquires freshness.
                     try:
                         self.catalog.verify_current(proof, card.card_id)
@@ -494,16 +507,25 @@ class LocalOwner:
                                 card, metadata=captured_card_metadata(proof, card)
                             ),
                             "historical": historical,
+                            "file_count": len(selected_files),
+                            "projector_included": isinstance(projector, str)
+                            and (
+                                card.artifact.repository,
+                                card.artifact.revision,
+                                projector,
+                            )
+                            in selected_files,
                             "members": [
                                 item.origin_repository for item in recipe.members
                             ],
                             "size_bytes": sum(
-                                self._selected_file(
-                                    card,
-                                    member.origin_repository,
-                                    member.origin_revision,
-                                    file.path,
-                                ).size_bytes
+                                selected_files[
+                                    (
+                                        member.origin_repository,
+                                        member.origin_revision,
+                                        file.path,
+                                    )
+                                ].size_bytes
                                 for member in recipe.members
                                 for file in member.files
                                 if file.path != NOTICE_PATH
@@ -922,6 +944,7 @@ class LocalOwner:
                 str(plan["catalog_id"]), str(plan["card_id"])
             )
         recipe = registry_recipe(card, proof)
+        selected_files = registry_file_map(card)
         if recipe.model_dump(mode="json") != plan["recipe"]:
             raise PreservationError("plan_changed")
         if not plan["historical"]:
@@ -946,9 +969,9 @@ class LocalOwner:
                     (selected / file.path).write_bytes(NOTICE)
                     continue
                 # The trusted descriptor, not a response header, bounds every object.
-                original = self._selected_file(
-                    card, member.origin_repository, member.origin_revision, file.path
-                )
+                original = selected_files[
+                    (member.origin_repository, member.origin_revision, file.path)
+                ]
                 download_file(
                     member.origin_repository,
                     member.origin_revision,
@@ -982,33 +1005,6 @@ class LocalOwner:
                 trust=trust,
             ),
         )
-
-    @staticmethod
-    def _selected_file(
-        card: ModelCardEnvelope, repository: str, revision: str, path: str
-    ) -> ArtifactFile:
-        bundle = card.artifact.bundle
-        if (repository, revision) == (
-            card.artifact.repository,
-            card.artifact.revision,
-        ) and bundle:
-            for file in bundle.files:
-                if file.path == path:
-                    return file
-        image = card.card.get("image")
-        if isinstance(image, dict) and isinstance(image.get("components"), list):
-            for component in cast(list[JsonValue], image["components"]):
-                if (
-                    isinstance(component, dict)
-                    and (component.get("repository"), component.get("revision"))
-                    == (repository, revision)
-                    and isinstance(component.get("files"), list)
-                ):
-                    for item in cast(list[JsonValue], component["files"]):
-                        file = ArtifactFile.model_validate_json(identity_json(item))
-                        if file.path == path:
-                            return file
-        raise PreservationError("missing selected file")
 
     def _record_copy(self, job: Job, copy: Copy) -> None:
         with self._lock:

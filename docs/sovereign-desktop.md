@@ -53,6 +53,9 @@ The review remains authoritative about the exact selection being preserved.
 For saved copies, presence caveats use the archive's root-member file list,
 including additional captured files, rather than the earlier download's map.
 File presence is still distinct from registry coverage or usable runtime support.
+An exact card-selected projector already in the file map is not treated as
+missing merely because a repository inventory lists alternative projector
+precisions. Other incomplete or missing-file claims remain visible.
 Explicit input/output direction survives preservation; only independently added
 PMF workloads contribute additional default modalities.
 
@@ -85,7 +88,9 @@ listings is an explicit action, separate from model downloads.
 
 Choose **Review download & preserve** for a supported selection. The review
 includes the exact card, full selected companion repositories, total object
-bytes, publication freshness and connection disclosure. Confirming starts a
+bytes, verified file count, publication freshness and connection disclosure.
+When the exact selection contains its card-selected image projector, the review
+explicitly says that image companion is included. Confirming starts a
 finite, private background job. Each file must match its original signed size
 and SHA-256. The original model card, all properties and signed publication proof
 are retained in the PMF capture. No model code or runtime is executed.
@@ -166,12 +171,24 @@ metadata requires explicit historical acceptance
 before downloading. A failed update does not erase the accepted catalog.
 
 The first standalone registry adapter requires complete SHA-256 file maps. It
-supports primary selections and explicitly mapped image companions. It refuses
-unsupported companion declarations or missing hashes before fetching objects;
-it never silently drops companions. Unsupported cards stay browsable. Existing
+supports primary selections and explicitly mapped image companions. Vision,
+audio and video metadata do not by themselves require an extra repository.
+Named projectors, video companions and same-repository draft/active MTP files
+must already appear in the exact signed file selection, with matching declared
+sizes where supplied. Review and download resolve the same source/revision/path
+map. A missing named companion blocks the download rather than producing a
+silently reduced copy. Whole external vision/processor/speculation repositories
+without an understood complete map remain unsupported; no Hub listing or
+automated capability claim fills a hash gap. It refuses unsupported selections
+or missing hashes before fetching objects. Unsupported cards stay browsable. Existing
 portable kits and standalone command-line adapters remain usable independently
 of this registry adapter. Neither listing nor successful capture establishes
 runtime compatibility or redistribution rights.
+
+Legacy audio-input/reference-audio flags remain visible as input types without
+inventing transcription or audio understanding. A declared video soundtrack
+adds audio output to video generation without creating a separate music feature.
+Explicit portable input/output declarations take precedence over these fallbacks.
 
 Updating contacts `registry.foxlight.ai`. Search terms are not sent. Direct
 model downloads contact the pinned Hugging Face repository/revision and its

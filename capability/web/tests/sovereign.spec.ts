@@ -62,14 +62,27 @@ test('standalone exact download requires consent and stays receive-only',async({
  let submitted:Record<string,unknown>|null=null;
  await page.route('**/api/library*',route=>route.fulfill({json:empty}));
  await page.route('**/api/desktop-search',route=>route.fulfill({json:{catalog_id:id,results:[model],total:1,next_offset:null}}));
- await page.route('**/api/desktop-plan',route=>route.fulfill({json:{plan_id:id,kind:'receive',name:model.name,card_id:card,size_bytes:4096,members:['example/model','example/required-companion'],expires_at:9999999999}}));
+ await page.route('**/api/desktop-plan',route=>route.fulfill({json:{plan_id:id,kind:'receive',name:model.name,card_id:card,size_bytes:4096,file_count:2,projector_included:true,members:['example/model','example/required-companion'],expires_at:9999999999}}));
  await page.route('**/api/desktop-start',route=>{submitted=route.request().postDataJSON();return route.fulfill({json:{}});});
  await page.goto('/');await page.getByRole('button',{name:'Keep a copy',exact:true}).click();
  await expect(page.getByText('example/required-companion',{exact:true})).toBeVisible();
+ await expect(page.getByText('Included with this copy · needed for picture inputs',{exact:true})).toBeVisible();
+ await expect(page.getByText('Verified files',{exact:true})).toBeVisible();
  const start=page.getByRole('button',{name:'Download & preserve',exact:true});await expect(start).toBeDisabled();
  expect(submitted).toBeNull();await page.getByLabel('Proceed with this exact private selection.').check();await start.click();
  await expect(page.getByRole('heading',{name:'Activity',exact:true})).toBeVisible();
  expect(submitted).toEqual({plan_id:id,operation_id:expect.any(String),confirmed:true});
+});
+test('a missing signed companion stays browsable with an explained disabled action',async({page})=>{
+ let plans=0;
+ await page.route('**/api/library*',route=>route.fulfill({json:empty}));
+ await page.route('**/api/desktop-search',route=>route.fulfill({json:{catalog_id:id,results:[{...model,download_support:'complete_signed_companion_map_required'}],total:1,next_offset:null}}));
+ await page.route('**/api/desktop-plan',route=>{plans++;return route.fulfill({json:{}});});
+ await page.goto('/');
+ await expect(page.getByRole('heading',{name:model.name,exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:'Keep a copy',exact:true})).toBeDisabled();
+ await expect(page.getByText('Sovereign will not save an incomplete copy.',{exact:false})).toBeVisible();
+ expect(plans).toBe(0);
 });
 test('source authority is not granted by accepting an imported kit key',async({page})=>{
  await page.route('**/api/library*',route=>route.fulfill({json:empty}));

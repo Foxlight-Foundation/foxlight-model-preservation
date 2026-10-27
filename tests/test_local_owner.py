@@ -25,18 +25,26 @@ from foxlight_model_preservation.signing import digest, encode_record
 from foxlight_model_preservation.storage import atomic_bytes, directory
 
 
-def accepted_catalog(tmp_path, *, companion=True, metadata=None, catalog_metadata=None):
+def accepted_catalog(
+    tmp_path,
+    *,
+    companion=True,
+    metadata=None,
+    catalog_metadata=None,
+    primary_paths=("model.bin",),
+):
     data = b"Synthetic model bytes, never executable.\n"
     card_body = body()
     card_body.update(metadata or {})
-    files = (
+    files = tuple(
         ArtifactFile(
-            path="model.bin", size_bytes=len(data), object_id="sha256:" + digest(data)
-        ),
+            path=path, size_bytes=len(data), object_id="sha256:" + digest(data)
+        )
+        for path in primary_paths
     )
     card_body["artifact_bundle"] = {
         "bundle_id": bundle_identity(files),
-        "download_size": len(data),
+        "download_size": len(data) * len(files),
         "files": [file.model_dump(mode="json") for file in files],
     }
     card_body["future_properties"] = {
@@ -117,8 +125,38 @@ def submit(owner, plan, operation=None):
     )
 
 
-def test_find_receive_kit_fresh_owner_restore_without_network(tmp_path, monkeypatch):
-    catalog, repo, data = accepted_catalog(tmp_path)
+@pytest.mark.parametrize("extra", ["image", "vision", "video", "audio"])
+def test_find_receive_kit_fresh_owner_restore_without_network(
+    tmp_path, monkeypatch, extra
+):
+    size = len(b"Synthetic model bytes, never executable.\n")
+    paths = ("model.bin",)
+    metadata = {}
+    if extra == "vision":
+        paths += ("mmproj.gguf",)
+        metadata = {"vision": {"projector_file": "mmproj.gguf", "projector_size": size}}
+    elif extra == "video":
+        paths += ("duration.bin",)
+        metadata = {
+            "video": {
+                "modes": ["t2v"],
+                "companions": [
+                    {
+                        "kind": "duration_head",
+                        "name": "duration",
+                        "path": "duration.bin",
+                        "size_bytes": size,
+                    }
+                ],
+            }
+        }
+    elif extra == "audio":
+        metadata = {"audio": {"kind": "tts", "supports_reference_audio": True}}
+    catalog, repo, data = accepted_catalog(
+        tmp_path,
+        metadata=metadata,
+        primary_paths=paths,
+    )
     home = tmp_path / "owner"
     requested = []
 
@@ -143,14 +181,16 @@ def test_find_receive_kit_fresh_owner_restore_without_network(tmp_path, monkeypa
             },
         )
         assert len(plan["members"]) == 2
-        assert plan["size_bytes"] == len(data) * 2
+        assert plan["file_count"] == len(paths) + 1
+        assert plan["projector_included"] is (extra == "vision")
+        assert plan["size_bytes"] == len(data) * (len(paths) + 1)
         assert requested == []  # review never fetches weights
         operation = str(uuid.uuid4())
         receipt = submit(owner, plan, operation)
         assert submit(owner, plan, operation)["job_id"] == receipt["job_id"]
         received = finish(owner, receipt)
         assert received["state"] == "succeeded", received
-        assert len(requested) == 2
+        assert len(requested) == len(paths) + 1
         copy = owner.read()["copies"][0]
         saved_manifest_id = copy["manifest_id"]
         kit_plan = owner.control(
@@ -224,6 +264,8 @@ def test_find_receive_kit_fresh_owner_restore_without_network(tmp_path, monkeypa
         assert restored["state"] == "succeeded", restored
         output = recipient.restored_directory(restored["job_id"])
         assert (output / "members/base/model.bin").read_bytes() == data
+        for path in paths:
+            assert (output / "members/base" / path).read_bytes() == data
         assert (output / "members/companion-1/tokenizer.json").read_bytes() == data
         from foxlight_model_preservation.assurance import load_retained_card
         from foxlight_model_preservation.registry_proof import verify_registry_proof
