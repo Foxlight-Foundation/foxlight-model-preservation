@@ -240,7 +240,7 @@ class LocalOwner:
                             **self._sharing_observations[item.job_id].model_dump(
                                 mode="json"
                             ),
-                            "handoff_ready": item.job_id in self._sharing_files,
+                            "handoff_ready": self._handoff_ready(item),
                         }
                         if item.job_id in self._sharing_observations
                         else None,
@@ -404,13 +404,26 @@ class LocalOwner:
 
     def _plan(self, value: dict[str, JsonValue]) -> dict[str, JsonValue]:
         value = {**value, "expires_at": int(time.time()) + 600}
+        from ..models import MAX_METADATA_BYTES
+
+        if len(identity_json(value)) > MAX_METADATA_BYTES:
+            raise PreservationError("metadata_preview_too_large")
         plan_id = digest(identity_json(value))
         atomic_bytes(self._root, "plans/" + plan_id + ".json", identity_json(value))
         return {
             **{
                 key: item
                 for key, item in value.items()
-                if key not in {"recipe", "trust", "selection", "source_policy"}
+                if key
+                not in {
+                    "recipe",
+                    "trust",
+                    "selection",
+                    "source_policy",
+                    "public_manifest",
+                    "publication_request",
+                    "decisions",
+                }
             },
             "plan_id": plan_id,
         }
@@ -539,8 +552,16 @@ class LocalOwner:
                             ),
                         }
                     )
-                if kind == "share" and set(body) == {"kind", "public_id"}:
-                    return self._plan(self.sharing.session_plan(str(body["public_id"])))
+                if kind == "share" and {"kind", "public_id"} <= set(body) <= {
+                    "kind",
+                    "public_id",
+                    "advertised_address",
+                }:
+                    return self._plan(
+                        self.sharing.session_plan(
+                            str(body["public_id"]), body.get("advertised_address")
+                        )
+                    )
                 if kind in {"source_refresh", "source_metadata"}:
                     return self._plan(self.sources.plan(body))
                 if kind == "source_receive":
@@ -919,9 +940,12 @@ class LocalOwner:
                     with self._lock:
                         self._sharing_observations[job.job_id] = value
 
-                def ready(identity: str) -> None:
+                def ready(identity: str | None) -> None:
                     with self._lock:
-                        self._sharing_files[job.job_id] = identity
+                        if identity is None:
+                            self._sharing_files.pop(job.job_id, None)
+                        else:
+                            self._sharing_files[job.job_id] = identity
 
                 self.sharing.serve(job.job_id, plan, control, observe, ready)
             else:
@@ -989,6 +1013,7 @@ class LocalOwner:
                 "source_update_failed",
                 "backup_destination_changed",
                 "public_copy_review_changed",
+                "sharing_address_required",
             }:
                 code = str(error)
             self._update(
@@ -1237,6 +1262,42 @@ class LocalOwner:
                 raise PreservationError("kit_not_ready")
             return os.fdopen(descriptor, "rb")
 
+    def publication_review(self, plan_id: str) -> bytes:
+        """Return only a hash-bound public descriptor and decoded original cards."""
+        with self._lock:
+            self._check()
+            if re.fullmatch(r"[0-9a-f]{64}", plan_id) is None:
+                raise PreservationError("invalid_control")
+            plan = strict_json(read_metadata(self._root, "plans/" + plan_id + ".json"))
+            if (
+                not isinstance(plan, dict)
+                or digest(identity_json(plan)) != plan_id
+                or plan.get("kind") != "publish"
+            ):
+                raise PreservationError("plan_changed")
+            document = self.sharing.preview(plan)
+            if digest(document) != plan["public_review_sha256"]:
+                raise PreservationError("public_copy_review_changed")
+            return document
+
+    def _handoff_ready(self, job: Job) -> bool:
+        if (
+            job.job_id not in self._sharing_files
+            or job.kind != "share"
+            or job.state != "running"
+        ):
+            return False
+        try:
+            plan = strict_json(
+                read_metadata(self._root, "plans/" + job.plan_id + ".json")
+            )
+            if not isinstance(plan, dict) or digest(identity_json(plan)) != job.plan_id:
+                return False
+            self.sharing.require_session(plan)
+            return True
+        except (ValueError, OSError):
+            return False
+
     def open_handoff(self, job_id: str) -> BinaryIO:
         """Read one current explicit sharing session's verified metadata file."""
         with self._lock:
@@ -1248,7 +1309,7 @@ class LocalOwner:
                 or job.state != "running"
                 or observed is None
                 or not observed.running
-                or job_id not in self._sharing_files
+                or not self._handoff_ready(job)
             ):
                 raise PreservationError("sharing_not_ready")
             descriptor = os.open(

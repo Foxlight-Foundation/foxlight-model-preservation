@@ -172,3 +172,31 @@ def test_kit_readback_detects_corrupt_bytes_without_import(tmp_path, capture):
         stream.write(bytes([old[0] ^ 1]))
     with pytest.raises(PreservationError, match="integrity"):
         verify_kit(kit, trust=capture.trust, expected_manifest_id=capture.identity)
+
+
+def test_existing_destination_space_comes_from_that_drive_not_parent(
+    tmp_path, monkeypatch
+):
+    import os
+    from collections import namedtuple
+
+    from foxlight_model_preservation.local_host.backups import Backups
+
+    folder = tmp_path / "drive"
+    folder.mkdir(mode=0o700)
+    owner = tmp_path / "owner"
+    owner.mkdir(mode=0o700)
+    target_inode = folder.stat().st_ino
+    Usage = namedtuple("Usage", "total used free")
+    monkeypatch.setattr(
+        "foxlight_model_preservation.local_host.backups.shutil.disk_usage",
+        lambda fd: (
+            Usage(1000, 900, 100)
+            if os.fstat(fd).st_ino == target_inode
+            else Usage(10000, 100, 9900)
+        ),
+    )
+    existing = Backups(owner).review(str(folder), "Connected drive")
+    assert existing["free_bytes"] == 100
+    new = Backups(owner).review(str(tmp_path / "new-folder"), "New child")
+    assert new["free_bytes"] == 9900

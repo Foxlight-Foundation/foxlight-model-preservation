@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto';
 import {test,expect} from '@playwright/test';
 const id='a'.repeat(64),key='ed25519:'+id,copy={copy_id:id,manifest_id:id,name:'Image understanding model',size_bytes:1024,member_count:2};
 const empty={host_kind:'sovereign',copies:[copy],jobs:[],next_offset:null};
@@ -52,15 +53,21 @@ test('a failed backup plan keeps the folder selection open with its explanation'
  await expect(page.getByRole('dialog')).toBeVisible();await expect(page.getByRole('alert')).toContainText('changed or disconnected');
 });
 
-test('public publication reviews all card fields and starts no listener',async({page})=>{
+test('public publication decodes original cards and starts no listener',async({page})=>{
  let starts=0;
+ const originalCard={card_id:'sha256:'+id,card:{future_property:'Preserved original field',pipeline_tag:'image-text-to-text'}};
+ const document=JSON.stringify({manifest:{members:[{member_id:'base',origin_repository:'example/model',retained_card:{schema_version:'foxlight.retained-card.v1',card_base64:Buffer.from(JSON.stringify(originalCard)).toString('base64'),registry_proof:null},files:[{path:'vision.gguf',size:1024}]}]},cards:[{member_id:'base',card:originalCard}]});
+ const hash=createHash('sha256').update(document).digest('hex');
+ await page.route('**/api/desktop-public-review/*',r=>r.fulfill({contentType:'application/json',body:document}));
  await page.route('**/api/desktop-sharing-review',r=>r.fulfill({json:{name:copy.name,already_public:false,members:[{member_id:'base',repository:'example/model',license_id:'',terms_reference:''}]}}));
- await page.route('**/api/desktop-plan',r=>{expect(r.request().postDataJSON()).toEqual({kind:'publish',copy_id:id,decisions:[{member_id:'base',license_id:'Apache-2.0',terms_reference:'LICENSE'}]});return r.fulfill({json:{plan_id:id,kind:'publish',name:copy.name,size_bytes:1024,expires_at:9999999999,public_manifest_id:id,public_manifest:{members:[{retained_card:{future_property:'Preserved original field'},files:[{path:'vision.gguf'}]}]}}});});
+ await page.route('**/api/desktop-plan',r=>{expect(r.request().postDataJSON()).toEqual({kind:'publish',copy_id:id,decisions:[{member_id:'base',license_id:'Apache-2.0',terms_reference:'LICENSE'}]});return r.fulfill({json:{plan_id:id,kind:'publish',name:copy.name,size_bytes:1024,expires_at:9999999999,public_manifest_id:id,public_review_sha256:hash}});});
  await page.route('**/api/desktop-start',r=>{starts++;return r.fulfill({json:{}});});
  await page.goto('/');await page.getByRole('button',{name:'Share',exact:true}).click();
  const review=page.getByRole('button',{name:'Review exact public files',exact:true});await expect(review).toBeDisabled();
  await page.getByLabel('License for base',{exact:true}).fill('Apache-2.0');await page.getByLabel('License file or terms reference for base',{exact:true}).fill('LICENSE');await review.click();
- await page.getByText('All public model-card fields, files & terms',{exact:true}).click();await expect(page.getByText('Preserved original field',{exact:false})).toBeVisible();
+ await page.getByText('Original model card · base',{exact:true}).click();await expect(page.getByText('Preserved original field',{exact:false})).toBeVisible();
+ await expect(page.getByText('Decoded original card fields, including properties Sovereign does not interpret.',{exact:false})).toBeVisible();
+ await page.getByText('Files to publish · example/model',{exact:true}).click();await expect(page.getByText('vision.gguf · 1.0 KB',{exact:true})).toBeVisible();
  const create=page.getByRole('button',{name:'Create public copy',exact:true});await expect(create).toBeDisabled();expect(starts).toBe(0);
  await page.getByRole('checkbox',{name:'I reviewed these files, model-card fields and redistribution terms and want to create this public copy.',exact:true}).check();await create.click();
  await expect(page.getByRole('heading',{name:'Activity',exact:true})).toBeVisible();expect(starts).toBe(1);
@@ -92,4 +99,41 @@ test('an explicit stop is a normal retained outcome rather than a failure warnin
  await expect(page.getByText('Stopped at your request. Your saved copies and completed backups are kept.',{exact:true})).toBeVisible();
  await expect(page.getByRole('link',{name:'Save sharing file for recipient',exact:true})).toHaveCount(0);
  await expect(page.getByText('This action could not be completed.',{exact:false})).toHaveCount(0);
+});
+
+
+for(const destination of ['Find','Close backup selection'])test(`a late backup preview cannot reopen after ${destination}`,async({page})=>{
+ let release!:()=>void,arrived!:()=>void,starts=0;
+ const gate=new Promise<void>(resolve=>release=resolve),waiting=new Promise<void>(resolve=>arrived=resolve);
+ await page.route('**/api/desktop-backup-read',r=>r.fulfill({json:{destinations:[{destination_id:id,label:'My NAS',path:'/Volumes/NAS/Backups',same_filesystem:false}]}}));
+ await page.route('**/api/desktop-plan',async r=>{arrived();await gate;await r.fulfill({json:{plan_id:id,kind:'backup',name:copy.name,size_bytes:1024,expires_at:9999999999}});});
+ await page.route('**/api/desktop-start',r=>{starts++;return r.fulfill({json:{}});});
+ await page.goto('/');await page.getByRole('button',{name:'Back up',exact:true}).click();await page.getByRole('button',{name:'Review backup to My NAS',exact:true}).click();await waiting;
+ await page.getByRole('button',{name:destination,exact:true}).click();
+ const response=page.waitForResponse(r=>r.url().endsWith('/api/desktop-plan'));release();await (await response).finished();
+ await page.waitForTimeout(250);await expect(page.getByRole('dialog')).toHaveCount(0);expect(starts).toBe(0);
+});
+
+test('an isolated LAN address needs a new review and fresh consent',async({page})=>{
+ let plans=0,starts=0;
+ await page.route('**/api/desktop-sharing-read',r=>r.fulfill({json:{public_copies:[{public_id:id,manifest_id:id,name:copy.name,size_bytes:1024,member_count:2}]}}));
+ await page.route('**/api/desktop-plan',r=>{plans++;const value=r.request().postDataJSON();return r.fulfill({json:{plan_id:id,public_id:id,kind:'share',name:copy.name,size_bytes:1024,expires_at:9999999999,advertised_address:value.advertised_address??null}});});
+ await page.route('**/api/desktop-start',r=>{starts++;return r.fulfill({json:{}});});
+ await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();await page.getByRole('button',{name:'Review sharing',exact:true}).click();
+ await page.getByText('Address for recipients · optional',{exact:true}).click();await page.getByLabel('Reachable IPv4 address',{exact:true}).fill('192.0.2.10');
+ await page.getByRole('button',{name:'Review address change',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Start sharing for one hour',exact:true})).toBeDisabled();expect(plans).toBe(2);expect(starts).toBe(0);
+ await page.getByRole('checkbox',{name:'Allow this public HTTP sharing session. Keep retained copies when it stops; do not restart sharing automatically.',exact:true}).check();
+ await page.getByRole('button',{name:'Start sharing for one hour',exact:true}).click();await expect(page.getByRole('heading',{name:'Activity',exact:true})).toBeVisible();expect(starts).toBe(1);
+});
+
+
+test('changed public review metadata cannot reach publication consent',async({page})=>{
+ let starts=0;
+ await page.route('**/api/desktop-sharing-review',r=>r.fulfill({json:{name:copy.name,already_public:true,members:[]}}));
+ await page.route('**/api/desktop-plan',r=>r.fulfill({json:{plan_id:id,kind:'publish',name:copy.name,size_bytes:1024,expires_at:9999999999,public_review_sha256:'0'.repeat(64)}}));
+ await page.route('**/api/desktop-public-review/*',r=>r.fulfill({json:{manifest:{members:[]},cards:[]}}));
+ await page.route('**/api/desktop-start',r=>{starts++;return r.fulfill({json:{}});});
+ await page.goto('/');await page.getByRole('button',{name:'Share',exact:true}).click();await page.getByRole('button',{name:'Review exact public files',exact:true}).click();
+ await expect(page.getByRole('alert')).toContainText('changed');await expect(page.getByRole('button',{name:'Create public copy',exact:true})).toHaveCount(0);expect(starts).toBe(0);
 });

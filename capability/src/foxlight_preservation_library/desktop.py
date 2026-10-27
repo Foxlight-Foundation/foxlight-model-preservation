@@ -34,6 +34,8 @@ class DesktopClient(CoreClient):
         self.sharing_owner_id = "sovereign-local-sharing"
         self.discovery_owner_id = "sovereign-local-discovery"
         self.mirror_owner_id = "sovereign-local-mirror"
+        self._picker: asyncio.subprocess.Process | None = None
+        self._picker_lock = asyncio.Lock()
         self.http = httpx.AsyncClient(
             base_url="http://sovereign.invalid",
             transport=httpx.MockTransport(lambda _: httpx.Response(403)),
@@ -57,28 +59,7 @@ class DesktopClient(CoreClient):
 
         try:
             if method == "POST" and path == "desktop-folder-choose" and body == {}:
-                if sys.platform != "linux" or shutil.which("zenity") is None:
-                    raise CoreRefused("folder_picker_unavailable")
-                selected = await asyncio.to_thread(
-                    subprocess.run,
-                    [
-                        "zenity",
-                        "--file-selection",
-                        "--directory",
-                        "--title=Choose a backup drive or folder",
-                    ],
-                    capture_output=True,
-                    check=False,
-                    timeout=600,
-                    text=True,
-                )
-                if selected.returncode == 1:
-                    return {"path": None}
-                if selected.returncode != 0 or not selected.stdout.strip():
-                    raise CoreRefused("folder_picker_unavailable")
-                return {
-                    "path": str(Path(selected.stdout.strip()) / "Sovereign Backups")
-                }
+                return await self._choose_folder()
             if (
                 method == "POST"
                 and path == "desktop-reveal"
@@ -148,6 +129,9 @@ class DesktopClient(CoreClient):
                 "sharing_not_ready",
                 "public_copy_capacity",
                 "public_copy_unavailable",
+                "sharing_http_only_required",
+                "sharing_address_required",
+                "sharing_address_invalid",
             }
             raise CoreRefused(
                 code if code in allowed else "invalid_or_unsafe"
@@ -161,8 +145,67 @@ class DesktopClient(CoreClient):
         """Open metadata only from this owner's currently running sharing job."""
         return await asyncio.to_thread(self.owner.open_handoff, job_id)
 
+    async def metadata(
+        self, method: str, path: str, body: dict[str, JsonValue] | None = None
+    ) -> bytes:
+        """Read one bounded own public-review document outside compact controls."""
+        match = re.fullmatch(r"desktop-public-review/([0-9a-f]{64})", path)
+        if method != "GET" or match is None or body is not None:
+            raise CoreRefused("sovereign_operation_unavailable")
+        return await asyncio.to_thread(self.owner.publication_review, match[1])
+
+    @staticmethod
+    async def _stop_picker(process: asyncio.subprocess.Process) -> None:
+        if process.returncode is None:
+            try:
+                process.terminate()
+            except ProcessLookupError:
+                pass
+            try:
+                await asyncio.wait_for(process.wait(), timeout=2)
+            except TimeoutError:
+                try:
+                    process.kill()
+                except ProcessLookupError:
+                    pass
+                await process.wait()
+
+    async def _choose_folder(self) -> dict[str, JsonValue]:
+        binary = shutil.which("zenity", path="/usr/bin:/bin")
+        if sys.platform != "linux" or binary is None:
+            raise CoreRefused("folder_picker_unavailable")
+        if self._picker_lock.locked():
+            raise CoreRefused("folder_picker_busy")
+        async with self._picker_lock:
+            process = await asyncio.create_subprocess_exec(
+                binary,
+                "--file-selection",
+                "--directory",
+                "--title=Choose a backup drive or folder",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            self._picker = process
+            try:
+                output, _ = await asyncio.wait_for(process.communicate(), timeout=600)
+                if process.returncode == 1:
+                    return {"path": None}
+                if process.returncode != 0 or not output.strip() or len(output) > 4096:
+                    raise CoreRefused("folder_picker_unavailable")
+                return {
+                    "path": str(Path(output.decode().strip()) / "Sovereign Backups")
+                }
+            except TimeoutError as error:
+                raise CoreRefused("folder_picker_timed_out") from error
+            finally:
+                await self._stop_picker(process)
+                if self._picker is process:
+                    self._picker = None
+
     async def close(self) -> None:
         """Finish cooperative local shutdown and retain durable receipts."""
+        if self._picker is not None:
+            await self._stop_picker(self._picker)
         await asyncio.to_thread(self.owner.close)
         await self.http.aclose()
 

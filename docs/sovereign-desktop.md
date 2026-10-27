@@ -119,8 +119,10 @@ use the matching next release after its independent publication checks.
 
 In **Backups → Add backup folder**, choose a connected drive or mounted NAS.
 The Mac shell offers a native folder picker; the Linux desktop package includes
-Zenity for folder selection. The local browser launcher also accepts a path.
-Review the name, exact folder, observed free space and encryption disclosure,
+Zenity for folder selection. Its interactive request permits up to ten minutes;
+cancelling the request or quitting stops its owned picker process. Ordinary
+controls keep their short timeout. The local browser launcher also accepts a path.
+Review the name, exact folder, that destination’s observed free space and encryption disclosure,
 then confirm. Setup creates at most one private folder directly inside an
 existing parent; it never mounts a drive, creates missing parent paths, changes
 shared-folder permissions or copies a model automatically.
@@ -160,14 +162,19 @@ card properties and retained signed registry evidence remain unchanged. Common
 PMF archives without this supported projection remain restorable and are refused
 for this transport rather than silently flattened.
 
-Review the complete public descriptor, file list, card fields and terms, then
-choose **Create public copy**. A publisher declaration does not establish
+Review the complete public descriptor, file list, decoded original card fields
+(including unknown properties) and terms, then choose **Create public copy**.
+Readable cards and the unchanged descriptor use a separate hash-bound metadata
+response within the existing 8 MiB limit, so ordinary signed registry proofs do
+not overflow compact controls. A missing or changed review cannot reach consent. A publisher declaration does not establish
 upstream authorship, a redistribution license, registry approval or runtime
 compatibility. The original private archive stays intact. Complete verified
 public bytes are retained by the public mirror core; no listener or public
 listing starts as a side effect of creating that copy.
 
 In **Sharing → Review sharing**, separately approve a one-hour HTTP session.
+A mirror configured for native peers or with HTTP disabled is refused rather
+than inheriting permission or changing the operator’s transport choices.
 Its daily and monthly UTC upload allowances are shown and retained across
 sessions. Starting again does not reset those counters. A second simultaneous
 session is refused; private download, kit and restore jobs can continue while
@@ -184,7 +191,16 @@ Its suggested address is this computer's locally selected network address; it
 is not a reachability test, public listing, NAT traversal or router setup. The
 computer must remain awake and reachable while the recipient downloads. A new
 session needs a fresh sharing file because its listener port can change.
-The app offers the file only while that original session is active.
+The app offers the file only while that original session is active and its
+exact selection remains admitted and verified for serving. Blocking a model or
+excluding it after integrity failure revokes the action.
+
+Usually leave the optional recipient address empty. On an isolated LAN without
+a default route, enter this computer’s reachable IPv4 address from Network
+settings, choose **Review address change**, then give fresh session consent.
+An explicitly reviewed address needs no external route lookup. Failure of
+automatic address selection stops the session and asks for that review; it does
+not switch transport or configure a router.
 
 ### Open a sharing file without Skulk
 

@@ -549,6 +549,12 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         if re.fullmatch(r"api/desktop-handoff/[0-9a-f]{64}", relative):
             self._local_download(app, relative.rsplit("/", 1)[1], handoff=True)
             return
+        if re.fullmatch(r"api/desktop-public-review/[0-9a-f]{64}", relative):
+            if app.startup is not None:
+                self._reply(403, b'{"error":"operator_screen_required"}')
+            else:
+                self._metadata(app, "GET", relative[4:])
+            return
         if re.fullmatch(r"api/mirror-kit/[0-9a-f]{64}", relative):
             self._mirror_download(app, relative.rsplit("/", 1)[1])
             return
@@ -1083,7 +1089,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     ) -> None:
         future = asyncio.run_coroutine_threadsafe(app.dispatch(action, body), app.loop)
         try:
-            result = future.result(timeout=12)
+            result = future.result(
+                timeout=610 if action == "desktop-folder-choose" else 12
+            )
             encoded = json.dumps(result, separators=(",", ":")).encode()
             if len(encoded) > 65536:
                 raise CoreRefused("host_response_too_large")

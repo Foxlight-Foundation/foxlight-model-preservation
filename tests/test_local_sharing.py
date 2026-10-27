@@ -1,5 +1,6 @@
 """Real independent publication, finite sharing and recipient custody boundaries."""
 
+import json
 import socket
 import time
 from urllib.request import ProxyHandler, build_opener
@@ -37,11 +38,13 @@ def published(owner, tmp_path, capture):
             ],
         },
     )
-    assert plan["public_manifest"]["runtime_requirements"] == list(
+    descriptor = json.loads(owner.publication_review(plan["plan_id"]))["manifest"]
+    assert "public_manifest" not in plan
+    assert descriptor["runtime_requirements"] == list(
         private.recipe.runtime_requirements
     )
-    assert len(plan["public_manifest"]["members"]) == 2
-    assert "source-evidence" not in str(plan["public_manifest"])
+    assert len(descriptor["members"]) == 2
+    assert "source-evidence" not in str(descriptor)
     receipt = finish(owner, submit(owner, plan))
     assert receipt["state"] == "succeeded", receipt
     result = owner.control("sharing-read", {})["public_copies"][0]
@@ -184,7 +187,16 @@ def test_registry_card_extensions_and_signed_proof_survive_public_projection(
     from foxlight_model_preservation.cards import identity_json
     from foxlight_model_preservation.signing import encode_record
 
-    catalog, repo, data = accepted_catalog(tmp_path, companion=False)
+    catalog, repo, data = accepted_catalog(
+        tmp_path,
+        companion=False,
+        metadata={
+            "future_review_note": {
+                "read_me": "Synthetic unknown field for public-content review",
+                "padding": "x" * 80_000,
+            }
+        },
+    )
 
     def download(repository, revision, file, destination, control, **kwargs):
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -227,6 +239,17 @@ def test_registry_card_extensions_and_signed_proof_survive_public_projection(
                     for item in review["members"]
                 ],
             },
+        )
+        assert len(json.dumps(plan).encode()) < 65536
+        preview_raw = owner.publication_review(plan["plan_id"])
+        assert len(preview_raw) > 65536
+        preview = json.loads(preview_raw)
+        assert preview["cards"][0]["card"]["card"]["future_review_note"][
+            "read_me"
+        ].startswith("Synthetic unknown")
+        assert (
+            len(preview["cards"][0]["card"]["card"]["future_review_note"]["padding"])
+            == 80_000
         )
         result = finish(owner, submit(owner, plan))
         assert result["state"] == "succeeded", result
@@ -316,3 +339,83 @@ def test_failed_serving_selection_callback_stops_and_drains(tmp_path):
     with pytest.raises(RuntimeError, match="controlled callback"):
         run_mirror(ledger, public=True, seconds=2, serving_selection=failed)
     assert not ledger.running()
+
+
+def test_http_plan_refuses_native_policy_and_does_not_clear_operator_choices(
+    tmp_path, capture
+):
+    from foxlight_model_preservation.mirror_models import NativePolicy
+
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        _, public = published(owner, tmp_path, capture)
+        ledger = MirrorLedger(owner.home / "sharing/mirrors" / public["public_id"])
+        old_plan = owner.control(
+            "plan", {"kind": "share", "public_id": public["public_id"]}
+        )
+        native = NativePolicy(identity=ledger.read().identity["."], torrent=True)
+        ledger.update(lambda state: state.model_copy(update={"native_policy": native}))
+        with pytest.raises(PreservationError, match="sharing_http_only_required"):
+            owner.control("plan", {"kind": "share", "public_id": public["public_id"]})
+        assert ledger.read().native_policy == native
+        refused = finish(owner, submit(owner, old_plan))
+        assert refused["state"] == "failed"
+        assert not ledger.running()
+        assert ledger.read().native_policy == native
+    finally:
+        owner.close()
+
+
+def test_explicit_address_shares_on_lan_without_any_default_route(
+    tmp_path, capture, monkeypatch
+):
+    original_socket = socket.socket
+
+    def local_only(family=socket.AF_INET, type=socket.SOCK_STREAM, *args, **kwargs):
+        assert type != socket.SOCK_DGRAM, (
+            "reviewed address must not need an external route"
+        )
+        return original_socket(family, type, *args, **kwargs)
+
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        _, public = published(owner, tmp_path, capture)
+        plan = owner.control(
+            "plan",
+            {
+                "kind": "share",
+                "public_id": public["public_id"],
+                "advertised_address": "127.0.0.1",
+            },
+        )
+        monkeypatch.setattr(socket, "socket", local_only)
+        job = submit(owner, plan)
+        for _ in range(500):
+            row = next(
+                item for item in owner.read()["jobs"] if item["job_id"] == job["job_id"]
+            )
+            if row.get("sharing") and row["sharing"]["handoff_ready"]:
+                break
+            assert row["state"] in {"queued", "running"}, row
+            time.sleep(0.01)
+        else:
+            pytest.fail("explicit LAN address did not prepare a handoff")
+        with owner.open_handoff(job["job_id"]) as stream:
+            reference = read_reference(stream.read())
+        assert reference.mirrors[0].startswith("http://127.0.0.1:")
+        ledger = MirrorLedger(owner.home / "sharing/mirrors" / public["public_id"])
+        from foxlight_model_preservation.mirror import record_model
+
+        record_model(
+            ledger, public["manifest_id"], {"error": "controlled integrity refusal"}
+        )
+        current = next(
+            item for item in owner.read()["jobs"] if item["job_id"] == job["job_id"]
+        )
+        assert current["sharing"]["handoff_ready"] is False
+        with pytest.raises(PreservationError, match="sharing_not_ready"):
+            owner.open_handoff(job["job_id"])
+        owner.control("cancel", {"job_id": job["job_id"]})
+        assert finish(owner, job)["state"] == "cancelled"
+    finally:
+        owner.close()

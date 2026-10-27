@@ -7,6 +7,7 @@ never silently opens a listener. No Skulk, account, router or swarm is required.
 
 from __future__ import annotations
 
+import ipaddress
 import os
 import shutil
 import socket
@@ -17,14 +18,22 @@ from typing import Literal, cast
 
 from pydantic import Field, JsonValue
 
+from ..assurance import load_retained_card
 from ..cards import identity_json
 from ..handoffs import Handoff
 from ..invitations import create_invitation
 from ..mirror import run_mirror
 from ..mirror_intake import retain_local
-from ..mirror_models import MirrorObservation, SourceGrant, Terms
+from ..mirror_models import MirrorObservation, MirrorState, SourceGrant, Terms
 from ..mirror_state import HEADROOM, MirrorLedger, policy_id
-from ..models import Digest, Manifest, PreservationError, Record, TrustProfile
+from ..models import (
+    MAX_METADATA_BYTES,
+    Digest,
+    Manifest,
+    PreservationError,
+    Record,
+    TrustProfile,
+)
 from ..operations import OperationControl
 from ..pmf import verify_pmf_manifest
 from ..pmf_preservation import (
@@ -190,6 +199,39 @@ class Sharing:
         return value
 
     @staticmethod
+    def preview(plan: dict[str, JsonValue]) -> bytes:
+        """Decode every original card property beside the unchanged public manifest.
+
+        This metadata travels separately from compact controls, allowing ordinary
+        signed registry proofs without truncating fields or exceeding IPC limits.
+        """
+        manifest = Manifest.model_validate_json(identity_json(plan["public_manifest"]))
+        cards: list[JsonValue] = []
+        for member in manifest.members:
+            if member.retained_card is not None:
+                if (
+                    member.retained_card.get("schema_version")
+                    != "foxlight.retained-card.v1"
+                ):
+                    cards.append(
+                        {"member_id": member.member_id, "card": member.retained_card}
+                    )
+                    continue
+                retained = load_retained_card(identity_json(member.retained_card))
+                cards.append(
+                    {
+                        "member_id": member.member_id,
+                        "card": retained.envelope.model_dump(mode="json"),
+                    }
+                )
+        result = identity_json(
+            {"manifest": manifest.model_dump(mode="json"), "cards": cards}
+        )
+        if len(result) > MAX_METADATA_BYTES:
+            raise PreservationError("metadata_preview_too_large")
+        return result
+
+    @staticmethod
     def _bound(value: dict[str, JsonValue]) -> None:
 
         if len(identity_json(value)) > 48_000:
@@ -267,7 +309,9 @@ class Sharing:
             "member_count": len(public.members),
             "already_public": already_public,
         }
-        self._bound(value)
+        if len(identity_json(value)) > MAX_METADATA_BYTES:
+            raise PreservationError("metadata_preview_too_large")
+        value["public_review_sha256"] = digest(self.preview(value))
         return value
 
     def publish(
@@ -388,11 +432,24 @@ class Sharing:
                 owner, "sharing/copies/" + job_id + ".json", encode_record(result)
             )
 
-    def session_plan(self, identifier: str) -> dict[str, JsonValue]:
+    def session_plan(
+        self, identifier: str, address: JsonValue = None
+    ) -> dict[str, JsonValue]:
         """Review retained bytes, finite duration and durable upload allowances."""
         copy = self.get(identifier)
         ledger = MirrorLedger(self.home / "sharing/mirrors" / identifier)
         state = ledger.read()
+        self._http_only(state)
+        if address is not None:
+            if not isinstance(address, str):
+                raise PreservationError("invalid_control")
+            try:
+                selected_address = ipaddress.IPv4Address(address)
+            except ValueError as error:
+                raise PreservationError("sharing_address_invalid") from error
+            if selected_address.is_unspecified or selected_address.is_multicast:
+                raise PreservationError("invalid_control")
+            address = str(selected_address)
         held = state.models.get(copy.manifest_id)
         if held is None or held.state != "retained" or held.blocked or held.error:
             raise PreservationError("public_copy_unavailable")
@@ -407,7 +464,34 @@ class Sharing:
             "monthly_upload_bytes": state.egress_monthly,
             "ledger_sha256": digest(encode_record(state)),
             "mirror_policy_id": policy_id(state),
+            "advertised_address": address,
         }
+
+    @staticmethod
+    def _http_only(state: MirrorState) -> None:
+        if (
+            not state.http_enabled
+            or state.native_policy is not None
+            or state.native_models
+        ):
+            raise PreservationError("sharing_http_only_required")
+
+    def require_session(self, plan: dict[str, JsonValue]) -> None:
+        """Refuse a handoff whose original exact selection or policy is withdrawn."""
+        copy = self.get(str(plan["public_id"]))
+        state = MirrorLedger(self.home / "sharing/mirrors" / copy.public_id).read()
+        self._http_only(state)
+        held = state.models.get(copy.manifest_id)
+        if (
+            state.paused
+            or state.left
+            or policy_id(state) != plan["mirror_policy_id"]
+            or held is None
+            or held.state != "retained"
+            or held.blocked
+            or held.error
+        ):
+            raise PreservationError("sharing_not_ready")
 
     def serve(
         self,
@@ -415,13 +499,14 @@ class Sharing:
         plan: dict[str, JsonValue],
         control: OperationControl,
         observe: Callable[[MirrorObservation], None],
-        handoff_ready: Callable[[str], None],
+        handoff_ready: Callable[[str | None], None],
     ) -> None:
         """Start only the separately approved HTTP mirror and drain it on stop."""
         copy = self.get(str(plan["public_id"]))
         ledger = MirrorLedger(self.home / "sharing/mirrors" / copy.public_id)
         if digest(encode_record(ledger.read())) != plan["ledger_sha256"]:
             raise PreservationError("public_copy_review_changed")
+        self.require_session(plan)
 
         lock = threading.Lock()
         selected = False
@@ -434,9 +519,14 @@ class Sharing:
                 return
             # UDP connect selects a local route without sending a packet or
             # contacting a peer. It is used only after the explicit serve grant.
-            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as route:
-                route.connect(("192.0.2.1", 9))
-                address = str(route.getsockname()[0])
+            address = plan.get("advertised_address")
+            if address is None:
+                try:
+                    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as route:
+                        route.connect(("192.0.2.1", 9))
+                        address = str(route.getsockname()[0])
+                except OSError as error:
+                    raise PreservationError("sharing_address_required") from error
             invitation = create_invitation(
                 ledger.path / "store",
                 copy.manifest_id,
@@ -460,9 +550,12 @@ class Sharing:
                 prepare_handoff()
 
         def selection(identities: tuple[str, ...]) -> None:
-            nonlocal selected
+            nonlocal selected, written
             with lock:
                 selected = copy.manifest_id in identities
+                if not selected:
+                    written = False
+                    handoff_ready(None)
                 prepare_handoff()
 
         run_mirror(

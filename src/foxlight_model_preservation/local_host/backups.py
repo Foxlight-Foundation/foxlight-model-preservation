@@ -104,9 +104,10 @@ class Backups:
                 with _child(source, chosen.name) as target:
                     self._empty_private(target)
                     identity: tuple[int, int] | None = _identity(target)
+                    free = shutil.disk_usage(target).free
             except FileNotFoundError:
                 identity = None
-            free = shutil.disk_usage(source).free
+                free = shutil.disk_usage(source).free
         with directory(self.home) as owner:
             owner_device = os.fstat(owner).st_dev
         value: dict[str, JsonValue] = {

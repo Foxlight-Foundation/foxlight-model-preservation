@@ -13,6 +13,12 @@
   consent for finite HTTP mirror sessions, retain durable upload accounting and
   expose a recipient handoff only after verified serving selection. Stop keeps
   copies; restart opens no listener. Native peer sharing remains separate.
+- Decode original cards for public-content review without changing signed bytes;
+  keep large proofs outside compact controls and reject changed preview metadata.
+  Fence abandoned backup reviews, report selected-drive space, keep Linux pickers
+  alive for bounded interaction and terminate them on cancellation/quit.
+- Refuse native peer policies in HTTP-only app sessions, permit a separately
+  reviewed IPv4 route for isolated LANs, and withdraw handoffs on deselection.
 - Advance only the independent owner's private journal to v2, retaining validated
   prior metadata. Signed card/archive/kit formats and trust roles are unchanged.
 - Add a narrowly scoped native Mac backup-folder picker and Linux picker
