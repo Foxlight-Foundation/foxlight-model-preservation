@@ -6,6 +6,14 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+## 0.20.0
+
+- Apply the Sovereign Horizon design across Find, Library, Activity, reviews and
+  every Core-backed area: starry backdrop and glass panel, pill navigation,
+  Sovereign logo, amber primary actions and explanatory popovers. The companion
+  warning keeps its full meaning in the "Companion file" popover. API calls,
+  confirmations, consent and review steps are unchanged.
+
 ## 0.19.0
 
 - Show readable uses, declared inputs and outputs in Find, Library and shared
