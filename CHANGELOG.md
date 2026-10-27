@@ -19,6 +19,9 @@
   alive for bounded interaction and terminate them on cancellation/quit.
 - Refuse native peer policies in HTTP-only app sessions, permit a separately
   reviewed IPv4 route for isolated LANs, and withdraw handoffs on deselection.
+- Drain accepted backup review/setup calls before releasing owner exclusivity;
+  page long Unicode destinations, refuse broader mirror selections, and expose
+  explicit interrupted-staging cleanup while retaining all saved copies.
 - Advance only the independent owner's private journal to v2, retaining validated
   prior metadata. Signed card/archive/kit formats and trust roles are unchanged.
 - Add a narrowly scoped native Mac backup-folder picker and Linux picker

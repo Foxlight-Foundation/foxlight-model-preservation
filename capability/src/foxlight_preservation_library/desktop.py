@@ -130,6 +130,9 @@ class DesktopClient(CoreClient):
                 "public_copy_capacity",
                 "public_copy_unavailable",
                 "sharing_http_only_required",
+                "sharing_single_selection_required",
+                "sovereign_owner_closing",
+                "safe_temporary_cleanup_unavailable",
                 "sharing_address_required",
                 "sharing_address_invalid",
             }

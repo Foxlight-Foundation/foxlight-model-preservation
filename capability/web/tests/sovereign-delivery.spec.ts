@@ -137,3 +137,26 @@ test('changed public review metadata cannot reach publication consent',async({pa
  await page.goto('/');await page.getByRole('button',{name:'Share',exact:true}).click();await page.getByRole('button',{name:'Review exact public files',exact:true}).click();
  await expect(page.getByRole('alert')).toContainText('changed');await expect(page.getByRole('button',{name:'Create public copy',exact:true})).toHaveCount(0);expect(starts).toBe(0);
 });
+
+test('backup destinations on later pages remain selectable and forgettable',async({page})=>{
+ const other='b'.repeat(64);let forgotten=false;
+ await page.route('**/api/desktop-backup-read',r=>{const {offset}=r.request().postDataJSON();return r.fulfill({json:offset===1?{destinations:forgotten?[]:[{destination_id:other,label:'Other drive',path:'/Volumes/Other',same_filesystem:false}],next_offset:null}:{destinations:[{destination_id:id,label:'First drive',path:'/Volumes/First',same_filesystem:false}],next_offset:1}});});
+ await page.route('**/api/desktop-backup-forget',r=>{expect(r.request().postDataJSON()).toEqual({destination_id:other});forgotten=true;return r.fulfill({json:{forgotten:true}});});
+ await page.goto('/');await page.getByRole('button',{name:'Backups',exact:true}).click();
+ const otherCard=page.getByRole('article').filter({has:page.getByRole('heading',{name:'Other drive',exact:true})});
+ await otherCard.getByText('Folder & controls',{exact:true}).click();await otherCard.getByRole('button',{name:'Forget folder · keep all files',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Other drive',exact:true})).toHaveCount(0);
+ await expect(page.getByRole('heading',{name:'First drive',exact:true})).toBeVisible();
+});
+
+test('Activity explains an isolated-LAN failure and cleanup stays an operator choice',async({page})=>{
+ let cleaned=false;
+ await page.route('**/api/library*',r=>r.fulfill({json:{...empty,jobs:[{job_id:id,kind:'share',state:'failed',name:copy.name,error_code:'sharing_address_required'},{job_id:'b'.repeat(64),kind:'publish',state:'interrupted',name:'Interrupted public copy',error_code:null,temporary_sharing_files:!cleaned}]}}));
+ await page.route('**/api/desktop-sharing-work-remove',r=>{expect(r.request().postDataJSON()).toEqual({job_id:'b'.repeat(64)});cleaned=true;return r.fulfill({json:{removed:true}});});
+ await page.goto('/');await page.getByRole('button',{name:'Activity',exact:true}).click();
+ await expect(page.getByText('Sovereign could not choose an address.',{exact:false})).toBeVisible();
+ await expect(page.getByText('Temporary publication files remain from this attempt.',{exact:false})).toBeVisible();expect(cleaned).toBe(false);
+ await page.getByRole('button',{name:'Remove temporary sharing files',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Remove temporary sharing files',exact:true})).toHaveCount(0);
+ await expect(page.getByRole('heading',{name:'Interrupted public copy',exact:true})).toBeVisible();
+});

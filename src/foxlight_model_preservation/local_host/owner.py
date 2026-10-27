@@ -14,8 +14,9 @@ import stat
 import threading
 import time
 import uuid
+from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import BinaryIO, Literal, cast
 
@@ -129,6 +130,9 @@ class LocalOwner:
             self.backups = Backups(self.home)
             self.sharing = Sharing(self.home)
             self._lock = threading.RLock()
+            self._idle = threading.Condition(self._lock)
+            self._backup_calls = 0
+            self._closing = False
             self._catalog_lock = threading.RLock()
             self._executor = ThreadPoolExecutor(
                 max_workers=1, thread_name_prefix="sovereign"
@@ -195,13 +199,39 @@ class LocalOwner:
 
     def close(self) -> None:
         """Stop finite work, wait for its terminal receipt and release ownership."""
-        with self._lock:
+        with self._idle:
+            if self._closed:
+                return
+            if self._closing:
+                self._idle.wait_for(lambda: self._closed)
+                return
+            self._closing = True
+            self._idle.notify_all()
             for control in self._controls.values():
                 control.cancel()
         self._executor.shutdown(wait=True)
         self._sharing_executor.shutdown(wait=True)
-        self._closed = True
-        self._stack.close()
+        with self._idle:
+            # NAS syscalls cannot always be cancelled. Keep exclusive ownership
+            # until every accepted out-of-lock call has completed its writes.
+            self._idle.wait_for(lambda: self._backup_calls == 0)
+            self._closed = True
+            self._stack.close()
+            self._idle.notify_all()
+
+    @contextmanager
+    def _backup_call(self) -> Generator[None]:
+        with self._idle:
+            self._check()
+            if self._closing:
+                raise PreservationError("sovereign_owner_closing")
+            self._backup_calls += 1
+        try:
+            yield
+        finally:
+            with self._idle:
+                self._backup_calls -= 1
+                self._idle.notify_all()
 
     def read(self, offset: int = 0) -> dict[str, JsonValue]:
         """Read compact receipts; paths and complete trust history stay private."""
@@ -236,6 +266,9 @@ class LocalOwner:
                         "bytes_received": self._progress[item.job_id].bytes_received
                         if item.job_id in self._progress
                         else 0,
+                        "temporary_sharing_files": item.kind == "publish"
+                        and item.job_id not in self._controls
+                        and self.sharing.work_exists(item.job_id),
                         "sharing": {
                             **self._sharing_observations[item.job_id].model_dump(
                                 mode="json"
@@ -433,21 +466,30 @@ class LocalOwner:
         # An unavailable NAS can block OS filesystem calls. Do not hold the
         # owner's receipt/search lock while inspecting an explicitly chosen path.
         if action == "backup-review" and set(body) == {"path", "label"}:
-            with self._lock:
-                self._check()
             if not isinstance(body["path"], str) or not isinstance(body["label"], str):
                 raise PreservationError("invalid_control")
-            return self.backups.review(body["path"], body["label"])
+            with self._backup_call():
+                return self.backups.review(body["path"], body["label"])
         if action == "backup-setup" and set(body) == {"review_id", "confirmed"}:
-            with self._lock:
-                self._check()
             if body["confirmed"] is not True:
                 raise PreservationError("invalid_control")
-            return self.backups.setup(str(body["review_id"]))
+            with self._backup_call():
+                return self.backups.setup(str(body["review_id"]))
         with self._lock:
             self._check()
-            if action == "backup-read" and not body:
-                return self.backups.read()
+            if self._closing:
+                raise PreservationError("sovereign_owner_closing")
+            if action == "backup-read" and set(body) <= {"offset"}:
+                offset = body.get("offset", 0)
+                if type(offset) is not int or not 0 <= offset <= 16:
+                    raise PreservationError("invalid_control")
+                return self.backups.read(offset)
+            if action == "sharing-work-remove" and set(body) == {"job_id"}:
+                job = self._job(str(body["job_id"]))
+                if job.kind != "publish" or job.job_id in self._controls:
+                    raise PreservationError("sharing_busy_try_again")
+                self.sharing.remove_work(job.job_id)
+                return {"removed": True}
             if action == "sharing-read" and set(body) <= {"offset"}:
                 offset = body.get("offset", 0)
                 if type(offset) is not int or not 0 <= offset <= 256:

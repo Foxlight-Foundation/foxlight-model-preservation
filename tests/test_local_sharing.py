@@ -419,3 +419,143 @@ def test_explicit_address_shares_on_lan_without_any_default_route(
         assert finish(owner, job)["state"] == "cancelled"
     finally:
         owner.close()
+
+
+@pytest.mark.parametrize("additional", ["model", "source"])
+def test_single_model_review_refuses_broader_operator_mirror_policy(
+    tmp_path, capture, additional, monkeypatch
+):
+    from foxlight_model_preservation.local_host import sharing
+
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        _, public = published(owner, tmp_path, capture)
+        plan = owner.control(
+            "plan", {"kind": "share", "public_id": public["public_id"]}
+        )
+        ledger = MirrorLedger(owner.home / "sharing/mirrors" / public["public_id"])
+        current = ledger.read()
+        held = current.models[public["manifest_id"]]
+        if additional == "model":
+            changed = current.model_copy(
+                update={"models": {**current.models, "f" * 64: held}}
+            )
+        else:
+            changed = current.model_copy(update={"sources": {"f" * 64: held.grant}})
+        ledger.update(lambda _: changed)
+        monkeypatch.setattr(
+            sharing, "run_mirror", lambda *a, **kw: pytest.fail("no listener may open")
+        )
+        with pytest.raises(
+            PreservationError, match="sharing_single_selection_required"
+        ):
+            owner.control("plan", {"kind": "share", "public_id": public["public_id"]})
+        with pytest.raises(
+            PreservationError, match="sharing_single_selection_required"
+        ):
+            owner.sharing.require_session({**plan, "mirror_policy_id": "f" * 64})
+        refused = finish(owner, submit(owner, plan))
+        assert refused["state"] == "failed"
+        assert not ledger.running()
+        assert ledger.read() == changed
+    finally:
+        owner.close()
+
+
+def test_publication_cleans_only_disposable_work_and_manual_interrupted_cleanup(
+    tmp_path, capture
+):
+    from foxlight_model_preservation.operations import OperationControl
+    from foxlight_model_preservation.storage import directory
+
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        copy, public = published(owner, tmp_path, capture)
+        assert not owner.sharing.work_exists(public["public_id"])
+        assert (
+            owner.sharing.get(public["public_id"]).manifest_id == public["manifest_id"]
+        )
+        assert owner._copy(copy["copy_id"]).manifest_id == copy["manifest_id"]
+        attempt = owner.home / "sharing/work" / public["public_id"]
+        with directory(attempt, create=True):
+            pass
+        (attempt / "temporary.bin").write_bytes(b"owned temporary copy")
+        active = next(
+            item
+            for item in owner.read()["jobs"]
+            if item["job_id"] == public["public_id"]
+        )
+        assert active["temporary_sharing_files"] is True
+        owner._controls[public["public_id"]] = OperationControl()
+        with pytest.raises(PreservationError, match="sharing_busy_try_again"):
+            owner.control("sharing-work-remove", {"job_id": public["public_id"]})
+        owner._controls.pop(public["public_id"])
+        owner.control("sharing-work-remove", {"job_id": public["public_id"]})
+        assert not attempt.exists()
+        assert (
+            owner.sharing.get(public["public_id"]).manifest_id == public["manifest_id"]
+        )
+        assert owner._copy(copy["copy_id"]).manifest_id == copy["manifest_id"]
+        # A substituted symlink is never followed into the retained mirror.
+        attempt.symlink_to(
+            owner.home / "sharing/mirrors" / public["public_id"],
+            target_is_directory=True,
+        )
+        owner.control("sharing-work-remove", {"job_id": public["public_id"]})
+        assert attempt.is_symlink()
+        assert (
+            owner.sharing.get(public["public_id"]).manifest_id == public["manifest_id"]
+        )
+    finally:
+        owner.close()
+
+
+def test_failed_publication_retains_scratch_until_operator_cleanup_after_restart(
+    tmp_path, capture, monkeypatch
+):
+    from foxlight_model_preservation.local_host import sharing
+
+    owner = LocalOwner(tmp_path / "owner")
+    copy, public = published(owner, tmp_path, capture)
+    members = owner.control("sharing-review", {"copy_id": copy["copy_id"]})["members"]
+    plan = owner.control(
+        "plan",
+        {
+            "kind": "publish",
+            "copy_id": copy["copy_id"],
+            "decisions": [
+                {
+                    "member_id": item["member_id"],
+                    "license_id": "test-only",
+                    "terms_reference": "LICENSE",
+                }
+                for item in members
+            ],
+        },
+    )
+
+    def fail(*args, **kwargs):
+        original = args[3]
+        original.mkdir()
+        (original / "partial").write_bytes(b"private temporary bytes")
+        raise OSError("controlled failed publication")
+
+    monkeypatch.setattr(sharing, "export_preservation", fail)
+    failed = finish(owner, submit(owner, plan))
+    assert failed["state"] == "failed"
+    assert failed["temporary_sharing_files"] is True
+    owner.close()
+    owner = LocalOwner(owner.home)
+    try:
+        receipt = next(
+            item for item in owner.read()["jobs"] if item["job_id"] == failed["job_id"]
+        )
+        assert receipt["temporary_sharing_files"] is True
+        owner.control("sharing-work-remove", {"job_id": failed["job_id"]})
+        assert not owner.sharing.work_exists(failed["job_id"])
+        assert (
+            owner.sharing.get(public["public_id"]).manifest_id == public["manifest_id"]
+        )
+        assert owner._copy(copy["copy_id"]).manifest_id == copy["manifest_id"]
+    finally:
+        owner.close()

@@ -66,7 +66,10 @@ async def test_independent_owner_opens_empty_offline_and_keeps_ticket_boundary(
             assert response.json()["total"] == 0
             for action, expected in (
                 ("desktop-source-read", {"sources": []}),
-                ("desktop-backup-read", {"destinations": []}),
+                (
+                    "desktop-backup-read",
+                    {"destinations": [], "total": 0, "next_offset": None},
+                ),
                 (
                     "desktop-sharing-read",
                     {"public_copies": [], "total": 0, "next_offset": None},

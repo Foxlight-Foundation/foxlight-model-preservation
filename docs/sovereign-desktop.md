@@ -128,7 +128,10 @@ existing parent; it never mounts a drive, creates missing parent paths, changes
 shared-folder permissions or copies a model automatically.
 
 In **Library → Back up**, choose a remembered folder and review the exact kit
-and destination. The durable job writes a new `.foxkit`, reads back every object
+and destination. Long Unicode destination lists are paged without probing drives.
+Closing the app waits for accepted folder review/setup calls before releasing
+its exclusive Library ownership; an unavailable NAS can delay that shutdown.
+The durable job writes a new `.foxkit`, reads back every object
 and verifies its hash before publishing the file. Original folder identities
 and the destination marker must still match. A missing or replaced drive stops
 the job; the original Library copy stays intact. Activity records success only
@@ -172,7 +175,16 @@ compatibility. The original private archive stays intact. Complete verified
 public bytes are retained by the public mirror core; no listener or public
 listing starts as a side effect of creating that copy.
 
+After the retained mirror and its receipt are durable, Sovereign removes only
+its disposable publication staging copies. Failed or interrupted staging remains
+private until you choose **Remove temporary sharing files** in Activity. Active
+publication work cannot be removed. That control keeps Library copies, retained
+public mirrors and every recovery kit.
+
 In **Sharing → Review sharing**, separately approve a one-hour HTTP session.
+Additional model selections, followed sources or native peer policies configured
+through standalone tools refuse in this single-model HTTP review. The broader
+operator configuration is kept for review with those tools.
 A mirror configured for native peers or with HTTP disabled is refused rather
 than inheriting permission or changing the operator’s transport choices.
 Its daily and monthly UTC upload allowances are shown and retained across

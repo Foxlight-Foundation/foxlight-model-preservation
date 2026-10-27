@@ -200,3 +200,96 @@ def test_existing_destination_space_comes_from_that_drive_not_parent(
     assert existing["free_bytes"] == 100
     new = Backups(owner).review(str(tmp_path / "new-folder"), "New child")
     assert new["free_bytes"] == 9900
+
+
+@pytest.mark.parametrize("action", ["backup-review", "backup-setup"])
+def test_shutdown_drains_out_of_lock_backup_calls_before_releasing_writer(
+    tmp_path, monkeypatch, action
+):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    owner = LocalOwner(tmp_path / "owner")
+    selected = tmp_path / "backup"
+    body = {"path": str(selected), "label": "Backup"}
+    if action == "backup-setup":
+        reviewed = owner.control("backup-review", body)
+        body = {"review_id": reviewed["review_id"], "confirmed": True}
+    method = "review" if action == "backup-review" else "setup"
+    original = getattr(owner.backups, method)
+    started, release = threading.Event(), threading.Event()
+
+    def stalled(*args):
+        started.set()
+        assert release.wait(5)
+        return original(*args)
+
+    monkeypatch.setattr(owner.backups, method, stalled)
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        call = workers.submit(owner.control, action, body)
+        assert started.wait(2)
+        # Reading receipts is not held hostage by a mounted-folder syscall.
+        assert owner.read()["host_kind"] == "sovereign"
+        stopped = workers.submit(owner.close)
+        with owner._idle:
+            assert owner._idle.wait_for(lambda: owner._closing, timeout=2)
+        try:
+            with pytest.raises(PreservationError, match="another writer"):
+                LocalOwner(owner.home)
+            with pytest.raises(PreservationError, match="sovereign_owner_closing"):
+                owner.control("backup-review", {"path": str(selected), "label": "New"})
+            assert not stopped.done()
+        finally:
+            release.set()
+        call.result(timeout=5)
+        stopped.result(timeout=5)
+    replacement = LocalOwner(owner.home)
+    try:
+        if action == "backup-setup":
+            assert len(replacement.control("backup-read", {})["destinations"]) == 1
+        else:
+            assert not selected.exists()
+    finally:
+        replacement.close()
+
+
+def test_backup_pages_bound_escaped_unicode_paths_and_keep_all_forget_controls(
+    tmp_path,
+):
+    from foxlight_model_preservation.local_host.backups import BackupDestination
+    from foxlight_model_preservation.signing import encode_record
+    from foxlight_model_preservation.storage import atomic_bytes, directory
+
+    owner = LocalOwner(tmp_path / "owner")
+    expected = set()
+    try:
+        with directory(owner.home / "backup-destinations", create=True) as root:
+            for index in range(16):
+                identifier = f"{index:064x}"
+                expected.add(identifier)
+                row = BackupDestination(
+                    destination_id=identifier,
+                    label="多言語" * 20,
+                    path="/" + "/".join(["界" * 80] * 15) + str(index),
+                    identity=(1, index),
+                    parent_identity=(1, 0),
+                    same_filesystem=False,
+                )
+                atomic_bytes(root, identifier + ".json", encode_record(row))
+        offset, seen, pages = 0, set(), 0
+        while True:
+            page = owner.control("backup-read", {"offset": offset})
+            assert len(json.dumps(page).encode()) < 65536
+            pages += 1
+            for row in page["destinations"]:
+                seen.add(row["destination_id"])
+            if page["next_offset"] is None:
+                break
+            assert page["next_offset"] > offset
+            offset = page["next_offset"]
+        assert pages > 1 and seen == expected
+        for identifier in seen:
+            owner.control("backup-forget", {"destination_id": identifier})
+        assert owner.control("backup-read", {})["destinations"] == []
+    finally:
+        owner.close()

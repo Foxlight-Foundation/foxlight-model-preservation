@@ -637,6 +637,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                         "api/desktop-folder-choose",
                         "api/desktop-sharing-read",
                         "api/desktop-sharing-review",
+                        "api/desktop-sharing-work-remove",
                         "api/desktop-source-follow",
                         "api/desktop-source-remove",
                         "api/desktop-source-reference",

@@ -16,7 +16,7 @@ export function SovereignBackups({copy,onClose,onPlan,onDialogChange}:{copy:Back
  const opened=adding||Boolean(copy);
  useEffect(()=>{live.current=true;void refresh().catch(err=>{if(live.current)setError(err instanceof Error?err.message:'host_unavailable');});return()=>{live.current=false;epoch.current++;};},[]);
  useEffect(()=>{onDialogChange(opened);return()=>onDialogChange(false);},[opened,onDialogChange]);
- async function refresh(){const page=await api<{destinations:Destination[]}>('desktop-backup-read',{});if(live.current)setDestinations(page.destinations);}
+ async function refresh(){const all:Destination[]=[];let offset=0;for(let pages=0;pages<16;pages++){const page=await api<{destinations:Destination[];next_offset?:number|null}>('desktop-backup-read',{offset});if(!live.current)return;all.push(...page.destinations);if(page.next_offset==null){setDestinations(all);return;}if(!Number.isInteger(page.next_offset)||page.next_offset<=offset||page.next_offset>16)throw new Error('invalid_page');offset=page.next_offset;}throw new Error('invalid_page');}
  async function work(fn:()=>Promise<void>){const current=epoch.current;setBusy(true);setError('');try{await fn();}catch(err){if(live.current&&current===epoch.current)setError(err instanceof Error?err.message:'host_unavailable');}finally{if(live.current)setBusy(false);}}
  function reset(){epoch.current++;setReview(null);setConfirmed(false);setError('');}
  function close(){reset();setAdding(false);onClose();}

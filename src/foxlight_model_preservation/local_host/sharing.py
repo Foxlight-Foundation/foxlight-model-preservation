@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import ipaddress
 import os
+import re
 import shutil
 import socket
+import stat
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -431,6 +433,34 @@ class Sharing:
             atomic_bytes(
                 owner, "sharing/copies/" + job_id + ".json", encode_record(result)
             )
+        # Only disposable publication work is reclaimed after the complete
+        # retained mirror and its receipt are durable. Failed attempts remain
+        # available for a separate operator cleanup choice in Activity.
+        try:
+            self.remove_work(job_id)
+        except OSError:
+            pass  # Activity exposes retained staging for explicit cleanup.
+
+    def work_exists(self, identifier: str) -> bool:
+        """Inspect only this owner's publication scratch, never a retained copy."""
+        if re.fullmatch(r"[0-9a-f]{64}", identifier) is None:
+            raise PreservationError("invalid_control")
+        try:
+            with directory(self.home / "sharing/work") as root:
+                value = os.stat(identifier, dir_fd=root, follow_symlinks=False)
+                return stat.S_ISDIR(value.st_mode)
+        except FileNotFoundError:
+            return False
+
+    def remove_work(self, identifier: str) -> None:
+        """Remove one owned scratch tree; callers fence active publication jobs."""
+        if not self.work_exists(identifier):
+            return
+        if not shutil.rmtree.avoids_symlink_attacks:
+            raise PreservationError("safe_temporary_cleanup_unavailable")
+        with directory(self.home / "sharing/work") as root:
+            shutil.rmtree(identifier, dir_fd=root)
+            os.fsync(root)
 
     def session_plan(
         self, identifier: str, address: JsonValue = None
@@ -440,6 +470,7 @@ class Sharing:
         ledger = MirrorLedger(self.home / "sharing/mirrors" / identifier)
         state = ledger.read()
         self._http_only(state)
+        self._single_selection(state, copy.manifest_id)
         if address is not None:
             if not isinstance(address, str):
                 raise PreservationError("invalid_control")
@@ -476,11 +507,17 @@ class Sharing:
         ):
             raise PreservationError("sharing_http_only_required")
 
+    @staticmethod
+    def _single_selection(state: MirrorState, identity: str) -> None:
+        if state.sources or set(state.models) != {identity}:
+            raise PreservationError("sharing_single_selection_required")
+
     def require_session(self, plan: dict[str, JsonValue]) -> None:
         """Refuse a handoff whose original exact selection or policy is withdrawn."""
         copy = self.get(str(plan["public_id"]))
         state = MirrorLedger(self.home / "sharing/mirrors" / copy.public_id).read()
         self._http_only(state)
+        self._single_selection(state, copy.manifest_id)
         held = state.models.get(copy.manifest_id)
         if (
             state.paused

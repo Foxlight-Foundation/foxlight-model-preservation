@@ -7,6 +7,7 @@ local settings performs no potentially blocking NAS probes or background work.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import threading
@@ -66,15 +67,34 @@ class Backups:
         self.home = home
         self._setup_lock = threading.Lock()
 
-    def read(self) -> dict[str, JsonValue]:
-        """List local settings only; no drive is touched and no work is started."""
+    def _destinations(self) -> list[BackupDestination]:
         with directory(self.home / "backup-destinations", create=True) as root:
-            rows = [
+            return [
                 BackupDestination.model_validate_json(read_metadata(root, name))
                 for name in sorted(os.listdir(root))
                 if len(name) == 69 and name.endswith(".json")
             ]
-        return {"destinations": [row.model_dump(mode="json") for row in rows]}
+
+    def read(self, offset: int = 0) -> dict[str, JsonValue]:
+        """Page local settings by escaped response bytes without probing drives."""
+        if not 0 <= offset <= 16:
+            raise PreservationError("invalid_control")
+        rows = self._destinations()
+        page: list[JsonValue] = []
+        used = 256
+        for row in rows[offset:]:
+            item = row.model_dump(mode="json")
+            size = len(json.dumps(item, separators=(",", ":")).encode()) + 1
+            if used + size > 58_000:
+                break
+            page.append(item)
+            used += size
+        end = offset + len(page)
+        return {
+            "destinations": page,
+            "total": len(rows),
+            "next_offset": end if end < len(rows) else None,
+        }
 
     def _load(self, identifier: str) -> BackupDestination:
         if len(identifier) != 64 or any(
@@ -156,8 +176,7 @@ class Backups:
         expires = value.get("expires_at")
         if type(expires) is not int or expires <= time.time():
             raise PreservationError("plan_missing_or_expired")
-        destinations = self.read()["destinations"]
-        if not isinstance(destinations, list) or len(destinations) >= 16:
+        if len(self._destinations()) >= 16:
             raise PreservationError("backup_destination_capacity")
         path = Path(str(value["path"]))
         with directory(path.parent) as parent:
