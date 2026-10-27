@@ -293,7 +293,11 @@ class NativeJourney:
 
     def picker(self, path: Path, *, save: bool = False) -> None:
         """Enter a path through GTK's actual chooser and confirm its native action."""
-        self.wait(lambda: self.find("Cancel") is not None, "native chooser")
+        self.wait(
+            lambda: self.find("Cancel") is not None,
+            "native chooser",
+            timeout=self.operation_timeout if save else 120,
+        )
         subprocess.run(  # noqa: S603 - fixed key chord in disposable runner GUI
             ["/usr/bin/xdotool", "key", "--clearmodifiers", "ctrl+l"],
             check=True,
@@ -319,6 +323,8 @@ class NativeJourney:
         self.wait(
             lambda: (
                 "Done" in self.texts()
+                and "Working" not in self.texts()
+                and "Waiting" not in self.texts()
                 and len(json.loads((self.home / "journal.json").read_bytes())["jobs"])
                 == count
                 and all(
