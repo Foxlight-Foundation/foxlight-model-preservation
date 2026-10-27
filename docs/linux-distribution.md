@@ -1,4 +1,4 @@
-# Independent Linux desktop candidates
+# Sovereign for Ubuntu
 
 The public Linux recipe builds `foxlight-sovereign` Debian packages for native
 amd64 and arm64 runners. The package contains the same independent Library and
@@ -11,6 +11,46 @@ published by the reviewed `linux-release.yml` workflow at
 `sovereign-linux-v0.1.0-2`, with exact source/input receipts, qualification evidence,
 checksums and detached GitHub build provenance. The signed APT repository is a
 separate publication step; CI artifacts alone are not that channel.
+
+## Install through the signed apt channel
+
+On **Ubuntu 24.04**, download the Foxlight software archive key and check its
+pinned checksum before adding the Sovereign source. This source installs only
+Sovereign; it does not install Skulk. Run these commands in a terminal:
+
+```sh
+sudo apt update
+sudo apt install -y ca-certificates curl
+curl --fail --silent --show-error \
+  https://apt.foxlight.ai/sovereign-archive-keyring.gpg \
+  -o sovereign-archive-keyring.gpg
+echo 'f9a76cf4131603e3b7d905868efcf53f7ebea98ccdbfaf0d47ae0ac825cfd338  sovereign-archive-keyring.gpg' | sha256sum --check
+sudo install -m 0644 sovereign-archive-keyring.gpg /usr/share/keyrings/sovereign-archive-keyring.gpg
+echo 'deb [signed-by=/usr/share/keyrings/sovereign-archive-keyring.gpg] https://apt.foxlight.ai sovereign main' | sudo tee /etc/apt/sources.list.d/sovereign.list
+sudo apt update
+sudo apt install foxlight-sovereign
+```
+
+Open **Sovereign** from the application menu, or run `sovereign`. Future versions
+arrive through normal apt upgrades; each new version still requires its own
+reviewed public release. Opening or updating the app starts no model download,
+router, inference or sharing.
+
+The binary keyring SHA-256 above binds the bootstrap to the reviewed Foxlight
+Foundation APT Archive Signing key, fingerprint
+`1C0564D3E46950C30CB1665E61975FEE192BAB20`. `Signed-By` scopes it to this repository.
+This software key grants no trust to models or capture keys. The separate
+`sovereign` suite contains authenticated amd64/arm64 indexes with by-hash fetches,
+immutable package bytes and a signed 30-day `Valid-Until`. The release retains
+public GitHub package attestations; repository signing is separate from model
+provenance and from the native build provenance. Expired or altered metadata
+must fail; never disable apt signature or freshness checks to install.
+
+To stop receiving this channel, remove `/etc/apt/sources.list.d/sovereign.list`
+and run `sudo apt update`. To remove the app, use `sudo apt remove
+foxlight-sovereign`. Both actions preserve your Library, keys, models and saved
+recovery files. Retain complete recovery kits on another drive to recover from
+loss of the original machine.
 
 ## Verify and install the public package
 
@@ -129,10 +169,15 @@ leave the system-wide user-namespace restriction unchanged.
 
 Full native kit import/restore/save/restart, interrupted installation/upgrade,
 additional distributions/desktops and full real-model acceptance remain further
-qualification. A signed APT channel additionally needs dedicated software key
-custody, scoped `Signed-By`, authenticated/expiring metadata, immutable pool
-publication, attested exact packages and negative update tests. An unsigned
-candidate or successful local `.deb` install does not satisfy those gates.
+qualification. The signed APT publication separately verifies the public package producer,
+uses the Foxlight software archive key in a disposable signing environment, and
+requires a real APT update plus rejection of unknown keys, modified signatures,
+expired metadata and changed index bytes before publication. The public
+`apt-install.yml` workflow installs from the HTTPS channel on both native
+architectures, verifies the downloaded package attestation, uses the installed
+app/CLI without Skulk, and checks that purge retains exact user data and the
+global sandbox policy. These checks remain distinct from full GUI recovery,
+real-model execution, additional distributions and public-network privacy.
 
 API references: [PyGObject](https://pygobject.gnome.org/getting_started.html),
 [ephemeral WebKit contexts](https://webkitgtk.org/reference/webkit2gtk/stable/class.WebContext.html),
