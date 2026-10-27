@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Target native Mac build 6 at the attested core 0.24 / Library 0.20 cohort,
+  bringing the Sovereign Horizon interface to the native app. Native signing,
+  installation and publication remain separate from this recipe update.
 - Target native Mac build 5 at the attested core 0.24 / Library 0.19 cohort,
   including multimodal descriptions, declared input/output direction and
   selected-file caveats. Native signing, installation and publication remain

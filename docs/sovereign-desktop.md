@@ -12,9 +12,10 @@ and its broader installed qualification remain separate from those candidates.
 
 ## Model information
 
-Core 0.24 / Library 0.19 describe model uses from captured tasks, capabilities,
-pipeline tags, structured source claims and declared input/output types. The native
-build 5 recipe pins that same authenticated public cohort. Native signing,
+Core 0.24 / Library 0.20 describe model uses from captured tasks, capabilities,
+pipeline tags, structured source claims and declared input/output types. Library
+0.20 adds the Sovereign Horizon interface. The native build 6 recipe pins that
+same authenticated public cohort. Native signing,
 notarization, installation and public final-container publication remain
 separate checks; Python releases do not silently replace an installed app.
 
