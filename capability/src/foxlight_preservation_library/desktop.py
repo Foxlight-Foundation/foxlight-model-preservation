@@ -201,7 +201,9 @@ class DesktopClient(CoreClient):
                 if process.returncode != 0 or not output.strip() or len(output) > 4096:
                     raise CoreRefused("folder_picker_unavailable")
                 return {
-                    "path": str(Path(output.decode().strip()) / "Sovereign Backups")
+                    "path": str(
+                        Path(output.decode().removesuffix("\n")) / "Sovereign Backups"
+                    )
                 }
             except TimeoutError as error:
                 raise CoreRefused("folder_picker_timed_out") from error

@@ -559,3 +559,59 @@ def test_failed_publication_retains_scratch_until_operator_cleanup_after_restart
         assert owner._copy(copy["copy_id"]).manifest_id == copy["manifest_id"]
     finally:
         owner.close()
+
+
+def test_already_public_omitted_defaults_keep_original_signed_identity(
+    tmp_path, capture
+):
+    import base64
+    from dataclasses import replace
+
+    from foxlight_model_preservation.signing import (
+        BUNDLE_TYPE,
+        Envelope,
+        Signature,
+        authenticated_encoding,
+        canonical_bytes,
+        digest,
+        public_record,
+    )
+
+    original = verify_store(capture.store, capture.identity, capture.trust)
+    value = original.model_dump(mode="json")
+    value.pop("attestation")
+    payload = canonical_bytes(value)
+    identifier = digest(payload)
+    envelope = Envelope(
+        payloadType=BUNDLE_TYPE,
+        payload=base64.b64encode(payload).decode(),
+        signatures=(
+            Signature(
+                keyid=public_record(capture.key).key_id,
+                sig=base64.b64encode(
+                    capture.key.sign(authenticated_encoding(BUNDLE_TYPE, payload))
+                ).decode(),
+            ),
+        ),
+    )
+    from foxlight_model_preservation.signing import encode_record
+
+    raw = encode_record(envelope)
+    (capture.store / manifest_path(identifier)).write_bytes(raw)
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        copy = saved(owner, tmp_path, replace(capture, identity=identifier))
+        plan = owner.control(
+            "plan", {"kind": "publish", "copy_id": copy["copy_id"], "decisions": []}
+        )
+        assert (
+            plan["already_public"] is True and plan["public_manifest_id"] == identifier
+        )
+        job = finish(owner, submit(owner, plan))
+        assert job["state"] == "succeeded", job
+        public = owner.sharing.get(job["job_id"])
+        assert public.manifest_id == identifier
+        store = owner.home / "sharing/mirrors" / job["job_id"] / "store"
+        assert (store / manifest_path(identifier)).read_bytes() == raw
+    finally:
+        owner.close()

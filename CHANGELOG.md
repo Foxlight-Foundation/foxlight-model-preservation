@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Start independent Find with complete signed selections ready for review, while
+  keeping every supported signed listing inspectable and showing honest counts.
+- Offer explicitly reviewed alternate HTTP routes from followed sources for the
+  same exact manifest. Keep supplier statements and the selected model-key policy
+  separate; recheck statements before networking. Cached hints imply no health or
+  independent custody. Protected/peer routes never become implicit gateways.
+- Show metadata connection choices before contacting HTTP mirrors; retain separate
+  local-network, capture-key, byte-limit and private-receiving decisions.
+- Keep original already-public payload identities when defaults were omitted,
+  preserve selected Linux folder whitespace, and return to actual visited Sharing
+  and source-result page offsets.
+
 - Add independent Horizon backup folders, complete recovery-kit readback and
   standalone `kit-verify`; pin the original destination and refuse missing mounts,
   changed markers, replacement folders and overwrite attempts. Forgetting a

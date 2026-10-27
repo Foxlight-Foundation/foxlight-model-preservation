@@ -456,6 +456,7 @@ class LocalOwner:
                     "public_manifest",
                     "publication_request",
                     "decisions",
+                    "additional_locations",
                 }
             },
             "plan_id": plan_id,
@@ -552,7 +553,13 @@ class LocalOwner:
                 return self.sources.preview(job.job_id)
             if action in {"search", "copy-search"}:
                 if (
-                    set(body) - {"query", "offset", "purpose"}
+                    set(body)
+                    - (
+                        {"query", "offset", "purpose", "ready_only"}
+                        if action == "search"
+                        else {"query", "offset", "purpose"}
+                    )
+                    or type(body.get("ready_only", False)) is not bool
                     or not isinstance(body.get("query", ""), str)
                     or len(str(body.get("query", ""))) > 500
                     or body.get("purpose", "") not in ("", *PURPOSE_WORDS)
@@ -566,7 +573,10 @@ class LocalOwner:
                         str(body.get("query", "")), str(body.get("purpose", "")), offset
                     )
                 return self.catalog.search(
-                    str(body.get("query", "")), offset, str(body.get("purpose", ""))
+                    str(body.get("query", "")),
+                    offset,
+                    str(body.get("purpose", "")),
+                    body.get("ready_only") is True,
                 )
             if action == "refresh" and not body:
                 return self._start(
