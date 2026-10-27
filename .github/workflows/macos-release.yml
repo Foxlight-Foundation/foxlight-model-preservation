@@ -19,6 +19,7 @@ concurrency:
   cancel-in-progress: false
 env:
   NATIVE_TAG: sovereign-macos-v0.1.0-build7
+  VERIFIER_TAG: sovereign-macos-publisher-v0.1.0-build7
   PREDICATE_TYPE: https://foxlight.ai/attestations/macos-verification/v1
 jobs:
   intake:
@@ -42,24 +43,29 @@ jobs:
           MODE: ${{ inputs.mode }}
         run: |
           test "$GITHUB_REPOSITORY" = Foxlight-Foundation/foxlight-model-preservation
-          test "$GITHUB_REF" = "refs/tags/$NATIVE_TAG"
+          test "$GITHUB_REF" = "refs/tags/$VERIFIER_TAG"
           test "$CONFIRMATION" = 'verify Sovereign 0.1.0 build 7'
           test "$MODE" = rehearse -o "$MODE" = publish
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          test "$(git rev-parse "refs/tags/$NATIVE_TAG^{commit}")" = f18bc1959c658af4219604dd710e6d078ee352b8
+          git merge-base --is-ancestor "refs/tags/$NATIVE_TAG" "$GITHUB_SHA"
       - name: Download the fixed draft without replacing assets
         id: intake
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$NATIVE_TAG" > draft.json
+          # GitHub's REST by-tag endpoint omits drafts. The CLI's draft-aware
+          # lookup returns their immutable database ID and exact asset inventory.
+          gh release view "$NATIVE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json databaseId,isDraft,tagName,assets > draft.json
           python - <<'PY'
           import json, os
           release = json.load(open('draft.json'))
           manifest = json.load(open('desktop/macos/releases/0.1.0-build7.json'))
-          assert release['draft'] is True and release['tag_name'] == manifest['tag']
+          assert release['isDraft'] is True and release['tagName'] == manifest['tag']
           assert {a['name'] for a in release['assets']} == set(manifest['artifacts'])
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
-              output.write(f"release-id={release['id']}\n")
+              output.write(f"release-id={release['databaseId']}\n")
           PY
           gh release download "$NATIVE_TAG" --repo "$GITHUB_REPOSITORY" --dir incoming \
             --pattern 'Sovereign-0.1.0-macos-arm64.*'
@@ -187,11 +193,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_ID: ${{ needs.intake.outputs.release-id }}
         run: |
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$NATIVE_TAG" > draft.json
+          gh release view "$NATIVE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json databaseId,isDraft,tagName,assets > draft.json
           python3 - <<'PY'
           import json, os
           release = json.load(open('draft.json'))
-          assert release['draft'] is True and str(release['id']) == os.environ['RELEASE_ID']
+          assert release['isDraft'] is True and str(release['databaseId']) == os.environ['RELEASE_ID']
+          assert release['tagName'] == os.environ['NATIVE_TAG']
           PY
           gh release download "$NATIVE_TAG" --repo "$GITHUB_REPOSITORY" --dir retained
           python3 - <<'PY'

@@ -36,13 +36,13 @@ been published. Download the DMG or ZIP and the neighboring `SHA256SUMS`,
 download against its checksum, then authenticate it with GitHub CLI:
 
 ```sh
-TAG=sovereign-macos-v0.1.0-build7
+PUBLISHER_TAG=sovereign-macos-publisher-v0.1.0-build7
 FILE=Sovereign-0.1.0-macos-arm64.dmg
 shasum -a 256 "$FILE"  # compare the corresponding line in SHA256SUMS
 gh attestation verify "$FILE" \
   --repo Foxlight-Foundation/foxlight-model-preservation \
   --signer-workflow Foxlight-Foundation/foxlight-model-preservation/.github/workflows/macos-release.yml \
-  --source-ref "refs/tags/$TAG" \
+  --source-ref "refs/tags/$PUBLISHER_TAG" \
   --predicate-type https://foxlight.ai/attestations/macos-verification/v1 \
   --bundle native-verification.sigstore.json --deny-self-hosted-runners
 ```
@@ -55,11 +55,14 @@ asserts **verification of existing files**, not native build provenance. It
 records the exact host, performed checks and qualification limits; inspect those
 claims along with the [software trust limits](releases.md#what-a-pass-establishes).
 Retain the bundle and trusted roots for [offline verification](releases.md#keep-offline-evidence).
+The release remains at `sovereign-macos-v0.1.0-build7`; its separate immutable
+publisher tag identifies the corrected draft-aware verification workflow without
+moving the native release tag or changing any installer bytes.
 
 For Apple silicon, open the verified DMG and drag **Sovereign** to
 **Applications**, then open it normally. The ZIP contains the same signed app.
 Apple checks its Developer ID and notarization. First launch opens the independent
-Library with public model listings. Search, review a model's complete storage
+Library. Choose **Browse public models**, then search and review a model's complete storage
 requirements, and choose preservation; no model downloads or sharing begin merely
 by opening the app. A retained recovery kit can be opened and restored without
 Skulk or the original registry. A new capture key still requires explicit trust
