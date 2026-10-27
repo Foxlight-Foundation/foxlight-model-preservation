@@ -1,9 +1,10 @@
 name: Independent Linux desktop
 on:
+  workflow_call:
   push:
-    paths: ['desktop/linux/**', 'desktop/macos/cli/native-cli.py', 'scripts/build_linux.py', 'scripts/build_macos.py', 'scripts/qualify_linux.py', 'tests/test_linux_desktop.py', '.github/workflows/linux-desktop.yml']
+    paths: ['desktop/linux/**', 'desktop/macos/cli/native-cli.py', 'scripts/build_linux.py', 'scripts/build_macos.py', 'scripts/qualify_linux.py', 'scripts/release_linux.py', 'tests/test_linux_publication.py', 'tests/test_linux_desktop.py', '.github/workflows/linux-desktop.yml']
   pull_request:
-    paths: ['desktop/linux/**', 'desktop/macos/cli/native-cli.py', 'scripts/build_linux.py', 'scripts/build_macos.py', 'scripts/qualify_linux.py', 'tests/test_linux_desktop.py', '.github/workflows/linux-desktop.yml']
+    paths: ['desktop/linux/**', 'desktop/macos/cli/native-cli.py', 'scripts/build_linux.py', 'scripts/build_macos.py', 'scripts/qualify_linux.py', 'scripts/release_linux.py', 'tests/test_linux_publication.py', 'tests/test_linux_desktop.py', '.github/workflows/linux-desktop.yml']
 permissions:
   contents: read
 jobs:
@@ -84,13 +85,41 @@ jobs:
           evidence['purge_retains_exact_user_files'] = True
           record.write_text(json.dumps(evidence, indent=2) + '\n')
           PY
+      - name: Stage one flat candidate inventory for release intake
+        if: always()
+        run: |
+          python3 - <<'PYTHON'
+          import pathlib, shutil
+          destination = pathlib.Path('/tmp/sovereign-linux-artifact')
+          destination.mkdir()
+          paths = list(pathlib.Path('/tmp/sovereign-linux-a').glob('*.deb'))
+          paths += [pathlib.Path('/tmp/sovereign-linux-a/SHA256SUMS'), pathlib.Path('/tmp/sovereign-linux-a/package/opt/foxlight/sovereign/build-receipt.json'), pathlib.Path('/tmp/sovereign-linux-qualification/qualification.json')]
+          paths += list(pathlib.Path('/tmp/sovereign-linux-qualification').glob('*.png'))
+          for path in paths:
+              if path.is_file():
+                  shutil.copyfile(path, destination / path.name)
+          PYTHON
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: sovereign-linux-${{ matrix.architecture }}-candidate
-          path: |
-            /tmp/sovereign-linux-a/*.deb
-            /tmp/sovereign-linux-a/SHA256SUMS
-            /tmp/sovereign-linux-a/package/opt/foxlight/sovereign/build-receipt.json
-            /tmp/sovereign-linux-qualification/qualification.json
-            /tmp/sovereign-linux-qualification/*.png
+          path: /tmp/sovereign-linux-artifact/*
+
+  intake:
+    name: Qualified package-pair publication intake
+    needs: candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: sovereign-linux-*-candidate
+          path: incoming
+      - name: Exercise the actual release intake on native qualified artifacts
+        run: |
+          python3 scripts/release_linux.py --input incoming --output /tmp/sovereign-release-intake --revision "$GITHUB_SHA"
+          cd /tmp/sovereign-release-intake
+          sha256sum --check --strict SHA256SUMS
