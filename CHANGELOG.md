@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.25.0
+
 - Start independent Find with complete signed selections ready for review, while
   keeping every supported signed listing inspectable and showing honest counts.
 - Offer explicitly reviewed alternate HTTP routes from followed sources for the

@@ -1,6 +1,6 @@
 [project]
 name = "foxlight-preservation-library"
-version = "0.20.0"
+version = "0.21.0"
 description = "Library and guided preservation controls for Skulk's durable host jobs"
 requires-python = ">=3.13"
 license = "Apache-2.0"
@@ -8,7 +8,7 @@ license-files = ["LICENSE"]
 dependencies = ["httpx>=0.28,<1", "pydantic>=2.12,<3", "PyYAML>=6,<7"]
 
 [project.optional-dependencies]
-desktop = ["foxlight-model-preservation==0.24.0"]
+desktop = ["foxlight-model-preservation==0.25.0"]
 managed = ["skulk-capability-sdk==0.5.0"]
 
 [tool.uv.sources]

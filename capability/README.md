@@ -363,16 +363,23 @@ Core on the same model-store host. Its wheel includes the interface; Node.js,
 Skulk's Python package and the managed SDK are not installation dependencies.
 
 ```sh
-uv tool install https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.20.0/foxlight_preservation_library-0.20.0-py3-none-any.whl
+uv tool install https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.21.0/foxlight_preservation_library-0.21.0-py3-none-any.whl
 foxlight-preservation-library
 ```
 
-The 0.20.0 pre-release includes persistent mirror controls, PMF, followed sources, peer receiving/native setup
+The 0.21.0 pre-release includes persistent mirror controls, PMF, followed sources, peer receiving/native setup
 and one-file sharing, plus explicit I2P source/receiving controls. For exact dependency versions and offline retention, use
 the [hash-locked installation archive](../docs/installation.md) instead of an
 unconstrained tool install. [Verify the release](../docs/releases.md) before
 executing its installer. These are public software artifacts for a development
 cohort; the compatible Core remains a separately installed pinned source preview.
+
+The independent desktop profile pairs Library 0.21 with core 0.25. It includes
+Horizon model discovery, complete companion recovery, remembered backup folders,
+separate public-copy and HTTP sharing reviews, and recipient sharing files.
+Find can review alternate addresses from followed sources for the exact signed
+copy while keeping model-key acceptance separate. Native Mac/Linux package
+publication is a separate delivery from these Python installation archives.
 
 The launcher checks the local Core and opens a private browser link. Use `--check`
 for a read-only report of the actual owner and required API surfaces. If Core is

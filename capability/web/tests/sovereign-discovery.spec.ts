@@ -72,3 +72,26 @@ test('HTTP-only mirror details show connection choices before connecting',async(
  await page.getByRole('button',{name:'Review connection changes',exact:true}).click();
  await expect(page.getByRole('button',{name:'Get signed model details',exact:true})).toBeEnabled();expect(starts).toBe(0);
 });
+
+for(const area of ['sharing','sources'])test(`${area} More waits for the pending page without duplicating history`,async({page})=>{
+ let release!:()=>void;
+ const pending=new Promise<void>(resolve=>{release=resolve;});
+ if(area==='sharing')await page.route('**/api/desktop-sharing-read',async r=>{
+  const offset=r.request().postDataJSON().offset??0;if(offset===3)await pending;
+  await r.fulfill({json:{public_copies:[{public_id:String(offset).padStart(64,'a'),manifest_id:id,name:`Page ${offset}`,size_bytes:1,member_count:1}],next_offset:offset===0?3:5}});
+ });
+ else{
+  await page.route('**/api/desktop-source-read',r=>r.fulfill({json:{sources:[source]}}));
+  await page.route('**/api/desktop-source-search',async r=>{
+   const offset=r.request().postDataJSON().offset??0;if(offset===3)await pending;
+   await r.fulfill({json:{results:[{...listing,name:`Page ${offset}`}],total:6,next_offset:offset===0?3:5}});
+  });
+ }
+ await page.goto('/');if(area==='sharing')await page.getByRole('button',{name:'Sharing',exact:true}).click();
+ const more=page.getByRole('button',{name:area==='sharing'?'More public copies':'More source results',exact:true});
+ await expect(page.getByRole('heading',{name:'Page 0',exact:true})).toBeVisible();
+ await more.click();await expect(more).toBeDisabled();
+ release();await expect(page.getByRole('heading',{name:'Page 3',exact:true})).toBeVisible();await expect(more).toBeEnabled();
+ await page.getByRole('button',{name:area==='sharing'?'Previous public copies':'Previous source results',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Page 0',exact:true})).toBeVisible();
+});
