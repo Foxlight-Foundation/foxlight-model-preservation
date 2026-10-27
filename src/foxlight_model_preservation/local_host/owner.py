@@ -504,7 +504,17 @@ class LocalOwner:
                             "card_id": card.card_id,
                             "recipe": recipe.model_dump(mode="json"),
                             "details": card_summary(
-                                card, metadata=captured_card_metadata(proof, card)
+                                card,
+                                metadata=captured_card_metadata(proof, card),
+                                selected_files=(
+                                    path
+                                    for repository, revision, path in selected_files
+                                    if (repository, revision)
+                                    == (
+                                        card.artifact.repository,
+                                        card.artifact.revision,
+                                    )
+                                ),
                             ),
                             "historical": historical,
                             "file_count": len(selected_files),

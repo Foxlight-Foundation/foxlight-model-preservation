@@ -54,6 +54,15 @@ DATA_SIZE = len(b"Synthetic model bytes, never executable.\n")
         (
             {
                 "runtime": {
+                    "served_spec_draft_revision": "a" * 40,
+                    "served_spec_draft_file": "draft.gguf",
+                }
+            },
+            ("model.bin", "draft.gguf"),
+        ),
+        (
+            {
+                "runtime": {
                     "mtp_sidecar_repo": "example/synthetic",
                     "mtp_sidecar_revision": "a" * 40,
                     "mtp_heads": True,
@@ -234,6 +243,26 @@ def test_explicit_external_video_file_uses_original_component_map(tmp_path):
     assert ("test/tokenizer", "b" * 40, "tokenizer.json") in registry_file_map(
         repo.card
     )
+
+
+@pytest.mark.parametrize("repository", [{}, {"served_spec_draft_repo": None}])
+def test_implicit_draft_repository_still_requires_the_selected_revision(
+    tmp_path, repository
+):
+    _catalog, repo, _data = accepted_catalog(
+        tmp_path,
+        companion=False,
+        metadata={
+            "runtime": {
+                **repository,
+                "served_spec_draft_revision": "b" * 40,
+                "served_spec_draft_file": "draft.gguf",
+            }
+        },
+        primary_paths=("model.bin", "draft.gguf"),
+    )
+    with pytest.raises(PreservationError, match="companion_adapter_required"):
+        registry_recipe(repo.card, repo.proof())
 
 
 def test_conflicting_file_maps_cannot_choose_the_first_identity(tmp_path):

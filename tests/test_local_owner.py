@@ -125,6 +125,58 @@ def submit(owner, plan, operation=None):
     )
 
 
+def test_same_origin_component_projector_is_consistent_in_find_and_review(tmp_path):
+    data = b"Synthetic model bytes, never executable.\n"
+    size = len(data)
+    catalog, repo, _data = accepted_catalog(
+        tmp_path,
+        companion=False,
+        metadata={
+            "vision": {"projector_file": "mmproj.gguf", "projector_size": size},
+            "image": {
+                "family": "moss_image",
+                "default_steps": 50,
+                "default_guidance": 3.0,
+                "dimension_multiple": 16,
+                "components": [
+                    {
+                        "role": "tokenizer",
+                        "repository": "example/synthetic",
+                        "revision": "a" * 40,
+                        "entry_file": "mmproj.gguf",
+                        "files": [
+                            {
+                                "path": "mmproj.gguf",
+                                "size_bytes": size,
+                                "object_id": "sha256:" + digest(data),
+                            }
+                        ],
+                    }
+                ],
+            },
+        },
+    )
+    owner = LocalOwner(tmp_path / "owner", catalog=catalog)
+    try:
+        result = owner.control("search", {})
+        assert result["results"][0]["download_support"] == "ready"
+        assert result["results"][0]["size_bytes"] == size * 2
+        assert result["results"][0]["details"]["artifact_notes"] == []
+        plan = owner.control(
+            "plan",
+            {
+                "kind": "receive",
+                "catalog_id": result["catalog_id"],
+                "card_id": repo.card.card_id,
+            },
+        )
+        assert plan["projector_included"] is True
+        assert plan["file_count"] == 2
+        assert plan["details"]["artifact_notes"] == []
+    finally:
+        owner.close()
+
+
 @pytest.mark.parametrize("extra", ["image", "vision", "video", "audio"])
 def test_find_receive_kit_fresh_owner_restore_without_network(
     tmp_path, monkeypatch, extra
@@ -184,6 +236,7 @@ def test_find_receive_kit_fresh_owner_restore_without_network(
         assert plan["file_count"] == len(paths) + 1
         assert plan["projector_included"] is (extra == "vision")
         assert plan["size_bytes"] == len(data) * (len(paths) + 1)
+        assert result["results"][0]["size_bytes"] == plan["size_bytes"]
         assert requested == []  # review never fetches weights
         operation = str(uuid.uuid4())
         receipt = submit(owner, plan, operation)

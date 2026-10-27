@@ -228,14 +228,6 @@ def capability_details(
         and modalities.get("supports_audio_input") is True
     ):
         inputs.add("audio")
-    if (
-        not declared_outputs
-        and "video-generate" in features
-        and isinstance(video, dict)
-        and video.get("audio_output") is True
-    ):
-        outputs.add("audio")
-
     own_claims = body.get("capability_claims")
     captured = [
         *(own_claims if isinstance(own_claims, list) else []),
@@ -346,6 +338,15 @@ def capability_details(
         ):
             notes.add("vision-companion-unlisted")
 
+    # Both card declarations and captured structured claims can identify the
+    # video workload. A legacy soundtrack flag applies to either path.
+    if (
+        not declared_outputs
+        and "video-generate" in features
+        and isinstance(video, dict)
+        and video.get("audio_output") is True
+    ):
+        outputs.add("audio")
     if "vision" in features and selected == set():
         notes.add("vision-files-unconfirmed")
     categories = {_FEATURES[name][0] for name in features}

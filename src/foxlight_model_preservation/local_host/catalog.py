@@ -278,6 +278,14 @@ class RegistryCatalog:
         )
         for card in self._cards(raw):
             from .presentation import card_summary, search_words
+            from .selection import registry_file_map, registry_recipe
+
+            # Display the same selected base-origin paths as download review.
+            # Unsupported selections remain browsable with their original map.
+            try:
+                selected = registry_file_map(card)
+            except PreservationError:
+                selected = None
 
             metadata = (
                 captured_metadata.get(card.card_id)
@@ -285,7 +293,16 @@ class RegistryCatalog:
                 else None
             )
             details = card_summary(
-                card, metadata=metadata if isinstance(metadata, dict) else None
+                card,
+                metadata=metadata if isinstance(metadata, dict) else None,
+                selected_files=(
+                    path
+                    for repository, revision, path in selected
+                    if (repository, revision)
+                    == (card.artifact.repository, card.artifact.revision)
+                )
+                if selected is not None
+                else None,
             )
             if purpose and purpose not in cast(list[str], details.get("purposes", [])):
                 continue
@@ -300,8 +317,6 @@ class RegistryCatalog:
                 continue
             bundle = card.artifact.bundle
             tasks = details.get("workloads", [])
-            from .selection import registry_recipe
-
             try:
                 registry_recipe(card, proof)
                 support = "ready"
@@ -324,7 +339,11 @@ class RegistryCatalog:
                     "details": details,
                     "format": card.artifact.format,
                     "quantization": card.artifact.quantization,
-                    "size_bytes": bundle.download_size if bundle else None,
+                    "size_bytes": sum(file.size_bytes for file in selected.values())
+                    if selected is not None
+                    else bundle.download_size
+                    if bundle
+                    else None,
                     "workloads": tasks,
                     "complete_file_map": bool(bundle)
                     and all(

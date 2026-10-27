@@ -151,7 +151,10 @@ def registry_file_map(
         ):
             raise PreservationError("complete_signed_companion_map_required")
         if runtime.get("served_spec_draft_file") is not None:
-            required_file(base, runtime["served_spec_draft_file"])
+            required_file(
+                source(runtime, "served_spec_draft_repo"),
+                runtime["served_spec_draft_file"],
+            )
         if runtime.get("mtp_sidecar_repo") and runtime.get("mtp_heads"):
             required_file(base, "mtp.safetensors")
             required_file(base, "config.json")

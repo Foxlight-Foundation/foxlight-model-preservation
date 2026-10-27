@@ -84,6 +84,24 @@ def test_legacy_video_soundtrack_adds_output_without_a_music_feature():
     assert explicit["output_modalities"] == ["video"]
 
 
+@pytest.mark.parametrize("captured", [False, True])
+@pytest.mark.parametrize("explicit", [False, True])
+def test_legacy_soundtrack_follows_video_claims_without_overriding_portable_outputs(
+    captured, explicit
+):
+    video_claim = claim("video.generate", outputs=("video",))
+    body = {"video": {"audio_output": True}}
+    if explicit:
+        body["output_modalities"] = ["video"]
+    if not captured:
+        body["capability_claims"] = [video_claim]
+    details = capability_details(body, claims=[video_claim] if captured else None)
+    assert details["output_modalities"] == (
+        ["video"] if explicit else ["video", "audio"]
+    )
+    assert details["feature_ids"] == ["video-generate"]
+
+
 def test_exact_projector_selection_does_not_require_inventory_alternatives():
     body = {"vision": {"projector_file": "mmproj-BF16.gguf"}}
     inventory = claim(
