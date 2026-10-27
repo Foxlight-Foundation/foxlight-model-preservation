@@ -12,6 +12,12 @@ for developer/operator acceptance, not an authenticated public installation
 channel. Ubuntu runner acceptance also does not establish Debian, every desktop,
 Wayland, full real-model recovery, independent custody or network privacy.
 
+The current recipe is **0.1.0 revision 2**, paired with the authenticated public
+core 0.25 / Library 0.21 cohort. It includes the Horizon interface, complete
+companion recovery, verified backup destinations, explicit finite sharing,
+recipient handoff and reviewed alternate routes for an exact model capture.
+Updating these input pins does not publish an installer or signed APT channel.
+
 ## Build without a network resolver
 
 `desktop/linux/inputs.json` pins the public Library archive and separate native

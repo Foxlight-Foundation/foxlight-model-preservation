@@ -6,6 +6,9 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Advance both independent native recipes to the published Library 0.21.0 and
+  core 0.25.0 cohort. Keep runtime pins and model/source trust unchanged.
+
 ## 0.21.0
 
 - Add Horizon backup destinations, verified complete recovery kits, separate
