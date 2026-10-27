@@ -340,8 +340,18 @@ class NativeJourney:
         require("Could not finish" not in self.texts(), "a GUI job failed")
 
 
-def run(root: Path, kit: Path | None, expected_path: Path | None) -> JsonObject:
+def run(
+    root: Path,
+    kit: Path | None,
+    expected_path: Path | None,
+    *,
+    consume_staged_kit: bool = False,
+) -> JsonObject:
     """Recover all parts offline, restart twice, and compare exact pinned bytes."""
+    require(
+        kit is None or consume_staged_kit,
+        "external kits require explicit --consume-staged-kit permission",
+    )
     require(
         not root.exists() and bool(os.environ.get("DISPLAY")), "new root/Xvfb required"
     )
@@ -541,8 +551,22 @@ def main() -> None:
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--kit", type=Path)
     parser.add_argument("--expected", type=Path)
+    parser.add_argument(
+        "--consume-staged-kit",
+        action="store_true",
+        help="Allow moving/removing only the disposable /tmp input after import.",
+    )
     args = parser.parse_args()
-    print(json.dumps(run(args.directory.resolve(), args.kit, args.expected)))
+    print(
+        json.dumps(
+            run(
+                args.directory.resolve(),
+                args.kit,
+                args.expected,
+                consume_staged_kit=args.consume_staged_kit,
+            )
+        )
+    )
 
 
 if __name__ == "__main__":
