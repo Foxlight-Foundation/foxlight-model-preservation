@@ -72,6 +72,9 @@ test('fresh Core file restore requires separate capture and code consent',async(
   await expect(restore).toBeDisabled();
   await page.getByLabel('I trust this exact recovery copy').check();
   await expect(restore).toBeDisabled();
+  await expect(page.getByText('Required to restore this model into Skulk', {exact:false})).toBeVisible();
+  await expect(page.getByText('Leave this unticked', {exact:false})).toHaveCount(0);
+  await expect(page.getByRole('link', {name:'standalone Sovereign',exact:true})).toHaveAttribute('href', /sovereign-desktop\.md#everyday-use$/);
   await page.getByLabel('Separately, I allow').check();
   await expect(restore).toBeEnabled();
   await restore.click();
@@ -82,6 +85,37 @@ test('fresh Core file restore requires separate capture and code consent',async(
   expect(started).toMatchObject({plan_id:recoveryPlan.plan_id,accept_owner_capture:true,allow_repository_code:true});
   expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
 });
+
+test('a recovery without a code requirement submits no code grant',async({page})=>{
+  await page.route('**/api/library?offset=*',route=>route.fulfill({json:{locations:[],models:[],copies:[],jobs:[],uploads:[],next_offset:null}}));
+  await page.route('**/api/upload-create',route=>route.fulfill({json:{upload_id:'1'.repeat(32),size_bytes:20,offset:0,complete:false}}));
+  await page.route('**/api/upload/*',route=>route.fulfill({json:{upload_id:'1'.repeat(32),size_bytes:20,offset:20,complete:true}}));
+  await page.route('**/api/plan',route=>route.fulfill({json:{...recoveryPlan,requires_code_permission:false}}));
+  let started:unknown;
+  await page.route('**/api/start',route=>{started=route.request().postDataJSON();return route.fulfill({json:{...jobs[0],kind:'recover'}})});
+  await page.goto('/');
+  await page.getByRole('button',{name:'Restore from recovery kit',exact:true}).click();
+  await page.getByLabel('Recovery kit file').setInputFiles({name:'saved.foxkit',mimeType:'application/octet-stream',buffer:Buffer.alloc(20,1)});
+  await expect(page.getByRole('heading',{name:'Recover this model'})).toBeVisible();
+  await expect(page.getByLabel('Separately, I allow')).toHaveCount(0);
+  await page.getByLabel('I trust this exact recovery copy').check();
+  await page.getByRole('button',{name:'Restore model',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Activity',exact:true})).toBeVisible();
+  expect(started).toMatchObject({plan_id:recoveryPlan.plan_id,accept_owner_capture:true,allow_repository_code:false});
+});
+
+for(const state of ['queued','running','failed','cancelled','interrupted','succeeded']) {
+  test(`empty storage does not claim recovery success from a ${state} receipt`,async({page})=>{
+    await page.route('**/api/library?offset=*',route=>route.fulfill({json:{locations:[],models:[],copies:[],jobs:[{...jobs[0],kind:'recover',state,copy_id:null}],uploads:[],next_offset:null}}));
+    let starts=0;
+    await page.route('**/api/start',route=>{starts++;return route.fulfill({json:{}})});
+    await page.goto('/');
+    await expect(page.getByText('No private backup storage is selected.',{exact:false})).toBeVisible();
+    await expect(page.getByRole('heading',{name:'No installed models yet',exact:true})).toBeVisible();
+    await expect(page.getByText('Your recovered models are ready.',{exact:false})).toHaveCount(0);
+    expect(starts).toBe(0);
+  });
+}
 
 test('reselecting the same file resumes a retained transfer after page loss',async({page})=>{
   const upload={upload_id:'1'.repeat(32),size_bytes:20,offset:5,complete:false};
