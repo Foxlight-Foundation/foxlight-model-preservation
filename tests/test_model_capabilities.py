@@ -41,6 +41,113 @@ def test_portable_multimodal_task_exposes_text_and_image_understanding(task):
     assert "image-generate" not in details["feature_ids"]
 
 
+@pytest.mark.parametrize("section", ["audio", "modalities"])
+def test_legacy_audio_input_is_visible_without_inventing_understanding(section):
+    body = {
+        "tasks": ["TextToSpeech"],
+        section: {
+            "supports_reference_audio"
+            if section == "audio"
+            else "supports_audio_input": True,
+        },
+    }
+    details = capability_details(body)
+    assert details["input_modalities"] == ["text", "audio"]
+    assert details["output_modalities"] == ["audio"]
+    assert details["feature_ids"] == ["speech-synthesize"]
+
+
+def test_explicit_audio_direction_overrides_optional_legacy_inputs():
+    details = capability_details(
+        {
+            "tasks": ["TextToSpeech"],
+            "input_modalities": ["text"],
+            "audio": {"supports_reference_audio": True},
+        }
+    )
+    assert details["input_modalities"] == ["text"]
+
+
+def test_legacy_video_soundtrack_adds_output_without_a_music_feature():
+    details = capability_details(
+        {"tasks": ["TextToVideo"], "video": {"audio_output": True}}
+    )
+    assert details["output_modalities"] == ["video", "audio"]
+    assert details["feature_ids"] == ["video-generate"]
+    explicit = capability_details(
+        {
+            "tasks": ["TextToVideo"],
+            "output_modalities": ["video"],
+            "video": {"audio_output": True},
+        }
+    )
+    assert explicit["output_modalities"] == ["video"]
+
+
+@pytest.mark.parametrize("captured", [False, True])
+@pytest.mark.parametrize("explicit", [False, True])
+def test_legacy_soundtrack_follows_video_claims_without_overriding_portable_outputs(
+    captured, explicit
+):
+    video_claim = claim("video.generate", outputs=("video",))
+    body = {"video": {"audio_output": True}}
+    if explicit:
+        body["output_modalities"] = ["video"]
+    if not captured:
+        body["capability_claims"] = [video_claim]
+    details = capability_details(body, claims=[video_claim] if captured else None)
+    assert details["output_modalities"] == (
+        ["video"] if explicit else ["video", "audio"]
+    )
+    assert details["feature_ids"] == ["video-generate"]
+
+
+def test_exact_projector_selection_does_not_require_inventory_alternatives():
+    body = {"vision": {"projector_file": "mmproj-BF16.gguf"}}
+    inventory = claim(
+        "vision.understand",
+        scope="artifact",
+        source="artifact_manifest",
+        details={"companion_files": ["mmproj-BF16.gguf", "mmproj-Q8.gguf"]},
+    )
+    selected = capability_details(
+        body, claims=[inventory], selected_files=("mmproj-BF16.gguf",)
+    )
+    assert selected["artifact_notes"] == []
+    missing = capability_details(
+        body, claims=[inventory], selected_files=("mmproj-Q8.gguf",)
+    )
+    assert missing["artifact_notes"] == ["vision-companion-unlisted"]
+    mixed = claim(
+        "vision.understand",
+        scope="artifact",
+        source="artifact_manifest",
+        details={"companion_files": ["mmproj-BF16.gguf", "processor.json"]},
+    )
+    assert capability_details(
+        body, claims=[mixed], selected_files=("mmproj-BF16.gguf",)
+    )["artifact_notes"] == ["vision-companion-unlisted"]
+    other_directory = claim(
+        "vision.understand",
+        scope="artifact",
+        source="artifact_manifest",
+        details={"companion_files": ["mmproj-BF16.gguf", "other/mmproj-Q8.gguf"]},
+    )
+    assert capability_details(
+        body, claims=[other_directory], selected_files=("mmproj-BF16.gguf",)
+    )["artifact_notes"] == ["vision-companion-unlisted"]
+    other = claim("vision.understand", details={"companion_files": ["processor.json"]})
+    incomplete = claim("vision.understand", scope="artifact", status="incomplete")
+    assert capability_details(
+        body,
+        claims=[inventory, other, incomplete],
+        selected_files=("mmproj-BF16.gguf",),
+    )["artifact_notes"] == [
+        "artifact-incomplete",
+        "vision-companion-unlisted",
+    ]
+
+
 def test_qwen_style_catalog_claims_reveal_vision_without_changing_the_card():
     body = {
         "tasks": ["TextGeneration"],

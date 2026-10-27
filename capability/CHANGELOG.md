@@ -6,6 +6,9 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Explain a missing or size-conflicting signed companion while keeping its
+  listing browsable and its download disabled. Preserve the Horizon interface,
+  independent trust decisions and receive-only defaults.
 ## 0.20.0
 
 - Apply the Sovereign Horizon design across Find, Library, Activity, reviews and

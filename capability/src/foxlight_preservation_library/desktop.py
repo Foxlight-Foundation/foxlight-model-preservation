@@ -86,6 +86,7 @@ class DesktopClient(CoreClient):
             code = str(error)
             allowed = {
                 "complete_signed_file_map_required",
+                "complete_signed_companion_map_required",
                 "companion_adapter_required",
                 "invalid_control",
                 "plan_changed",

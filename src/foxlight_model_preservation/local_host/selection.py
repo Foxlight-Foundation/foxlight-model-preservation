@@ -27,24 +27,12 @@ NOTICE = (
 NOTICE_PATH = ".sovereign-capture-notice.txt"
 
 
-def registry_recipe(card: ModelCardEnvelope, proof: RegistryProof) -> Recipe:
-    """Keep the whole original card and all understood, hash-bound companions.
-
-    A missing file map or unsupported external companion refuses the entire
-    selection. Nothing silently reduces a multimodal model to its base weights.
-    """
+def _registry_groups(
+    card: ModelCardEnvelope,
+) -> dict[tuple[str, str], tuple[str, dict[str, ArtifactFile]]]:
     bundle = card.artifact.bundle
     if bundle is None:
         raise PreservationError("complete_signed_file_map_required")
-    for section in ("vision", "video", "audio"):
-        if card.card.get(section):
-            raise PreservationError("companion_adapter_required")
-    runtime = card.card.get("runtime")
-    if isinstance(runtime, dict) and any(
-        key.endswith(("_repo", "_repository")) and value is not None
-        for key, value in runtime.items()
-    ):
-        raise PreservationError("companion_adapter_required")
     groups: dict[tuple[str, str], tuple[str, dict[str, ArtifactFile]]] = {
         (card.artifact.repository, card.artifact.revision): (
             "base",
@@ -76,19 +64,140 @@ def registry_recipe(card: ModelCardEnvelope, proof: RegistryProof) -> Recipe:
                 previous = mapped.setdefault(file.path, file)
                 if previous != file:
                     raise PreservationError("conflicting companion file identities")
-    members: list[RecipeMember] = []
-    names = ["base", *(f"companion-{index}" for index in range(1, len(groups)))]
-    for index, ((repository, revision), (role, mapped)) in enumerate(groups.items()):
+            if component.get("entry_file") not in mapped:
+                raise PreservationError("complete_signed_companion_map_required")
+    for (repository, revision), (_role, mapped) in groups.items():
         if not mapped or any(
             not file.object_id or not file.object_id.startswith("sha256:")
             for file in mapped.values()
         ):
             raise PreservationError("complete_signed_file_map_required")
-        # Validate every repository before URL construction.
-        if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
+        if not re.fullmatch(
+            r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository
+        ) or not re.fullmatch(r"[0-9a-f]{40}", revision):
             raise PreservationError("unsupported artifact origin")
         if NOTICE_PATH in mapped:
             raise PreservationError("capture notice collides with selected files")
+    return groups
+
+
+def registry_file_map(
+    card: ModelCardEnvelope,
+) -> dict[tuple[str, str, str], ArtifactFile]:
+    """Resolve the card's exact signed files and check its named companions.
+
+    Descriptive sections do not themselves imply extra downloads. Every named
+    file must already have its exact source, length and SHA-256 in the selected
+    bundle or an explicit image component map. Whole external repositories
+    without an understood complete mapping remain unsupported.
+    """
+    groups = _registry_groups(card)
+    files = {
+        (repository, revision, path): file
+        for (repository, revision), (_, selected) in groups.items()
+        for path, file in selected.items()
+    }
+    base = (card.artifact.repository, card.artifact.revision)
+
+    def understood_sources(section: dict[str, JsonValue], known: set[str]) -> None:
+        for field, value in section.items():
+            if (
+                value
+                and field.endswith(("_repo", "_repository"))
+                and field not in known
+            ):
+                raise PreservationError("companion_adapter_required")
+
+    def source(section: dict[str, JsonValue], field: str) -> tuple[str, str]:
+        repository = section.get(field) or base[0]
+        revision = section.get(field.removesuffix("_repo") + "_revision")
+        if repository != base[0] or revision not in (None, base[1]):
+            raise PreservationError("companion_adapter_required")
+        return base
+
+    def required_file(
+        origin: tuple[str, str], path: JsonValue, size: JsonValue = None
+    ) -> None:
+        if not isinstance(path, str):
+            raise PreservationError("complete_signed_companion_map_required")
+        selected = files.get((*origin, path))
+        if selected is None or (size is not None and size != selected.size_bytes):
+            raise PreservationError("complete_signed_companion_map_required")
+
+    vision = card.card.get("vision")
+    if isinstance(vision, dict):
+        understood_sources(vision, {"weights_repo", "processor_repo"})
+        for field in ("weights_repo", "processor_repo"):
+            source(vision, field)
+        if vision.get("projector_file") is not None:
+            required_file(base, vision["projector_file"], vision.get("projector_size"))
+        elif vision.get("projector_size") is not None:
+            raise PreservationError("complete_signed_companion_map_required")
+    runtime = card.card.get("runtime")
+    if isinstance(runtime, dict):
+        known = {
+            "mtp_sidecar_repo",
+            "assistant_model_repo",
+            "served_spec_draft_repo",
+            "vllm_spec_draft_repo",
+        }
+        understood_sources(runtime, known)
+        for field, value in runtime.items():
+            if value and field.endswith(("_repo", "_repository")):
+                source(runtime, field)
+        if (
+            runtime.get("served_spec_draft_repo")
+            and runtime.get("served_spec_draft_file") is None
+        ):
+            raise PreservationError("complete_signed_companion_map_required")
+        if runtime.get("served_spec_draft_file") is not None:
+            required_file(
+                source(runtime, "served_spec_draft_repo"),
+                runtime["served_spec_draft_file"],
+            )
+        if runtime.get("mtp_sidecar_repo") and runtime.get("mtp_heads"):
+            required_file(base, "mtp.safetensors")
+            required_file(base, "config.json")
+    video = card.card.get("video")
+    if isinstance(video, dict):
+        understood_sources(video, set())
+        companions = video.get("companions", [])
+        if not isinstance(companions, list):
+            raise PreservationError("companion_adapter_required")
+        for companion in companions:
+            if not isinstance(companion, dict):
+                raise PreservationError("companion_adapter_required")
+            repository = companion.get("repo") or base[0]
+            revision = companion.get("revision") or (
+                base[1] if repository == base[0] else None
+            )
+            if not isinstance(repository, str) or not isinstance(revision, str):
+                raise PreservationError("companion_adapter_required")
+            required_file(
+                (repository, revision),
+                companion.get("path"),
+                companion.get("size_bytes"),
+            )
+    audio = card.card.get("audio")
+    if isinstance(audio, dict):
+        understood_sources(audio, set())
+    return files
+
+
+def registry_recipe(card: ModelCardEnvelope, proof: RegistryProof) -> Recipe:
+    """Retain the full card and complete understood, hash-bound companion closure.
+
+    Missing named files and unsupported external repositories refuse before any
+    download. A model is never silently reduced to its base weights.
+    """
+    registry_file_map(card)
+    groups = _registry_groups(card)
+    bundle = card.artifact.bundle
+    if bundle is None:
+        raise PreservationError("complete_signed_file_map_required")
+    members: list[RecipeMember] = []
+    names = ["base", *(f"companion-{index}" for index in range(1, len(groups)))]
+    for index, ((repository, revision), (role, mapped)) in enumerate(groups.items()):
         members.append(
             RecipeMember(
                 member_id=names[index],

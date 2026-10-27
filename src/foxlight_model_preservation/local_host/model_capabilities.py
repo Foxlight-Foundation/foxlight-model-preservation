@@ -206,9 +206,9 @@ def capability_details(
             }.get(normalized)
             add(_ALIASES.get(normalized, ()), task_inputs, declared_outputs)
     vision = body.get("vision")
+    projector = vision.get("projector_file") if isinstance(vision, dict) else None
     if isinstance(vision, dict) and vision:
         add(("vision",))
-        projector = vision.get("projector_file")
         if (
             isinstance(projector, str)
             and projector
@@ -217,7 +217,17 @@ def capability_details(
         ):
             notes.add("vision-companion-unlisted")
     direction(declared_inputs, declared_outputs, tuple(features))
-
+    # Reference audio is an input declaration, not evidence of transcription or
+    # audio understanding. Preserve more specific portable directions when set.
+    audio = body.get("audio")
+    modalities = body.get("modalities")
+    if not declared_inputs and (
+        isinstance(audio, dict)
+        and audio.get("supports_reference_audio") is True
+        or isinstance(modalities, dict)
+        and modalities.get("supports_audio_input") is True
+    ):
+        inputs.add("audio")
     own_claims = body.get("capability_claims")
     captured = [
         *(own_claims if isinstance(own_claims, list) else []),
@@ -305,9 +315,38 @@ def capability_details(
             and companions
             and selected is not None
             and any(path not in selected for path in companions)
+            # A repository inventory may list alternative projector quants.
+            # The card's exact projector selects one; it does not require every
+            # sibling variant. Other missing-file/incomplete claims stay visible.
+            and not (
+                scope == "artifact"
+                and source == "artifact_manifest"
+                and isinstance(projector, str)
+                and projector in selected
+                and projector in companions
+                and all(
+                    path.rpartition("/")[0] == projector.rpartition("/")[0]
+                    and re.fullmatch(
+                        r"mmproj(?:[-_.][^/]+)?\.gguf",
+                        path.rpartition("/")[2],
+                        re.IGNORECASE,
+                    )
+                    for path in companions
+                    if path not in selected
+                )
+            )
         ):
             notes.add("vision-companion-unlisted")
 
+    # Both card declarations and captured structured claims can identify the
+    # video workload. A legacy soundtrack flag applies to either path.
+    if (
+        not declared_outputs
+        and "video-generate" in features
+        and isinstance(video, dict)
+        and video.get("audio_output") is True
+    ):
+        outputs.add("audio")
     if "vision" in features and selected == set():
         notes.add("vision-files-unconfirmed")
     categories = {_FEATURES[name][0] for name in features}

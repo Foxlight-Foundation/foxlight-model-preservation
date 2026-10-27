@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Preserve complete signed selections with vision/audio/video metadata, named
+  projectors, video companions and same-repository draft/active MTP files.
+  Refuse missing or size-conflicting companions before downloading; keep whole
+  external repositories without complete understood maps unsupported.
+- Share one exact source/revision/path file map between review and download,
+  keeping original cards, extensions, registry proofs and recovery identities.
+- Show legacy reference-audio inputs and video soundtracks without inventing
+  transcription, audio understanding or independent music-generation features.
 - Target native Mac build 6 at the attested core 0.24 / Library 0.20 cohort,
   bringing the Sovereign Horizon interface to the native app. Native signing,
   installation and publication remain separate from this recipe update.
