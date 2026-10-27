@@ -219,3 +219,22 @@ def test_equivalent_bases_do_not_become_duplicate_alternate_mirrors(tmp_path, ca
             assert requests == ["/" + manifest_path(capture.identity)]
         finally:
             owner.close()
+
+
+@pytest.mark.parametrize("suffix", ["/", "///"])
+def test_source_enrollment_keeps_valid_bootstrap_endpoint_spelling(
+    tmp_path, capture, suffix
+):
+    publisher = Publisher(tmp_path / "publisher", capture)
+    with mirror(publisher.path) as (endpoint, requests):
+        owner = LocalOwner(tmp_path / "owner")
+        try:
+            document = encode_record(publisher.bootstrap(endpoint + suffix))
+            reviewed = owner.sources.review(document)
+            assert reviewed["endpoints"] == [endpoint + suffix]
+            assert requests == []
+            selected = follow(owner, publisher, endpoint + suffix)
+            assert selected["endpoints"] == [endpoint + suffix]
+            assert owner.control("source-search", {})["total"] == 1
+        finally:
+            owner.close()

@@ -197,7 +197,9 @@ class SourceLibrary:
             raise PreservationError("source_document_too_large")
         info = inspect_source(document)
         endpoints = cast(list[str], info["endpoints"])
-        if self.http_mirrors(tuple(endpoints)) != tuple(endpoints):
+        # Transport validation must retain the bootstrap's original endpoint
+        # spelling, separately from normalized invitation mirror bases.
+        if any(not _direct_routes((endpoint,)) for endpoint in endpoints):
             raise PreservationError("source_transport_unavailable")
         identity = digest(document)
         with directory(self.home, create=True) as root:
