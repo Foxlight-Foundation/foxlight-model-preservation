@@ -50,6 +50,7 @@ STATIC_ASSETS: Final[dict[str, str | None]] = {
     "assets/sovereign-light-symbol.svg": "image/svg+xml",
     "assets/sovereign-dark-symbol.svg": "image/svg+xml",
     "assets/sovereign-icon.svg": "image/svg+xml",
+    "assets/starry_bg.webp": "image/webp",
     "assets/instrument-sans-latin-wght-normal.woff2": "font/woff2",
     "assets/jetbrains-mono-latin-wght-normal.woff2": "font/woff2",
     "THIRD_PARTY_NOTICES.txt": None,

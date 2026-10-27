@@ -63,7 +63,7 @@ test('technical identity is explained, exact, and help works with focus, Escape 
 });
 
 test('Find uses ordinary purposes without treating file size or a signature as device suitability',async({page})=>{
- await page.goto('/');await page.getByRole('button',{name:'Find models',exact:true}).click();
+ await page.goto('/');await page.getByRole('button',{name:'Find',exact:true}).click();
  await expect(page.getByText(writing.description,{exact:true})).toBeVisible();
  await page.getByLabel('What would you like to do?',{exact:true}).selectOption('images');
  await expect(page.getByRole('heading',{name:copies[1].name,exact:true})).toBeVisible();
@@ -92,13 +92,13 @@ test('matching file variants share a description but retain their own exact revi
  let selected:string|undefined;
  await page.route('**/api/desktop-search',route=>route.fulfill({json:{catalog_id:id,results:versions,total:2,next_offset:null}}));
  await page.route('**/api/desktop-plan',route=>{selected=route.request().postDataJSON().card_id;return route.fulfill({json:{plan_id:id,kind:'receive',name:cards[0].name,card_id:selected,size_bytes:4096,members:['model'],expires_at:9999999999}});});
- await page.goto('/');await page.getByRole('button',{name:'Find models',exact:true}).click();
+ await page.goto('/');await page.getByRole('button',{name:'Find',exact:true}).click();
  await expect(page.getByRole('heading',{name:cards[0].name,exact:true})).toHaveCount(1);
  await expect(page.getByText('2 file versions on this page',{exact:false})).toBeVisible();
  await page.getByText('Choose a file version · 2 on this page',{exact:true}).click();
  await expect(page.getByText('writing-Q4.gguf',{exact:true})).toBeVisible();
  await expect(page.getByText('writing-Q8.gguf',{exact:true})).toBeVisible();
- await page.getByRole('button',{name:'Review download & preserve',exact:true}).nth(1).click();
+ await page.getByRole('button',{name:'Keep a copy',exact:true}).nth(1).click();
  expect(selected).toBe(versions[1].card_id);
  await expect(page.getByRole('button',{name:'Download & preserve',exact:true})).toBeDisabled();
  const dialog=page.getByRole('dialog'),help=dialog.getByRole('button',{name:'About digital fingerprints',exact:true});
@@ -132,7 +132,7 @@ test('all saved models remain searchable across size-bounded Library pages',asyn
 test('size-bounded catalog pages return to their actual previous offset',async({page})=>{
  const offsets:number[]=[];
  await page.route('**/api/desktop-search',route=>{const offset=route.request().postDataJSON().offset;offsets.push(offset);return route.fulfill({json:{catalog_id:id,results:[cards[0]],total:60,next_offset:offset<26?offset+13:null}});});
- await page.goto('/');await page.getByRole('button',{name:'Find models',exact:true}).click();
+ await page.goto('/');await page.getByRole('button',{name:'Find',exact:true}).click();
  await page.getByRole('button',{name:'More matching versions',exact:true}).click();
  await expect.poll(()=>offsets.at(-1)).toBe(13);
  await page.getByRole('button',{name:'More matching versions',exact:true}).click();
@@ -152,7 +152,7 @@ test('Activity describes the actual stage without inventing a percentage',async(
 
 test('other model sources are one visible jump away without any network enrollment',async({page})=>{
  const effects:string[]=[];page.on('request',request=>{if(/desktop-(source-follow|source-plan|refresh|start)/.test(request.url()))effects.push(request.url());});
- await page.goto('/');await page.getByRole('button',{name:'Find models',exact:true}).click();
+ await page.goto('/');await page.getByRole('button',{name:'Find',exact:true}).click();
  await page.getByRole('link',{name:'Other model sources',exact:true}).click();
  await expect(page.getByRole('region',{name:'Independent model sources',exact:true})).toBeInViewport();
  await expect(page.getByRole('region',{name:'Independent model sources',exact:true})).toBeFocused();

@@ -75,7 +75,7 @@ compatibility. Data size means storage, not the memory needed to run a model.
 Select `requirements-desktop.lock` from a verified v2 Library installation
 archive ([instructions](installation.md#select-the-independent-desktop-profile)),
 then launch `foxlight-sovereign` with both public packages installed,
-or open the self-contained Mac app built below. First launch opens **Find models**. Once you have saved copies, reopening starts
+or open the self-contained Mac app built below. First launch opens **Find**. Once you have saved copies, reopening starts
 in **Library**.
 Choose **Browse public models** to request metadata from the optional built-in
 Foxlight registry preset. No bootstrap file or account is needed. Search uses the
@@ -112,7 +112,7 @@ Independent source following requires matching core **0.22.0** and Library
 registry catalog and recovery features; they do not include these new controls.
 A Python package release does not publish a new signed native application.
 
-In **Find models → Independent sources**, choose **Add source file**. The desktop
+In **Find → Independent sources**, choose **Add source file**. The desktop
 accepts a direct HTTP(S) source bootstrap or exported offline source cache up to
 32 MiB. Opening the file inspects it locally. Check its bootstrap fingerprint,
 root keys and threshold with its publisher before choosing **Follow source**.
