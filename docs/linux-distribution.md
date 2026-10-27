@@ -6,11 +6,40 @@ preservation core as the public Python installation, a pinned portable CPython
 3.13 runtime, a GTK/WebKit window, desktop entry and the approved Sovereign icon.
 It requires no Skulk Core, capability SDK, account or GPU.
 
-These are **unsigned build candidates**. There is no Sovereign signed APT
-repository or advertised supported Linux release yet. CI artifacts are useful
-for developer/operator acceptance, not an authenticated public installation
-channel. Ubuntu runner acceptance also does not establish Debian, every desktop,
-Wayland, full real-model recovery, independent custody or network privacy.
+The native recipe produces reproducible Debian packages. Public packages are
+published by the reviewed `linux-release.yml` workflow at
+`sovereign-linux-v0.1.0-2`, with exact source/input receipts, qualification evidence,
+checksums and detached GitHub build provenance. The signed APT repository is a
+separate publication step; CI artifacts alone are not that channel.
+
+## Verify and install the public package
+
+On Ubuntu 24.04, choose the `.deb` matching `dpkg --print-architecture` (`amd64`
+or `arm64`) from the [Linux release](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/sovereign-linux-v0.1.0-2).
+Download `SHA256SUMS` and `linux-release.sigstore.json` alongside it. With GitHub CLI
+installed, verify the downloaded package before installing:
+
+```sh
+architecture=$(dpkg --print-architecture)
+package="foxlight-sovereign_0.1.0-2_${architecture}.deb"
+sha256sum --ignore-missing --check SHA256SUMS
+gh attestation verify "$package" \
+  --repo Foxlight-Foundation/foxlight-model-preservation \
+  --bundle linux-release.sigstore.json \
+  --signer-workflow Foxlight-Foundation/foxlight-model-preservation/.github/workflows/linux-release.yml \
+  --source-ref refs/tags/sovereign-linux-v0.1.0-2 --deny-self-hosted-runners
+sudo apt install "./$package"
+sovereign
+```
+
+Open **Sovereign** from the application menu for later launches. Use **Find** to
+browse model descriptions, or **Open recovery kit** to recover a complete local
+capture without its original Core or registry. Independent publisher listings
+can be followed from **Open sharing file or source**. Installation requires no
+Skulk, capability SDK, model runtime, GPU or hosted account. Sharing is opt-in.
+
+To remove the software, use `sudo apt remove foxlight-sovereign`. The Library,
+models, provenance and saved recovery files remain under your control.
 
 The current recipe is **0.1.0 revision 2**, paired with the authenticated public
 core 0.25 / Library 0.21 cohort. It includes the Horizon interface, complete

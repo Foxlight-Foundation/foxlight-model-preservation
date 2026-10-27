@@ -1,0 +1,121 @@
+name: Publish independent Linux packages
+on:
+  push:
+    tags: ['sovereign-linux-v*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Manual runs only rehearse native builds and attestations
+        type: boolean
+        default: true
+        required: true
+permissions: {}
+concurrency:
+  group: sovereign-linux-release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  authorize:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Require a reviewed main ancestor and exact package version
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          if [ "$EVENT" = push ]; then git merge-base --is-ancestor "$GITHUB_SHA" origin/main; fi
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          lock = json.loads(Path('desktop/linux/inputs.json').read_bytes())
+          tag = 'refs/tags/sovereign-linux-v' + lock['version'] + '-' + lock['revision']
+          if os.environ['EVENT'] == 'push':
+              assert os.environ['REF'] == tag
+          else:
+              assert os.environ['DRY_RUN'] == 'true'
+          PY
+  candidate:
+    needs: authorize
+    permissions:
+      contents: read
+    uses: ./.github/workflows/linux-desktop.yml
+  attest:
+    needs: candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          pattern: sovereign-linux-*-candidate
+          path: incoming
+      - name: Require both exact qualified packages
+        run: python3 scripts/release_linux.py --input incoming --output dist --revision "$GITHUB_SHA"
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
+        id: attest
+        with:
+          subject-path: |
+            dist/*.deb
+            dist/linux-release.json
+            dist/SHA256SUMS
+      - name: Retain detached provenance
+        env:
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+        run: cp "$BUNDLE" dist/linux-release.sigstore.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: sovereign-linux-attested
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
+  publish:
+    if: github.event_name == 'push'
+    needs: attest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      attestations: read
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: sovereign-linux-attested
+          path: dist
+      - name: Verify every subject against this exact source and workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd dist
+          sha256sum --check --strict SHA256SUMS
+          for file in *.deb linux-release.json SHA256SUMS; do
+            gh attestation verify "$file" --repo "$GITHUB_REPOSITORY" \
+              --bundle linux-release.sigstore.json \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/linux-release.yml" \
+              --source-ref "$GITHUB_REF" --source-digest "$GITHUB_SHA" --deny-self-hosted-runners
+          done
+          test "$(find . -type f | wc -l)" -eq 5
+      - name: Publish the independently installable packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<'MD'
+          Independent Sovereign desktop for Ubuntu 24.04 on amd64 and arm64. Contains Library 0.21 / core 0.25, its own Python runtime and the Horizon interface; no Skulk, account or GPU is required. Installing starts no services, model downloads or sharing.
+
+          Download the package for your architecture, `SHA256SUMS`, and `linux-release.sigstore.json`. Verify the checksums and GitHub attestation before `sudo apt install ./foxlight-sovereign_0.1.0-2_ARCH.deb`. Launch **Sovereign** from your applications menu or run `sovereign`.
+
+          Native installation, sandboxed window, file-chooser cancellation, PMF companion/provenance restoration and tamper refusal were tested on both architectures. Models are restored as files; model execution and other distributions are unqualified. Removing the package retains your Library. See [installation and verification](https://github.com/Foxlight-Foundation/foxlight-model-preservation/blob/main/docs/linux-distribution.md). Signed apt repository publication is separate from these attested packages.
+          MD
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \
+            --verify-tag --prerelease --title 'Sovereign for Linux 0.1.0-2' --notes-file notes.md
