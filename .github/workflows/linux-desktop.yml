@@ -85,13 +85,22 @@ jobs:
           evidence['purge_retains_exact_user_files'] = True
           record.write_text(json.dumps(evidence, indent=2) + '\n')
           PY
+      - name: Stage one flat candidate inventory for release intake
+        if: always()
+        run: |
+          python3 - <<'PYTHON'
+          import pathlib, shutil
+          destination = pathlib.Path('/tmp/sovereign-linux-artifact')
+          destination.mkdir()
+          paths = list(pathlib.Path('/tmp/sovereign-linux-a').glob('*.deb'))
+          paths += [pathlib.Path('/tmp/sovereign-linux-a/SHA256SUMS'), pathlib.Path('/tmp/sovereign-linux-a/package/opt/foxlight/sovereign/build-receipt.json'), pathlib.Path('/tmp/sovereign-linux-qualification/qualification.json')]
+          paths += list(pathlib.Path('/tmp/sovereign-linux-qualification').glob('*.png'))
+          for path in paths:
+              if path.is_file():
+                  shutil.copyfile(path, destination / path.name)
+          PYTHON
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: sovereign-linux-${{ matrix.architecture }}-candidate
-          path: |
-            /tmp/sovereign-linux-a/*.deb
-            /tmp/sovereign-linux-a/SHA256SUMS
-            /tmp/sovereign-linux-a/package/opt/foxlight/sovereign/build-receipt.json
-            /tmp/sovereign-linux-qualification/qualification.json
-            /tmp/sovereign-linux-qualification/*.png
+          path: /tmp/sovereign-linux-artifact/*
