@@ -27,7 +27,12 @@ from ..discovery import (
 )
 from ..discovery_models import MAX_STATE_BYTES, SearchLocation
 from ..handoffs import read_reference
-from ..invitations import Invitation, accept_model_keys, invitation_from_envelope
+from ..invitations import (
+    Invitation,
+    accept_model_keys,
+    invitation_from_envelope,
+    normalize_mirror_bases,
+)
 from ..models import Digest, Manifest, PreservationError, Record, TrustProfile
 from ..operations import OperationControl
 from ..signing import Envelope, digest, encode_record, strict_json, verify_manifest
@@ -35,26 +40,32 @@ from ..storage import atomic_bytes, directory, open_file, read_metadata
 from ..transfer import TransferPolicy, inspect_envelope
 
 
+def _direct_http_hint(value: str) -> bool:
+    try:
+        parsed = urlsplit(value)
+        host = (parsed.hostname or "").rstrip(".").lower()
+        return bool(
+            parsed.scheme in {"http", "https"}
+            and host
+            and not host.endswith((".i2p", ".i2p.alt", ".onion"))
+        )
+    except ValueError:
+        return False
+
+
 def _direct_routes(values: tuple[str, ...]) -> tuple[str, ...]:
     routes: list[str] = []
     for value in values:
-        try:
-            parsed = urlsplit(value)
-            host = (parsed.hostname or "").rstrip(".").lower()
-            if (
-                parsed.scheme in {"http", "https"}
-                and host
-                and not host.endswith((".i2p", ".i2p.alt", ".onion"))
-            ):
-                # Match the invitation transport-base normalization; original
-                # signed hints remain unchanged in each supplier statement.
-                base = value.rstrip("/")
-                if base not in routes:
-                    routes.append(base)
-        except ValueError:
-            # Signed supplier hints are still untrusted transport data. A bad
-            # hint must not make the other saved listings unsearchable.
+        if not _direct_http_hint(value):
             continue
+        try:
+            # Reuse the complete invitation base contract before a malformed
+            # supplier hint can poison otherwise valid reviewed routes.
+            base = normalize_mirror_bases((value,))[0]
+        except PreservationError:
+            continue
+        if base not in routes:
+            routes.append(base)
     return tuple(routes)
 
 
@@ -199,7 +210,7 @@ class SourceLibrary:
         endpoints = cast(list[str], info["endpoints"])
         # Transport validation must retain the bootstrap's original endpoint
         # spelling, separately from normalized invitation mirror bases.
-        if any(not _direct_routes((endpoint,)) for endpoint in endpoints):
+        if any(not _direct_http_hint(endpoint) for endpoint in endpoints):
             raise PreservationError("source_transport_unavailable")
         identity = digest(document)
         with directory(self.home, create=True) as root:

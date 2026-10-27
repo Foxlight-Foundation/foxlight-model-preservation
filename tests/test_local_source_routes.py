@@ -24,7 +24,8 @@ def follow(owner, publisher, endpoint):
 
 
 @pytest.mark.parametrize(
-    "change", ["none", "remove_secondary", "deny_private", "no_direct_primary"]
+    "change",
+    ["none", "remove_secondary", "deny_private", "no_direct_primary", "bad_alternate"],
 )
 def test_explicit_followed_route_fallback_preserves_primary_keys_and_envelope(
     tmp_path, capture, change
@@ -52,7 +53,15 @@ def test_explicit_followed_route_fallback_preserves_primary_keys_and_envelope(
             ("ipfs://opaque-peer-hint",) if change == "no_direct_primary" else (dead,)
         )
         first.publish()
-        second.mirrors = (healthy,)
+        second.mirrors = (
+            (
+                healthy,
+                "https://secondary.invalid:invalid",
+                "https://secondary.invalid/?not-a-base",
+            )
+            if change == "bad_alternate"
+            else (healthy,)
+        )
         second.publish()
         unrelated.mirrors = ("https://unrelated.invalid",)
         unrelated.publish(manifest="f" * 64)
@@ -189,7 +198,16 @@ def test_equivalent_bases_do_not_become_duplicate_alternate_mirrors(tmp_path, ca
         mirror(capture.store) as (healthy, requests),
     ):
         first.mirrors = (healthy, healthy + "/")
-        second.mirrors = (healthy + "///",)
+        second.mirrors = (
+            healthy + "///",
+            "https://secondary.invalid:invalid",
+            "https://secondary.invalid:0",
+            "https://secondary.invalid:65536",
+            "https://secondary.invalid/?query=not-a-base",
+            "https://secondary.invalid/#fragment",
+            "https://user:password@secondary.invalid/",
+            "https://secondary.invalid/path with spaces",
+        )
         first.publish()
         second.publish()
         owner = LocalOwner(tmp_path / "owner")
