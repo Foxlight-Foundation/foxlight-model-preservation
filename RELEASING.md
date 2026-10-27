@@ -23,9 +23,12 @@ the files requires a new reviewed manifest and distinct release identity.
 
 After this lane is reviewed and merged:
 
-1. Create the record's tag at the reviewed publication commit on `main`; never
-   replace a published tag. The binary source remains the manifest's older exact
-   source; the tag names the verification workflow and recipe, not a rebuild.
+1. Retain the record's native tag at `f18bc1959c658af4219604dd710e6d078ee352b8`.
+   Create `sovereign-macos-publisher-v0.1.0-build7` at the reviewed publisher
+   commit on `main`. Never replace either tag. The separate publisher tag allows
+   repairing publication tooling without changing the native release identity
+   or its exact container hashes. The binary source remains the manifest's
+   older exact source; neither tag asserts a native rebuild.
 2. Prepare release notes stating the exact supported architecture, verification
    scope/limits, installation steps and verification commands from
    [Mac distribution](docs/macos-distribution.md#public-download-verification).
@@ -33,7 +36,7 @@ After this lane is reviewed and merged:
    final container files whose hashes match the reviewed manifest. This is
    untrusted staging for verification, never a manual public release. Do not
    upload local raw logs, private producer details, credentials or inventories.
-3. Dispatch `macos-release.yml` **at the tag**, `mode=rehearse`, confirmation
+3. Dispatch `macos-release.yml` **at the publisher tag**, `mode=rehearse`, confirmation
    `verify Sovereign 0.1.0 build 7`. Intake checks a closed two-file inventory and
    reviewed hashes. A fresh Apple silicon runner validates both containers,
    Apple Developer ID certificate, complete app CodeDirectory, stapled tickets,
@@ -43,7 +46,7 @@ After this lane is reviewed and merged:
    predicate and checksums using the custom Mac verification predicate. It runs
    no downloaded app or build code. Rehearsal creates public verification
    attestations but leaves the draft private. Inspect that exact run's result.
-5. Dispatch the same tag with `mode=publish` and the same confirmation. It repeats
+5. Dispatch the same publisher tag with `mode=publish` and the same confirmation. It repeats
    verification, checks every attested subject against the exact workflow, tag
    and verifier commit, re-downloads the draft to confirm unchanged bytes, adds
    public evidence without replacing assets, then publishes the pre-release.
