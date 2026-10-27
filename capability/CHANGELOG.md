@@ -18,6 +18,9 @@ tagged `library-v*`; versions without a tag are source previews installed from
   while the requested page is loading.
 - Pair independent desktop installation with public core 0.25.0. Native package
   input pins and signing/publication remain separate from this Python release.
+- Advance the optional Core-backed preview to the verified companion-recovery
+  and model-description host revision. The immutable installer checksum stays
+  unchanged; existing preview data and separate runtime/code permissions remain.
 
 
 - Explain required repository-code permission accurately for Skulk recovery and

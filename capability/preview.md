@@ -19,6 +19,12 @@ public-copy review, explicit finite HTTP sharing, recipient files and reviewed
 exact-copy alternatives from followed sources. It retains all original model
 cards, companions, signed evidence and separate trust decisions.
 
+The optional Core-backed preview pins verified Core revision
+`2cb8c3c29ac936cc2749302a4e3a4d73aa25de86`, including complete companion
+selection and attributed model descriptions. The installer retains its existing
+checksum. Preview setup keeps its existing refusal and ownership checks for
+older or unrecognized installations; it does not delete their saved data.
+
 Portable handoffs, finite peer sharing, PMF, peer receiving and I2P source/receiving controls are included in
 Library 0.21.0 and its immutable compatible Core pin, including persistent mirror,
 retained-copy recovery and offline pending-copy checks. Install the verified
