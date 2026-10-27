@@ -18,6 +18,11 @@ guide](../docs/sovereign-desktop.md) for behavior and native distribution
 limits. The existing `foxlight-preservation-library` launcher and managed entry
 point retain their Core adapter. Neither mode starts sharing on launch.
 
+The current source also adds independent **Backups** and **Sharing** areas,
+complete kit readback, offline HTTP sharing-file review and separately confirmed
+finite HTTP mirror sessions. See [current independent app behavior](../docs/sovereign-desktop.md#backup-folders-and-public-sharing-in-current-source).
+These source changes are separate from publishing or replacing a signed app.
+
 Library 0.15.0 adds [offline pending-copy checks](#check-a-pending-mirror-copy), keeps [retained-copy recovery](#recover-a-retained-mirror-copy), [persistent mirror controls](#keep-models-available), and explicit [I2P HTTP source and receiving controls](#i2p-source-and-receiving-controls)
 with its pinned compatible Core, alongside the peer setup, PMF and one-file
 sharing workflows below. These are public previews with separate networking and

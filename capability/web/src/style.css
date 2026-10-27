@@ -630,3 +630,5 @@ main[inert] .sk-scrim {opacity:0;}
   .sk-progress > span {background:Highlight;}
   .sk-app::before,.sk-app::after {display:none;}
 }
+
+.sk-public-descriptor{max-height:28rem;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:.78rem;line-height:1.5;}

@@ -143,3 +143,37 @@ def test_future_card_evidence_survives_without_runtime_projection(
     result = restore(imported, identity, capture.trust, tmp_path / "future-files")
     assert result.members[0].retained_card == retained
     assert base64.b64decode(result.members[0].retained_card["card_base64"]) == original
+
+
+def test_cli_verifies_all_kit_bytes_without_import(
+    tmp_path, capture, monkeypatch, capsys
+):
+    import json
+    import sys
+
+    from foxlight_model_preservation.cli import main
+    from foxlight_model_preservation.signing import encode_record
+
+    kit = tmp_path / "complete.foxkit"
+    export_kit(capture.store, capture.identity, capture.trust, kit)
+    trust = tmp_path / "trusted.json"
+    trust.write_bytes(encode_record(capture.trust))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "model-preserve",
+            "kit-verify",
+            capture.identity,
+            "--kit",
+            str(kit),
+            "--trust",
+            str(trust),
+        ],
+    )
+    assert main() == 0
+    assert json.loads(capsys.readouterr().out)["verification"] == "complete"
+    with kit.open("r+b") as stream:
+        stream.seek(-1, 2)
+        stream.write(b"!")
+    assert main() != 0

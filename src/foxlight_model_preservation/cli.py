@@ -38,7 +38,7 @@ from .invitations import (
     fetch_invitation,
     read_invitation,
 )
-from .kits import export_kit, import_kit, inspect_kit
+from .kits import export_kit, import_kit, inspect_kit, verify_kit
 from .mirror_cli import MirrorArguments, register_mirror_commands, run_mirror_command
 from .models import MAX_METADATA_BYTES, Catalog, PreservationError, Recipe, TrustProfile
 from .operations import OperationCancelled, OperationControl, Progress, failure_code
@@ -282,7 +282,7 @@ def argument_parser() -> argparse.ArgumentParser:
     evidence.add_argument("--root", type=Path)
     evidence.add_argument("--historical", action="store_true")
     evidence.add_argument("--minimum-versions", type=Path)
-    for name in ("kit-export", "kit-inspect", "kit-import"):
+    for name in ("kit-export", "kit-inspect", "kit-import", "kit-verify"):
         kit = commands.add_parser(name, help="portable self-contained recovery kits")
         if name == "kit-export":
             _trust_options(kit)
@@ -290,6 +290,8 @@ def argument_parser() -> argparse.ArgumentParser:
             kit.add_argument("--output", type=Path, required=True)
         else:
             kit.add_argument("--kit", type=Path, required=True)
+            if name == "kit-verify":
+                _trust_options(kit)
             if name == "kit-import":
                 kit.add_argument("--expected-manifest-id", required=True)
                 kit.add_argument("--trust", dest="bundle_trust", type=Path)
@@ -647,6 +649,15 @@ def run(
                 arguments.manifest,
                 _enrolled_trust(arguments),
                 arguments.output,
+                control=control,
+            )
+        elif arguments.command == "kit-verify":
+            if not isinstance(arguments.manifest, str):
+                raise PreservationError("one exact manifest required")
+            info = verify_kit(
+                arguments.kit,
+                trust=_enrolled_trust(arguments),
+                expected_manifest_id=arguments.manifest,
                 control=control,
             )
         elif arguments.command == "kit-import":
@@ -1121,6 +1132,7 @@ def main() -> int:
         "fetch-catalog",
         "kit-export",
         "kit-import",
+        "kit-verify",
         "source-refresh",
         "source-fetch",
         "plan-pack",

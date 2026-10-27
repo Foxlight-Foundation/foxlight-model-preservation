@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -33,6 +34,9 @@ class DesktopClient(CoreClient):
         self.sharing_owner_id = "sovereign-local-sharing"
         self.discovery_owner_id = "sovereign-local-discovery"
         self.mirror_owner_id = "sovereign-local-mirror"
+        self._picker: asyncio.subprocess.Process | None = None
+        self._picker_lock = asyncio.Lock()
+        self._closing = False
         self.http = httpx.AsyncClient(
             base_url="http://sovereign.invalid",
             transport=httpx.MockTransport(lambda _: httpx.Response(403)),
@@ -55,13 +59,17 @@ class DesktopClient(CoreClient):
         from foxlight_model_preservation.models import PreservationError
 
         try:
+            if method == "POST" and path == "desktop-folder-choose" and body == {}:
+                return await self._choose_folder()
             if (
                 method == "POST"
                 and path == "desktop-reveal"
                 and body is not None
                 and set(body) == {"job_id"}
             ):
-                output = self.owner.restored_directory(str(body["job_id"]))
+                output = await asyncio.to_thread(
+                    self.owner.artifact_directory, str(body["job_id"])
+                )
                 await asyncio.to_thread(
                     subprocess.run,
                     [
@@ -100,6 +108,7 @@ class DesktopClient(CoreClient):
                 "remove_unused_kit_uploads",
                 "source_document_too_large",
                 "source_transport_unavailable",
+                "handoff_transport_unavailable",
                 "source_trust_confirmation_required",
                 "source_review_changed",
                 "source_no_longer_followed",
@@ -111,6 +120,22 @@ class DesktopClient(CoreClient):
                 "receiving_allowance_too_small",
                 "model_metadata_unavailable",
                 "metadata_preview_too_large",
+                "backup_destination_changed",
+                "backup_requires_empty_private_folder",
+                "backup_destination_capacity",
+                "backup_busy_try_again",
+                "sharing_projection_unavailable",
+                "public_copy_review_changed",
+                "sharing_busy_try_again",
+                "sharing_not_ready",
+                "public_copy_capacity",
+                "public_copy_unavailable",
+                "sharing_http_only_required",
+                "sharing_single_selection_required",
+                "sovereign_owner_closing",
+                "safe_temporary_cleanup_unavailable",
+                "sharing_address_required",
+                "sharing_address_invalid",
             }
             raise CoreRefused(
                 code if code in allowed else "invalid_or_unsafe"
@@ -120,8 +145,80 @@ class DesktopClient(CoreClient):
         """Open only one successful local recovery-kit receipt for streaming."""
         return await asyncio.to_thread(self.owner.open_kit, job_id)
 
+    async def local_handoff(self, job_id: str) -> BinaryIO:
+        """Open metadata only from this owner's currently running sharing job."""
+        return await asyncio.to_thread(self.owner.open_handoff, job_id)
+
+    async def metadata(
+        self, method: str, path: str, body: dict[str, JsonValue] | None = None
+    ) -> bytes:
+        """Read one bounded own public-review document outside compact controls."""
+        match = re.fullmatch(r"desktop-public-review/([0-9a-f]{64})", path)
+        if method != "GET" or match is None or body is not None:
+            raise CoreRefused("sovereign_operation_unavailable")
+        return await asyncio.to_thread(self.owner.publication_review, match[1])
+
+    @staticmethod
+    async def _stop_picker(process: asyncio.subprocess.Process) -> None:
+        if process.returncode is None:
+            try:
+                process.terminate()
+            except ProcessLookupError:
+                pass
+            try:
+                await asyncio.wait_for(process.wait(), timeout=2)
+            except TimeoutError:
+                try:
+                    process.kill()
+                except ProcessLookupError:
+                    pass
+                await process.wait()
+
+    async def _choose_folder(self) -> dict[str, JsonValue]:
+        if self._closing:
+            raise CoreRefused("sovereign_owner_closing")
+        binary = shutil.which("zenity", path="/usr/bin:/bin")
+        if sys.platform != "linux" or binary is None:
+            raise CoreRefused("folder_picker_unavailable")
+        if self._picker_lock.locked():
+            raise CoreRefused("folder_picker_busy")
+        async with self._picker_lock:
+            process = await asyncio.create_subprocess_exec(
+                binary,
+                "--file-selection",
+                "--directory",
+                "--title=Choose a backup drive or folder",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            self._picker = process
+            try:
+                if self._closing:
+                    raise CoreRefused("sovereign_owner_closing")
+                output, _ = await asyncio.wait_for(process.communicate(), timeout=600)
+                if process.returncode == 1:
+                    return {"path": None}
+                if process.returncode != 0 or not output.strip() or len(output) > 4096:
+                    raise CoreRefused("folder_picker_unavailable")
+                return {
+                    "path": str(Path(output.decode().strip()) / "Sovereign Backups")
+                }
+            except TimeoutError as error:
+                raise CoreRefused("folder_picker_timed_out") from error
+            finally:
+                await self._stop_picker(process)
+                if self._picker is process:
+                    self._picker = None
+
     async def close(self) -> None:
         """Finish cooperative local shutdown and retain durable receipts."""
+        self._closing = True
+        if self._picker is not None:
+            await self._stop_picker(self._picker)
+        # A spawn can be awaiting its result before _picker is assigned. The
+        # accepted request retains this lock through termination and reaping.
+        async with self._picker_lock:
+            pass
         await asyncio.to_thread(self.owner.close)
         await self.http.aclose()
 

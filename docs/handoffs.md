@@ -6,6 +6,10 @@ starting contacts. Review and receive without Skulk, an account or a Foxlight
 service. These commands are available from the current source checkout; consult
 the [release notes](../CHANGELOG.md) for your installed version.
 
+The current independent app also provides offline HTTP handoff review and
+explicit one-hour HTTP sharing. See [the app workflow and privacy limits](sovereign-desktop.md#backup-folders-and-public-sharing-in-current-source).
+Peer/source handoffs retain the standalone mechanisms below.
+
 ## Publisher
 
 For an existing public HTTPS mirror, wrap an ordinary invitation offline:

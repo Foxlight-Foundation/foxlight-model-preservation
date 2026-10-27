@@ -211,7 +211,11 @@ def main() -> None:
                     "Cancel", Gtk.ResponseType.CANCEL, "Save", Gtk.ResponseType.ACCEPT
                 )
                 dialog.set_do_overwrite_confirmation(True)
-                dialog.set_current_name("Sovereign-recovery.foxkit")
+                dialog.set_current_name(
+                    "Sovereign-sharing.foxhandoff"
+                    if suggested.endswith(".foxhandoff")
+                    else "Sovereign-recovery.foxkit"
+                )
                 if dialog.run() == Gtk.ResponseType.ACCEPT:
                     item.set_allow_overwrite(True)
                     item.set_destination(Path(dialog.get_filename()).as_uri())

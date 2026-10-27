@@ -186,6 +186,10 @@ def main() -> None:
                 "CFBundleVersion": args.build_number,
                 "LSMinimumSystemVersion": "13.0",
                 "NSHighResolutionCapable": True,
+                "NSLocalNetworkUsageDescription": (
+                    "Receive a model from a local mirror, or explicitly share a "
+                    "reviewed public model with people on your network."
+                ),
                 "NSAppTransportSecurity": {"NSAllowsLocalNetworking": True},
             },
             stream,

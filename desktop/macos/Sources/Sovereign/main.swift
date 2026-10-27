@@ -97,6 +97,7 @@ struct LibraryWebView: NSViewRepresentable {
     func makeNSView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
+        configuration.userContentController.addScriptMessageHandler(context.coordinator, contentWorld: .page, name: "chooseBackupFolder")
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.navigationDelegate = context.coordinator
         view.uiDelegate = context.coordinator
@@ -105,9 +106,23 @@ struct LibraryWebView: NSViewRepresentable {
     }
     func updateNSView(_ view: WKWebView, context: Context) {}
 
-    final class Navigation: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate {
+    final class Navigation: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate, WKScriptMessageHandlerWithReply {
         let base: URL
         init(base: URL) { self.base = base }
+        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage, replyHandler: @escaping (Any?, String?) -> Void) {
+            guard message.name == "chooseBackupFolder", message.frameInfo.isMainFrame,
+                  let url = message.frameInfo.request.url, permitted(url),
+                  let body = message.body as? [String: Any], body.isEmpty else {
+                replyHandler(nil, "Folder selection is available only from Sovereign."); return
+            }
+            let panel = NSOpenPanel()
+            panel.canChooseFiles = false; panel.canChooseDirectories = true
+            panel.allowsMultipleSelection = false; panel.canCreateDirectories = false
+            panel.message = "Choose a connected drive or folder. Sovereign will review a dedicated backup folder before creating it."
+            panel.begin { result in
+                replyHandler(result == .OK ? panel.url?.appendingPathComponent("Sovereign Backups").path : nil, nil)
+            }
+        }
         func permitted(_ url: URL) -> Bool {
             url.scheme == base.scheme && url.host == base.host && url.port == base.port && (url.path == base.path || url.path.hasPrefix(base.path + "/"))
         }
@@ -132,7 +147,7 @@ struct LibraryWebView: NSViewRepresentable {
         }
         func download(_ download: WKDownload, decideDestinationUsing response: URLResponse, suggestedFilename: String, completionHandler: @escaping (URL?) -> Void) {
             let panel = NSSavePanel()
-            panel.nameFieldStringValue = "Sovereign-recovery.foxkit"
+            panel.nameFieldStringValue = suggestedFilename.hasSuffix(".foxhandoff") ? "Sovereign-sharing.foxhandoff" : "Sovereign-recovery.foxkit"
             panel.begin { result in completionHandler(result == .OK ? panel.url : nil) }
         }
     }

@@ -132,6 +132,52 @@ def read_kit_envelope(path: Path) -> bytes:
         return envelope
 
 
+def _verify_objects(
+    stream: BinaryIO, manifest: ArchiveManifest, active: OperationControl
+) -> None:
+    for file in sorted(archive_objects(manifest), key=lambda item: item.sha256):
+        hasher = hashlib.sha256()
+        remaining = file.size
+        while remaining:
+            active.checkpoint()
+            chunk = stream.read(min(CHUNK_SIZE, remaining))
+            if not chunk:
+                raise PreservationError("kit object truncated")
+            hasher.update(chunk)
+            remaining -= len(chunk)
+            active.advance(hashed=len(chunk))
+        if hasher.hexdigest() != file.sha256:
+            raise PreservationError("kit object failed integrity verification")
+    if stream.read(1):
+        raise PreservationError("unexpected trailing kit bytes")
+
+
+def verify_kit(
+    path: Path,
+    *,
+    trust: TrustProfile,
+    expected_manifest_id: str,
+    expected_envelope: bytes | None = None,
+    control: OperationControl | None = None,
+) -> KitInspection:
+    """Authenticate and stream-check every kit byte without importing a copy.
+
+    Candidate keys embedded in the kit never replace the supplied trust. This
+    checks integrity, not encryption, registry freshness or runtime permission.
+    """
+    active = control or OperationControl()
+    with active.operation("verify"), _input(path) as stream:
+        info, envelope = _header(stream)
+        if info.manifest_id != expected_manifest_id or (
+            expected_envelope is not None and envelope != expected_envelope
+        ):
+            raise PreservationError("selected kit manifest or envelope changed")
+        manifest = verify_archive_manifest(envelope, trust, expected_manifest_id)
+        active.phase("checking")
+        _verify_objects(stream, manifest, active)
+        return info
+
+
 def export_kit(
     store: Path,
     manifest_id: str,
@@ -140,6 +186,7 @@ def export_kit(
     *,
     expected_envelope: bytes | None = None,
     expected_store_identity: tuple[int, int] | None = None,
+    expected_destination_identity: tuple[int, int] | None = None,
     control: OperationControl | None = None,
 ) -> KitInspection:
     """Write only the selected signed closure and public trust to a new kit.
@@ -159,6 +206,10 @@ def export_kit(
             info = os.fstat(source)
             if (info.st_dev, info.st_ino) != expected_store_identity:
                 raise PreservationError("kit source directory identity changed")
+        if expected_destination_identity is not None:
+            info = os.fstat(parent)
+            if (info.st_dev, info.st_ino) != expected_destination_identity:
+                raise PreservationError("kit destination directory identity changed")
         envelope = read_metadata(source, manifest_path(manifest_id))
         if expected_envelope is not None and envelope != expected_envelope:
             raise PreservationError(
@@ -202,6 +253,14 @@ def export_kit(
                 output.flush()
                 os.fsync(output.fileno())
                 size = output.tell()
+            # Read the actual completed output before making it visible. This
+            # also covers backups on a separately selected mounted filesystem.
+            active.phase("checking")
+            with open_file(parent, pending) as written:
+                checked, written_envelope = _header(written)
+                if checked.manifest_id != manifest_id or written_envelope != envelope:
+                    raise PreservationError("written kit metadata changed")
+                _verify_objects(written, manifest, active)
             active.phase("publishing")
             # Hard-link publication cannot replace an existing file or symlink.
             os.link(

@@ -109,6 +109,141 @@ neither registry authority nor permission to run code. Legacy preservation kits
 are losslessly converted to PMF; existing PMF kits keep their original identity.
 Unknown card data and source documents remain opaque and are preserved.
 
+## Backup folders and public sharing in current source
+
+These controls are implemented in the current source checkout. Previously
+published native apps and Python archives do not acquire them automatically;
+use the matching next release after its independent publication checks.
+
+### Keep a complete backup on another drive
+
+In **Backups → Add backup folder**, choose a connected drive or mounted NAS.
+The Mac shell offers a native folder picker; the Linux desktop package includes
+Zenity for folder selection. Its interactive request permits up to ten minutes;
+cancelling the request or quitting stops its owned picker process. Ordinary
+controls keep their short timeout. The local browser launcher also accepts a path.
+Review the name, exact folder, that destination’s observed free space and encryption disclosure,
+then confirm. Setup creates at most one private folder directly inside an
+existing parent; it never mounts a drive, creates missing parent paths, changes
+shared-folder permissions or copies a model automatically.
+
+In **Library → Back up**, choose a remembered folder and review the exact kit
+and destination. Long Unicode destination lists are paged without probing drives.
+Closing the app waits for accepted folder review/setup calls before releasing
+its exclusive Library ownership; an unavailable NAS can delay that shutdown.
+The durable job writes a new `.foxkit`, reads back every object
+and verifies its hash before publishing the file. Original folder identities
+and the destination marker must still match. A missing or replaced drive stops
+the job; the original Library copy stays intact. Activity records success only
+after readback. Each backup is a new file; earlier kits are not overwritten.
+
+The backup is complete: weights, companions, cards, unknown card properties and
+signed evidence travel together. Open it on a fresh device through **Open
+recovery kit**, independently confirm its capture keys, and **Restore files**
+even when the original app, Core and registry are gone. No private signing key,
+model execution or Skulk installation is required. Kits are not encrypted by
+this feature; use the drive's own encryption and access controls.
+
+**Forget folder** removes only this device's settings, without contacting the
+drive or deleting a file. Old kits and archive retention remain under the
+operator's control. Folder connectivity is checked during the explicit operation,
+not while browsing the locally saved list. A folder on the same filesystem is
+identified as such; it does not protect against losing that drive. Different
+filesystems alone do not establish independent operators or failure domains.
+This adds secondary backups; the primary Library and private keys remain in
+its local home. NAS use still depends on the filesystem semantics described in
+the [protocol](protocol.md#storage-and-publication).
+
+### Prepare a public copy, then choose when to serve it
+
+In **Library → Share**, inspect the redistribution terms for each data member.
+An already-public original archive keeps its existing identity and signatures.
+A supported private capture uses the existing lossless preservation projection
+and a separate publishing identity. Its private installed-record history and
+owner-only capture notices are excluded. Public original card fields, unknown
+card properties and retained signed registry evidence remain unchanged. Common
+PMF archives without this supported projection remain restorable and are refused
+for this transport rather than silently flattened.
+
+Review the complete public descriptor, file list, decoded original card fields
+(including unknown properties) and terms, then choose **Create public copy**.
+Readable cards and the unchanged descriptor use a separate hash-bound metadata
+response within the existing 8 MiB limit, so ordinary signed registry proofs do
+not overflow compact controls. A missing or changed review cannot reach consent. A publisher declaration does not establish
+upstream authorship, a redistribution license, registry approval or runtime
+compatibility. The original private archive stays intact. Complete verified
+public bytes are retained by the public mirror core; no listener or public
+listing starts as a side effect of creating that copy.
+
+After the retained mirror and its receipt are durable, Sovereign removes only
+its disposable publication staging copies. Failed or interrupted staging remains
+private until you choose **Remove temporary sharing files** in Activity. Active
+publication work cannot be removed. That control keeps Library copies, retained
+public mirrors and every recovery kit.
+
+In **Sharing → Review sharing**, separately approve a one-hour HTTP session.
+Additional model selections, followed sources or native peer policies configured
+through standalone tools refuse in this single-model HTTP review. The broader
+operator configuration is kept for review with those tools.
+A mirror configured for native peers or with HTTP disabled is refused rather
+than inheriting permission or changing the operator’s transport choices.
+Its daily and monthly UTC upload allowances are shown and retained across
+sessions. Starting again does not reset those counters. A second simultaneous
+session is refused; private download, kit and restore jobs can continue while
+the mirror runs. **Stop** drains its owned connections and retains all copies.
+Quit stops sharing safely; reopening never silently resumes it. Advanced
+operator-controlled retention uses the existing [persistent mirror
+commands](persistent-mirrors.md), with no remote deletion path.
+
+After the exact public closure has verified for serving, **Activity → Save
+sharing file for recipient** downloads one `.foxhandoff`. Send it through a
+channel you choose; Sovereign sends no messages. The file contains public
+metadata, candidate keys and a direct HTTP route, not private keys or weights.
+Its suggested address is this computer's locally selected network address; it
+is not a reachability test, public listing, NAT traversal or router setup. The
+computer must remain awake and reachable while the recipient downloads. A new
+session needs a fresh sharing file because its listener port can change.
+The app offers the file only while that original session is active and its
+exact selection remains admitted and verified for serving. Blocking a model or
+excluding it after integrity failure revokes the action.
+
+Usually leave the optional recipient address empty. On an isolated LAN without
+a default route, enter this computer’s reachable IPv4 address from Network
+settings, choose **Review address change**, then give fresh session consent.
+An explicitly reviewed address needs no external route lookup. Failure of
+automatic address selection stops the session and asks for that review; it does
+not switch transport or configure a router.
+
+### Open a sharing file without Skulk
+
+In **Find → Independent sources → Open sharing file**, select a `.foxhandoff`
+or legacy HTTP invitation. The first review is offline: it authenticates the
+included candidate signatures without accepting their keys, following a source,
+resolving a host, downloading weights or starting sharing. Confirm capture-key
+fingerprints separately with the sender, then choose which keys to accept for
+this exact copy. Thresholds and revocations still apply. Review mirrors,
+companions, byte allowance and the separate HTTP/private-address permissions
+before explicitly starting the download. All selected bytes verify before its
+private PMF copy appears in Library. Kit export and file restore then work
+without the sender or registry.
+
+This independent app screen currently accepts direct HTTP(S) model handoffs.
+Peer/source handoffs remain available through the [standalone handoff
+commands](handoffs.md); the screen refuses them explicitly and never substitutes
+a gateway or silently joins a swarm. Followed sources remain searchable offline
+through the independent-source controls below. Direct HTTP sharing and receiving
+are neither encrypted nor anonymous: participants and network observers can
+learn network addresses and requested models. These local tests establish no
+public-network privacy qualification or independently operated replica count.
+
+The private owner journal advances to `sovereign.local-owner.v2` to represent
+backup/publication/sharing jobs. A v1 journal is validated and its original
+metadata saved as `journal-before-v2.json` before the new journal is committed.
+No weights, card, archive, signature, kit or signed format is migrated. Older
+owners refuse the new journal; standalone readers can still verify the unchanged
+archives and kits. Copying the old journal over a live newer owner is not a
+supported downgrade procedure.
+
 ## Trust, privacy and limits
 
 ### Follow independent sources
@@ -211,8 +346,8 @@ queue slots. **Remove transfer** in Activity explicitly removes only this app's
 input copy of a recovery kit; it keeps the original file, saved model copies and
 completed kits, and refuses removal while an import needs it. Eight input
 transfers, four active jobs and 256 saved copies are preview limits. Reaching the
-saved-copy limit does not block exporting or restoring existing copies. It writes only to its dedicated
-private home and fresh recovery destinations.
+saved-copy limit does not block exporting or restoring existing copies. It writes to its dedicated private home, fresh recovery destinations and
+explicitly enrolled backup folders.
 
 Default data locations are `~/Library/Application Support/Foxlight/Sovereign` on
 macOS and `$XDG_DATA_HOME/foxlight/sovereign` (normally

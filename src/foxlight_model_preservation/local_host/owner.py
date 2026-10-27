@@ -14,8 +14,9 @@ import stat
 import threading
 import time
 import uuid
+from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import BinaryIO, Literal, cast
 
@@ -24,6 +25,7 @@ from pydantic import Field, JsonValue
 from ..archives import verify_archive
 from ..cards import identity_json
 from ..kits import export_kit, import_kit, inspect_kit, read_kit_envelope
+from ..mirror_models import MirrorObservation
 from ..models import Manifest, PreservationError, Record, TrustProfile
 from ..operations import OperationControl, Progress, failure_code
 from ..pmf import restore_pmf
@@ -38,6 +40,7 @@ from ..signing import (
 )
 from ..storage import atomic_bytes, directory, pack, read_metadata, writer_lock
 from ..transfer import TransferPolicy, fetch
+from .backups import Backups
 from .catalog import RegistryCatalog
 from .presentation import (
     PURPOSE_WORDS,
@@ -55,7 +58,8 @@ from .selection import (
     registry_file_map,
     registry_recipe,
 )
-from .sources import SourceLibrary
+from .sharing import Sharing
+from .sources import HandoffReference, SourceLibrary
 
 JobKind = Literal[
     "catalog_refresh",
@@ -66,6 +70,9 @@ JobKind = Literal[
     "source_refresh",
     "source_metadata",
     "source_receive",
+    "backup",
+    "publish",
+    "share",
 ]
 
 
@@ -100,7 +107,7 @@ class Job(Record):
 class Journal(Record):
     """Versioned local ownership; unrelated Skulk and mirror state is untouched."""
 
-    schema_version: Literal["sovereign.local-owner.v1"] = "sovereign.local-owner.v1"
+    schema_version: Literal["sovereign.local-owner.v2"] = "sovereign.local-owner.v2"
     copies: tuple[Copy, ...] = Field(default=(), max_length=256)
     jobs: tuple[Job, ...] = Field(default=(), max_length=256)
 
@@ -120,20 +127,42 @@ class LocalOwner:
             self._identity = self._fingerprint()
             self.catalog = catalog or RegistryCatalog(home / "registry")
             self.sources = SourceLibrary(self.home)
+            self.backups = Backups(self.home)
+            self.sharing = Sharing(self.home)
             self._lock = threading.RLock()
+            self._idle = threading.Condition(self._lock)
+            self._backup_calls = 0
+            self._closing = False
             self._catalog_lock = threading.RLock()
             self._executor = ThreadPoolExecutor(
                 max_workers=1, thread_name_prefix="sovereign"
             )
+            self._sharing_executor = ThreadPoolExecutor(
+                max_workers=1, thread_name_prefix="sovereign-sharing"
+            )
+            self._sharing_observations: dict[str, MirrorObservation] = {}
+            self._sharing_files: dict[str, str] = {}
             self._controls: dict[str, OperationControl] = {}
             self._progress: dict[str, Progress] = {}
             self._summaries: dict[str, dict[str, JsonValue]] = {}
             self._search_metadata: dict[str, str] = {}
             self._closed = False
             try:
-                self._journal = Journal.model_validate_json(
-                    read_metadata(self._root, "journal.json")
+                raw = read_metadata(self._root, "journal.json")
+                value = strict_json(raw)
+                legacy = isinstance(value, dict) and value.get("schema_version") == (
+                    "sovereign.local-owner.v1"
                 )
+                if legacy and isinstance(value, dict):
+                    value = {**value, "schema_version": "sovereign.local-owner.v2"}
+                self._journal = Journal.model_validate_json(identity_json(value))
+                if legacy:
+                    # Only owner metadata migrates. Signed archives, kits and
+                    # all original cards stay untouched; older owners refuse v2.
+                    try:
+                        read_metadata(self._root, "journal-before-v2.json")
+                    except FileNotFoundError:
+                        atomic_bytes(self._root, "journal-before-v2.json", raw)
             except FileNotFoundError:
                 self._journal = Journal()
             self._journal = self._journal.model_copy(
@@ -170,12 +199,39 @@ class LocalOwner:
 
     def close(self) -> None:
         """Stop finite work, wait for its terminal receipt and release ownership."""
-        with self._lock:
+        with self._idle:
+            if self._closed:
+                return
+            if self._closing:
+                self._idle.wait_for(lambda: self._closed)
+                return
+            self._closing = True
+            self._idle.notify_all()
             for control in self._controls.values():
                 control.cancel()
         self._executor.shutdown(wait=True)
-        self._closed = True
-        self._stack.close()
+        self._sharing_executor.shutdown(wait=True)
+        with self._idle:
+            # NAS syscalls cannot always be cancelled. Keep exclusive ownership
+            # until every accepted out-of-lock call has completed its writes.
+            self._idle.wait_for(lambda: self._backup_calls == 0)
+            self._closed = True
+            self._stack.close()
+            self._idle.notify_all()
+
+    @contextmanager
+    def _backup_call(self) -> Generator[None]:
+        with self._idle:
+            self._check()
+            if self._closing:
+                raise PreservationError("sovereign_owner_closing")
+            self._backup_calls += 1
+        try:
+            yield
+        finally:
+            with self._idle:
+                self._backup_calls -= 1
+                self._idle.notify_all()
 
     def read(self, offset: int = 0) -> dict[str, JsonValue]:
         """Read compact receipts; paths and complete trust history stay private."""
@@ -210,6 +266,17 @@ class LocalOwner:
                         "bytes_received": self._progress[item.job_id].bytes_received
                         if item.job_id in self._progress
                         else 0,
+                        "temporary_sharing_files": item.kind == "publish"
+                        and item.job_id not in self._controls
+                        and self.sharing.work_exists(item.job_id),
+                        "sharing": {
+                            **self._sharing_observations[item.job_id].model_dump(
+                                mode="json"
+                            ),
+                            "handoff_ready": self._handoff_ready(item),
+                        }
+                        if item.job_id in self._sharing_observations
+                        else None,
                     }
                     for item in selected
                 ],
@@ -370,28 +437,85 @@ class LocalOwner:
 
     def _plan(self, value: dict[str, JsonValue]) -> dict[str, JsonValue]:
         value = {**value, "expires_at": int(time.time()) + 600}
+        from ..models import MAX_METADATA_BYTES
+
+        if len(identity_json(value)) > MAX_METADATA_BYTES:
+            raise PreservationError("metadata_preview_too_large")
         plan_id = digest(identity_json(value))
         atomic_bytes(self._root, "plans/" + plan_id + ".json", identity_json(value))
         return {
             **{
                 key: item
                 for key, item in value.items()
-                if key not in {"recipe", "trust", "selection", "source_policy"}
+                if key
+                not in {
+                    "recipe",
+                    "trust",
+                    "selection",
+                    "source_policy",
+                    "public_manifest",
+                    "publication_request",
+                    "decisions",
+                }
             },
             "plan_id": plan_id,
         }
 
     def control(self, action: str, body: dict[str, JsonValue]) -> dict[str, JsonValue]:
         """Validate explicit view controls; never accept arbitrary API forwarding."""
+        # An unavailable NAS can block OS filesystem calls. Do not hold the
+        # owner's receipt/search lock while inspecting an explicitly chosen path.
+        if action == "backup-review" and set(body) == {"path", "label"}:
+            if not isinstance(body["path"], str) or not isinstance(body["label"], str):
+                raise PreservationError("invalid_control")
+            with self._backup_call():
+                return self.backups.review(body["path"], body["label"])
+        if action == "backup-setup" and set(body) == {"review_id", "confirmed"}:
+            if body["confirmed"] is not True:
+                raise PreservationError("invalid_control")
+            with self._backup_call():
+                return self.backups.setup(str(body["review_id"]))
         with self._lock:
             self._check()
+            if self._closing:
+                raise PreservationError("sovereign_owner_closing")
+            if action == "backup-read" and set(body) <= {"offset"}:
+                offset = body.get("offset", 0)
+                if type(offset) is not int or not 0 <= offset <= 16:
+                    raise PreservationError("invalid_control")
+                return self.backups.read(offset)
+            if action == "sharing-work-remove" and set(body) == {"job_id"}:
+                job = self._job(str(body["job_id"]))
+                if job.kind != "publish" or job.job_id in self._controls:
+                    raise PreservationError("sharing_busy_try_again")
+                self.sharing.remove_work(job.job_id)
+                return {"removed": True}
+            if action == "sharing-read" and set(body) <= {"offset"}:
+                offset = body.get("offset", 0)
+                if type(offset) is not int or not 0 <= offset <= 256:
+                    raise PreservationError("invalid_control")
+                return self.sharing.read(offset)
+            if action == "sharing-review" and set(body) == {"copy_id"}:
+                copy = self._copy(str(body["copy_id"]))
+                return self.sharing.review(
+                    self.home / "copies" / copy.copy_id, copy.manifest_id, copy.trust
+                )
+            if action == "backup-forget" and set(body) == {"destination_id"}:
+                if any(
+                    job.kind == "backup" and job.job_id in self._controls
+                    for job in self._journal.jobs
+                ):
+                    raise PreservationError("backup_busy_try_again")
+                return self.backups.forget(str(body["destination_id"]))
             if action == "job-read" and set(body) == {"job_id"}:
                 return self._job(str(body["job_id"])).model_dump(mode="json")
             if action == "source-read" and not body:
                 return self.sources.read()
             if action == "source-search":
                 return self.sources.search(body)
-            if action == "source-review" and set(body) == {"upload_id"}:
+            if action in {"source-review", "handoff-review"} and set(body) == {
+                "upload_id"
+            }:
                 from ..discovery_models import MAX_STATE_BYTES
                 from ..storage import open_file
 
@@ -406,6 +530,8 @@ class LocalOwner:
                     open_file(root, str(body["upload_id"])) as stream,
                 ):
                     document = stream.read(MAX_STATE_BYTES + 1)
+                if action == "handoff-review":
+                    return self.sources.review_handoff(document)
                 return self.sources.review(document)
             if action in {"source-follow", "source-remove"}:
                 if any(
@@ -423,23 +549,7 @@ class LocalOwner:
                 job = self._job(str(body["job_id"]))
                 if job.kind != "source_metadata" or job.state != "succeeded":
                     raise PreservationError("model_metadata_unavailable")
-                record, _, manifest, candidates = self.sources.reference(job.job_id)
-                return {
-                    "reference_job_id": job.job_id,
-                    "manifest_id": record.manifest_id,
-                    "name": manifest.name,
-                    "size_bytes": manifest.total_bytes,
-                    "member_count": len(manifest.members),
-                    "members": [
-                        member.origin_repository for member in manifest.members[:8]
-                    ],
-                    "keys": [key.key_id for key in candidates.keys],
-                    "threshold": candidates.threshold,
-                    "revoked_keys": list(candidates.revoked_keys),
-                    "mirrors": list(
-                        self.sources.http_mirrors(record.selection.mirrors)
-                    ),
-                }
+                return self.sources.preview(job.job_id)
             if action in {"search", "copy-search"}:
                 if (
                     set(body) - {"query", "offset", "purpose"}
@@ -470,12 +580,39 @@ class LocalOwner:
                 )
             if action == "plan":
                 kind = body.get("kind")
+                if kind == "publish" and set(body) == {"kind", "copy_id", "decisions"}:
+                    copy = self._copy(str(body["copy_id"]))
+                    return self._plan(
+                        {
+                            "kind": "publish",
+                            "copy_id": copy.copy_id,
+                            **self.sharing.plan(
+                                self.home / "copies" / copy.copy_id,
+                                copy.manifest_id,
+                                copy.trust,
+                                body["decisions"],
+                            ),
+                        }
+                    )
+                if kind == "share" and {"kind", "public_id"} <= set(body) <= {
+                    "kind",
+                    "public_id",
+                    "advertised_address",
+                }:
+                    return self._plan(
+                        self.sharing.session_plan(
+                            str(body["public_id"]), body.get("advertised_address")
+                        )
+                    )
                 if kind in {"source_refresh", "source_metadata"}:
                     return self._plan(self.sources.plan(body))
                 if kind == "source_receive":
-                    job = self._job(str(body.get("reference_job_id")))
-                    if job.kind != "source_metadata" or job.state != "succeeded":
-                        raise PreservationError("model_metadata_unavailable")
+                    identifier = str(body.get("reference_job_id"))
+                    record, _, _, _ = self.sources.reference(identifier)
+                    if not isinstance(record, HandoffReference):
+                        job = self._job(identifier)
+                        if job.kind != "source_metadata" or job.state != "succeeded":
+                            raise PreservationError("model_metadata_unavailable")
                     return self._plan(self.sources.receive_plan(body))
                 if kind == "receive" and set(body) == {"kind", "catalog_id", "card_id"}:
                     with self._catalog_lock:
@@ -558,6 +695,24 @@ class LocalOwner:
                             "details": self._copy_view(copy)["details"],
                             "member_count": copy.member_count,
                             "keys": [key.key_id for key in copy.trust.keys],
+                        }
+                    )
+                if kind == "backup" and set(body) == {
+                    "kind",
+                    "copy_id",
+                    "destination_id",
+                }:
+                    copy = self._copy(str(body["copy_id"]))
+                    return self._plan(
+                        {
+                            "kind": "backup",
+                            "copy_id": copy.copy_id,
+                            "name": copy.name,
+                            "manifest_id": copy.manifest_id,
+                            "size_bytes": copy.size_bytes,
+                            "member_count": copy.member_count,
+                            **self.backups.selection(str(body["destination_id"])),
+                            "details": self._copy_view(copy)["details"],
                         }
                     )
                 if kind == "kit_import" and set(body) == {"kind", "upload_id"}:
@@ -743,6 +898,11 @@ class LocalOwner:
             raise PreservationError("plan_missing_or_expired")
         if len(self._controls) >= 4:
             raise PreservationError("sovereign_job_capacity_reached")
+        if plan["kind"] == "share" and any(
+            job.kind == "share" and job.job_id in self._controls
+            for job in self._journal.jobs
+        ):
+            raise PreservationError("sharing_busy_try_again")
         if (
             plan["kind"] in {"receive", "kit_import", "source_receive"}
             and len(self._journal.copies)
@@ -778,7 +938,8 @@ class LocalOwner:
         control = OperationControl(observe)
         self._progress[job.job_id] = control.progress
         self._controls[job.job_id] = control
-        self._executor.submit(self._run, job, plan, control)
+        executor = self._sharing_executor if job.kind == "share" else self._executor
+        executor.submit(self._run, job, plan, control)
         return job.model_dump(mode="json")
 
     def _update(self, job: Job, **changes: JsonValue) -> Job:
@@ -815,6 +976,20 @@ class LocalOwner:
                 self.sources.run(job.job_id, plan, control)
             elif job.kind == "source_receive":
                 self._source_receive(job, plan, control)
+            elif job.kind == "share":
+
+                def observe(value: MirrorObservation) -> None:
+                    with self._lock:
+                        self._sharing_observations[job.job_id] = value
+
+                def ready(identity: str | None) -> None:
+                    with self._lock:
+                        if identity is None:
+                            self._sharing_files.pop(job.job_id, None)
+                        else:
+                            self._sharing_files[job.job_id] = identity
+
+                self.sharing.serve(job.job_id, plan, control, observe, ready)
             else:
                 with self._lock:
                     copy = self._copy(str(plan["copy_id"]))
@@ -822,7 +997,27 @@ class LocalOwner:
                 verify_archive(
                     store, copy.manifest_id, copy.trust, control=control.fork()
                 )
-                if job.kind == "kit_export":
+                if job.kind == "publish":
+                    self.sharing.publish(
+                        job.job_id,
+                        copy.copy_id,
+                        store,
+                        copy.manifest_id,
+                        copy.trust,
+                        plan,
+                        control.fork(),
+                    )
+                    output = None
+                elif job.kind == "backup":
+                    output = self.backups.write(
+                        plan,
+                        store,
+                        copy.manifest_id,
+                        copy.trust,
+                        job.job_id,
+                        control.fork(),
+                    )
+                elif job.kind == "kit_export":
                     with directory(self.home / "kits", create=True):
                         pass
                     output = self.home / "kits" / (job.job_id + ".foxkit")
@@ -844,10 +1039,12 @@ class LocalOwner:
                         output,
                         control=control.fork(),
                     )
-                job = self._update(job, output=str(output))
+                job = self._update(job, output=str(output) if output else None)
             self._update(job, state="succeeded")
         except Exception as error:
             code = failure_code(error)
+            if job.kind == "backup" and isinstance(error, OSError):
+                code = "backup_destination_unavailable"
             if isinstance(error, PreservationError) and str(error) in {
                 "insufficient_space",
                 "selected_kit_envelope_changed",
@@ -856,6 +1053,9 @@ class LocalOwner:
                 "source_review_changed",
                 "source_model_reference_changed",
                 "source_update_failed",
+                "backup_destination_changed",
+                "public_copy_review_changed",
+                "sharing_address_required",
             }:
                 code = str(error)
             self._update(
@@ -892,8 +1092,7 @@ class LocalOwner:
             record.envelope_sha256 != plan["envelope_sha256"]
             or record.manifest_id != plan["manifest_id"]
             or digest(encode_record(record)) != plan["reference_sha256"]
-            or list(self.sources.http_mirrors(record.selection.mirrors))
-            != plan["mirrors"]
+            or list(self.sources.http_mirrors(record.mirrors)) != plan["mirrors"]
         ):
             raise PreservationError("source_model_reference_changed")
         trust = TrustProfile.model_validate_json(identity_json(plan["trust"]))
@@ -1105,6 +1304,79 @@ class LocalOwner:
                 raise PreservationError("kit_not_ready")
             return os.fdopen(descriptor, "rb")
 
+    def publication_review(self, plan_id: str) -> bytes:
+        """Return only a hash-bound public descriptor and decoded original cards."""
+        with self._lock:
+            self._check()
+            if re.fullmatch(r"[0-9a-f]{64}", plan_id) is None:
+                raise PreservationError("invalid_control")
+            plan = strict_json(read_metadata(self._root, "plans/" + plan_id + ".json"))
+            if (
+                not isinstance(plan, dict)
+                or digest(identity_json(plan)) != plan_id
+                or plan.get("kind") != "publish"
+            ):
+                raise PreservationError("plan_changed")
+            document = self.sharing.preview(plan)
+            if digest(document) != plan["public_review_sha256"]:
+                raise PreservationError("public_copy_review_changed")
+            return document
+
+    def _handoff_ready(self, job: Job) -> bool:
+        if (
+            job.job_id not in self._sharing_files
+            or job.kind != "share"
+            or job.state != "running"
+        ):
+            return False
+        try:
+            plan = strict_json(
+                read_metadata(self._root, "plans/" + job.plan_id + ".json")
+            )
+            if not isinstance(plan, dict) or digest(identity_json(plan)) != job.plan_id:
+                return False
+            self.sharing.require_session(plan)
+            return True
+        except (ValueError, OSError):
+            return False
+
+    def open_handoff(self, job_id: str) -> BinaryIO:
+        """Read one current explicit sharing session's verified metadata file."""
+        with self._lock:
+            self._check()
+            job = self._job(job_id)
+            observed = self._sharing_observations.get(job_id)
+            if (
+                job.kind != "share"
+                or job.state != "running"
+                or observed is None
+                or not observed.running
+                or not self._handoff_ready(job)
+            ):
+                raise PreservationError("sharing_not_ready")
+            descriptor = os.open(
+                self.home / "sharing/handoffs" / (job_id + ".foxhandoff"),
+                os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+            )
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                os.close(descriptor)
+                raise PreservationError("sharing_not_ready")
+            stream = os.fdopen(descriptor, "rb")
+            try:
+                from ..models import MAX_METADATA_BYTES
+
+                data = stream.read(MAX_METADATA_BYTES + 1)
+                if (
+                    len(data) > MAX_METADATA_BYTES
+                    or digest(data) != self._sharing_files[job_id]
+                ):
+                    raise PreservationError("sharing_not_ready")
+                stream.seek(0)
+                return stream
+            except BaseException:
+                stream.close()
+                raise
+
     def restored_directory(self, job_id: str) -> Path:
         """Resolve only a successful own-job restore, for an explicit reveal action."""
         with self._lock:
@@ -1116,3 +1388,19 @@ class LocalOwner:
             with directory(output):
                 pass
             return output
+
+    def artifact_directory(self, job_id: str) -> Path:
+        """Resolve an own completed restore or backup, never a caller-supplied path."""
+        with self._lock:
+            self._check()
+            job = self._job(job_id)
+            if job.kind != "backup":
+                return self.restored_directory(job_id)
+            if job.state != "succeeded":
+                raise PreservationError("backup_not_ready")
+            plan = strict_json(
+                read_metadata(self._root, "plans/" + job.plan_id + ".json")
+            )
+            if not isinstance(plan, dict) or digest(identity_json(plan)) != job.plan_id:
+                raise PreservationError("plan_changed")
+        return self.backups.folder(plan)

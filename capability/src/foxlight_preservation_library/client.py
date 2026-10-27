@@ -154,6 +154,10 @@ class CoreClient:
         """Refuse independent filesystem artifacts in a Core-backed client."""
         raise CoreRefused("sovereign_operation_unavailable")
 
+    async def local_handoff(self, job_id: str) -> BinaryIO:
+        """Refuse independent session files in a Core-backed client."""
+        raise CoreRefused("sovereign_operation_unavailable")
+
     async def metadata(
         self, method: str, path: str, body: dict[str, JsonValue] | None = None
     ) -> bytes:
