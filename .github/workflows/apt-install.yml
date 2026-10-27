@@ -23,7 +23,7 @@ jobs:
       - name: Install only test dependencies and the scoped public software key
         run: |
           sudo apt-get update
-          sudo apt-get install -y curl ca-certificates gnupg python3-pyatspi at-spi2-core xvfb dbus-x11
+          sudo apt-get install -y curl ca-certificates gnupg python3-pyatspi at-spi2-core xvfb dbus-x11 xdotool
           curl --fail --silent --show-error https://apt.foxlight.ai/sovereign-archive-keyring.gpg -o /tmp/sovereign-archive-keyring.gpg
           echo 'f9a76cf4131603e3b7d905868efcf53f7ebea98ccdbfaf0d47ae0ac825cfd338  /tmp/sovereign-archive-keyring.gpg' | sha256sum --check --strict
           sudo install -m 0644 /tmp/sovereign-archive-keyring.gpg /usr/share/keyrings/sovereign-archive-keyring.gpg
@@ -56,6 +56,14 @@ jobs:
         run: |
           cd /tmp
           dbus-run-session -- xvfb-run -a /usr/bin/python3 -I -B "$GITHUB_WORKSPACE/scripts/qualify_linux.py" --directory /tmp/sovereign-public-apt-qualification
+      - name: Recover a complete signed kit through the native GUI without any external network
+        run: |
+          sudo unshare --net /bin/bash -euc '
+            ip link set lo up
+            exec runuser -u "$1" -- dbus-run-session -- xvfb-run -a -s "-screen 0 1440x1000x24" \
+              /usr/bin/python3 -I -B "$2/scripts/qualify_linux_recovery.py" \
+              --directory /tmp/sovereign-public-apt-recovery
+          ' bash "$(id -un)" "$GITHUB_WORKSPACE"
       - name: Package removal retains all user files
         run: |
           python3 - <<'PY'
@@ -86,5 +94,9 @@ jobs:
           path: |
             /tmp/sovereign-public-apt-qualification/qualification.json
             /tmp/sovereign-public-apt-qualification/*.png
+            /tmp/sovereign-public-apt-recovery/qualification.json
+            /tmp/sovereign-public-apt-recovery/*.png
+            /tmp/sovereign-public-apt-recovery/*.txt
+            /tmp/sovereign-public-apt-recovery/*.log
           if-no-files-found: error
           retention-days: 30

@@ -173,17 +173,36 @@ opaque cards and the original signed envelope, refuse tampered bytes and ignore
 ambient Python. A final package purge must retain exact user file hashes and
 leave the system-wide user-namespace restriction unchanged.
 
-Full native kit import/restore/save/restart, interrupted installation/upgrade,
-additional distributions/desktops and full real-model acceptance remain further
-qualification. The signed APT publication separately verifies the public package producer,
+The public `apt-install.yml` workflow additionally qualifies the full native GUI
+recovery journey against the published `foxlight-sovereign=0.1.0-2` package on
+both native architectures. `scripts/qualify_linux_recovery.py` uses AT-SPI and
+GTK's actual Open/Save dialogs to import the public two-member PMF vector,
+require explicit acceptance of independently pinned capture keys, restart after
+removing the runner's input kit, restore from Library, save a complete kit and
+restart again. It compares every restored file size/hash, opaque source card,
+original signed envelope and exact exported kit bytes, and requires the completed
+jobs/copy to survive both app restarts without replay or implicit sharing.
+
+Recovery runs inside an ephemeral network namespace with only loopback; neither
+the original registry nor a Core can be contacted. The installed isolated core
+is used for fixture preparation and independent readback after native Quit;
+positive recovery operations are performed through the native UI. No WebView
+script injection, backend operation calls or sandbox exceptions substitute for
+that journey. The exact installed package/source/component receipts and native
+screenshots are retained as workflow artifacts. The
+[first complete amd64/arm64 public apt run](https://github.com/Foxlight-Foundation/foxlight-model-preservation/actions/runs/40595374618)
+used core 0.25.0 / Library 0.21.0. These are small synthetic conformance inputs;
+real-model recovery must retain its own exact-input evidence.
+
+The signed APT publication separately verifies the public package producer,
 uses the Foxlight software archive key in a disposable signing environment, and
 requires a real APT update plus rejection of unknown keys, modified signatures,
-expired metadata and changed index bytes before publication. The public
-`apt-install.yml` workflow installs from the HTTPS channel on both native
-architectures, verifies the downloaded package attestation, uses the installed
-app/CLI without Skulk, and checks that purge retains exact user data and the
-global sandbox policy. These checks remain distinct from full GUI recovery,
-real-model execution, additional distributions and public-network privacy.
+expired metadata and changed index bytes before publication. Public installation
+verifies the downloaded package attestation and checks that purge retains exact
+user data and the global sandbox policy. App restart is not an OS reboot or a
+power-loss test. Interrupted installation/upgrade, other distributions/desktops,
+model inference, participant usability and public-network privacy remain
+separate qualification.
 
 API references: [PyGObject](https://pygobject.gnome.org/getting_started.html),
 [ephemeral WebKit contexts](https://webkitgtk.org/reference/webkit2gtk/stable/class.WebContext.html),
