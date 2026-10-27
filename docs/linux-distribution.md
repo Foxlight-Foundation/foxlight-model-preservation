@@ -19,16 +19,19 @@ pinned checksum before adding the Sovereign source. This source installs only
 Sovereign; it does not install Skulk. Run these commands in a terminal:
 
 ```sh
-sudo apt update
-sudo apt install -y ca-certificates curl
-curl --fail --silent --show-error \
-  https://apt.foxlight.ai/sovereign-archive-keyring.gpg \
-  -o sovereign-archive-keyring.gpg
-echo 'f9a76cf4131603e3b7d905868efcf53f7ebea98ccdbfaf0d47ae0ac825cfd338  sovereign-archive-keyring.gpg' | sha256sum --check
-sudo install -m 0644 sovereign-archive-keyring.gpg /usr/share/keyrings/sovereign-archive-keyring.gpg
-echo 'deb [signed-by=/usr/share/keyrings/sovereign-archive-keyring.gpg] https://apt.foxlight.ai sovereign main' | sudo tee /etc/apt/sources.list.d/sovereign.list
-sudo apt update
-sudo apt install foxlight-sovereign
+(
+  set -e
+  sudo apt update
+  sudo apt install -y ca-certificates curl
+  curl --fail --silent --show-error \
+    https://apt.foxlight.ai/sovereign-archive-keyring.gpg \
+    -o sovereign-archive-keyring.gpg
+  echo 'f9a76cf4131603e3b7d905868efcf53f7ebea98ccdbfaf0d47ae0ac825cfd338  sovereign-archive-keyring.gpg' | sha256sum --check
+  sudo install -m 0644 sovereign-archive-keyring.gpg /usr/share/keyrings/sovereign-archive-keyring.gpg
+  echo 'deb [signed-by=/usr/share/keyrings/sovereign-archive-keyring.gpg] https://apt.foxlight.ai sovereign main' | sudo tee /etc/apt/sources.list.d/sovereign.list
+  sudo apt update
+  sudo apt install foxlight-sovereign
+)
 ```
 
 Open **Sovereign** from the application menu, or run `sovereign`. Future versions
@@ -60,16 +63,19 @@ Download `SHA256SUMS` and `linux-release.sigstore.json` alongside it. With GitHu
 installed, verify the downloaded package before installing:
 
 ```sh
-architecture=$(dpkg --print-architecture)
-package="foxlight-sovereign_0.1.0-2_${architecture}.deb"
-sha256sum --ignore-missing --check SHA256SUMS
-gh attestation verify "$package" \
-  --repo Foxlight-Foundation/foxlight-model-preservation \
-  --bundle linux-release.sigstore.json \
-  --signer-workflow Foxlight-Foundation/foxlight-model-preservation/.github/workflows/linux-release.yml \
-  --source-ref refs/tags/sovereign-linux-v0.1.0-2 --deny-self-hosted-runners
-sudo apt install "./$package"
-sovereign
+(
+  set -e
+  architecture=$(dpkg --print-architecture)
+  package="foxlight-sovereign_0.1.0-2_${architecture}.deb"
+  sha256sum --ignore-missing --check SHA256SUMS
+  gh attestation verify "$package" \
+    --repo Foxlight-Foundation/foxlight-model-preservation \
+    --bundle linux-release.sigstore.json \
+    --signer-workflow Foxlight-Foundation/foxlight-model-preservation/.github/workflows/linux-release.yml \
+    --source-ref refs/tags/sovereign-linux-v0.1.0-2 --deny-self-hosted-runners
+  sudo apt install "./$package"
+  sovereign
+)
 ```
 
 Open **Sovereign** from the application menu for later launches. Use **Find** to
