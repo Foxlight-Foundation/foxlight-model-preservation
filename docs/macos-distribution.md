@@ -13,14 +13,18 @@ rebuilding or signing them. Developer ID signing, Apple notarization and an
 installed-app journey remain separate checks. A locally passing Gatekeeper
 check does not establish clean-host acceptance, model compatibility or anonymity.
 
-The current recipe targets **0.1.0 build 6**, with the authenticated public core
-0.24 / Library 0.20 cohort. It includes the Sovereign Horizon interface, declared input/output types, image understanding,
+The current recipe targets **0.1.0 build 7**, with the authenticated public core
+0.25 / Library 0.21 cohort. This adds complete companion recovery, verified backup
+folders, explicit finite sharing, recipient handoff and reviewed alternate routes
+for the same exact model capture. It includes the Sovereign Horizon interface,
+declared input/output types, image understanding,
 reasoning and companion-file explanations, readable descriptions and purpose
 filters, local Library search, contextual identity help and recovery guidance,
 alongside Sovereign branding, independent source following, explicit authenticated
-updates, offline source search and separate capture-key review. The retained build 2 publication manifest below identifies
+updates, offline source search and separate capture-key review. The retained
+build 2 publication manifest below identifies
 its original signed containers; updating the recipe does not publish or replace
-those files. Build 6 needs its own reviewed final-container record and release.
+those files. Build 7 needs its own reviewed final-container record and release.
 
 ## Public download verification
 

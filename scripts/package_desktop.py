@@ -39,7 +39,9 @@ def install_native_cli(contents: Path) -> dict[str, str]:
     if any(path.is_dir() and not path.is_symlink() for path in stubs):
         raise ValueError("unexpected directory in generated console scripts")
     for stub in stubs:
-        stub.unlink()
+        # macOS may remove a stub's AppleDouble sidecar with the stub itself
+        # on ExFAT. That already-removed snapshot entry needs no second removal.
+        stub.unlink(missing_ok=True)
     bootstrap = resources / "native-cli.py"
     shutil.copyfile(source / "native-cli.py", bootstrap)
     bootstrap.chmod(0o644)

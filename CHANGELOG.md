@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Align the Mac build 7 and Linux revision 2 recipes with authenticated public
+  core 0.25.0 / Library 0.21.0 bytes and their exact source revision. Native
+  signing, publication and installed-app qualification remain separate.
+- Handle automatically removed AppleDouble metadata while replacing generated
+  Mac console stubs. Keep unexpected-directory refusal.
+
 ## 0.25.0
 
 - Start independent Find with complete signed selections ready for review, while
