@@ -541,9 +541,26 @@ def test_failed_publication_retains_scratch_until_operator_cleanup_after_restart
         raise OSError("controlled failed publication")
 
     monkeypatch.setattr(sharing, "export_preservation", fail)
+    update = owner._update
+    terminal_cleanup = []
+
+    def observed_update(job, **changes):
+        result = update(job, **changes)
+        if changes.get("state") == "failed":
+            terminal_cleanup.append(
+                next(
+                    row["temporary_sharing_files"]
+                    for row in owner.read()["jobs"]
+                    if row["job_id"] == job.job_id
+                )
+            )
+        return result
+
+    monkeypatch.setattr(owner, "_update", observed_update)
     failed = finish(owner, submit(owner, plan))
     assert failed["state"] == "failed"
     assert failed["temporary_sharing_files"] is True
+    assert terminal_cleanup == [True]
     owner.close()
     owner = LocalOwner(owner.home)
     try:

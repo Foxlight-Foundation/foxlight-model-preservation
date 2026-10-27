@@ -969,6 +969,13 @@ class LocalOwner:
             self._save()
             return job
 
+    def _finish(self, job: Job, **changes: JsonValue) -> None:
+        """Publish a terminal outcome and its inactive controls atomically."""
+        with self._lock:
+            self._controls.pop(job.job_id, None)
+            self._progress.pop(job.job_id, None)
+            self._update(job, **changes)
+
     def _run(
         self, job: Job, plan: dict[str, JsonValue], control: OperationControl
     ) -> None:
@@ -1050,7 +1057,7 @@ class LocalOwner:
                         control=control.fork(),
                     )
                 job = self._update(job, output=str(output) if output else None)
-            self._update(job, state="succeeded")
+            self._finish(job, state="succeeded")
         except Exception as error:
             code = failure_code(error)
             if job.kind == "backup" and isinstance(error, OSError):
@@ -1068,7 +1075,7 @@ class LocalOwner:
                 "sharing_address_required",
             }:
                 code = str(error)
-            self._update(
+            self._finish(
                 job,
                 state="cancelled" if failure_code(error) == "cancelled" else "failed",
                 error_code=code,
