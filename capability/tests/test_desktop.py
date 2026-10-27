@@ -220,3 +220,52 @@ async def test_public_review_metadata_is_separate_from_compact_controls(
     finally:
         await asyncio.to_thread(server.close)
         await client.close()
+
+
+async def test_shutdown_drains_delayed_chooser_spawn_and_refuses_new_choosers(
+    tmp_path, monkeypatch
+):
+    import sys
+
+    import foxlight_preservation_library.desktop as desktop
+    from foxlight_preservation_library.client import CoreRefused
+
+    client = DesktopClient(tmp_path / "owner")
+    original = asyncio.create_subprocess_exec
+    started, release = asyncio.Event(), asyncio.Event()
+    children = []
+
+    async def delayed(*args, **kwargs):
+        process = await original(
+            sys.executable,
+            "-c",
+            "import time; time.sleep(60)",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        children.append(process)
+        started.set()
+        await release.wait()
+        return process
+
+    monkeypatch.setattr(desktop.sys, "platform", "linux")
+    monkeypatch.setattr(desktop.shutil, "which", lambda *a, **kw: "/usr/bin/zenity")
+    monkeypatch.setattr(desktop.asyncio, "create_subprocess_exec", delayed)
+    request = asyncio.create_task(client.request("POST", "desktop-folder-choose", {}))
+    await asyncio.wait_for(started.wait(), 5)
+    closing = asyncio.create_task(client.close())
+    try:
+        await asyncio.sleep(0)
+        assert client._closing and not closing.done() and client._picker is None
+        with pytest.raises(CoreRefused, match="sovereign_owner_closing"):
+            await client.request("POST", "desktop-folder-choose", {})
+        assert len(children) == 1
+        release.set()
+        await asyncio.wait_for(closing, 5)
+        with pytest.raises(CoreRefused, match="sovereign_owner_closing"):
+            await request
+        assert children[0].returncode is not None and client._picker is None
+    finally:
+        release.set()
+        await asyncio.gather(request, closing, return_exceptions=True)
+        await client.close()

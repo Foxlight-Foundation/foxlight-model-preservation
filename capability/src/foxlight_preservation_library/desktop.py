@@ -36,6 +36,7 @@ class DesktopClient(CoreClient):
         self.mirror_owner_id = "sovereign-local-mirror"
         self._picker: asyncio.subprocess.Process | None = None
         self._picker_lock = asyncio.Lock()
+        self._closing = False
         self.http = httpx.AsyncClient(
             base_url="http://sovereign.invalid",
             transport=httpx.MockTransport(lambda _: httpx.Response(403)),
@@ -174,6 +175,8 @@ class DesktopClient(CoreClient):
                 await process.wait()
 
     async def _choose_folder(self) -> dict[str, JsonValue]:
+        if self._closing:
+            raise CoreRefused("sovereign_owner_closing")
         binary = shutil.which("zenity", path="/usr/bin:/bin")
         if sys.platform != "linux" or binary is None:
             raise CoreRefused("folder_picker_unavailable")
@@ -190,6 +193,8 @@ class DesktopClient(CoreClient):
             )
             self._picker = process
             try:
+                if self._closing:
+                    raise CoreRefused("sovereign_owner_closing")
                 output, _ = await asyncio.wait_for(process.communicate(), timeout=600)
                 if process.returncode == 1:
                     return {"path": None}
@@ -207,8 +212,13 @@ class DesktopClient(CoreClient):
 
     async def close(self) -> None:
         """Finish cooperative local shutdown and retain durable receipts."""
+        self._closing = True
         if self._picker is not None:
             await self._stop_picker(self._picker)
+        # A spawn can be awaiting its result before _picker is assigned. The
+        # accepted request retains this lock through termination and reaping.
+        async with self._picker_lock:
+            pass
         await asyncio.to_thread(self.owner.close)
         await self.http.aclose()
 
