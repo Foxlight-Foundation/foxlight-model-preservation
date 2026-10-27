@@ -45,6 +45,13 @@ wire thresholds include routing overhead and can overshoot. These controls do
 not impose hard filesystem/network quotas, arrange reachability or provide
 anonymity. Persistent mirror controls have separate settings and restart permission below.
 
+Recovery into Skulk's Model Store requires a separate repository-code permission
+when Core reports that requirement, including vision processor selections. That
+permission is distinct from accepting the capture and is never inherited from
+the old Core. Recovery itself does not start the model. To recover files without
+granting that permission, use standalone Sovereign's **Restore files** or the
+standalone command tools; they do not install or run a model in Skulk.
+
 The same file works with the [standalone tools](../docs/handoffs.md), without
 Skulk or this capability. Standalone tools also wrap source references; **Add a
 source** accepts those files without changing their inner source/TUF identity.

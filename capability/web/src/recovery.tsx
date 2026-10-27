@@ -72,7 +72,7 @@ export function ReviewPlan({plan,busy,online,storageLabel,back='Back to Library'
       <Step n={3} title="Your permission">
         {!plan.requires_owner_acceptance&&!plan.requires_code_permission&&(plan.deleted_aliases?.length??0)===0&&<p>No extra permission is needed for this copy.</p>}
         {plan.requires_owner_acceptance&&<Consent checked={accept} onChange={setAccept}>I trust this exact recovery copy and accept its stated provenance limits.</Consent>}
-        {plan.requires_code_permission&&<Consent checked={code} onChange={setCode} note="Leave this unticked to restore the files without allowing their code to run.">Separately, I allow this model’s repository code to run on this Core.</Consent>}
+        {plan.requires_code_permission&&<><Consent checked={code} onChange={setCode} note="Required to restore this model into Skulk because it may use repository code, including vision processors. Recovery does not start the model.">Separately, I allow this model’s repository code to run on this Core.</Consent><p className="sk-fine">For files-only recovery without this permission, use <a href="https://github.com/Foxlight-Foundation/foxlight-model-preservation/blob/main/docs/sovereign-desktop.md#everyday-use" target="_blank" rel="noreferrer">standalone Sovereign</a>.</p></>}
         {(plan.deleted_aliases?.length??0)>0&&<Consent checked={removed} onChange={setRemoved}>I want to restore these deliberately removed models: {plan.deleted_aliases?.join(', ')}.</Consent>}
         <p className="sk-fine"><Icon name="lock" size={14}/><span>Permissions from the old Core are not reused. Existing models and deliberate removals are protected.</span></p>
       </Step>

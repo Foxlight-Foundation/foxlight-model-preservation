@@ -6,6 +6,11 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Explain required repository-code permission accurately for Skulk recovery and
+  point to standalone files-only recovery when that permission is not desired.
+  Keep the separate code/provenance gates. Unselected backup storage no longer
+  implies that a model was successfully recovered.
+
 - Explain a missing or size-conflicting signed companion while keeping its
   listing browsable and its download disabled. Preserve the Horizon interface,
   independent trust decisions and receive-only defaults.
