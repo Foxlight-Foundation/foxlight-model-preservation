@@ -218,7 +218,13 @@ class NativeJourney:
     def click(self, name: str, role=None) -> None:
         """Activate a visible enabled native accessibility action."""
         role = role or self.spi.ROLE_PUSH_BUTTON
-        self.wait(lambda: self.find(name, role) is not None, name)
+        self.wait(
+            lambda: (
+                self.find(name, role) is not None
+                and self.find(name, role).getState().contains(self.spi.STATE_ENABLED)
+            ),
+            name + " enabled",
+        )
         node = self.find(name, role)
         require(node.getState().contains(self.spi.STATE_ENABLED), name + " disabled")
         require(node.queryAction().doAction(0), name + " action refused")
