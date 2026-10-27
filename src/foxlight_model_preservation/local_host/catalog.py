@@ -263,7 +263,11 @@ class RegistryCatalog:
         )
 
     def search(
-        self, query: str = "", offset: int = 0, purpose: str = ""
+        self,
+        query: str = "",
+        offset: int = 0,
+        purpose: str = "",
+        ready_only: bool = False,
     ) -> dict[str, JsonValue]:
         """Search accepted local data only; queries never go to suppliers."""
         try:
@@ -362,6 +366,10 @@ class RegistryCatalog:
                 str(row["name"]),
             )
         )
+        matching_total = len(rows)
+        ready_total = sum(row["download_support"] == "ready" for row in rows)
+        if ready_only:
+            rows = [row for row in rows if row["download_support"] == "ready"]
         page: list[dict[str, JsonValue]] = []
         page_bytes = 0
         for row in rows[offset : offset + 24]:
@@ -376,6 +384,8 @@ class RegistryCatalog:
             "catalog_id": digest(raw),
             "results": cast(list[JsonValue], page),
             "total": len(rows),
+            "matching_total": matching_total,
+            "ready_total": ready_total,
             "next_offset": offset + len(page)
             if offset + len(page) < len(rows)
             else None,

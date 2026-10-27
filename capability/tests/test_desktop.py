@@ -269,3 +269,32 @@ async def test_shutdown_drains_delayed_chooser_spawn_and_refuses_new_choosers(
         release.set()
         await asyncio.gather(request, closing, return_exceptions=True)
         await client.close()
+
+
+async def test_linux_folder_selection_keeps_unicode_and_trailing_spaces(
+    tmp_path, monkeypatch
+):
+    import sys
+
+    import foxlight_preservation_library.desktop as desktop
+
+    original = asyncio.create_subprocess_exec
+    client = DesktopClient(tmp_path / "owner")
+
+    async def selected(*args, **kwargs):
+        return await original(
+            sys.executable,
+            "-c",
+            "import sys; sys.stdout.write('/controlled/備份  \\n')",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+
+    monkeypatch.setattr(desktop.sys, "platform", "linux")
+    monkeypatch.setattr(desktop.shutil, "which", lambda *a, **kw: "/usr/bin/zenity")
+    monkeypatch.setattr(desktop.asyncio, "create_subprocess_exec", selected)
+    try:
+        reply = await client.request("POST", "desktop-folder-choose", {})
+        assert reply["path"] == "/controlled/備份  /Sovereign Backups"
+    finally:
+        await client.close()

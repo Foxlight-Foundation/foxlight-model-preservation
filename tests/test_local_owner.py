@@ -664,3 +664,41 @@ def test_retained_history_does_not_exhaust_queue_and_preserves_idempotency(
             )
     finally:
         restarted.close()
+
+
+def test_ready_catalog_filter_counts_matching_versions_without_network(tmp_path):
+    catalog, repo, _ = accepted_catalog(tmp_path, companion=False)
+    legacy = create_card(body())
+    repo.target = identity_json(
+        {
+            "cards": [
+                repo.card.model_dump(mode="json"),
+                legacy.model_dump(mode="json"),
+            ],
+            "card_metadata": {
+                item.card_id: {"provenance": "community"}
+                for item in (repo.card, legacy)
+            },
+        }
+    )
+    repo.refresh(expires=datetime.now(UTC) + timedelta(days=1))
+    with directory(catalog.cache) as root:
+        atomic_bytes(root, "catalogs/" + digest(repo.target) + ".json", repo.target)
+        atomic_bytes(
+            root, "proofs/" + digest(repo.target) + ".json", encode_record(repo.proof())
+        )
+        atomic_bytes(
+            root, "accepted.json", identity_json({"catalog_id": digest(repo.target)})
+        )
+    owner = LocalOwner(tmp_path / "owner", catalog=catalog)
+    try:
+        all_rows = owner.control("search", {})
+        ready = owner.control("search", {"ready_only": True})
+        assert all_rows["total"] == all_rows["matching_total"] == 2
+        assert ready["total"] == ready["ready_total"] == 1
+        assert ready["matching_total"] == 2
+        assert ready["results"][0]["card_id"] == repo.card.card_id
+        with pytest.raises(PreservationError, match="invalid_control"):
+            owner.control("search", {"ready_only": "true"})
+    finally:
+        owner.close()

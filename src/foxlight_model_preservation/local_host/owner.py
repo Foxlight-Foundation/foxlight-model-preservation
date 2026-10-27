@@ -456,6 +456,7 @@ class LocalOwner:
                     "public_manifest",
                     "publication_request",
                     "decisions",
+                    "additional_locations",
                 }
             },
             "plan_id": plan_id,
@@ -552,7 +553,13 @@ class LocalOwner:
                 return self.sources.preview(job.job_id)
             if action in {"search", "copy-search"}:
                 if (
-                    set(body) - {"query", "offset", "purpose"}
+                    set(body)
+                    - (
+                        {"query", "offset", "purpose", "ready_only"}
+                        if action == "search"
+                        else {"query", "offset", "purpose"}
+                    )
+                    or type(body.get("ready_only", False)) is not bool
                     or not isinstance(body.get("query", ""), str)
                     or len(str(body.get("query", ""))) > 500
                     or body.get("purpose", "") not in ("", *PURPOSE_WORDS)
@@ -566,7 +573,10 @@ class LocalOwner:
                         str(body.get("query", "")), str(body.get("purpose", "")), offset
                     )
                 return self.catalog.search(
-                    str(body.get("query", "")), offset, str(body.get("purpose", ""))
+                    str(body.get("query", "")),
+                    offset,
+                    str(body.get("purpose", "")),
+                    body.get("ready_only") is True,
                 )
             if action == "refresh" and not body:
                 return self._start(
@@ -959,6 +969,13 @@ class LocalOwner:
             self._save()
             return job
 
+    def _finish(self, job: Job, **changes: JsonValue) -> None:
+        """Publish a terminal outcome and its inactive controls atomically."""
+        with self._lock:
+            self._controls.pop(job.job_id, None)
+            self._progress.pop(job.job_id, None)
+            self._update(job, **changes)
+
     def _run(
         self, job: Job, plan: dict[str, JsonValue], control: OperationControl
     ) -> None:
@@ -1040,7 +1057,7 @@ class LocalOwner:
                         control=control.fork(),
                     )
                 job = self._update(job, output=str(output) if output else None)
-            self._update(job, state="succeeded")
+            self._finish(job, state="succeeded")
         except Exception as error:
             code = failure_code(error)
             if job.kind == "backup" and isinstance(error, OSError):
@@ -1058,7 +1075,7 @@ class LocalOwner:
                 "sharing_address_required",
             }:
                 code = str(error)
-            self._update(
+            self._finish(
                 job,
                 state="cancelled" if failure_code(error) == "cancelled" else "failed",
                 error_code=code,

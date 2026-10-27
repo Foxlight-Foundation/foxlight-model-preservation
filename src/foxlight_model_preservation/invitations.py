@@ -28,7 +28,12 @@ from .storage import directory, manifest_path, read_metadata
 from .transfer import DEFAULT_POLICY, TransferPolicy, fetch
 
 
-def _mirrors(values: tuple[str, ...]) -> tuple[str, ...]:
+def normalize_mirror_bases(values: tuple[str, ...]) -> tuple[str, ...]:
+    """Validate bounded direct invitation bases and normalize trailing slashes.
+
+    Credentials, queries, fragments, invalid ports and duplicate normalized
+    bases refuse. This checks transport syntax without DNS or other network IO.
+    """
     normalized: list[str] = []
     for source in values:
         if len(source) > 2048 or any(
@@ -74,7 +79,7 @@ class Invitation(Record):
     candidate_trust: TrustProfile
     mirrors: tuple[str, ...] = Field(min_length=1, max_length=16)
 
-    _mirror_bases = field_validator("mirrors")(_mirrors)
+    _mirror_bases = field_validator("mirrors")(normalize_mirror_bases)
 
     @model_validator(mode="after")
     def validate_public_metadata(self) -> Invitation:

@@ -541,9 +541,26 @@ def test_failed_publication_retains_scratch_until_operator_cleanup_after_restart
         raise OSError("controlled failed publication")
 
     monkeypatch.setattr(sharing, "export_preservation", fail)
+    update = owner._update
+    terminal_cleanup = []
+
+    def observed_update(job, **changes):
+        result = update(job, **changes)
+        if changes.get("state") == "failed":
+            terminal_cleanup.append(
+                next(
+                    row["temporary_sharing_files"]
+                    for row in owner.read()["jobs"]
+                    if row["job_id"] == job.job_id
+                )
+            )
+        return result
+
+    monkeypatch.setattr(owner, "_update", observed_update)
     failed = finish(owner, submit(owner, plan))
     assert failed["state"] == "failed"
     assert failed["temporary_sharing_files"] is True
+    assert terminal_cleanup == [True]
     owner.close()
     owner = LocalOwner(owner.home)
     try:
@@ -557,5 +574,61 @@ def test_failed_publication_retains_scratch_until_operator_cleanup_after_restart
             owner.sharing.get(public["public_id"]).manifest_id == public["manifest_id"]
         )
         assert owner._copy(copy["copy_id"]).manifest_id == copy["manifest_id"]
+    finally:
+        owner.close()
+
+
+def test_already_public_omitted_defaults_keep_original_signed_identity(
+    tmp_path, capture
+):
+    import base64
+    from dataclasses import replace
+
+    from foxlight_model_preservation.signing import (
+        BUNDLE_TYPE,
+        Envelope,
+        Signature,
+        authenticated_encoding,
+        canonical_bytes,
+        digest,
+        public_record,
+    )
+
+    original = verify_store(capture.store, capture.identity, capture.trust)
+    value = original.model_dump(mode="json")
+    value.pop("attestation")
+    payload = canonical_bytes(value)
+    identifier = digest(payload)
+    envelope = Envelope(
+        payloadType=BUNDLE_TYPE,
+        payload=base64.b64encode(payload).decode(),
+        signatures=(
+            Signature(
+                keyid=public_record(capture.key).key_id,
+                sig=base64.b64encode(
+                    capture.key.sign(authenticated_encoding(BUNDLE_TYPE, payload))
+                ).decode(),
+            ),
+        ),
+    )
+    from foxlight_model_preservation.signing import encode_record
+
+    raw = encode_record(envelope)
+    (capture.store / manifest_path(identifier)).write_bytes(raw)
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        copy = saved(owner, tmp_path, replace(capture, identity=identifier))
+        plan = owner.control(
+            "plan", {"kind": "publish", "copy_id": copy["copy_id"], "decisions": []}
+        )
+        assert (
+            plan["already_public"] is True and plan["public_manifest_id"] == identifier
+        )
+        job = finish(owner, submit(owner, plan))
+        assert job["state"] == "succeeded", job
+        public = owner.sharing.get(job["job_id"])
+        assert public.manifest_id == identifier
+        store = owner.home / "sharing/mirrors" / job["job_id"] / "store"
+        assert (store / manifest_path(identifier)).read_bytes() == raw
     finally:
         owner.close()

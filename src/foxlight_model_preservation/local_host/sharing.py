@@ -302,7 +302,9 @@ class Sharing:
             public = review_publication(source, request)
         value: dict[str, JsonValue] = {
             "original_id": original_id,
-            "public_manifest_id": digest(encode_record(public)),
+            "public_manifest_id": original_id
+            if already_public
+            else digest(encode_record(public)),
             "public_manifest": public.model_dump(mode="json"),
             "publication_request": request.model_dump(mode="json") if request else None,
             "decisions": decisions,

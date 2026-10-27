@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 
 from pydantic import Field, JsonValue
 
+from ..cards import identity_json
 from ..discovery import (
     follow_source,
     inspect_selection,
@@ -26,12 +27,58 @@ from ..discovery import (
 )
 from ..discovery_models import MAX_STATE_BYTES, SearchLocation
 from ..handoffs import read_reference
-from ..invitations import Invitation, accept_model_keys, invitation_from_envelope
+from ..invitations import (
+    Invitation,
+    accept_model_keys,
+    invitation_from_envelope,
+    normalize_mirror_bases,
+)
 from ..models import Digest, Manifest, PreservationError, Record, TrustProfile
 from ..operations import OperationControl
 from ..signing import Envelope, digest, encode_record, strict_json, verify_manifest
 from ..storage import atomic_bytes, directory, open_file, read_metadata
 from ..transfer import TransferPolicy, inspect_envelope
+
+
+def _direct_http_hint(value: str) -> bool:
+    try:
+        parsed = urlsplit(value)
+        host = (parsed.hostname or "").rstrip(".").lower()
+        return bool(
+            parsed.scheme in {"http", "https"}
+            and host
+            and not host.endswith((".i2p", ".i2p.alt", ".onion"))
+        )
+    except ValueError:
+        return False
+
+
+def _direct_routes(values: tuple[str, ...]) -> tuple[str, ...]:
+    routes: list[str] = []
+    for value in values:
+        if not _direct_http_hint(value):
+            continue
+        try:
+            # Reuse the complete invitation base contract before a malformed
+            # supplier hint can poison otherwise valid reviewed routes.
+            base = normalize_mirror_bases((value,))[0]
+        except PreservationError:
+            continue
+        if base not in routes:
+            routes.append(base)
+    return tuple(routes)
+
+
+def _reference_routes(
+    primary: SearchLocation, additional: tuple[SearchLocation, ...]
+) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            route
+            for location in (primary, *additional)
+            for route in _direct_routes(location.mirrors)
+        )
+    )[:16]
 
 
 class SourceChoice(Record):
@@ -43,6 +90,7 @@ class SourceChoice(Record):
     manifest_id: Digest | None = None
     allow_http: bool = False
     allow_private: bool = False
+    include_followed_mirrors: bool = False
 
 
 class SourceFollow(Record):
@@ -67,11 +115,12 @@ class ModelReference(Record):
     manifest_id: Digest
     selection: SearchLocation
     envelope_sha256: Digest
+    additional_locations: tuple[SearchLocation, ...] = Field(default=(), max_length=16)
 
     @property
     def mirrors(self) -> tuple[str, ...]:
-        """Return the original source's untrusted transport suggestions."""
-        return self.selection.mirrors
+        """Return reviewed hints without merging their separate source statements."""
+        return _reference_routes(self.selection, self.additional_locations)
 
     @property
     def candidates(self) -> TrustProfile | None:
@@ -159,7 +208,9 @@ class SourceLibrary:
             raise PreservationError("source_document_too_large")
         info = inspect_source(document)
         endpoints = cast(list[str], info["endpoints"])
-        if self.http_mirrors(tuple(endpoints)) != tuple(endpoints):
+        # Transport validation must retain the bootstrap's original endpoint
+        # spelling, separately from normalized invitation mirror bases.
+        if any(not _direct_http_hint(endpoint) for endpoint in endpoints):
             raise PreservationError("source_transport_unavailable")
         identity = digest(document)
         with directory(self.home, create=True) as root:
@@ -213,6 +264,14 @@ class SourceLibrary:
         query = SourceQuery.model_validate(body)
         rows: list[JsonValue] = []
         for model in search_sources(self.cache, query.query, limit=16000):
+            mirror_count = len(
+                {
+                    route
+                    for location in model.locations
+                    for route in _direct_routes(location.mirrors)
+                }
+            )
+            source_count = len({location.source_id for location in model.locations})
             for location in model.locations:
                 description = location.description
                 rows.append(
@@ -231,6 +290,8 @@ class SourceLibrary:
                         "has_candidate_keys": bool(
                             description and description.candidate_bundle_trust
                         ),
+                        "listed_source_count": source_count,
+                        "suggested_mirror_count": mirror_count,
                     }
                 )
         selected: list[JsonValue] = []
@@ -247,6 +308,26 @@ class SourceLibrary:
             "total": len(rows),
             "next_offset": end if end < len(rows) else None,
         }
+
+    def _alternatives(
+        self, primary: SearchLocation, manifest: str
+    ) -> tuple[SearchLocation, ...]:
+        routes = set(_direct_routes(primary.mirrors))
+        locations: list[SearchLocation] = []
+        for result in search_sources(self.cache, manifest, limit=16000):
+            if result.manifest != manifest:
+                continue
+            for location in result.locations:
+                if len(routes) >= 16:
+                    return tuple(locations)
+                novel = set(_direct_routes(location.mirrors)) - routes
+                if location.source_id == primary.source_id or not novel:
+                    continue
+                locations.append(location)
+                routes.update(novel)
+                if len(locations) == 16:
+                    return tuple(locations)
+        return tuple(locations)
 
     def plan(self, body: dict[str, JsonValue]) -> dict[str, JsonValue]:
         """Pin an offline selection before a finite, explicitly approved request."""
@@ -295,12 +376,26 @@ class SourceLibrary:
                 or selection.description.candidate_bundle_trust is None
             ):
                 raise PreservationError("candidate_bundle_keys_required")
-            mirrors = self.http_mirrors(selection.mirrors)
+            alternatives = self._alternatives(selection, choice.manifest_id)
+            included = alternatives if choice.include_followed_mirrors else ()
+            available = {
+                route for item in alternatives for route in _direct_routes(item.mirrors)
+            } - set(_direct_routes(selection.mirrors))
             result.update(
                 {
                     "name": selection.description.name,
                     "selection": selection.model_dump(mode="json"),
-                    "mirrors": list(mirrors),
+                    "mirrors": list(_reference_routes(selection, included)),
+                    "additional_locations": [
+                        item.model_dump(mode="json") for item in included
+                    ],
+                    "additional_mirror_count": min(
+                        len(available), 16 - len(_direct_routes(selection.mirrors))
+                    ),
+                    "mirror_sources": [
+                        {"name": item.source_name, "freshness": item.freshness}
+                        for item in (selection, *included)
+                    ],
                 }
             )
         elif (
@@ -308,6 +403,7 @@ class SourceLibrary:
             or choice.manifest_id is not None
             or choice.allow_http
             or choice.allow_private
+            or choice.include_followed_mirrors
         ):
             raise PreservationError("invalid_control")
         return result
@@ -331,6 +427,22 @@ class SourceLibrary:
         )
         if selection.model_dump(mode="json") != plan["selection"]:
             raise PreservationError("source_model_reference_changed")
+        additional = tuple(
+            SearchLocation.model_validate_json(identity_json(item))
+            for item in cast(list[JsonValue], plan.get("additional_locations", []))
+        )
+        for item in additional:
+            try:
+                current = inspect_selection(
+                    self.cache, item.source_id, item.entry_id, str(plan["manifest_id"])
+                )
+            except (ValueError, OSError) as error:
+                raise PreservationError("source_model_reference_changed") from error
+            if current != item:
+                raise PreservationError("source_model_reference_changed")
+        routes = _reference_routes(selection, additional)
+        if list(routes) != plan["mirrors"]:
+            raise PreservationError("source_model_reference_changed")
         candidates = (
             selection.description.candidate_bundle_trust
             if selection.description
@@ -341,7 +453,7 @@ class SourceLibrary:
         raw = inspect_envelope(
             str(plan["manifest_id"]),
             candidates,
-            self.http_mirrors(selection.mirrors),
+            self.http_mirrors(routes),
             TransferPolicy(
                 max_bytes=2**53 - 1,
                 deadline_seconds=120,
@@ -357,12 +469,13 @@ class SourceLibrary:
             raw,
             str(plan["manifest_id"]),
             candidates,
-            self.http_mirrors(selection.mirrors),
+            self.http_mirrors(routes),
         )
         record = ModelReference(
             manifest_id=invitation.manifest_id,
             selection=selection,
             envelope_sha256=digest(raw),
+            additional_locations=additional,
         )
         with directory(self.home) as root:
             atomic_bytes(root, "model-references/" + job_id + ".envelope", raw)
@@ -454,12 +567,7 @@ class SourceLibrary:
     @staticmethod
     def http_mirrors(values: tuple[str, ...]) -> tuple[str, ...]:
         """Select direct HTTP hints without routing local paths or protected names."""
-        selected = tuple(
-            value
-            for value in values
-            if urlsplit(value).scheme in {"http", "https"}
-            and not (urlsplit(value).hostname or "").endswith((".i2p", ".onion"))
-        )
+        selected = _direct_routes(values)
         if not selected:
             raise PreservationError("public_model_mirror_required")
         return selected

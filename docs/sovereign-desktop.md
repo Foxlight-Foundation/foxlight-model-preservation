@@ -86,6 +86,15 @@ Foxlight registry preset. No bootstrap file or account is needed. Search uses th
 accepted signed catalog on this device and continues to work offline. Updating
 listings is an explicit action, separate from model downloads.
 
+Find starts with **Ready to review**: matching listings with a complete supported
+signed file selection, including required companions. **All signed listings**
+keeps incomplete or unsupported selections inspectable with their explanation.
+The count distinguishes all matching versions from those ready for review. This
+is a preservation-format check, not a host reachability test or a claim that the
+model runs on this device. Download review still checks freshness, storage and
+connection permissions. Searching and changing filters start no connections.
+
+
 Choose **Review download & preserve** for a supported selection. The review
 includes the exact card, full selected companion repositories, total object
 bytes, verified file count, publication freshness and connection disclosure.
@@ -108,6 +117,40 @@ accepting them. Acceptance permits verification of this exact capture; it grants
 neither registry authority nor permission to run code. Legacy preservation kits
 are losslessly converted to PMF; existing PMF kits keep their original identity.
 Unknown card data and source documents remain opaque and are preserved.
+
+## Other listed copies from followed sources
+
+Independent-source results show how many followed sources list the exact same
+manifest and how many direct addresses they suggest. Matching a friendly name
+alone does not combine copies. These are saved supplier hints, not observations
+that bytes are online or independently operated.
+
+In **Review signed details**, **Other listed copies** offers an unchecked choice
+to also try routes from other sources you already follow. Changing that choice
+requires a new review showing the actual selected addresses. The app permits at
+most sixteen direct routes and retains each supplier statement separately. It
+rechecks those exact saved statements before the metadata request; changing or
+stopping a selected source invalidates the review before connecting.
+
+Only the original selected source's candidate model-key policy is used. Another
+source's keys do not become model or registry authority. The original signed
+envelope is inspected before a separate exact-copy key choice and private model
+transfer. A different-name or same-name listing with another manifest cannot
+substitute for the selected copy. Metadata requests download no model weights;
+receiving still verifies every selected object and retains the original card,
+unknown fields and provenance documents.
+
+Connection choices remain explicit. HTTP is unencrypted; permission for private
+network addresses permits a nearby computer or NAS, not anonymity. HTTP-only
+addresses cannot start their request while HTTP is blocked. Peer/protected hints
+are retained in their supplier statements but are not translated to gateways or
+contacted by this screen. If the primary listing has only peer routes, an
+explicitly reviewed direct route from another followed source can still supply
+the same exact model. Standalone peer tools remain available separately.
+
+Once independently accepted metadata is retained, stopping a source does not
+revoke a saved model, delete its files or change its signing policy. Neither this
+flow nor following/searching a source starts sharing, seeding or model execution.
 
 ## Backup folders and public sharing in current source
 
@@ -157,7 +200,8 @@ the [protocol](protocol.md#storage-and-publication).
 ### Prepare a public copy, then choose when to serve it
 
 In **Library → Share**, inspect the redistribution terms for each data member.
-An already-public original archive keeps its existing identity and signatures.
+An already-public original archive keeps its existing identity and signatures,
+including original signed payloads that omit optional default-valued fields.
 A supported private capture uses the existing lossless preservation projection
 and a separate publishing identity. Its private installed-record history and
 owner-only capture notices are excluded. Public original card fields, unknown
