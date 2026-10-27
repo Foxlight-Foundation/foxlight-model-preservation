@@ -120,3 +120,34 @@ def test_unexpected_console_directory_refuses_without_deleting_it(tmp_path):
     with pytest.raises(ValueError, match="unexpected directory"):
         package.install_native_cli(contents)
     assert (nested / "retained").read_bytes() == b"keep"
+
+
+def test_generated_sidecar_disappearance_does_not_block_native_commands(
+    tmp_path, monkeypatch
+):
+    contents = tmp_path / "App.app/Contents"
+    internal = contents / "Resources/site-packages/bin"
+    internal.mkdir(parents=True)
+    stub = internal / "generated-command"
+    sidecar = internal / "._generated-command"
+    stub.write_text("#!/external/python\n")
+    sidecar.write_bytes(b"filesystem metadata")
+    original_iterdir, original_unlink = Path.iterdir, Path.unlink
+
+    def snapshot(path):
+        return iter([stub, sidecar]) if path == internal else original_iterdir(path)
+
+    def remove_with_sidecar(path, *, missing_ok=False):
+        if path == stub:
+            original_unlink(sidecar)
+        original_unlink(path, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "iterdir", snapshot)
+    monkeypatch.setattr(Path, "unlink", remove_with_sidecar)
+    hashes = package.install_native_cli(contents)
+    assert len(hashes) == 3
+    assert {path.name for path in original_iterdir(internal)} == {
+        "model-preserve",
+        "foxlight-sovereign",
+    }
+    assert all(path.is_symlink() for path in original_iterdir(internal))
