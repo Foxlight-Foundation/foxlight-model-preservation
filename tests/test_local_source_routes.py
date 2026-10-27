@@ -178,3 +178,44 @@ def test_malformed_and_protected_hints_do_not_break_offline_source_browsing(
             assert original["selection"]["mirrors"] == list(publisher.mirrors)
         finally:
             owner.close()
+
+
+def test_equivalent_bases_do_not_become_duplicate_alternate_mirrors(tmp_path, capture):
+    first = Publisher(tmp_path / "first", capture)
+    second = Publisher(tmp_path / "second", capture)
+    with (
+        mirror(first.path) as (index_a, _),
+        mirror(second.path) as (index_b, _),
+        mirror(capture.store) as (healthy, requests),
+    ):
+        first.mirrors = (healthy, healthy + "/")
+        second.mirrors = (healthy + "///",)
+        first.publish()
+        second.publish()
+        owner = LocalOwner(tmp_path / "owner")
+        try:
+            a, _ = follow(owner, first, index_a), follow(owner, second, index_b)
+            listed = owner.control("source-search", {})
+            assert all(row["suggested_mirror_count"] == 1 for row in listed["results"])
+            planned = source_plan(
+                owner,
+                "source_metadata",
+                a,
+                entry_id="small_text",
+                manifest_id=capture.identity,
+                include_followed_mirrors=True,
+                allow_http=True,
+                allow_private=True,
+            )
+            assert planned["mirrors"] == [healthy]
+            assert planned["additional_mirror_count"] == 0
+            assert requests == []
+            result = finish(owner, submit(owner, planned))
+            assert result["state"] == "succeeded", result
+            record, raw, _, _ = owner.sources.reference(result["job_id"])
+            assert record.mirrors == (healthy,)
+            assert record.selection.mirrors == first.mirrors
+            assert raw == (capture.store / manifest_path(capture.identity)).read_bytes()
+            assert requests == ["/" + manifest_path(capture.identity)]
+        finally:
+            owner.close()

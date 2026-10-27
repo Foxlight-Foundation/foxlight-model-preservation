@@ -46,7 +46,11 @@ def _direct_routes(values: tuple[str, ...]) -> tuple[str, ...]:
                 and host
                 and not host.endswith((".i2p", ".i2p.alt", ".onion"))
             ):
-                routes.append(value)
+                # Match the invitation transport-base normalization; original
+                # signed hints remain unchanged in each supplier statement.
+                base = value.rstrip("/")
+                if base not in routes:
+                    routes.append(base)
         except ValueError:
             # Signed supplier hints are still untrusted transport data. A bad
             # hint must not make the other saved listings unsearchable.
