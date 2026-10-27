@@ -6,6 +6,20 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+## 0.21.0
+
+- Add Horizon backup destinations, verified complete recovery kits, separate
+  public-copy review and finite HTTP sharing, and offline recipient handoff.
+- Start Find with complete preservation selections and offer explicitly reviewed
+  alternate routes from followed sources for the exact signed capture. Keep
+  model keys, connection permissions and private receiving separate.
+- Preserve original public identities with omitted defaults, Unicode backup
+  paths and correct previous-page navigation. Prevent repeated More clicks
+  while the requested page is loading.
+- Pair independent desktop installation with public core 0.25.0. Native package
+  input pins and signing/publication remain separate from this Python release.
+
+
 - Explain required repository-code permission accurately for Skulk recovery and
   point to standalone files-only recovery when that permission is not desired.
   Keep the separate code/provenance gates. Unselected backup storage no longer

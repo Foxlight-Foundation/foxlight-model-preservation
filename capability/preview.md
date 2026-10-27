@@ -14,8 +14,13 @@ For independent source following and private recovery without Skulk, use the
 and `foxlight-sovereign`. The commands below select the separate Core-backed
 mode; installing the public Library does not configure Core automatically.
 
+The independent Library 0.21 / core 0.25 profile includes Horizon backups,
+public-copy review, explicit finite HTTP sharing, recipient files and reviewed
+exact-copy alternatives from followed sources. It retains all original model
+cards, companions, signed evidence and separate trust decisions.
+
 Portable handoffs, finite peer sharing, PMF, peer receiving and I2P source/receiving controls are included in
-Library 0.20.0 and its immutable compatible Core pin, including persistent mirror,
+Library 0.21.0 and its immutable compatible Core pin, including persistent mirror,
 retained-copy recovery and offline pending-copy checks. Install the verified
 [hash-locked release archive](../docs/installation.md), then explicitly run
 `foxlight-preservation-preview setup` from that environment. The installer retains
@@ -54,7 +59,7 @@ recovery kits do not contain the runtime and its dependencies; retain those
 separately for offline recovery.
 
 ```sh
-uv tool install --python 3.13 https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.20.0/foxlight_preservation_library-0.20.0-py3-none-any.whl
+uv tool install --python 3.13 https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.21.0/foxlight_preservation_library-0.21.0-py3-none-any.whl
 foxlight-preservation-preview setup
 ```
 
