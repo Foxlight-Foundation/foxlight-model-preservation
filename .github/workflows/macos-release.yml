@@ -10,15 +10,15 @@ on:
         default: rehearse
         required: true
       confirmation:
-        description: Type "verify Sovereign 0.1.0 build 2"
+        description: Type "verify Sovereign 0.1.0 build 7"
         type: string
         required: true
 permissions: {}
 concurrency:
-  group: sovereign-macos-v0.1.0-build2
+  group: sovereign-macos-v0.1.0-build7
   cancel-in-progress: false
 env:
-  NATIVE_TAG: sovereign-macos-v0.1.0-build2
+  NATIVE_TAG: sovereign-macos-v0.1.0-build7
   PREDICATE_TYPE: https://foxlight.ai/attestations/macos-verification/v1
 jobs:
   intake:
@@ -43,7 +43,7 @@ jobs:
         run: |
           test "$GITHUB_REPOSITORY" = Foxlight-Foundation/foxlight-model-preservation
           test "$GITHUB_REF" = "refs/tags/$NATIVE_TAG"
-          test "$CONFIRMATION" = 'verify Sovereign 0.1.0 build 2'
+          test "$CONFIRMATION" = 'verify Sovereign 0.1.0 build 7'
           test "$MODE" = rehearse -o "$MODE" = publish
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main
       - name: Download the fixed draft without replacing assets
@@ -55,7 +55,7 @@ jobs:
           python - <<'PY'
           import json, os
           release = json.load(open('draft.json'))
-          manifest = json.load(open('desktop/macos/releases/0.1.0-build2.json'))
+          manifest = json.load(open('desktop/macos/releases/0.1.0-build7.json'))
           assert release['draft'] is True and release['tag_name'] == manifest['tag']
           assert {a['name'] for a in release['assets']} == set(manifest['artifacts'])
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:

@@ -16,21 +16,30 @@ verified models under explicit model/terms policy. Choose HTTP independently of
 is separate, budgets are durable and deletion stays with the operator. Skulk is
 optional.
 
-The [independent Sovereign Library](docs/sovereign-desktop.md)
-adds built-in signed catalog browsing, independent source following and offline
-search, private download/preservation and kit recovery without Skulk. The public Library 0.17 installation archive includes
-both public packages.
-Current source also provides [remembered backup folders and explicit HTTP
-sharing](docs/sovereign-desktop.md#backup-folders-and-public-sharing-in-current-source),
-with offline sharing-file review and complete recovery-kit readback. Those changes
-require the matching next distribution; existing installed apps are unchanged.
-The Mac app bundles its own runtime. Its separate [native release lane and
-verification guide](docs/macos-distribution.md#public-download-verification)
-cover notarized downloads; merging a recipe alone does not publish a release.
-Linux/APT distribution remains separate.
+## Use Sovereign
 
+The Sovereign app helps you find a model, keep your own complete copy and recover
+its files, companions and signed provenance if the original host disappears.
+No Skulk, hosted account, GPU or manual Python setup is required by the native app.
+
+- **Mac (Apple silicon):** [download Sovereign 0.1.0 build 7](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/sovereign-macos-v0.1.0-build7),
+  open the DMG and drag **Sovereign** to **Applications**.
+  [Verification and installation](docs/macos-distribution.md).
+- **Ubuntu 24.04 (amd64 or arm64):** [install through apt or a verified Debian package](docs/linux-distribution.md).
+  Then open **Sovereign** from your applications menu.
+
+Choose **Browse public models** to find something useful, or **Open recovery kit**
+to recover a copy you already have. **Library** keeps your saved copies searchable.
+**Backups** remembers storage folders; **Sharing** offers explicit, finite public
+sharing and a one-file recipient handoff. Opening or installing the app starts no
+model download, inference or sharing. A model's trust checks remain separate from
+software signing, and an unfamiliar capture key still needs explicit review.
+
+The [independent Library](docs/sovereign-desktop.md) also supports signed catalog
+browsing, independent source following and offline search. The public Library
+0.21 installation archive includes both independent public packages.
 For the independent interface, authenticate and extract the
-[Library 0.17 archive](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/library-v0.17.0),
+[Library 0.21 archive](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/library-v0.21.0),
 then select its desktop profile:
 
 ```sh
@@ -46,12 +55,12 @@ executing the helper. First launch offers **Browse public models** and
 
 ## Current public previews
 
-- **Standalone 0.22.0** includes persistent HTTP/IPFS/BitTorrent mirrors,
+- **Standalone 0.25.0** includes persistent HTTP/IPFS/BitTorrent mirrors,
   offline local-copy intake, portable handoffs, signed source following,
   retained-copy inspection/recovery-kit export, offline completion recovery,
   PirateFace lookup/intake and
   the separately opted-in I2P pilots.
-- **Library 0.17.0** adds independent source review/update/search and separate
+- **Library 0.21.0** adds independent source review/update/search and separate
   capture-key acceptance to Find/Library/Activity through
   its `requirements-desktop.lock` installation profile. The default profile keeps
   the local interface through its separately pinned compatible Skulk Core. That
@@ -76,13 +85,13 @@ censorship resistance for at-risk users.
 ## Install
 
 Python 3.11+ on Linux or macOS, with an authenticated Python/uv toolchain. Use the
-[0.22.0 installation archive](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/v0.22.0)
+[0.25.0 installation archive](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/v0.25.0)
 and its detached attestation bundle. [Verify it first](docs/installation.md),
 extract it, then install into a new directory:
 
 ```sh
-python3 install.py --directory "$HOME/sovereign-0.22.0"
-"$HOME/sovereign-0.22.0/bin/model-preserve" --help
+python3 install.py --directory "$HOME/sovereign-0.25.0"
+"$HOME/sovereign-0.25.0/bin/model-preserve" --help
 ```
 
 The archive contains the exact package wheel, source, hash-locked dependencies

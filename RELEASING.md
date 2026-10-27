@@ -15,7 +15,7 @@ called native build provenance or a GitHub-built Python release.
 
 [`macos-release.yml`](.github/workflows/macos-release.yml) accepts only the final
 DMG/ZIP named and SHA-256 pinned in
-[`0.1.0-build2.json`](desktop/macos/releases/0.1.0-build2.json). That reviewed
+[`0.1.0-build7.json`](desktop/macos/releases/0.1.0-build7.json). That reviewed
 record separates binary source, published public Python inputs, Developer ID
 certificate, complete app CodeDirectory and Apple submission identities. No
 signing key, Keychain prompt or Apple credential enters this workflow. Changing
@@ -34,7 +34,7 @@ After this lane is reviewed and merged:
    untrusted staging for verification, never a manual public release. Do not
    upload local raw logs, private producer details, credentials or inventories.
 3. Dispatch `macos-release.yml` **at the tag**, `mode=rehearse`, confirmation
-   `verify Sovereign 0.1.0 build 2`. Intake checks a closed two-file inventory and
+   `verify Sovereign 0.1.0 build 7`. Intake checks a closed two-file inventory and
    reviewed hashes. A fresh Apple silicon runner validates both containers,
    Apple Developer ID certificate, complete app CodeDirectory, stapled tickets,
    Gatekeeper and signed build receipts before running actual offline CLI PMF
