@@ -1,0 +1,37 @@
+{
+  "source_revision": "43ac1b091698376b373ace982b491199acd96843",
+  "team": "ZP9J3449GF",
+  "certificate_sha1": "A148825F0E5B1F0F29C7A314129AB6D090EF9FF5",
+  "app_codedirectory_sha256": "ed062d86569118d69bcc35bdb8c1eae5e5308feefd0949b014b2be41acf3e6f8",
+  "inputs": {
+    "architecture": "arm64",
+    "build_number": "7",
+    "library": {
+      "sha256": "cc418d1a57d16d6c1edb9bfcd7f5903797e47d2e9ef5a204518a73cf46b9c10d",
+      "source_revision": "968b11280d332f3c80fbea48e41102275fd39399",
+      "url": "https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.21.0/foxlight-preservation-library-0.21.0-install.zip"
+    },
+    "minimum_macos": "13.0",
+    "python": {
+      "sha256": "0a1956c23fcc2a800fc5ffe61632dbade3d8e1b4ab94aeb0cc47e028892cac97",
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.13.13%2B20260408-aarch64-apple-darwin-install_only_stripped.tar.gz"
+    },
+    "schema_version": "sovereign.macos-inputs.v1",
+    "version": "0.1.0"
+  },
+  "artifacts": {
+    "Sovereign-0.1.0-macos-arm64.dmg": "c7478355df91772701ba8a918b1152fd3c761a305b8dd2c83c49b767c12e8f6e",
+    "Sovereign-0.1.0-macos-arm64.zip": "7c35159b6b4be671a7e80197de3a7ffdb346c1af4177b0f7b0f751ae5e7dbab9"
+  },
+  "app_notarization": "85b5bcf5-58fa-4e4c-b56f-ffbe44922e0c",
+  "dmg_notarization": "07d3f62c-1ace-4d7f-8f9a-2fe96070d5b4",
+  "schema_version": "sovereign.macos-publication.v1",
+  "tag": "sovereign-macos-v0.1.0-build7",
+  "predicate_type": "https://foxlight.ai/attestations/macos-verification/v1",
+  "qualification_limits": [
+    "Apple silicon; actual installed build 7 GUI on macOS 26.6.2 and bundled offline CLI on macOS 15/26.6.2.",
+    "Real 5.3 GB FLUX.2 Klein capture recovered with both companions and byte-identical original cards/provenance on the operator Mac.",
+    "Declared minimum macOS 13 is not full OS-range qualification.",
+    "No real-model inference, broad hardware or public-network privacy qualification."
+  ]
+}

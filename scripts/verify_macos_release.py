@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 
 PROJECT = Path(__file__).resolve().parents[1]
-MANIFEST = PROJECT / "desktop/macos/releases/0.1.0-build2.json"
+MANIFEST = PROJECT / "desktop/macos/releases/0.1.0-build7.json"
 
 
 def digest(path: Path) -> str:
@@ -140,6 +140,23 @@ def qualify(app: Path, manifest: dict, scratch: Path) -> dict:
     return json.loads((qualification / "qualification.json").read_bytes())
 
 
+def check_image_layout(mount: Path) -> None:
+    """Allow only the app, install link and three approved Finder window files."""
+    hidden = {".DS_Store", ".VolumeIcon.icns", ".background.tiff"}
+    if (
+        {p.name for p in mount.iterdir()} != {"Sovereign.app", "Applications"} | hidden
+        or not (mount / "Applications").is_symlink()
+        or os.readlink(mount / "Applications") != "/Applications"
+        or (mount / "Sovereign.app").is_symlink()
+        or not (mount / "Sovereign.app").is_dir()
+        or any(
+            (mount / name).is_symlink() or not (mount / name).is_file()
+            for name in hidden
+        )
+    ):
+        raise ValueError("unexpected drag-to-Applications image layout")
+
+
 def verify_containers(directory: Path, manifest: dict, scratch: Path) -> dict:
     """Verify the ZIP and the mounted read-only DMG, always detaching the image."""
     image = next(directory.glob("*.dmg"))
@@ -148,6 +165,7 @@ def verify_containers(directory: Path, manifest: dict, scratch: Path) -> dict:
     dmg.mkdir()
     verify_signature(image, manifest, dmg, app=False)
     mount = dmg / "mount"
+    mount.mkdir()
     run(
         [
             "/usr/bin/hdiutil",
@@ -161,13 +179,7 @@ def verify_containers(directory: Path, manifest: dict, scratch: Path) -> dict:
         ]
     )
     try:
-        if (
-            {p.name for p in mount.iterdir()} != {"Sovereign.app", "Applications"}
-            or not (mount / "Applications").is_symlink()
-            or os.readlink(mount / "Applications") != "/Applications"
-            or (mount / "Sovereign.app").is_symlink()
-        ):
-            raise ValueError("unexpected drag-to-Applications image layout")
+        check_image_layout(mount)
         dmg_result = qualify(mount / "Sovereign.app", manifest, dmg)
     finally:
         run(["/usr/bin/hdiutil", "detach", str(mount)])

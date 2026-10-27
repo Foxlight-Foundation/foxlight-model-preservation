@@ -1,4 +1,4 @@
-# Self-contained macOS candidate
+# Sovereign for Mac
 
 The public Mac recipe builds Sovereign for Apple silicon, macOS 13 or newer.
 The app bundles Python and the independent Library, including populated model
@@ -21,10 +21,10 @@ declared input/output types, image understanding,
 reasoning and companion-file explanations, readable descriptions and purpose
 filters, local Library search, contextual identity help and recovery guidance,
 alongside Sovereign branding, independent source following, explicit authenticated
-updates, offline source search and separate capture-key review. The retained
-build 2 publication manifest below identifies
-its original signed containers; updating the recipe does not publish or replace
-those files. Build 7 needs its own reviewed final-container record and release.
+updates, offline source search and separate capture-key review. The
+[build 7 publication record](../desktop/macos/releases/0.1.0-build7.json) binds the
+final signed/stapled containers to the exact tested app; the older build 2 record
+and release remain unchanged for historical verification.
 
 ## Public download verification
 
@@ -36,7 +36,7 @@ been published. Download the DMG or ZIP and the neighboring `SHA256SUMS`,
 download against its checksum, then authenticate it with GitHub CLI:
 
 ```sh
-TAG=sovereign-macos-v0.1.0-build2
+TAG=sovereign-macos-v0.1.0-build7
 FILE=Sovereign-0.1.0-macos-arm64.dmg
 shasum -a 256 "$FILE"  # compare the corresponding line in SHA256SUMS
 gh attestation verify "$FILE" \
@@ -65,11 +65,14 @@ by opening the app. A retained recovery kit can be opened and restored without
 Skulk or the original registry. A new capture key still requires explicit trust
 acceptance; software signing never grants that model authority.
 
-The build 2 manifest pins the final DMG/ZIP, Developer ID team `ZP9J3449GF` and
+The build 7 manifest pins the final DMG/ZIP, Developer ID team `ZP9J3449GF` and
 certificate fingerprint `A148825F0E5B1F0F29C7A314129AB6D090EF9FF5`.
 Its declared minimum is macOS 13; actual GUI evidence is macOS 26.6.2, with
-synthetic offline CLI coverage on macOS 15 and 26.6.2. Full OS-range, clean-host,
-real-model and public-network privacy qualification are separate open gates.
+synthetic offline CLI coverage on macOS 15 and 26.6.2. The exact installed build 7
+also imported and restored a real 5.3 GB FLUX.2 Klein capture, both companions and
+byte-identical original cards/provenance on the operator Mac; Library and completed
+jobs survived restart. Full OS-range, clean-host native GUI, model execution and
+public-network privacy qualification remain separate.
 
 ## Build without a signing key
 

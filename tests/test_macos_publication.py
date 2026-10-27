@@ -91,3 +91,21 @@ def test_receipt_keeps_binary_and_verifier_sources_separate(tmp_path):
     (resources / "outside").symlink_to(tmp_path)
     with pytest.raises(ValueError, match="external symlink"):
         verify.check_receipt(app, manifest)
+
+
+def test_approved_finder_window_stays_data_only(tmp_path):
+    (tmp_path / "Sovereign.app").mkdir()
+    (tmp_path / "Applications").symlink_to("/Applications")
+    for name in (".DS_Store", ".VolumeIcon.icns", ".background.tiff"):
+        (tmp_path / name).write_bytes(b"approved window data")
+    verify.check_image_layout(tmp_path)
+    extra = tmp_path / "unexpected-program"
+    extra.write_bytes(b"program")
+    with pytest.raises(ValueError, match="image layout"):
+        verify.check_image_layout(tmp_path)
+    extra.unlink()
+    background = tmp_path / ".background.tiff"
+    background.unlink()
+    background.symlink_to(ROOT / "README.md")
+    with pytest.raises(ValueError, match="image layout"):
+        verify.check_image_layout(tmp_path)
