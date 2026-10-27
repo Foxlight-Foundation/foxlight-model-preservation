@@ -64,7 +64,7 @@ test('standalone exact download requires consent and stays receive-only',async({
  await page.route('**/api/desktop-search',route=>route.fulfill({json:{catalog_id:id,results:[model],total:1,next_offset:null}}));
  await page.route('**/api/desktop-plan',route=>route.fulfill({json:{plan_id:id,kind:'receive',name:model.name,card_id:card,size_bytes:4096,members:['example/model','example/required-companion'],expires_at:9999999999}}));
  await page.route('**/api/desktop-start',route=>{submitted=route.request().postDataJSON();return route.fulfill({json:{}});});
- await page.goto('/');await page.getByRole('button',{name:'Review download & preserve'}).click();
+ await page.goto('/');await page.getByRole('button',{name:'Keep a copy',exact:true}).click();
  await expect(page.getByText('example/required-companion',{exact:true})).toBeVisible();
  const start=page.getByRole('button',{name:'Download & preserve',exact:true});await expect(start).toBeDisabled();
  expect(submitted).toBeNull();await page.getByLabel('Proceed with this exact private selection.').check();await start.click();
