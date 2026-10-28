@@ -118,19 +118,22 @@ With Python 3.13+ and uv, download and authenticate the matching Library archive
 then install its desktop profile into a new environment:
 
 ```sh
-base=https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.22.0
-curl --fail --location --proto '=https' -O "$base/foxlight-preservation-library-0.22.0-install.zip"
-curl --fail --location --proto '=https' -O "$base/release.sigstore.json"
-gh attestation verify foxlight-preservation-library-0.22.0-install.zip \
-  --bundle release.sigstore.json \
-  --repo Foxlight-Foundation/foxlight-model-preservation \
-  --signer-workflow Foxlight-Foundation/foxlight-model-preservation/.github/workflows/release.yml \
-  --source-ref refs/tags/library-v0.22.0 --deny-self-hosted-runners
-unzip foxlight-preservation-library-0.22.0-install.zip -d sovereign-desktop-install
-cd sovereign-desktop-install
-python3 install.py --directory "$HOME/sovereign-desktop" \
-  --requirements requirements-desktop.lock
-"$HOME/sovereign-desktop/bin/foxlight-sovereign"
+(
+  set -e
+  base=https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.22.0
+  curl --fail --location --proto '=https' -O "$base/foxlight-preservation-library-0.22.0-install.zip"
+  curl --fail --location --proto '=https' -O "$base/release.sigstore.json"
+  gh attestation verify foxlight-preservation-library-0.22.0-install.zip \
+    --bundle release.sigstore.json \
+    --repo Foxlight-Foundation/foxlight-model-preservation \
+    --signer-workflow Foxlight-Foundation/foxlight-model-preservation/.github/workflows/release.yml \
+    --source-ref refs/tags/library-v0.22.0 --deny-self-hosted-runners
+  unzip foxlight-preservation-library-0.22.0-install.zip -d sovereign-desktop-install
+  cd sovereign-desktop-install
+  python3 install.py --directory "$HOME/sovereign-desktop" \
+    --requirements requirements-desktop.lock
+  "$HOME/sovereign-desktop/bin/foxlight-sovereign"
+)
 ```
 
 This opens the independent Library without installing Skulk or the managed SDK.
