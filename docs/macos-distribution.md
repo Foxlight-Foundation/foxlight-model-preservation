@@ -13,22 +13,16 @@ rebuilding or signing them. Developer ID signing, Apple notarization and an
 installed-app journey remain separate checks. A locally passing Gatekeeper
 check does not establish clean-host acceptance, model compatibility or anonymity.
 
-The current recipe targets **0.1.0 build 8**, with the authenticated public core
-0.26 / Library 0.22 cohort. It adds first-launch choices, Getting started help,
-working-space reviews, separate kit/public-mirror sharing and recovery instructions.
-Build 8 signing, notarization and publication remain separate; the current public
-Mac download and verification record below are still build 7. That older download
-contains core 0.25 / Library 0.21. The shared preservation foundation includes complete companion recovery, verified backup
-folders, explicit finite sharing, recipient handoff and reviewed alternate routes
-for the same exact model capture. It includes the Sovereign Horizon interface,
-declared input/output types, image understanding,
-reasoning and companion-file explanations, readable descriptions and purpose
-filters, local Library search, contextual identity help and recovery guidance,
-alongside Sovereign branding, independent source following, explicit authenticated
-updates, offline source search and separate capture-key review. The
-[build 7 publication record](../desktop/macos/releases/0.1.0-build7.json) binds the
-final signed/stapled containers to the exact tested app; the older build 2 record
-and release remain unchanged for historical verification.
+The build8 recipe pairs the authenticated public core 0.26 / Library 0.22 cohort
+with first-launch choices, Getting started help, complete working-space reviews,
+separate kit/public-mirror sharing and recipient recovery instructions. The shared
+preservation foundation includes complete companions, verified backup folders,
+explicit finite sharing, independent source following and offline search. The
+Horizon interface explains model inputs/outputs, purpose, file variants and trust
+without requiring Skulk. The [build8 publication record](../desktop/macos/releases/0.1.0-build8.json)
+binds final signed/stapled containers to the exact accepted app. Build7 and all
+older records/releases remain unchanged for historical verification. Publication
+still requires the separate workflow below; a reviewed record is not publication.
 
 ## Public download verification
 
@@ -40,7 +34,7 @@ been published. Download the DMG or ZIP and the neighboring `SHA256SUMS`,
 download against its checksum, then authenticate it with GitHub CLI:
 
 ```sh
-PUBLISHER_TAG=sovereign-macos-publisher-v0.1.0-build7
+PUBLISHER_TAG=sovereign-macos-publisher-v0.1.0-build8
 FILE=Sovereign-0.1.0-macos-arm64.dmg
 shasum -a 256 "$FILE"  # compare the corresponding line in SHA256SUMS
 gh attestation verify "$FILE" \
@@ -59,27 +53,32 @@ asserts **verification of existing files**, not native build provenance. It
 records the exact host, performed checks and qualification limits; inspect those
 claims along with the [software trust limits](releases.md#what-a-pass-establishes).
 Retain the bundle and trusted roots for [offline verification](releases.md#keep-offline-evidence).
-The release remains at `sovereign-macos-v0.1.0-build7`; its separate immutable
-publisher tag identifies the corrected draft-aware verification workflow without
-moving the native release tag or changing any installer bytes.
+The release uses `sovereign-macos-v0.1.0-build8` at the exact binary recipe
+revision. Its separate immutable publisher tag identifies the reviewed verification
+workflow. Neither tag asserts a native rebuild in the public workflow.
 
 For Apple silicon, open the verified DMG and drag **Sovereign** to
 **Applications**, then open it normally. The ZIP contains the same signed app.
-Apple checks its Developer ID and notarization. First launch opens the independent
-Library. Choose **Browse public models**, then search and review a model's complete storage
-requirements, and choose preservation; no model downloads or sharing begin merely
-by opening the app. A retained recovery kit can be opened and restored without
-Skulk or the original registry. A new capture key still requires explicit trust
-acceptance; software signing never grants that model authority.
+Apple checks its Developer ID and notarization. First launch offers **Browse
+public models**, **Choose a recovery kit** and **Choose a sharing file**. No model
+download or sharing begins merely by opening the app. The **Getting started**
+button keeps the journey available later. Existing saved copies reopen in Library.
+A retained kit can be restored without Skulk or the original registry. A new capture
+key still requires explicit trust acceptance; software signing grants no model authority.
 
-The build 7 manifest pins the final DMG/ZIP, Developer ID team `ZP9J3449GF` and
-certificate fingerprint `A148825F0E5B1F0F29C7A314129AB6D090EF9FF5`.
-Its declared minimum is macOS 13; actual GUI evidence is macOS 26.6.2, with
-synthetic offline CLI coverage on macOS 15 and 26.6.2. The exact installed build 7
-also imported and restored a real 5.3 GB FLUX.2 Klein capture, both companions and
-byte-identical original cards/provenance on the operator Mac; Library and completed
-jobs survived restart. Full OS-range, clean-host native GUI, model execution and
-public-network privacy qualification remain separate.
+The build8 manifest pins both final containers, Developer ID team `ZP9J3449GF`
+and certificate fingerprint `A148825F0E5B1F0F29C7A314129AB6D090EF9FF5`.
+The exact accepted app is installed on the operator Mac (macOS 26.6.2). Its native
+UI imports and restores a real Qwen3 0.6B capture in a fresh Library with external
+networking denied, retains the copy/completed jobs across restart, and exposes
+separate kit/mirror choices and recipient guidance. Independent readback verifies
+all 13 captured files/documents, both original signed envelopes, complete card data
+and historical registry proof. Upgrading from7 retains the original Library and
+completed jobs. These are scoped technical checks, not unassisted participant research.
+
+The declared minimum is macOS 13; bundled synthetic offline CLI recovery is checked
+separately by the publication lane. Full OS-range, clean-host native GUI, power-loss,
+model execution and public-network privacy qualification remain separate.
 
 ## Build without a signing key
 

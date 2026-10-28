@@ -1,0 +1,38 @@
+{
+  "source_revision": "506ac001c2eeead28f0fe00ead59c25f4ea6e21e",
+  "team": "ZP9J3449GF",
+  "certificate_sha1": "A148825F0E5B1F0F29C7A314129AB6D090EF9FF5",
+  "app_codedirectory_sha256": "20cd442b60263069d75071910c237df48174f078db491d48c8cb4cac8577f630",
+  "inputs": {
+    "schema_version": "sovereign.macos-inputs.v1",
+    "version": "0.1.0",
+    "build_number": "8",
+    "architecture": "arm64",
+    "minimum_macos": "13.0",
+    "library": {
+      "url": "https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.22.0/foxlight-preservation-library-0.22.0-install.zip",
+      "sha256": "801dfcc7ebb3449c5cbe904f5d4d2a90cc245e2e52eb08a86408c71fe9247819",
+      "source_revision": "2ecf0d21441ad9b1683dc971ef338334c45b6653"
+    },
+    "python": {
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.13.13%2B20260408-aarch64-apple-darwin-install_only_stripped.tar.gz",
+      "sha256": "0a1956c23fcc2a800fc5ffe61632dbade3d8e1b4ab94aeb0cc47e028892cac97"
+    }
+  },
+  "artifacts": {
+    "Sovereign-0.1.0-macos-arm64.dmg": "b0db3ae1f007dfd947b96b08fb8c0a8a89034fecfa6d60991928cee596d0d14f",
+    "Sovereign-0.1.0-macos-arm64.zip": "d6f0550c67d4374da48949736b946acb2d54e5c1ad31fdb774f4ea5fc241eebb"
+  },
+  "app_notarization": "4ea117f0-661e-4417-ad61-612a1f079e9b",
+  "dmg_notarization": "4035c0bf-516c-4a6d-9c73-7a0c1c6d1798",
+  "schema_version": "sovereign.macos-publication.v1",
+  "tag": "sovereign-macos-v0.1.0-build8",
+  "predicate_type": "https://foxlight.ai/attestations/macos-verification/v1",
+  "qualification_limits": [
+    "Apple silicon; actual installed build 8 GUI on macOS 26.6.2.",
+    "Real Qwen3 0.6B capture imported/restored offline through the exact installed native app; all 13 files/documents, both original signed envelopes, full card data and historical registry provenance verified.",
+    "Native app restart retained copy/completed jobs; upgrade from build 7 retained the original Library and completed jobs.",
+    "Declared minimum macOS 13 is not full OS-range or clean-host GUI qualification.",
+    "Public container verification separately checks bundled offline CLI recovery/tamper refusal; no real-model inference, broad hardware or public-network privacy qualification."
+  ]
+}

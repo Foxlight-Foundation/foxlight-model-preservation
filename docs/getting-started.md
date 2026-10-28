@@ -4,20 +4,16 @@ Sovereign helps you find a model, keep its complete files, and recover them if
 their original host disappears. You do not need Skulk, an account or a GPU to
 keep or recover a model. Running it later needs a compatible model application.
 
-**Version note:** the guided choices, Getting started button, Recovery instructions
-and Share → Save kit to send below are available in the [core 0.26 / Library 0.22 installation archive](installation.md#select-the-independent-desktop-profile).
-They require that matching software cohort. The currently published Mac build 7
-and Linux revision 2 contain core 0.25 / Library 0.21; installing those does not
-silently add the new controls. In those apps, use **Browse public models**, then
-**Library → Save recovery kit** to prepare a kit, and **Open recovery kit** to
-import it. Their **Share** control opens the separate public-mirror workflow.
-Matching updated native installers and their installed-app checks remain separate
-from these released Python components.
+These instructions cover core 0.26 / Library 0.22, Mac build 8 and Linux revision 3.
+The first-launch choices, Getting started help, recipient instructions and
+Share → Save kit to send require that matching cohort. Older native installers
+retain their original controls. The independent [Python desktop profile](installation.md#select-the-independent-desktop-profile)
+is also available without a native app or Skulk.
 
 ## Install and open
 
 - **Apple silicon Mac:** download the DMG from the
-  [public Mac release](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/sovereign-macos-v0.1.0-build7),
+  [public Mac release](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/sovereign-macos-v0.1.0-build8),
   open it, drag **Sovereign** to **Applications**, then open Sovereign normally.
   macOS checks the app's Developer ID and notarization. See
   [Mac installation](macos-distribution.md) for supported systems and independent

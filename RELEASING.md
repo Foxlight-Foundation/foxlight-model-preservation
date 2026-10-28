@@ -15,7 +15,7 @@ called native build provenance or a GitHub-built Python release.
 
 [`macos-release.yml`](.github/workflows/macos-release.yml) accepts only the final
 DMG/ZIP named and SHA-256 pinned in
-[`0.1.0-build7.json`](desktop/macos/releases/0.1.0-build7.json). That reviewed
+[`0.1.0-build8.json`](desktop/macos/releases/0.1.0-build8.json). That reviewed
 record separates binary source, published public Python inputs, Developer ID
 certificate, complete app CodeDirectory and Apple submission identities. No
 signing key, Keychain prompt or Apple credential enters this workflow. Changing
@@ -23,12 +23,12 @@ the files requires a new reviewed manifest and distinct release identity.
 
 After this lane is reviewed and merged:
 
-1. Retain the record's native tag at `f18bc1959c658af4219604dd710e6d078ee352b8`.
-   Create `sovereign-macos-publisher-v0.1.0-build7` at the reviewed publisher
+1. Retain the record's native tag at `506ac001c2eeead28f0fe00ead59c25f4ea6e21e`.
+   Create `sovereign-macos-publisher-v0.1.0-build8` at the reviewed publisher
    commit on `main`. Never replace either tag. The separate publisher tag allows
    repairing publication tooling without changing the native release identity
    or its exact container hashes. The binary source remains the manifest's
-   older exact source; neither tag asserts a native rebuild.
+   exact recipe source; neither tag asserts a native rebuild.
 2. Prepare release notes stating the exact supported architecture, verification
    scope/limits, installation steps and verification commands from
    [Mac distribution](docs/macos-distribution.md#public-download-verification).
@@ -37,7 +37,7 @@ After this lane is reviewed and merged:
    untrusted staging for verification, never a manual public release. Do not
    upload local raw logs, private producer details, credentials or inventories.
 3. Dispatch `macos-release.yml` **at the publisher tag**, `mode=rehearse`, confirmation
-   `verify Sovereign 0.1.0 build 7`. Intake checks a closed two-file inventory and
+   `verify Sovereign 0.1.0 build 8`. Intake checks a closed two-file inventory and
    reviewed hashes. A fresh Apple silicon runner validates both containers,
    Apple Developer ID certificate, complete app CodeDirectory, stapled tickets,
    Gatekeeper and signed build receipts before running actual offline CLI PMF
