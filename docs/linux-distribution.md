@@ -16,7 +16,9 @@ The current source recipe targets **0.1.0-3**, pairing core 0.26 / Library 0.22
 with first-launch choices, Getting started help, working-space reviews, separate
 kit/public-mirror sharing and recovery instructions. Publication of this new
 package pair and signed apt indexes remains separate; the installation channel
-and qualification evidence below are still revision 2.
+and historical qualification evidence below are still revision 2. The current
+manual apt-install workflow now requires revision 3 and must be dispatched only
+after that exact package pair and its signed apt indexes are published.
 
 ## Install through the signed apt channel
 
