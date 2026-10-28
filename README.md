@@ -22,6 +22,9 @@ The Sovereign app helps you find a model, keep your own complete copy and recove
 its files, companions and signed provenance if the original host disappears.
 No Skulk, hosted account, GPU or manual Python setup is required by the native app.
 
+New here? Follow [your first model with Sovereign](docs/getting-started.md):
+install, find, preserve, send a kit and recover on another computer.
+
 - **Mac (Apple silicon):** [download Sovereign 0.1.0 build 7](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/sovereign-macos-v0.1.0-build7),
   open the DMG and drag **Sovereign** to **Applications**.
   [Verification and installation](docs/macos-distribution.md).

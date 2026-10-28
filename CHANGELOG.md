@@ -1,6 +1,12 @@
 # Changes
 
-## Unreleased
+## 0.26.0
+
+- Expose saved-copy public verification instructions without granting trust or
+  returning private keys. Keep original card and provenance bytes unchanged.
+- Include the existing conservative working-space reserve and observed free
+  space in independent download reviews; enforce the same reserve again in the
+  worker. No lower-space or integrity bypass is added.
 
 - Align the Mac build 7 and Linux revision 2 recipes with authenticated public
   core 0.25.0 / Library 0.21.0 bytes and their exact source revision. Native

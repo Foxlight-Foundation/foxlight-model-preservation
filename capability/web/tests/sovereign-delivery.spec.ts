@@ -62,7 +62,7 @@ test('public publication decodes original cards and starts no listener',async({p
  await page.route('**/api/desktop-sharing-review',r=>r.fulfill({json:{name:copy.name,already_public:false,members:[{member_id:'base',repository:'example/model',license_id:'',terms_reference:''}]}}));
  await page.route('**/api/desktop-plan',r=>{expect(r.request().postDataJSON()).toEqual({kind:'publish',copy_id:id,decisions:[{member_id:'base',license_id:'Apache-2.0',terms_reference:'LICENSE'}]});return r.fulfill({json:{plan_id:id,kind:'publish',name:copy.name,size_bytes:1024,expires_at:9999999999,public_manifest_id:id,public_review_sha256:hash}});});
  await page.route('**/api/desktop-start',r=>{starts++;return r.fulfill({json:{}});});
- await page.goto('/');await page.getByRole('button',{name:'Share',exact:true}).click();
+ await page.goto('/');await page.getByRole('button',{name:'Share',exact:true}).click();await page.getByRole('button',{name:'Review public mirror',exact:true}).click();
  const review=page.getByRole('button',{name:'Review exact public files',exact:true});await expect(review).toBeDisabled();
  await page.getByLabel('License for base',{exact:true}).fill('Apache-2.0');await page.getByLabel('License file or terms reference for base',{exact:true}).fill('LICENSE');await review.click();
  await page.getByText('Original model card · base',{exact:true}).click();await expect(page.getByText('Preserved original field',{exact:false})).toBeVisible();
@@ -134,7 +134,7 @@ test('changed public review metadata cannot reach publication consent',async({pa
  await page.route('**/api/desktop-plan',r=>r.fulfill({json:{plan_id:id,kind:'publish',name:copy.name,size_bytes:1024,expires_at:9999999999,public_review_sha256:'0'.repeat(64)}}));
  await page.route('**/api/desktop-public-review/*',r=>r.fulfill({json:{manifest:{members:[]},cards:[]}}));
  await page.route('**/api/desktop-start',r=>{starts++;return r.fulfill({json:{}});});
- await page.goto('/');await page.getByRole('button',{name:'Share',exact:true}).click();await page.getByRole('button',{name:'Review exact public files',exact:true}).click();
+ await page.goto('/');await page.getByRole('button',{name:'Share',exact:true}).click();await page.getByRole('button',{name:'Review public mirror',exact:true}).click();await page.getByRole('button',{name:'Review exact public files',exact:true}).click();
  await expect(page.getByRole('alert')).toContainText('changed');await expect(page.getByRole('button',{name:'Create public copy',exact:true})).toHaveCount(0);expect(starts).toBe(0);
 });
 
