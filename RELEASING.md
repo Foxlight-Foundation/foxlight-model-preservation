@@ -24,7 +24,7 @@ the files requires a new reviewed manifest and distinct release identity.
 After this lane is reviewed and merged:
 
 1. Retain the record's native tag at `506ac001c2eeead28f0fe00ead59c25f4ea6e21e`.
-   Create `sovereign-macos-publisher-v0.1.0-build8` at the reviewed publisher
+   Create `sovereign-macos-publisher-v0.1.0-build8-v2` at the reviewed publisher
    commit on `main`. Never replace either tag. The separate publisher tag allows
    repairing publication tooling without changing the native release identity
    or its exact container hashes. The binary source remains the manifest's
@@ -56,6 +56,15 @@ After this lane is reviewed and merged:
    assets or move a tag to get a failed check to pass.
 6. Download anonymously and verify the public files and retained attestation
    bundle again. Check actual installation separately from workflow acceptance.
+
+The build8-v2 publisher adds only a runner-scoped workaround for
+[GitHub's Apple CloudKit HTTP/3 issue](https://github.com/actions/runner-images/issues/14924).
+During the Mac verification command, a unique PF service anchor blocks outgoing
+UDP443 so Apple uses normal TCP HTTPS. TLS, certificate, ticket and Gatekeeper
+checks remain enabled. The wrapper requires the exact public publisher tag and
+a hosted Mac runner, preserves existing root rules, and removes only its own
+rules/enable reference on exit. It never runs on an operator Mac, changes the
+installer or grants model authority. The prior publisher tag remains unchanged.
 
 This lane asserts verification of previously signed bytes, **not a native build
 in the public workflow**. Apple checks and synthetic recovery do not establish

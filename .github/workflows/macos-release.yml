@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: false
 env:
   NATIVE_TAG: sovereign-macos-v0.1.0-build8
-  VERIFIER_TAG: sovereign-macos-publisher-v0.1.0-build8
+  VERIFIER_TAG: sovereign-macos-publisher-v0.1.0-build8-v2
   PREDICATE_TYPE: https://foxlight.ai/attestations/macos-verification/v1
 jobs:
   intake:
@@ -99,8 +99,10 @@ jobs:
           path: incoming
       - name: Verify both exact final containers before running bundled commands
         id: verify
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
         run: |
-          python scripts/verify_macos_release.py --directory incoming \
+          bash scripts/macos_apple_https.sh python scripts/verify_macos_release.py --directory incoming \
             --scratch "$RUNNER_TEMP/native-checks" --output dist
           cp incoming/* dist/
           cd dist
