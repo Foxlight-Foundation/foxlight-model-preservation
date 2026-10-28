@@ -1,6 +1,6 @@
 [project]
 name = "foxlight-model-preservation"
-version = "0.25.0"
+version = "0.26.0"
 description = "Portable signed model bundles and receive-only mirror downloads"
 readme = "README.md"
 requires-python = ">=3.11"

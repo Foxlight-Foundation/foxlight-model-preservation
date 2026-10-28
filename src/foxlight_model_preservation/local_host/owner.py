@@ -436,6 +436,15 @@ class LocalOwner:
         raise PreservationError("sovereign_copy_unavailable")
 
     def _plan(self, value: dict[str, JsonValue]) -> dict[str, JsonValue]:
+        if value.get("kind") in {"receive", "source_receive"}:
+            # This is the same conservative reserve enforced again by the
+            # worker, observed now so the person can choose before downloading.
+            selected_bytes = cast(int, value["size_bytes"])
+            value = {
+                **value,
+                "required_free_bytes": selected_bytes * 4 + 32 * 1024**2,
+                "free_bytes": shutil.disk_usage(self.home).free,
+            }
         value = {**value, "expires_at": int(time.time()) + 600}
         from ..models import MAX_METADATA_BYTES
 
@@ -510,6 +519,15 @@ class LocalOwner:
                 return self.backups.forget(str(body["destination_id"]))
             if action == "job-read" and set(body) == {"job_id"}:
                 return self._job(str(body["job_id"])).model_dump(mode="json")
+            if action == "copy-recovery-info" and set(body) == {"copy_id"}:
+                copy = self._copy(str(body["copy_id"]))
+                return {
+                    "name": copy.name,
+                    "manifest_id": copy.manifest_id,
+                    "threshold": copy.trust.threshold,
+                    "keys": [key.key_id for key in copy.trust.keys],
+                    "revoked_keys": list(copy.trust.revoked_keys),
+                }
             if action == "source-read" and not body:
                 return self.sources.read()
             if action == "source-search":

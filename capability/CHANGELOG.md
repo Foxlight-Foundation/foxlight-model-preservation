@@ -4,7 +4,17 @@ Skulk Library is versioned separately from the portable core. Releases are
 tagged `library-v*`; versions without a tag are source previews installed from
 `main` (see [README](README.md)).
 
-## Unreleased
+## 0.22.0
+
+- Add guided first-launch choices and reusable install/find/preserve/share/recover
+  help, retaining Library for returning users and the Horizon interface.
+- Offer sending a complete recovery kit separately from public-mirror preparation.
+  Explain private metadata, encryption limits and sender reachability.
+- Provide copyable recipient instructions with exact saved capture identifiers;
+  opening or copying them enrolls no keys and starts no job.
+- Explain download working space before consent and keep low-space starts disabled.
+- Refresh saved discovery results after an explicit listing update even when
+  Activity has no new visible job. Pair with independent core 0.26.0.
 
 - Advance both independent native recipes to the published Library 0.21.0 and
   core 0.25.0 cohort. Keep runtime pins and model/source trust unchanged.

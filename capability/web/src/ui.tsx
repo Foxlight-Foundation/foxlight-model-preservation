@@ -1,4 +1,4 @@
-import {createContext,useCallback,useContext,useEffect,useId,useRef,useState,type KeyboardEvent,type ReactNode} from 'react';
+import {createContext,useCallback,useContext,useEffect,useId,useLayoutEffect,useRef,useState,type KeyboardEvent,type ReactNode} from 'react';
 import {createPortal} from 'react-dom';
 
 /** Feather-style inline icons; no icon font, no network request. */
@@ -140,7 +140,7 @@ export function Sheet({kicker,title,subtitle,back,onClose,footer,children,wide}:
   const id=useId(),heading=useRef<HTMLHeadingElement>(null),panel=useRef<HTMLElement>(null),close=useRef(onClose);close.current=onClose;
   const {stack,register,banner}=useContext(SheetStack),top=useRef(false);
   top.current=stack[stack.length-1]===id;
-  useEffect(()=>register(id),[id,register]);
+  useLayoutEffect(()=>register(id),[id,register]);
   useEffect(()=>{
     const active=document.activeElement instanceof HTMLElement&&document.activeElement!==document.body?document.activeElement:null;
     const opener=active??lastFocused;
@@ -154,11 +154,11 @@ export function Sheet({kicker,title,subtitle,back,onClose,footer,children,wide}:
       const lost=document.activeElement===document.body||document.activeElement===null||Boolean(sheet&&sheet.contains(document.activeElement));
       if(lost&&opener?.isConnected&&!opener.closest('[inert]'))opener.focus({preventScroll:true});};
   },[]);
-  return <div className="sk-layer" data-wide={wide?'true':undefined}><div className="sk-scrim" aria-hidden="true" onClick={()=>close.current()}/><section ref={panel} className="sk-sheet" role="dialog" aria-labelledby={id}>
+  return createPortal(<div className="sk-layer" data-wide={wide?'true':undefined} style={{zIndex:50+Math.max(0,stack.indexOf(id))}} inert={stack.includes(id)&&stack.at(-1)!==id}><div className="sk-scrim" aria-hidden="true" onClick={()=>close.current()}/><section ref={panel} className="sk-sheet" role="dialog" aria-labelledby={id}>
     <div className="sk-sheet-head"><div className="sk-sheet-titles">{kicker&&<p className="sk-label">{kicker}</p>}<h2 id={id} ref={heading} tabIndex={-1}>{title}</h2>{subtitle&&<p className="sk-sheet-sub">{subtitle}</p>}</div><button type="button" className="sk-icon-btn" aria-label={back} title={back} onClick={()=>close.current()}><Icon name="close" size={18}/></button></div>
     <div className="sk-sheet-body">{stack[stack.length-1]===id&&banner}{children}</div>
     {footer&&<div className="sk-sheet-foot">{footer}</div>}
-  </section></div>;
+  </section></div>,document.body);
 }
 
 export interface MenuItem {label:string;onSelect?:()=>void;href?:string;download?:string;disabled?:boolean;icon?:IconName}

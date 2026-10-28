@@ -16,7 +16,7 @@ from foxlight_model_preservation.cards import (
     create_card,
     identity_json,
 )
-from foxlight_model_preservation.kits import export_kit
+from foxlight_model_preservation.kits import export_kit, inspect_kit
 from foxlight_model_preservation.local_host.catalog import VIRTUAL_URL, RegistryCatalog
 from foxlight_model_preservation.local_host.owner import LocalOwner
 from foxlight_model_preservation.local_host.selection import registry_recipe
@@ -173,6 +173,79 @@ def test_same_origin_component_projector_is_consistent_in_find_and_review(tmp_pa
         assert plan["projector_included"] is True
         assert plan["file_count"] == 2
         assert plan["details"]["artifact_notes"] == []
+    finally:
+        owner.close()
+
+
+def test_download_review_explains_existing_worker_space_reserve(tmp_path, monkeypatch):
+    import shutil
+
+    catalog, repo, _ = accepted_catalog(tmp_path)
+    owner = LocalOwner(tmp_path / "owner", catalog=catalog)
+    try:
+        monkeypatch.setattr(
+            shutil, "disk_usage", lambda _: shutil._ntuple_diskusage(1000, 999, 1)
+        )
+        plan = owner.control(
+            "plan",
+            {
+                "kind": "receive",
+                "catalog_id": digest(repo.target),
+                "card_id": repo.card.card_id,
+            },
+        )
+        assert plan["free_bytes"] == 1
+        assert plan["required_free_bytes"] == plan["size_bytes"] * 4 + 32 * 1024**2
+        assert not owner.read()["jobs"]
+        # Bypassing the UI's disabled control still cannot start a byte transfer.
+        receipt = finish(owner, submit(owner, plan))
+        assert receipt["state"] == "failed"
+        assert receipt["error_code"] == "insufficient_space"
+        assert not owner.read()["copies"]
+    finally:
+        owner.close()
+
+
+def test_recovery_instructions_expose_only_saved_public_trust(tmp_path, capture):
+    kit = tmp_path / "selected.foxkit"
+    export_kit(capture.store, capture.identity, capture.trust, kit)
+    owner = LocalOwner(tmp_path / "receiver")
+    try:
+        content = kit.read_bytes()
+        upload = owner.control("upload-create", {"size_bytes": len(content)})
+        owner.upload(upload["upload_id"], 0, content)
+        plan = owner.control(
+            "plan", {"kind": "kit_import", "upload_id": upload["upload_id"]}
+        )
+        job = finish(owner, submit(owner, plan))
+        assert job["state"] == "succeeded"
+        exported = finish(
+            owner,
+            submit(
+                owner,
+                owner.control(
+                    "plan", {"kind": "kit_export", "copy_id": job["copy_id"]}
+                ),
+            ),
+        )
+        retained = tmp_path / "retained.foxkit"
+        with owner.open_kit(exported["job_id"]) as stream:
+            retained.write_bytes(stream.read())
+        actual_kit = inspect_kit(retained)
+        before = (owner.home / "journal.json").read_bytes()
+        info = owner.control("copy-recovery-info", {"copy_id": job["copy_id"]})
+        assert set(info) == {"name", "manifest_id", "threshold", "keys", "revoked_keys"}
+        assert info["manifest_id"] == owner.read()["copies"][0]["manifest_id"]
+        assert info["threshold"] == actual_kit.trust.threshold
+        assert info["keys"] == [key.key_id for key in actual_kit.trust.keys]
+        assert info["revoked_keys"] == list(actual_kit.trust.revoked_keys)
+        assert (owner.home / "journal.json").read_bytes() == before
+        with pytest.raises(PreservationError):
+            owner.control("copy-recovery-info", {"copy_id": "f" * 64})
+        with pytest.raises(PreservationError):
+            owner.control(
+                "copy-recovery-info", {"copy_id": job["copy_id"], "confirmed": True}
+            )
     finally:
         owner.close()
 

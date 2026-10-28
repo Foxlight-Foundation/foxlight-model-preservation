@@ -102,6 +102,8 @@ test('matching file variants share a description but retain their own exact revi
  expect(selected).toBe(versions[1].card_id);
  await expect(page.getByRole('button',{name:'Download & preserve',exact:true})).toBeDisabled();
  const dialog=page.getByRole('dialog'),help=dialog.getByRole('button',{name:'About digital fingerprints',exact:true});
+ await expect(help).not.toBeVisible();
+ await dialog.getByText('Original card verification details',{exact:true}).click();
  await expect.poll(()=>page.evaluate(()=>(window as Window&{testFocusFrames:{count:()=>number}}).testFocusFrames.count())).toBeGreaterThan(0);
  await help.focus();await page.evaluate(()=>(window as Window&{testFocusFrames:{flush:()=>void}}).testFocusFrames.flush());await expect(help).toBeFocused();await expect(page.getByRole('tooltip')).toBeVisible();
  await help.press('Escape');await expect(dialog).toBeVisible();await expect(page.getByRole('tooltip')).toHaveCount(0);
