@@ -79,3 +79,52 @@ test('low working space is explained before an explicit download can start',asyn
   await page.getByLabel('Proceed with this exact private selection.',{exact:true}).check();
   await expect(page.getByRole('button',{name:'Download & preserve',exact:true})).toBeDisabled();expect(starts).toBe(0);
 });
+
+test('Getting started covers the active review and closing it preserves consent',async({page})=>{
+  const model={card_id:'card_'+ 'c'.repeat(52),name:copy.name,format:'gguf',quantization:'Q4',size_bytes:1024,workloads:['TextGeneration'],complete_file_map:true};
+  await page.route('**/api/desktop-search',r=>r.fulfill({json:{catalog_id:id,results:[model],total:1,next_offset:null}}));
+  await page.route('**/api/desktop-plan',r=>r.fulfill({json:{plan_id:id,kind:'receive',name:copy.name,size_bytes:1024,expires_at:9999999999}}));
+  await page.goto('/');await page.getByRole('button',{name:'Keep a copy',exact:true}).click();
+  await page.getByLabel('Proceed with this exact private selection.',{exact:true}).check();
+  await page.getByRole('button',{name:'Getting started',exact:true}).click();
+  // A real pointer click must reach the visible guide above the older review.
+  await page.getByRole('button',{name:'Close getting started',exact:true}).click();
+  await expect(page.getByLabel('Proceed with this exact private selection.',{exact:true})).toBeChecked();
+  await page.getByRole('button',{name:'Getting started',exact:true}).click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('heading',{name:'Your model, kept safe',exact:true})).toHaveCount(0);
+  await expect(page.getByRole('dialog')).toHaveCount(1);
+  await expect(page.getByLabel('Proceed with this exact private selection.',{exact:true})).toBeChecked();
+});
+
+test('a sharing-file receive review also refuses low working space after consent',async({page})=>{
+  let starts=0;
+  await page.route('**/api/desktop-upload-create',r=>r.fulfill({json:{upload_id:'b'.repeat(32),offset:0}}));
+  await page.route('**/api/upload/*',r=>r.fulfill({json:{upload_id:'b'.repeat(32),offset:16}}));
+  await page.route('**/api/desktop-upload-remove',r=>r.fulfill({json:{removed:true}}));
+  await page.route('**/api/desktop-handoff-review',r=>r.fulfill({json:{reference_job_id:id,manifest_id:id,name:copy.name,size_bytes:1024,member_count:2,members:['example/model','example/companion'],keys:[key],threshold:1,revoked_keys:[],mirrors:['https://mirror.example'],from_handoff:true}}));
+  await page.route('**/api/desktop-plan',r=>r.fulfill({json:{plan_id:id,kind:'source_receive',name:copy.name,size_bytes:1024,required_free_bytes:4096,free_bytes:2048,expires_at:9999999999}}));
+  await page.route('**/api/desktop-start',r=>{starts++;return r.fulfill({json:{}});});
+  await page.goto('/');await page.getByLabel('Open sharing file',{exact:true}).setInputFiles({name:'model.foxhandoff',mimeType:'application/json',buffer:Buffer.alloc(16)});
+  await page.getByRole('checkbox',{name:/I independently checked/}).check();
+  await page.getByRole('button',{name:'Review download & preserve',exact:true}).click();
+  await expect(page.getByText('Free space needed during download',{exact:true})).toBeVisible();
+  await page.getByLabel('Preserve this exact copy privately. This grants no registry authority or permission to run code.',{exact:true}).check();
+  await expect(page.getByRole('button',{name:'Download & preserve',exact:true})).toBeDisabled();expect(starts).toBe(0);
+});
+
+test('Getting started also covers public-copy reviews portaled outside the app',async({page})=>{
+  await page.route('**/api/library*',r=>r.fulfill({json:{...empty,copies:[copy]}}));
+  await page.route('**/api/desktop-copy-search',r=>r.fulfill({json:{results:[copy],total:1,stored_total:1,next_offset:null}}));
+  await page.route('**/api/desktop-sharing-read',r=>r.fulfill({json:{public_copies:[]}}));
+  await page.route('**/api/desktop-sharing-review',r=>r.fulfill({json:{name:copy.name,already_public:true,members:[]}}));
+  await page.goto('/');await page.getByRole('button',{name:'Share',exact:true}).click();
+  await page.getByRole('button',{name:'Review public mirror',exact:true}).click();
+  await page.getByRole('button',{name:'Review exact public files',exact:true}).waitFor();
+  await page.getByRole('button',{name:'Getting started',exact:true}).click();
+  await page.getByRole('button',{name:'Close getting started',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Review exact public files',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Getting started',exact:true}).click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button',{name:'Review exact public files',exact:true})).toBeVisible();
+});
