@@ -34,7 +34,7 @@ been published. Download the DMG or ZIP and the neighboring `SHA256SUMS`,
 download against its checksum, then authenticate it with GitHub CLI:
 
 ```sh
-PUBLISHER_TAG=sovereign-macos-publisher-v0.1.0-build8
+PUBLISHER_TAG=sovereign-macos-publisher-v0.1.0-build8-v2
 FILE=Sovereign-0.1.0-macos-arm64.dmg
 shasum -a 256 "$FILE"  # compare the corresponding line in SHA256SUMS
 gh attestation verify "$FILE" \
