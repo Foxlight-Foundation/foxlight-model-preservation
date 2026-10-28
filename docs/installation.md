@@ -6,7 +6,7 @@ Older releases provide only the Core-backed client. Installing
 software does not follow sources, trust model keys, set up Core, download models,
 install native peer software or grant public serving.
 
-The `v0.22.0` core and `library-v0.17.0` Library pre-releases provide one installation
+The `v0.26.0` core and `library-v0.22.0` Library pre-releases provide one installation
 archive each, plus `release.sigstore.json`, a detached build-attestation bundle.
 Each archive contains its primary wheel, source distribution, `INSTALL.json`, hash-locked
 runtime requirements, `install.py` and inner checksums. Library additionally
@@ -15,21 +15,25 @@ peer profile has its own lock; default installation needs no native peer runtime
 The separately pinned compatible Core remains development source, not a stable
 or fully frozen Core release. See [Core setup](../capability/preview.md).
 
+For the Sovereign interface without Skulk, use the
+[independent desktop profile](#select-the-independent-desktop-profile) below.
+The default Library profile is the separate client for an existing Skulk Core.
+
 ## Download and authenticate
 
 Choose the standalone core, or the optional Library with Python 3.13+:
 
 | Role | Tag | Archive |
 | --- | --- | --- |
-| Standalone | `v0.22.0` | `foxlight-model-preservation-0.22.0-install.zip` |
-| Optional Library | `library-v0.17.0` | `foxlight-preservation-library-0.17.0-install.zip` |
+| Standalone | `v0.26.0` | `foxlight-model-preservation-0.26.0-install.zip` |
+| Optional Library | `library-v0.22.0` | `foxlight-preservation-library-0.22.0-install.zip` |
 
 Download the archive and `release.sigstore.json` from the same chosen release.
 Public asset downloads need no account. For the standalone core:
 
 ```sh
-base=https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/v0.22.0
-curl --fail --location --proto '=https' -O "$base/foxlight-model-preservation-0.22.0-install.zip"
+base=https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/v0.26.0
+curl --fail --location --proto '=https' -O "$base/foxlight-model-preservation-0.26.0-install.zip"
 curl --fail --location --proto '=https' -O "$base/release.sigstore.json"
 ```
 
@@ -39,11 +43,11 @@ authenticated archive hash is another bootstrap path; same-source checksums
 alone do not identify a publisher.
 
 ```sh
-gh attestation verify foxlight-model-preservation-0.22.0-install.zip \
+gh attestation verify foxlight-model-preservation-0.26.0-install.zip \
   --bundle release.sigstore.json \
   --repo Foxlight-Foundation/foxlight-model-preservation \
   --signer-workflow Foxlight-Foundation/foxlight-model-preservation/.github/workflows/release.yml \
-  --source-ref refs/tags/v0.22.0 --deny-self-hosted-runners
+  --source-ref refs/tags/v0.26.0 --deny-self-hosted-runners
 ```
 
 Use the corresponding archive/tag for Library. Pin `--source-digest COMMIT` as
@@ -60,10 +64,10 @@ Use Python 3.11+ for standalone or Python 3.13+ for Library and an authenticated
 binaries separately for offline use; this helper never acquires Python for you.
 
 ```sh
-unzip foxlight-model-preservation-0.22.0-install.zip -d sovereign-install
+unzip foxlight-model-preservation-0.26.0-install.zip -d sovereign-install
 cd sovereign-install
-python3 install.py --directory "$HOME/sovereign-0.22.0"
-"$HOME/sovereign-0.22.0/bin/model-preserve" --help
+python3 install.py --directory "$HOME/sovereign-0.26.0"
+"$HOME/sovereign-0.26.0/bin/model-preserve" --help
 ```
 
 The parent must exist and the target must be new. The helper verifies every
@@ -110,16 +114,31 @@ attestations. Authenticate that archive before using its helper. Earlier v1
 Library archives do not offer this profile; they refuse it rather than silently
 installing a Core-dependent client as an independent application.
 
-From a verified archive that contains the desktop profile, with Python 3.13+:
+With Python 3.13+ and uv, download and authenticate the matching Library archive,
+then install its desktop profile into a new environment:
 
 ```sh
-python3 install.py --directory "$HOME/sovereign-desktop" \
-  --requirements requirements-desktop.lock
-"$HOME/sovereign-desktop/bin/foxlight-sovereign"
+(
+  set -e
+  base=https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.22.0
+  curl --fail --location --proto '=https' -O "$base/foxlight-preservation-library-0.22.0-install.zip"
+  curl --fail --location --proto '=https' -O "$base/release.sigstore.json"
+  gh attestation verify foxlight-preservation-library-0.22.0-install.zip \
+    --bundle release.sigstore.json \
+    --repo Foxlight-Foundation/foxlight-model-preservation \
+    --signer-workflow Foxlight-Foundation/foxlight-model-preservation/.github/workflows/release.yml \
+    --source-ref refs/tags/library-v0.22.0 --deny-self-hosted-runners
+  unzip foxlight-preservation-library-0.22.0-install.zip -d sovereign-desktop-install
+  cd sovereign-desktop-install
+  python3 install.py --directory "$HOME/sovereign-desktop" \
+    --requirements requirements-desktop.lock
+  "$HOME/sovereign-desktop/bin/foxlight-sovereign"
+)
 ```
 
 This opens the independent Library without installing Skulk or the managed SDK.
-First launch offers **Browse public models** and **Open recovery kit**. Each
+First launch offers **Browse public models**, **Choose a recovery kit** and
+**Choose a sharing file**, with reusable **Getting started** help. Each
 model transfer or capture-key acceptance still requires its own review. See
 [everyday use and privacy](sovereign-desktop.md). Closing the browser leaves the
 application working; quitting the launcher stops its private owner safely.

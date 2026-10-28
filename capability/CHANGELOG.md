@@ -4,6 +4,13 @@ Skulk Library is versioned separately from the portable core. Releases are
 tagged `library-v*`; versions without a tag are source previews installed from
 `main` (see [README](README.md)).
 
+## Unreleased
+
+- Prepare Mac build 8 / Linux revision 3 from the authenticated public core 0.26
+  / Library 0.22 installation archive. Native signing/publication and signed apt
+  indexes remain distinct gates. Require the new first-launch controls during
+  native Linux qualification and use their recovery-kit entry for GUI recovery.
+
 ## 0.22.0
 
 - Add guided first-launch choices and reusable install/find/preserve/share/recover

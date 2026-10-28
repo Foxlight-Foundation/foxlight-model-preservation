@@ -31,8 +31,8 @@ jobs:
       - name: Install from authenticated expiring public metadata
         run: |
           sudo apt-get update
-          sudo apt-get install -y foxlight-sovereign=0.1.0-2
-          test "$(dpkg-query -W -f='${Version}' foxlight-sovereign)" = 0.1.0-2
+          sudo apt-get install -y foxlight-sovereign=0.1.0-3
+          test "$(dpkg-query -W -f='${Version}' foxlight-sovereign)" = 0.1.0-3
           for package in skulk skulk-runtime skulk-desktop; do
             test "$(dpkg-query -W -f='${db:Status-Status}' "$package" 2>/dev/null || true)" != installed
           done
@@ -44,13 +44,13 @@ jobs:
         run: |
           mkdir /tmp/sovereign-public-package
           cd /tmp/sovereign-public-package
-          apt-get download foxlight-sovereign=0.1.0-2
-          gh release download sovereign-linux-v0.1.0-2 --repo "$GITHUB_REPOSITORY" --pattern linux-release.sigstore.json
-          gh attestation verify "foxlight-sovereign_0.1.0-2_${ARCHITECTURE}.deb" \
+          apt-get download foxlight-sovereign=0.1.0-3
+          gh release download sovereign-linux-v0.1.0-3 --repo "$GITHUB_REPOSITORY" --pattern linux-release.sigstore.json
+          gh attestation verify "foxlight-sovereign_0.1.0-3_${ARCHITECTURE}.deb" \
             --repo "$GITHUB_REPOSITORY" --bundle linux-release.sigstore.json \
             --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/linux-release.yml" \
-            --source-ref refs/tags/sovereign-linux-v0.1.0-2 \
-            --source-digest "$(git -C "$GITHUB_WORKSPACE" rev-parse 'refs/tags/sovereign-linux-v0.1.0-2^{commit}')" \
+            --source-ref refs/tags/sovereign-linux-v0.1.0-3 \
+            --source-digest "$(git -C "$GITHUB_WORKSPACE" rev-parse 'refs/tags/sovereign-linux-v0.1.0-3^{commit}')" \
             --deny-self-hosted-runners
       - name: Use the installed app and commands without Skulk
         run: |

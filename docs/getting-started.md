@@ -5,14 +5,14 @@ their original host disappears. You do not need Skulk, an account or a GPU to
 keep or recover a model. Running it later needs a compatible model application.
 
 **Version note:** the guided choices, Getting started button, Recovery instructions
-and Share → Save kit to send below are new in core 0.26 / Library 0.22 source.
+and Share → Save kit to send below are available in the [core 0.26 / Library 0.22 installation archive](installation.md#select-the-independent-desktop-profile).
 They require that matching software cohort. The currently published Mac build 7
 and Linux revision 2 contain core 0.25 / Library 0.21; installing those does not
 silently add the new controls. In those apps, use **Browse public models**, then
 **Library → Save recovery kit** to prepare a kit, and **Open recovery kit** to
 import it. Their **Share** control opens the separate public-mirror workflow.
 Matching updated native installers and their installed-app checks remain separate
-from this source delivery.
+from these released Python components.
 
 ## Install and open
 

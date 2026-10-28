@@ -1,10 +1,10 @@
 # Independent Sovereign Library
 
 For the everyday install/find/preserve/share/recover journey, start with
-[Getting started](getting-started.md). Current source adds guided entry choices,
+[Getting started](getting-started.md). Library 0.22 adds guided entry choices,
 a reusable journey guide, separate kit/public-mirror sharing choices, copyable
 recipient verification instructions and download working-space review. These
-source changes require the matching next release; installed native build 7 does
+new controls require core 0.26 / Library 0.22; installed native build 7 does
 not update merely because this document or the source changed.
 
 Sovereign can browse the public model catalog, privately preserve a supported

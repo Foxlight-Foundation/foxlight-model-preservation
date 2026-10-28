@@ -13,8 +13,12 @@ rebuilding or signing them. Developer ID signing, Apple notarization and an
 installed-app journey remain separate checks. A locally passing Gatekeeper
 check does not establish clean-host acceptance, model compatibility or anonymity.
 
-The current recipe targets **0.1.0 build 7**, with the authenticated public core
-0.25 / Library 0.21 cohort. This adds complete companion recovery, verified backup
+The current recipe targets **0.1.0 build 8**, with the authenticated public core
+0.26 / Library 0.22 cohort. It adds first-launch choices, Getting started help,
+working-space reviews, separate kit/public-mirror sharing and recovery instructions.
+Build 8 signing, notarization and publication remain separate; the current public
+Mac download and verification record below are still build 7. That older download
+contains core 0.25 / Library 0.21. The shared preservation foundation includes complete companion recovery, verified backup
 folders, explicit finite sharing, recipient handoff and reviewed alternate routes
 for the same exact model capture. It includes the Sovereign Horizon interface,
 declared input/output types, image understanding,
