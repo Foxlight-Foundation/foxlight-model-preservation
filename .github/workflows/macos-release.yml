@@ -10,16 +10,16 @@ on:
         default: rehearse
         required: true
       confirmation:
-        description: Type "verify Sovereign 0.1.0 build 7"
+        description: Type "verify Sovereign 0.1.0 build 8"
         type: string
         required: true
 permissions: {}
 concurrency:
-  group: sovereign-macos-v0.1.0-build7
+  group: sovereign-macos-v0.1.0-build8
   cancel-in-progress: false
 env:
-  NATIVE_TAG: sovereign-macos-v0.1.0-build7
-  VERIFIER_TAG: sovereign-macos-publisher-v0.1.0-build7
+  NATIVE_TAG: sovereign-macos-v0.1.0-build8
+  VERIFIER_TAG: sovereign-macos-publisher-v0.1.0-build8
   PREDICATE_TYPE: https://foxlight.ai/attestations/macos-verification/v1
 jobs:
   intake:
@@ -44,10 +44,10 @@ jobs:
         run: |
           test "$GITHUB_REPOSITORY" = Foxlight-Foundation/foxlight-model-preservation
           test "$GITHUB_REF" = "refs/tags/$VERIFIER_TAG"
-          test "$CONFIRMATION" = 'verify Sovereign 0.1.0 build 7'
+          test "$CONFIRMATION" = 'verify Sovereign 0.1.0 build 8'
           test "$MODE" = rehearse -o "$MODE" = publish
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main
-          test "$(git rev-parse "refs/tags/$NATIVE_TAG^{commit}")" = f18bc1959c658af4219604dd710e6d078ee352b8
+          test "$(git rev-parse "refs/tags/$NATIVE_TAG^{commit}")" = 506ac001c2eeead28f0fe00ead59c25f4ea6e21e
           git merge-base --is-ancestor "refs/tags/$NATIVE_TAG" "$GITHUB_SHA"
       - name: Download the fixed draft without replacing assets
         id: intake
@@ -61,7 +61,7 @@ jobs:
           python - <<'PY'
           import json, os
           release = json.load(open('draft.json'))
-          manifest = json.load(open('desktop/macos/releases/0.1.0-build7.json'))
+          manifest = json.load(open('desktop/macos/releases/0.1.0-build8.json'))
           assert release['isDraft'] is True and release['tagName'] == manifest['tag']
           assert {a['name'] for a in release['assets']} == set(manifest['artifacts'])
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
