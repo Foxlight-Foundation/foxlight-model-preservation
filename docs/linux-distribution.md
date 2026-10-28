@@ -12,6 +12,12 @@ published by the reviewed `linux-release.yml` workflow at
 checksums and detached GitHub build provenance. The signed APT repository is a
 separate publication step; CI artifacts alone are not that channel.
 
+The current source recipe targets **0.1.0-3**, pairing core 0.26 / Library 0.22
+with first-launch choices, Getting started help, working-space reviews, separate
+kit/public-mirror sharing and recovery instructions. Publication of this new
+package pair and signed apt indexes remains separate; the installation channel
+and qualification evidence below are still revision 2.
+
 ## Install through the signed apt channel
 
 On **Ubuntu 24.04**, download the Foxlight software archive key and check its

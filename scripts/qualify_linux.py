@@ -270,7 +270,16 @@ def qualify_gui(root: Path) -> dict[str, object]:
                 time.sleep(0.25)
             image.savev(str(root / "native-first-launch.png"), "png", [], [])
             require(dark > 1000, "native interface remained visually blank")
-            require(action("Open recovery kit"), "native file chooser control missing")
+            for label in (
+                "Browse public models",
+                "Choose a recovery kit",
+                "Choose a sharing file",
+                "Getting started",
+            ):
+                require(label in names, "newcomer control missing: " + label)
+            require(
+                action("Choose a recovery kit"), "newcomer file chooser control missing"
+            )
             canceled = False
             deadline = time.monotonic() + 20
             while time.monotonic() < deadline:
@@ -314,6 +323,7 @@ def qualify_gui(root: Path) -> dict[str, object]:
         "scoped_apparmor_launcher": True,
         "webkit_namespace_seccomp_sandbox": True,
         "native_file_picker_cancel": True,
+        "newcomer_choices_and_guide": True,
         "fresh_launch_started_no_jobs": True,
         "cooperative_quit_and_owner_lock_reopen": True,
         "full_native_recovery_or_real_model_qualification": False,

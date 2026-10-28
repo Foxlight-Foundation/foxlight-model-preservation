@@ -21,6 +21,7 @@ REQUIRED_CHECKS = (
     "scoped_apparmor_launcher",
     "webkit_namespace_seccomp_sandbox",
     "native_file_picker_cancel",
+    "newcomer_choices_and_guide",
     "fresh_launch_started_no_jobs",
     "cooperative_quit_and_owner_lock_reopen",
     "purge_retains_exact_user_files",
