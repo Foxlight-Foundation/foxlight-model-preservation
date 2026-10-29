@@ -204,19 +204,36 @@ class PeersDocument(Record):
 
 
 def build_peers(self_card: bytes | None, peers: tuple[bytes, ...]) -> bytes:
-    """Encode a bounded peers document from exact signed card envelopes."""
-    document = PeersDocument.model_validate(
-        {
-            "schema_version": "sovereign.peers.v1",
-            "self": Envelope.model_validate_json(self_card) if self_card else None,
-            "peers": tuple(
-                Envelope.model_validate_json(item) for item in peers[:MAX_PEERS]
-            ),
-        }
-    )
-    data = canonical_bytes(document.model_dump(mode="json", by_alias=True))
+    """Encode a bounded peers document from exact signed card envelopes.
+
+    The serving mirror's own card always comes first. Peers are added in the
+    given (most reliable first) order while the document stays within its byte
+    budget, so large cards shorten the list instead of suppressing it.
+    """
+    own = Envelope.model_validate_json(self_card) if self_card else None
+
+    def encode(chosen: list[Envelope]) -> bytes:
+        document = PeersDocument.model_validate(
+            {
+                "schema_version": "sovereign.peers.v1",
+                "self": own,
+                "peers": tuple(chosen),
+            }
+        )
+        return canonical_bytes(document.model_dump(mode="json", by_alias=True))
+
+    chosen: list[Envelope] = []
+    data = encode(chosen)
     if len(data) > MAX_PEERS_BYTES:
-        raise PreservationError("peers document exceeds size limit")
+        raise PreservationError("mirror card exceeds the peers document limit")
+    for item in peers:
+        if len(chosen) >= MAX_PEERS:
+            break
+        candidate = encode([*chosen, Envelope.model_validate_json(item)])
+        if len(candidate) > MAX_PEERS_BYTES:
+            continue
+        chosen.append(Envelope.model_validate_json(item))
+        data = candidate
     return data
 
 

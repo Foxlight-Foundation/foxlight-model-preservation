@@ -594,3 +594,32 @@ def test_closing_the_owner_cancels_a_gossip_round_in_progress(
     begun = time.monotonic()
     owner.close()
     assert time.monotonic() - begun < 10
+
+
+def test_turning_sharing_off_stops_a_gossip_round_in_progress(
+    tmp_path: Path, capture: Capture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from foxlight_model_preservation.local_host.community import CommunityMirror
+    from foxlight_model_preservation.operations import OperationControl
+
+    started, stopped = threading.Event(), threading.Event()
+
+    def slow_round(self: CommunityMirror, control: OperationControl) -> None:
+        started.set()
+        try:
+            while True:
+                control.checkpoint()
+                time.sleep(0.05)
+        finally:
+            stopped.set()
+
+    monkeypatch.setattr(CommunityMirror, "gossip", slow_round)
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        saved(owner, tmp_path, capture)
+        enable(owner, free_port())
+        assert started.wait(30)
+        owner.control("community-configure", {"enabled": False})
+        assert stopped.wait(10)
+    finally:
+        owner.close()
