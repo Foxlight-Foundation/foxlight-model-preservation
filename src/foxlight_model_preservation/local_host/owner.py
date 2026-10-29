@@ -27,7 +27,12 @@ from ..cards import identity_json
 from ..kits import export_kit, import_kit, inspect_kit, read_kit_envelope
 from ..mirror_models import MirrorObservation
 from ..models import Manifest, PreservationError, Record, TrustProfile
-from ..operations import OperationControl, Progress, failure_code
+from ..operations import (
+    OperationCancelled,
+    OperationControl,
+    Progress,
+    failure_code,
+)
 from ..pmf import restore_pmf
 from ..pmf_models import PMFManifest
 from ..pmf_preservation import import_preservation
@@ -42,6 +47,7 @@ from ..storage import atomic_bytes, directory, pack, read_metadata, writer_lock
 from ..transfer import TransferPolicy, fetch
 from .backups import Backups
 from .catalog import RegistryCatalog
+from .community import CommunityMirror
 from .presentation import (
     PURPOSE_WORDS,
     captured_card_metadata,
@@ -129,6 +135,10 @@ class LocalOwner:
             self.sources = SourceLibrary(self.home)
             self.backups = Backups(self.home)
             self.sharing = Sharing(self.home)
+            self.community = CommunityMirror(self.home, self.sharing)
+            self._community_wake = threading.Event()
+            self._community_control: OperationControl | None = None
+            self._community_thread: threading.Thread | None = None
             self._lock = threading.RLock()
             self._idle = threading.Condition(self._lock)
             self._backup_calls = 0
@@ -181,6 +191,9 @@ class LocalOwner:
                 }
             )
             self._save()
+            # The owner's single standing consent resumes serving after restart.
+            if self.community.consented():
+                self._community_refresh()
         except BaseException:
             self._stack.close()
             raise
@@ -209,6 +222,12 @@ class LocalOwner:
             self._idle.notify_all()
             for control in self._controls.values():
                 control.cancel()
+            community = self._community_thread
+            self._community_wake.set()
+            if self._community_control is not None:
+                self._community_control.cancel()
+        if community is not None:
+            community.join()
         self._executor.shutdown(wait=True)
         self._sharing_executor.shutdown(wait=True)
         with self._idle:
@@ -500,6 +519,28 @@ class LocalOwner:
                     raise PreservationError("sharing_busy_try_again")
                 self.sharing.remove_work(job.job_id)
                 return {"removed": True}
+            if action == "community-read" and not body:
+                return self.community.read(self._journal.copies)
+            if action == "community-configure":
+                policy = self.community.configure(body)
+                if policy.enabled:
+                    self._community_refresh()
+                elif self._community_control is not None:
+                    self._community_control.cancel()
+                return self.community.read(self._journal.copies)
+            if action == "community-choose" and set(body) == {
+                "copy_id",
+                "chosen",
+                "withheld",
+            }:
+                copy = self._copy(str(body["copy_id"]))
+                chosen, withheld = body["chosen"], body["withheld"]
+                if not isinstance(chosen, bool) or not isinstance(withheld, bool):
+                    raise PreservationError("invalid_control")
+                self.community.choose(copy.copy_id, chosen=chosen, withheld=withheld)
+                if self.community.consented():
+                    self._community_refresh()
+                return self.community.read(self._journal.copies)
             if action == "sharing-read" and set(body) <= {"offset"}:
                 offset = body.get("offset", 0)
                 if type(offset) is not int or not 0 <= offset <= 256:
@@ -1287,6 +1328,47 @@ class LocalOwner:
                 update={"copies": (*self._journal.copies, copy)}
             )
             self._update(job, copy_id=copy.copy_id, state="succeeded")
+            # A new backup joins the community mirror with no per-model step.
+            if self.community.consented():
+                self._community_refresh()
+
+    def _community_refresh(self) -> None:
+        """Re-sync and restart the community mirror, starting it if needed."""
+        with self._lock:
+            if self._closing:
+                return
+            self._community_wake.set()
+            if self._community_control is not None:
+                self._community_control.cancel()
+            if self._community_thread is None or not self._community_thread.is_alive():
+                self._community_thread = threading.Thread(
+                    target=self._community_loop,
+                    name="sovereign-community",
+                    daemon=True,
+                )
+                self._community_thread.start()
+
+    def _community_loop(self) -> None:
+        while True:
+            with self._lock:
+                self._community_wake.clear()
+                if self._closing or not self.community.consented():
+                    self._community_control = None
+                    return
+                control = OperationControl()
+                self._community_control = control
+                copies = self._journal.copies
+            try:
+                self.community.sync(copies, control)
+                if not self._community_wake.is_set():
+                    self.community.last_error = None
+                    self.community.serve(control)
+            except OperationCancelled:
+                continue
+            except (ValueError, OSError) as error:
+                self.community.last_error = failure_code(error)
+                # Retry after a quiet interval, or as soon as anything changes.
+                self._community_wake.wait(300)
 
     def _import(
         self, job: Job, plan: dict[str, JsonValue], control: OperationControl

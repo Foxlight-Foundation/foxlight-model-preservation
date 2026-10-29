@@ -257,12 +257,14 @@ def publish_public(
     *,
     expected_manifest_id: Digest,
     control: OperationControl | None = None,
+    link_objects: bool = False,
 ) -> str:
     """Publish reviewed public files under a distinct key into a fresh directory.
 
     Existing directories, including empty folders and prior publications, refuse
     without modification. An interrupted fresh output may contain only selected
     public objects; it is not a complete publication until its envelope appears.
+    ``link_objects`` hardlinks immutable store objects on the same filesystem.
     """
     with (control or OperationControl()).operation("pack") as active:
         return _publish_public(
@@ -274,6 +276,7 @@ def publish_public(
             keys,
             expected_manifest_id=expected_manifest_id,
             control=active,
+            link_objects=link_objects,
         )
 
 
@@ -287,6 +290,7 @@ def _publish_public(
     *,
     expected_manifest_id: Digest,
     control: OperationControl,
+    link_objects: bool = False,
 ) -> str:
     """Publish reviewed public files into a separate root and identity.
 
@@ -343,7 +347,12 @@ def _publish_public(
                 active.advance(copied=file.size)
             else:
                 copy_verified_object(
-                    origin, object_path(file.sha256), target, file, active
+                    origin,
+                    object_path(file.sha256),
+                    target,
+                    file,
+                    active,
+                    link=link_objects,
                 )
         active.phase("checking")
         for file in unique_objects(manifest):

@@ -419,12 +419,19 @@ def copy_verified_object(
     control: OperationControl,
     *,
     verify_reused_source: bool = False,
+    link: bool = False,
 ) -> None:
     """Copy a checked object; optionally verify each input even when deduplicated.
 
     A content-store caller can reuse an authenticated target object. A capture
     caller promising that every supplied local path matches must additionally
     request source verification on that reuse path.
+
+    ``link`` is only for copies between content stores, whose objects are never
+    modified in place: the target then shares the source's immutable object on
+    the same filesystem instead of duplicating its bytes. The linked object is
+    still hashed before and after publication, and any filesystem that cannot
+    link falls back to an ordinary copy. Never link a user's own source files.
     """
     control.phase("checking")
     try:
@@ -444,16 +451,18 @@ def copy_verified_object(
         return
     # Verified content needs no copy; missing or corrupt content needs a full
     # temporary replacement while any old object remains in place.
-    if shutil.disk_usage(target).free < file.size + 16 * CHUNK_SIZE:
-        raise PreservationError("destination has insufficient free space")
     pending = ".pending/" + uuid.uuid4().hex
+    linked = link and _link_object(source, source_path, target, pending)
+    if not linked and shutil.disk_usage(target).free < file.size + 16 * CHUNK_SIZE:
+        raise PreservationError("destination has insufficient free space")
     control.phase("copying")
     try:
-        with (
-            open_file(source, source_path) as origin,
-            open_file(target, pending, write=True) as output,
-        ):
-            copy_exact(origin, output, file.size, control=control)
+        if not linked:
+            with (
+                open_file(source, source_path) as origin,
+                open_file(target, pending, write=True) as output,
+            ):
+                copy_exact(origin, output, file.size, control=control)
         control.phase("checking")
         observed = file_identity(target, pending, control=control)
         if (observed.size, observed.sha256) != (file.size, file.sha256):
@@ -476,6 +485,25 @@ def copy_verified_object(
                 os.fsync(parent)
             except FileNotFoundError:
                 pass
+
+
+def _link_object(source: int, source_path: str, target: int, pending: str) -> bool:
+    """Hardlink an immutable store object into pending work, or report False."""
+    try:
+        with (
+            parent_directory(source, source_path) as (source_parent, source_name),
+            parent_directory(target, pending, create=True) as (parent, name),
+        ):
+            os.link(
+                source_name,
+                name,
+                src_dir_fd=source_parent,
+                dst_dir_fd=parent,
+                follow_symlinks=False,
+            )
+            return True
+    except OSError:
+        return False
 
 
 def pack(

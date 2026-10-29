@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Add **Help keep models available** to the desktop owner: one long-lived
+  mirror of every backup whose licence is in one permissive, widenable policy
+  (Apache-2.0, MIT, BSD and OpenRAIL-M by default; licences come from the backup
+  or its original model card). New backups join on their own, there is no hour
+  limit, and serving resumes after a restart under one standing, revocable
+  consent. Upload caps still apply. A backup with no identifiable licence stays
+  private. Withholding or turning it off blocks serving and deletes nothing.
+- Link immutable store objects instead of copying them when publishing and
+  mirroring on the same filesystem, so sharing a backup needs almost no extra
+  space. Ordinary verified copies remain the fallback.
 - Make public copies network PMF archives (`foxlight.public-preservation.v1`)
   whose identity depends only on the public selection, never on its signer.
   People who share the same model under the same terms converge on one identity,

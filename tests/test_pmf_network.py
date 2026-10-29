@@ -449,3 +449,42 @@ def test_network_pmf_identity_is_signer_independent_and_bound_to_its_payload(
     )
     with pytest.raises(PreservationError, match="public intake"):
         public_network_pmf(private)
+
+
+def test_mirror_intake_can_share_immutable_objects_instead_of_copying(
+    public_pmf: PublicPMF, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+
+    member = public_pmf.manifest.members[0].files[0]
+    source = public_pmf.store / object_path(member.sha256)
+    (tmp_path / "linked").mkdir()
+    (tmp_path / "copied").mkdir()
+    linked = mirror_ledger(tmp_path / "linked")
+    retain_local(
+        linked,
+        public_pmf.store,
+        public_pmf.identity,
+        grant(public_pmf.trust),
+        link_objects=True,
+    )
+    retained = linked.path / "store" / object_path(member.sha256)
+    assert os.stat(retained).st_ino == os.stat(source).st_ino
+    assert verify_archive(linked.path / "store", public_pmf.identity, public_pmf.trust)
+
+    # A filesystem that cannot link falls back to an ordinary verified copy.
+    def refuse(*_args: object, **_kwargs: object) -> None:
+        raise OSError("cross-device link")
+
+    monkeypatch.setattr(os, "link", refuse)
+    copied = mirror_ledger(tmp_path / "copied")
+    retain_local(
+        copied,
+        public_pmf.store,
+        public_pmf.identity,
+        grant(public_pmf.trust),
+        link_objects=True,
+    )
+    duplicate = copied.path / "store" / object_path(member.sha256)
+    assert os.stat(duplicate).st_ino != os.stat(source).st_ino
+    assert duplicate.read_bytes() == source.read_bytes()
