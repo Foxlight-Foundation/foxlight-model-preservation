@@ -388,3 +388,43 @@ def test_interrupted_intake_is_retried_before_the_copy_counts_as_joined(
         wait_for(lambda: served(port, identity) == 200)
     finally:
         owner.close()
+
+
+def test_turning_off_stops_serving_even_if_revocation_must_wait(
+    tmp_path: Path, capture: Capture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from foxlight_model_preservation.local_host.community import CommunityMirror
+
+    port = free_port()
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        saved(owner, tmp_path, capture)
+        enable(owner, port)
+        identity = wait_for(
+            lambda: next(
+                (
+                    row["public_manifest_id"]
+                    for row in owner.control("community-read", {})["copies"]
+                    if row["status"] == "sharing"
+                ),
+                None,
+            )
+        )
+        wait_for(lambda: served(port, identity) == 200)
+        real = CommunityMirror.revoke_grant
+        blocked = {"left": 1}
+
+        def busy(self: CommunityMirror) -> bool:
+            # The first attempt loses to an upload reservation's ledger lock.
+            if blocked["left"]:
+                blocked["left"] -= 1
+                return False
+            return real(self)
+
+        monkeypatch.setattr(CommunityMirror, "revoke_grant", busy)
+        owner.control("community-configure", {"enabled": False})
+        wait_for(lambda: served(port, identity) == 0)
+        ledger = MirrorLedger(owner.home / "sharing/community/mirror")
+        wait_for(lambda: ledger.read().restart is None)
+    finally:
+        owner.close()
