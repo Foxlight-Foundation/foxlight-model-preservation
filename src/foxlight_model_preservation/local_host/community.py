@@ -687,10 +687,11 @@ class CommunityMirror:
         policy = TransferPolicy(allow_http=True, timeout=10, deadline_seconds=600)
         relay_policy = TransferPolicy(timeout=10, deadline_seconds=600)
         seeds: tuple[str, ...] = ()
-        if self.policy().announce_dht and self.addresses() and rendezvous_available():
+        port = self.dht_port()
+        if port is not None and rendezvous_available():
             if self.rendezvous is None:
                 self.rendezvous = Rendezvous()
-            self.rendezvous.announce(self.policy().port)
+            self.rendezvous.announce(port, seconds=20, control=control)
             seeds = self.rendezvous.lookup(seconds=20, control=control)
         else:
             self.close_rendezvous()
@@ -705,6 +706,25 @@ class CommunityMirror:
         card = self.announce()
         if card is not None and relays:
             publish_card(card, self._nostr_key(), relays, relay_policy, control=control)
+
+    def dht_port(self) -> int | None:
+        """The public HTTP port to announce on the DHT, or None to stay off it.
+
+        The DHT records only the address it sees plus a port, so an announcement
+        must name the port people actually reach: a declared plain-HTTP public
+        URL's own port (for a port forward), or this mirror's port when the
+        computer has a public address. An HTTPS endpoint cannot be expressed
+        that way, so it relies on cards, gossip and relays instead.
+        """
+        policy = self.policy()
+        if not policy.announce_dht:
+            return None
+        if policy.public_url is not None:
+            parsed = urlsplit(policy.public_url)
+            if parsed.scheme != "http" or parsed.path not in {"", "/"}:
+                return None
+            return parsed.port or 80
+        return policy.port if self.addresses() else None
 
     def close_rendezvous(self) -> None:
         """Leave the DHT; the mirror no longer announces itself there."""

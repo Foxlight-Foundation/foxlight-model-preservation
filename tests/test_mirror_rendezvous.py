@@ -135,3 +135,74 @@ def test_reachable_app_mirror_announces_itself_on_the_dht(
         owner.close()
         client.close()
         router.close()
+
+
+def test_closing_the_rendezvous_actually_stops_the_dht() -> None:
+    node = Rendezvous(interface="127.0.0.1", bootstrap=(), lab=True)
+    assert node.ready(seconds=10)
+    node.close()
+    end = time.monotonic() + 5
+    while node.session.is_dht_running() and time.monotonic() < end:
+        time.sleep(0.05)
+    assert not node.session.is_dht_running()
+
+
+def test_dht_announces_only_a_port_people_can_actually_reach(tmp_path: Path) -> None:
+    from foxlight_model_preservation.local_host.community import CommunityMirror
+    from foxlight_model_preservation.local_host.sharing import Sharing
+
+    community = CommunityMirror(tmp_path, Sharing(tmp_path))
+    community.configure({"public_url": "http://mirror.example:18080"})
+    assert community.dht_port() == 18080  # The forwarded public port.
+    community.configure({"public_url": "http://203.0.113.9/"})
+    assert community.dht_port() == 80
+    community.configure({"public_url": "https://mirror.example"})
+    assert community.dht_port() is None  # IP plus port cannot express HTTPS.
+    community.configure({"public_url": "http://mirror.example:18080"})
+    community.configure({"announce_dht": False})
+    assert community.dht_port() is None
+
+
+def test_opting_out_leaves_the_dht_immediately(
+    tmp_path: Path, capture: Capture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from test_local_backups import saved
+    from test_local_community import free_port, wait_for
+
+    from foxlight_model_preservation.local_host import community as module
+    from foxlight_model_preservation.local_host.community import DEFAULT_LICENSES
+    from foxlight_model_preservation.local_host.owner import LocalOwner
+
+    router = Rendezvous(interface="127.0.0.1", bootstrap=(), lab=True)
+    boot = (("127.0.0.1", router.port),)
+    monkeypatch.setattr(
+        module,
+        "Rendezvous",
+        lambda: Rendezvous(interface="127.0.0.1", bootstrap=boot, lab=True),
+    )
+    port = free_port()
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        saved(owner, tmp_path, capture)
+        owner.control(
+            "community-configure",
+            {
+                "enabled": True,
+                "consent": True,
+                "port": port,
+                "public_url": f"http://127.0.0.1:{port}",
+                "licenses": [*DEFAULT_LICENSES, "test-only"],
+            },
+        )
+        wait_for(lambda: owner.community.rendezvous is not None, seconds=60)
+        # Turning the DHT off while still sharing leaves it at once...
+        owner.control("community-configure", {"announce_dht": False})
+        wait_for(lambda: owner.community.rendezvous is None, seconds=30)
+        owner.control("community-configure", {"announce_dht": True})
+        wait_for(lambda: owner.community.rendezvous is not None, seconds=60)
+        # ...and so does opting out of sharing altogether.
+        owner.control("community-configure", {"enabled": False})
+        wait_for(lambda: owner.community.rendezvous is None, seconds=30)
+    finally:
+        owner.close()
+        router.close()
