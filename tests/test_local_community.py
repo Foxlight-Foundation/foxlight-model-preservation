@@ -66,6 +66,8 @@ def enable(owner: LocalOwner, port: int) -> dict:
             "consent": True,
             "port": port,
             "licenses": [*DEFAULT_LICENSES, "test-only"],
+            # Tests never join the public BitTorrent DHT.
+            "announce_dht": False,
         },
     )
 
@@ -291,7 +293,8 @@ def test_registry_backup_licence_comes_from_its_original_model_card(
         if expected == "eligible":
             port = free_port()
             owner.control(
-                "community-configure", {"enabled": True, "consent": True, "port": port}
+                "community-configure",
+                {"enabled": True, "consent": True, "port": port, "announce_dht": False},
             )
             identity = wait_for(
                 lambda: next(

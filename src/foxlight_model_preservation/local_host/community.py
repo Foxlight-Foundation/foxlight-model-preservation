@@ -28,6 +28,7 @@ from ..mirror_cards import base_url, build_peers, issue_card
 from ..mirror_directory import MirrorDirectory
 from ..mirror_intake import retain_local
 from ..mirror_models import MirrorObservation, SourceGrant, Terms
+from ..mirror_rendezvous import Rendezvous, rendezvous_available
 from ..mirror_state import MirrorLedger, grant_restart
 from ..models import (
     Digest,
@@ -133,6 +134,7 @@ class CommunityPolicy(Record):
     monthly_upload_bytes: int = Field(default=300 * 1024**3, ge=1, le=2**53 - 1)
     port: int = Field(default=DEFAULT_PORT, ge=1024, le=65535)
     public_url: str | None = Field(default=None, min_length=8, max_length=2048)
+    announce_dht: bool = True
     consent_expires: int | None = None
     rarest_first: bool = False
 
@@ -236,6 +238,7 @@ class CommunityMirror:
         self.last_error: str | None = None
         self.failures: dict[str, str] = {}
         self.directory = MirrorDirectory(home / "mirror-directory")
+        self.rendezvous: Rendezvous | None = None
 
     # Policy and membership -------------------------------------------------
 
@@ -299,6 +302,7 @@ class CommunityMirror:
             "monthly_upload_bytes",
             "port",
             "public_url",
+            "announce_dht",
             "rarest_first",
         }
         if not body or not set(body) <= allowed:
@@ -630,14 +634,30 @@ class CommunityMirror:
             pass  # No mirror yet; the next sync creates it and announces.
 
     def gossip(self, control: OperationControl) -> None:
-        """One round: learn mirrors, confirm what they serve, re-announce.
+        """One round: announce, learn mirrors, confirm what they serve, re-publish.
 
+        A reachable mirror joins the BitTorrent DHT rendezvous (when the optional
+        binding is installed), announces its port and looks up other mirrors.
         Only plain public routes are crawled; private addresses never are.
         """
         policy = TransferPolicy(allow_http=True, timeout=10, deadline_seconds=600)
-        self.directory.crawl((), policy, control=control)
+        seeds: tuple[str, ...] = ()
+        if self.policy().announce_dht and self.addresses() and rendezvous_available():
+            if self.rendezvous is None:
+                self.rendezvous = Rendezvous()
+            self.rendezvous.announce(self.policy().port)
+            seeds = self.rendezvous.lookup(seconds=20, control=control)
+        else:
+            self.close_rendezvous()
+        self.directory.crawl(seeds, policy, control=control)
         self.directory.spot_check(self.held(), policy, control=control)
         self.announce()
+
+    def close_rendezvous(self) -> None:
+        """Leave the DHT; the mirror no longer announces itself there."""
+        if self.rendezvous is not None:
+            self.rendezvous.close()
+            self.rendezvous = None
 
     # Reachability ------------------------------------------------------------
 

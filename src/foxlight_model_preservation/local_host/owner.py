@@ -1387,15 +1387,19 @@ class LocalOwner:
                 self._gossip_thread.start()
 
     def _gossip_loop(self) -> None:
-        """Every half hour while sharing: find mirrors, check them, re-announce."""
-        while not self._stopping.is_set() and self.community.consented():
-            control = OperationControl()
-            try:
-                self.community.gossip(control)
-            except (ValueError, OSError):
-                pass  # Discovery is best effort; serving never depends on it.
-            if self._stopping.wait(1800):
-                return
+        """Every 15 minutes while sharing: announce, find and check mirrors."""
+        try:
+            while not self._stopping.is_set() and self.community.consented():
+                control = OperationControl()
+                try:
+                    self.community.gossip(control)
+                except (ValueError, OSError):
+                    pass  # Discovery is best effort; serving never depends on it.
+                # DHT entries expire after about half an hour; re-announce sooner.
+                if self._stopping.wait(900):
+                    return
+        finally:
+            self.community.close_rendezvous()
 
     def _community_loop(self) -> None:
         while True:

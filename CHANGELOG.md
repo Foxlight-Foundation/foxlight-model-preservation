@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add the BitTorrent DHT rendezvous (`mirror_rendezvous`, optional `bittorrent`
+  extra). Mirrors announce their HTTP port under one well-known key on the public
+  mainline DHT, so a client with no contacts can find a first mirror and then
+  follow signed peers documents. The app's mirror announces only when reachable
+  and `announce_dht` is on, re-announces every 15 minutes, and uses lookups to
+  find other mirrors. UPnP, NAT-PMP and local service discovery stay off.
 - Add decentralized mirror discovery. Each mirror signs short-lived,
   self-certifying mirror cards (addresses plus a Bloom filter of what it holds)
   with its own mirror key, and serves `/.well-known/sovereign/peers.json` with

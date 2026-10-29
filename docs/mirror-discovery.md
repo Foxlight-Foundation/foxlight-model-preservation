@@ -36,6 +36,24 @@ A mirror serves a `sovereign.peers.v1` document at
 Knowing one mirror therefore reveals more. A client verifies every card it reads
 and skips any that fail.
 
+## A rendezvous nobody owns: the BitTorrent DHT
+
+A client with no contacts at all still needs a first mirror. Mirrors announce
+their HTTP port on the public BitTorrent mainline DHT under one well-known key,
+the SHA-1 of `sovereign.mirror-rendezvous.v1`. That DHT is run by millions of
+independent nodes. DHT nodes record the address they see, so a mirror never has
+to know its own public address. A client looks the key up, asks each address for
+its peers document, and keeps only cards that verify. The DHT carries addresses
+and nothing else: a squatter or non-mirror at an announced address costs one
+failed request.
+
+Announcing is part of the explicit mirror role. It needs the optional
+`bittorrent` extra (libtorrent 2.0), and the app's mirror does it only when it
+is reachable and `announce_dht` is on (the default). Joining the DHT shows this
+computer's address to DHT nodes and relays a little DHT traffic for others.
+Local service discovery, UPnP and NAT-PMP stay off. An IPFS DHT rendezvous can
+follow the same pattern later.
+
 ## A client's own directory
 
 Each client keeps an owner-private directory of the mirrors it has seen,
@@ -45,7 +63,7 @@ directory is filled from any bootstrap, and none is required:
 - mirrors named in a handoff, invitation or source the user already approved
   (Sovereign reads only those mirrors' peers documents when it downloads);
 - peers documents reached outward from known mirrors;
-- the DHT rendezvous and Nostr relays (coming next);
+- the BitTorrent DHT rendezvous (above), and Nostr relays (coming next);
 - optional seed lists, with Foxlight's as one among several (deferred).
 
 To choose mirrors, a client takes those whose cards claim the model and samples
@@ -64,8 +82,9 @@ When **Help keep models available** is on, the app's mirror:
   public address. A computer behind a router publishes no card, because nobody
   could reach it;
 - serves its peers document, rewritten without a restart;
-- every half hour, crawls known mirrors over public routes only (never private
-  addresses), checks the ones holding models it holds, and re-announces.
+- every 15 minutes, announces on the DHT rendezvous, looks up other mirrors there,
+  crawls known mirrors over public routes only (never private addresses),
+  checks the ones holding models it holds, and re-announces its card.
 
 Receiving or backing up never announces anything. Announcing is part of the
 explicit mirror role.
