@@ -2,7 +2,7 @@
    The native high-contrast theme takes precedence by omitting this provider. */
 #sovereign-setup {
     background-color: #070a14;
-    background-image: linear-gradient(180deg, rgba(7, 10, 20, 0.72) 0%, rgba(7, 10, 20, 0.76) 55%, rgba(7, 10, 20, 0.86) 100%), url("starry-background.png");
+    background-image: linear-gradient(180deg, rgba(7, 10, 20, 0.40) 0%, rgba(7, 10, 20, 0.48) 55%, rgba(7, 10, 20, 0.66) 100%), url("starry-background.png");
     background-size: cover;
     background-position: center;
     background-repeat: no-repeat;
@@ -23,6 +23,11 @@
     letter-spacing: -0.8px;
 }
 #sovereign-setup .setup-introduction { font-size: 11.25pt; }
+#sovereign-setup .setup-introduction, #sovereign-setup .setup-eyebrow { color: #eef2fb; }
+#sovereign-setup .setup-heading, #sovereign-setup .setup-introduction,
+#sovereign-setup .setup-eyebrow, #sovereign-setup .setup-details label {
+    text-shadow: 0 1px 3px #070a14;
+}
 #sovereign-setup .setup-card {
     background: rgba(18, 26, 49, 0.88);
     border: 1px solid #2b3a63;
@@ -76,5 +81,5 @@
 #sovereign-setup button.suggested-action { background-color: #ffa24a; color: #1a0d00; border-color: #ffa24a; }
 #sovereign-setup button.suggested-action:hover { background-color: #ffb066; }
 #sovereign-setup button:disabled { background-color: #1a2440; color: #aab4cc; border-color: #2b3a63; }
-#sovereign-setup scrollbar { background: transparent; }
+#sovereign-setup scrollbar { background: #0e1426; }
 #sovereign-setup scrollbar slider { background: #7aa6ff; border-radius: 8px; }
