@@ -280,7 +280,7 @@ def test_actual_documented_bootstrap_authenticates_before_execution(
 
     guide = (ROOT / "docs/linux-distribution.md").read_text()
     block = (
-        guide.split("## Guided setup (recommended)", 1)[1]
+        guide.split("## Guided setup (terminal)", 1)[1]
         .split("```sh\n", 1)[1]
         .split("```", 1)[0]
     )

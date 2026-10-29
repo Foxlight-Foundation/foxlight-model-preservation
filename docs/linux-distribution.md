@@ -19,7 +19,73 @@ working-space reviews, separate kit/public-mirror sharing and recovery instructi
 passed on native Ubuntu 24.04 amd64 and arm64, including offline GUI recovery and
 restart. These installed-app checks are separate from package build provenance.
 
-## Guided setup (recommended)
+## Graphical setup (recommended)
+
+On an updated **Ubuntu 24.04 desktop**, download the small
+[`foxlight-sovereign-setup_0.1.0-1_all.deb` setup package](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/sovereign-graphical-setup-v0.1.0).
+The same file supports 64-bit Intel/AMD and ARM computers. No terminal commands,
+Skulk, account or GPU are required.
+
+1. Open the downloaded `.deb` with **App Center** and choose **Install**. If
+   needed, right-click it and choose **Open With → App Center**.
+2. Open **Install Sovereign** from Applications. Read the review, then click
+   **Install Sovereign**. Setup verifies the pinned app and software key first.
+3. Enter **your Ubuntu password** only in **Ubuntu's permission window**.
+   Sovereign does not collect it. Wait for **Sovereign is ready**, then choose
+   **Open Sovereign**. Later, open Sovereign directly from Applications.
+4. Choose **Browse public models**, **Open recovery kit**, or **Open sharing file
+   or source**. [Getting started](getting-started.md) explains those choices.
+
+Setup detects your processor and checks Ubuntu compatibility. Its native window
+stays unprivileged; only a fixed package-owned helper runs through Ubuntu's
+normal administrator authorization. No custom permission policy or retained
+authorization grant is installed. It reuses the guided installer's exact key,
+package pins, verified root-owned staging and scoped APT signature/expiry checks.
+It does not replace customized source/key files, grant model trust, or start
+sharing, a service or a model download. Cancel before permission changes no system
+settings; declining Ubuntu's permission window also stops installation. Once
+installation starts, let Ubuntu finish. **Installation details** explains failures,
+and **Try again** repeats verification.
+
+App updates arrive through Ubuntu's normal signed software updates. The separate
+setup utility may be removed through App Center after installation; this retains
+Sovereign, its update source, your Library, keys, models and recovery files.
+Installing the setup package alone makes no source/key changes and runs no setup
+or app automatically. The app remains the existing **0.1.0-3** package.
+
+**Initial download trust:** a downloaded `.deb` can install software as administrator.
+App Center's prompt does **not** independently authenticate Foxlight as publisher.
+Use the official HTTPS release linked above. For independent verification before
+opening it, download `SHA256SUMS` and `linux-graphical-setup.sigstore.json` alongside
+the package and use GitHub CLI:
+
+```sh
+sha256sum --ignore-missing --check SHA256SUMS
+gh attestation verify foxlight-sovereign-setup_0.1.0-1_all.deb \
+  --repo Foxlight-Foundation/foxlight-model-preservation \
+  --bundle linux-graphical-setup.sigstore.json \
+  --signer-workflow Foxlight-Foundation/foxlight-model-preservation/.github/workflows/linux-graphical-setup-release.yml \
+  --source-ref refs/tags/sovereign-graphical-setup-v0.1.0 --deny-self-hosted-runners
+```
+
+That optional advanced verification uses a terminal; the graphical installation
+itself does not. Setup does not claim to authenticate its own initially downloaded
+bytes. Software build provenance, repository signatures, and model provenance
+remain distinct. The independently hash-pinned terminal route below is retained.
+
+Native amd64/arm64 qualification exercises installed setup, real Ubuntu permission
+cancellation/password authentication and the **Open Sovereign** handoff. The same
+setup package bytes reproduce on both architectures. This is not an observed
+participant study or a complete App Center download-to-launch qualification.
+Other distributions and desktops remain unqualified.
+
+Ubuntu documents [third-party deb installation in App Center](https://ubuntu.com/desktop/docs/en/24.04/explanation/snap-and-deb-packages/).
+The helper uses [polkit's normal administrator authorization](https://www.freedesktop.org/software/polkit/docs/master/pkexec.1.html)
+without running the GUI as root or enabling a textual password fallback.
+
+<a id="guided-setup-recommended"></a>
+
+## Guided setup (terminal)
 
 On **Ubuntu 24.04**, open **Terminal**, paste this whole block and press Enter.
 It checks the installer before starting it. Ubuntu's built-in Python is enough;

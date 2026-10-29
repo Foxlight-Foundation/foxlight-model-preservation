@@ -19,7 +19,7 @@ is also available without a native app or Skulk.
   [Mac installation](macos-distribution.md) for supported systems and independent
   release verification.
 - **Ubuntu 24.04, amd64 or arm64:** follow the
-  [guided setup](linux-distribution.md#guided-setup-recommended), then open
+  [graphical setup](linux-distribution.md#graphical-setup-recommended), then open
   **Sovereign** from your applications menu. The system package manager checks
   the software archive signature. The documented first-time archive setup needs
   a terminal; no Skulk or Python setup is required.
