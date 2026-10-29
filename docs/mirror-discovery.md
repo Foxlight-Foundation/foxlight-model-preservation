@@ -54,6 +54,23 @@ computer's address to DHT nodes and relays a little DHT traffic for others.
 Local service discovery, UPnP and NAT-PMP stay off. An IPFS DHT rendezvous can
 follow the same pattern later.
 
+## Nostr relays
+
+Mirrors also publish their signed cards to several independent Nostr relays, as
+replaceable events of kind 30471 tagged `t:sovereign-mirror-v1` and `d:<mirror
+key ID>`. A client queries whichever relays it chooses. Relays are many
+independently run servers, so no single relay operator controls discovery. A
+relay can drop or delay cards, but it cannot forge or alter one: each event's
+BIP340 signature and id are checked, then the card inside is verified with its
+own mirror key, and the `d` tag must name that key.
+
+The app's mirror publishes when it is reachable and `publish_nostr` is on (the
+default), to its `nostr_relays` list, which defaults to five public relays and
+accepts only `wss://` URLs. It also reads cards from those relays. Relays see
+the network address of the publishing mirror and of each querying client. The
+secp256k1 key used for these events is separate from every other key and signs
+nothing but public announcements.
+
 ## A client's own directory
 
 Each client keeps an owner-private directory of the mirrors it has seen,
@@ -63,7 +80,7 @@ directory is filled from any bootstrap, and none is required:
 - mirrors named in a handoff, invitation or source the user already approved
   (Sovereign reads only those mirrors' peers documents when it downloads);
 - peers documents reached outward from known mirrors;
-- the BitTorrent DHT rendezvous (above), and Nostr relays (coming next);
+- the BitTorrent DHT rendezvous and Nostr relays (above);
 - optional seed lists, with Foxlight's as one among several (deferred).
 
 To choose mirrors, a client takes those whose cards claim the model and samples
@@ -97,6 +114,9 @@ explicit mirror role.
   `record`, `spot_check` and `gossip`.
 - `mirror_directory.fetch_discovered(manifest_id, trust, destination, directory,
   policy)` fetches an exact model from whichever discovered mirrors deliver it.
+- `mirror_rendezvous.Rendezvous` provides `announce` and `lookup` on the
+  BitTorrent DHT, and `nostr.publish_card` / `nostr.find_cards` do the same
+  through relays.
 
 ## Limits
 
