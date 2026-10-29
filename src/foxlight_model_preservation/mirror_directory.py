@@ -359,9 +359,13 @@ class MirrorDirectory:
         deadline = time.monotonic() + policy.deadline_seconds
         identities = list(dict.fromkeys(known))
         results: dict[str, tuple[Envelope, bool]] = {}
-        for key, seen in self.read().mirrors.items():
+        # Dropped mirrors are never retried, and the rest are checked in random
+        # order, so unresponsive entries cannot starve newly learned mirrors.
+        entries = list(self.read().mirrors.items())
+        self._rng.shuffle(entries)
+        for key, seen in entries:
             active.checkpoint()
-            if seen.checked or time.monotonic() > deadline:
+            if seen.checked or _dropped(seen) or time.monotonic() > deadline:
                 continue
             card = _live(seen, int(time.time()))
             if card is None:
