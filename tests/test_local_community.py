@@ -46,6 +46,14 @@ def status(owner: LocalOwner, copy_id: str) -> str:
     return next(row["status"] for row in rows if row["copy_id"] == copy_id)
 
 
+def _try(action) -> bool:
+    try:
+        action()
+    except PreservationError:
+        return False
+    return True
+
+
 def served(port: int, identity: str) -> int:
     connection = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
     try:
@@ -53,7 +61,8 @@ def served(port: int, identity: str) -> int:
         response = connection.getresponse()
         response.read()
         return response.status
-    except OSError:
+    except (OSError, http.client.HTTPException):
+        # A listener that is restarting may cut a response short.
         return 0
     finally:
         connection.close()
@@ -67,6 +76,8 @@ def enable(owner: LocalOwner, port: int) -> dict:
             "consent": True,
             "port": port,
             "licenses": [*DEFAULT_LICENSES, "test-only"],
+            # Tests never join the public BitTorrent DHT.
+            "announce_dht": False,
         },
     )
 
@@ -292,7 +303,8 @@ def test_registry_backup_licence_comes_from_its_original_model_card(
         if expected == "eligible":
             port = free_port()
             owner.control(
-                "community-configure", {"enabled": True, "consent": True, "port": port}
+                "community-configure",
+                {"enabled": True, "consent": True, "port": port, "announce_dht": False},
             )
             identity = wait_for(
                 lambda: next(
@@ -556,7 +568,14 @@ def test_a_transient_verification_error_does_not_end_serving_for_good(
         wait_for(lambda: served(port, identity) == 200)
         ledger = MirrorLedger(owner.home / "sharing/community/mirror")
         # A concurrent reader once failed: the model is marked with an error.
-        record_model(ledger, identity, {"error": "transient: changed while read"})
+        # The running controller may hold the ledger's writer lock briefly.
+        wait_for(
+            lambda: _try(
+                lambda: record_model(
+                    ledger, identity, {"error": "transient: changed while read"}
+                )
+            )
+        )
         wait_for(lambda: served(port, identity) != 200)
         # The next sync retries it; every byte is verified before serving again.
         owner.control(

@@ -13,10 +13,12 @@ from __future__ import annotations
 import ipaddress
 import shutil
 import socket
+import threading
 import time
 from collections.abc import Callable, Sequence
 from pathlib import Path, PurePosixPath
 from typing import Literal, Protocol, cast
+from urllib.parse import urlsplit
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from pydantic import Field, JsonValue, field_validator
@@ -28,6 +30,7 @@ from ..mirror_cards import base_url, build_peers, issue_card
 from ..mirror_directory import MirrorDirectory
 from ..mirror_intake import retain_local
 from ..mirror_models import MirrorObservation, SourceGrant, Terms
+from ..mirror_rendezvous import Rendezvous, rendezvous_available
 from ..mirror_state import MirrorLedger, grant_restart
 from ..models import (
     Digest,
@@ -133,6 +136,7 @@ class CommunityPolicy(Record):
     monthly_upload_bytes: int = Field(default=300 * 1024**3, ge=1, le=2**53 - 1)
     port: int = Field(default=DEFAULT_PORT, ge=1024, le=65535)
     public_url: str | None = Field(default=None, min_length=8, max_length=2048)
+    announce_dht: bool = True
     consent_expires: int | None = None
     rarest_first: bool = False
 
@@ -236,6 +240,9 @@ class CommunityMirror:
         self.last_error: str | None = None
         self.failures: dict[str, str] = {}
         self.directory = MirrorDirectory(home / "mirror-directory")
+        self.rendezvous: Rendezvous | None = None
+        # Gossip rounds (and the rendezvous they own) never overlap.
+        self._gossip_lock = threading.Lock()
 
     # Policy and membership -------------------------------------------------
 
@@ -299,6 +306,7 @@ class CommunityMirror:
             "monthly_upload_bytes",
             "port",
             "public_url",
+            "announce_dht",
             "rarest_first",
         }
         if not body or not set(body) <= allowed:
@@ -630,14 +638,58 @@ class CommunityMirror:
             pass  # No mirror yet; the next sync creates it and announces.
 
     def gossip(self, control: OperationControl) -> None:
-        """One round: learn mirrors, confirm what they serve, re-announce.
+        """One round: announce, learn mirrors, confirm what they serve, re-publish.
 
+        A reachable mirror joins the BitTorrent DHT rendezvous (when the optional
+        binding is installed), announces its port and looks up other mirrors.
         Only plain public routes are crawled; private addresses never are.
         """
+        with self._gossip_lock:
+            self._gossip(control)
+
+    def _gossip(self, control: OperationControl) -> None:
         policy = TransferPolicy(allow_http=True, timeout=10, deadline_seconds=600)
-        self.directory.crawl((), policy, control=control)
+        seeds: tuple[str, ...] = ()
+        port = self.dht_port()
+        if port is not None and rendezvous_available():
+            if self.rendezvous is None:
+                self.rendezvous = Rendezvous()
+            self.rendezvous.announce(port, seconds=20, control=control)
+            seeds = self.rendezvous.lookup(seconds=20, control=control)
+        else:
+            self._close_rendezvous()
+        self.directory.crawl(seeds, policy, control=control)
         self.directory.spot_check(self.held(), policy, control=control)
         self.announce()
+
+    def dht_port(self) -> int | None:
+        """The public HTTP port to announce on the DHT, or None to stay off it.
+
+        The DHT records only the address it sees plus a port, so an announcement
+        must name the port people actually reach: a declared plain-HTTP public
+        URL's own port (for a port forward), or this mirror's port when the
+        computer has a public address. An HTTPS endpoint cannot be expressed
+        that way, so it relies on cards, gossip and relays instead.
+        """
+        policy = self.policy()
+        if not policy.announce_dht:
+            return None
+        if policy.public_url is not None:
+            parsed = urlsplit(policy.public_url)
+            if parsed.scheme != "http" or parsed.path not in {"", "/"}:
+                return None
+            return parsed.port or 80
+        return policy.port if self.addresses() else None
+
+    def close_rendezvous(self) -> None:
+        """Leave the DHT; the mirror no longer announces itself there."""
+        with self._gossip_lock:
+            self._close_rendezvous()
+
+    def _close_rendezvous(self) -> None:
+        if self.rendezvous is not None:
+            self.rendezvous.close()
+            self.rendezvous = None
 
     # Reachability ------------------------------------------------------------
 
