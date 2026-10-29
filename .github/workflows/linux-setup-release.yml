@@ -1,0 +1,118 @@
+name: Publish guided Ubuntu setup
+on:
+  push:
+    tags: ['sovereign-setup-v*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Manual runs only rehearse qualification and attestations
+        type: boolean
+        default: true
+        required: true
+permissions: {}
+concurrency:
+  group: sovereign-setup-release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  authorize:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Require an exact reviewed main ancestor
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          if [ "$EVENT" = push ]; then git merge-base --is-ancestor "$GITHUB_SHA" origin/main; fi
+          python3 - <<'PY'
+          import os, runpy
+          setup = runpy.run_path('scripts/install_sovereign_linux.py')
+          if os.environ['EVENT'] == 'push':
+              assert os.environ['REF'] == 'refs/tags/sovereign-setup-v' + setup['SETUP_VERSION']
+          else:
+              assert os.environ['DRY_RUN'] == 'true'
+          PY
+  qualify:
+    needs: authorize
+    permissions:
+      contents: read
+    uses: ./.github/workflows/linux-setup.yml
+  attest:
+    needs: qualify
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Stage only the reviewed installer and instructions
+        run: |
+          mkdir dist
+          cp scripts/install_sovereign_linux.py dist/Install-Sovereign.py
+          cp docs/linux-setup.txt dist/SETUP.txt
+          cd dist
+          sha256sum Install-Sovereign.py SETUP.txt > SHA256SUMS
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
+        id: attest
+        with:
+          subject-path: |
+            dist/Install-Sovereign.py
+            dist/SETUP.txt
+            dist/SHA256SUMS
+      - name: Retain detached provenance
+        env:
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+        run: cp "$BUNDLE" dist/linux-setup.sigstore.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: sovereign-setup-attested
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
+  publish:
+    if: github.event_name == 'push'
+    needs: attest
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      attestations: read
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: sovereign-setup-attested
+          path: dist
+      - name: Verify every published subject against this exact source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd dist
+          sha256sum --check --strict SHA256SUMS
+          for file in Install-Sovereign.py SETUP.txt SHA256SUMS; do
+            gh attestation verify "$file" --repo "$GITHUB_REPOSITORY" \
+              --bundle linux-setup.sigstore.json \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/linux-setup-release.yml" \
+              --source-ref "$GITHUB_REF" --source-digest "$GITHUB_SHA" --deny-self-hosted-runners
+          done
+          test "$(find . -type f | wc -l)" -eq 4
+      - name: Publish the qualified guided installer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<'MD'
+          Guided setup for Sovereign on Ubuntu 24.04 (amd64 or arm64). No Skulk, account, GPU, GitHub CLI or Python packages required. The installer detects the architecture, explains its changes, verifies the pinned software key and app bytes, then requests administrator authorization. It configures the scoped signed apt source for normal future updates. It preserves custom settings and starts no sharing, services or model downloads.
+
+          Follow [the verified setup instructions](https://github.com/Foxlight-Foundation/foxlight-model-preservation/blob/main/docs/linux-distribution.md#guided-setup-recommended). Verify before running; do not pipe downloads into a shell or run setup with sudo. The installer requests elevation only after review and verification. Existing manual apt and verified package installation remain supported.
+
+          Both native architectures pass fresh setup, cancellation, repeated installation, actual window launch, standalone PMF recovery/tamper checks and purge retaining exact user data. This is a guided terminal installer; other distributions, model inference and unassisted user research remain separate qualification.
+          MD
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \
+            --verify-tag --prerelease --title 'Sovereign guided Ubuntu setup 0.1.0' --notes-file notes.md

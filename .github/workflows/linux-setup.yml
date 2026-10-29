@@ -1,0 +1,85 @@
+name: Guided Ubuntu setup
+on:
+  workflow_call:
+  pull_request:
+    paths: ['scripts/install_sovereign_linux.py', 'tests/test_linux_setup.py', 'docs/linux-distribution.md', '.github/workflows/linux-setup*.yml']
+  push:
+    branches: [main]
+    paths: ['scripts/install_sovereign_linux.py', 'tests/test_linux_setup.py', 'docs/linux-distribution.md', '.github/workflows/linux-setup*.yml']
+permissions:
+  contents: read
+jobs:
+  install:
+    name: Fresh guided setup ${{ matrix.architecture }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            architecture: amd64
+          - runner: ubuntu-24.04-arm
+            architecture: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install only GUI test tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-pyatspi at-spi2-core xvfb dbus-x11
+      - name: Check and cancellation leave software settings untouched
+        run: |
+          test ! -e /etc/apt/sources.list.d/sovereign.list
+          test ! -e /usr/share/keyrings/sovereign-archive-keyring.gpg
+          python3 -I scripts/install_sovereign_linux.py --check
+          printf 'cancel\n' | python3 -I scripts/install_sovereign_linux.py
+          test ! -e /etc/apt/sources.list.d/sovereign.list
+          test ! -e /usr/share/keyrings/sovereign-archive-keyring.gpg
+      - name: Run the reviewed installer as a normal user
+        run: |
+          mkdir /tmp/sovereign-guided-setup
+          printf 'install\n' | python3 -I scripts/install_sovereign_linux.py | tee /tmp/sovereign-guided-setup/installation.txt
+          test "$(dpkg-query -W -f='${Version}' foxlight-sovereign)" = 0.1.0-3
+          test "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns)" = 1
+          for package in skulk skulk-runtime skulk-desktop; do
+            test "$(dpkg-query -W -f='${db:Status-Status}' "$package" 2>/dev/null || true)" != installed
+          done
+      - name: Repeating setup preserves exact software source settings
+        run: |
+          stat -c '%i %Y %s' /etc/apt/sources.list.d/sovereign.list /usr/share/keyrings/sovereign-archive-keyring.gpg > /tmp/sovereign-settings-before
+          printf 'install\n' | python3 -I scripts/install_sovereign_linux.py
+          stat -c '%i %Y %s' /etc/apt/sources.list.d/sovereign.list /usr/share/keyrings/sovereign-archive-keyring.gpg > /tmp/sovereign-settings-after
+          cmp /tmp/sovereign-settings-before /tmp/sovereign-settings-after
+      - name: Open the installed independent native app
+        run: |
+          cd /tmp
+          dbus-run-session -- xvfb-run -a /usr/bin/python3 -I -B "$GITHUB_WORKSPACE/scripts/qualify_linux.py" --directory /tmp/sovereign-guided-setup/native
+      - name: Removal retains user data and the operator-controlled update source
+        run: |
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          root = Path('/tmp/sovereign-guided-setup/native/native-library')
+          (root / 'user-data').write_bytes(b'Operator-owned data.\n')
+          files = {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest() for p in root.rglob('*') if p.is_file()}
+          Path('/tmp/sovereign-guided-setup/before-purge.json').write_text(json.dumps(files))
+          PY
+          sudo apt-get purge -y foxlight-sovereign
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          root = Path('/tmp/sovereign-guided-setup/native/native-library')
+          files = {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest() for p in root.rglob('*') if p.is_file()}
+          assert files == json.loads(Path('/tmp/sovereign-guided-setup/before-purge.json').read_bytes())
+          PY
+          test -f /etc/apt/sources.list.d/sovereign.list
+          test "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns)" = 1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: sovereign-guided-setup-${{ matrix.architecture }}
+          path: /tmp/sovereign-guided-setup
+          if-no-files-found: error
+          retention-days: 30

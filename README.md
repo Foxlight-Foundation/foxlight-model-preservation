@@ -28,7 +28,7 @@ install, find, preserve, send a kit and recover on another computer.
 - **Mac (Apple silicon):** [download Sovereign 0.1.0 build 8](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/sovereign-macos-v0.1.0-build8),
   open the DMG and drag **Sovereign** to **Applications**.
   [Verification and installation](docs/macos-distribution.md).
-- **Ubuntu 24.04 (amd64 or arm64):** [install through apt or a verified Debian package](docs/linux-distribution.md).
+- **Ubuntu 24.04 (amd64 or arm64):** [guided setup](docs/linux-distribution.md#guided-setup-recommended) detects your processor and configures signed updates. Manual apt and verified Debian packages are also available.
   Then open **Sovereign** from your applications menu.
 
 Choose **Browse public models** to find something useful, or **Open recovery kit**
