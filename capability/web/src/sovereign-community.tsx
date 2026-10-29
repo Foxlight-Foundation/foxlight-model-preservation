@@ -13,12 +13,14 @@ const label:Record<Status,[string,Tone]>={sharing:['Sharing','live'],eligible:['
 const communityError=(code:string)=>({community_consent_required:'Confirm that you want this computer to keep serving before turning this on.',community_license_unidentified:'That doesn’t name a licence. Use its identifier, for example Apache-2.0 or MIT.',community_nothing_to_share:'Nothing to share yet. Models join here as soon as one of your backups has a licence on your list.',insufficient_space:'There isn’t enough free space to prepare a public copy. Your private backups are untouched.'} as Record<string,string>)[code]??errorText(code);
 
 /** One switch that turns this computer into a long-lived mirror of its backups. */
-export function HelpKeepAvailable({version}:{version:string|undefined}) {
+export function HelpKeepAvailable({version,onDialogChange}:{version:string|undefined;onDialogChange?:(open:boolean)=>void}) {
  const [state,setState]=useState<Community|null>(null),[unavailable,setUnavailable]=useState(false);
  const [setup,setSetup]=useState(false),[agreed,setAgreed]=useState(false),[share,setShare]=useState<'eligible'|'chosen'>('eligible');
  const [licenses,setLicenses]=useState<string[]>([]),[extra,setExtra]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const live=useRef(true);
  useEffect(()=>{live.current=true;return()=>{live.current=false;};},[]);
+ // Setup is a modal step: the page behind it becomes inert while it is open.
+ useEffect(()=>{onDialogChange?.(setup);return()=>onDialogChange?.(false);},[setup,onDialogChange]);
  const refresh=useCallback(async()=>{try{const value=await api<Community>('desktop-community-read',{});if(live.current){setState(value);setUnavailable(false);}}catch{if(live.current)setUnavailable(true);}},[]);
  useEffect(()=>{void refresh();const timer=setInterval(()=>void refresh(),5000);return()=>clearInterval(timer);},[refresh,version]);
  async function act(action:string,body:Record<string,unknown>){setBusy(true);setError('');try{const value=await api<Community>(action,body);if(live.current)setState(value);return true;}catch(err){if(live.current)setError(err instanceof Error?err.message:'host_unavailable');return false;}finally{if(live.current)setBusy(false);}}
@@ -51,7 +53,7 @@ export function HelpKeepAvailable({version}:{version:string|undefined}) {
     <ul className="sk-community-list">{state.copies.map(item=>{const [text,tone]=label[item.status];const included=policy.share==='chosen'&&policy.chosen.includes(item.copy_id);return <li key={item.copy_id}>
      <span><strong>{item.name}</strong> · {bytes(item.size_bytes)}{item.licenses.length>0&&<> · {Array.from(new Set(item.licenses)).join(', ')}</>}</span> <Pill tone={tone}>{text}</Pill>
      {policy.share==='chosen'&&!['no_license','license_not_selected','unsupported'].includes(item.status)&&<button className="sk-btn sk-outline" disabled={busy} onClick={()=>void act('desktop-community-choose',{copy_id:item.copy_id,chosen:!included,withheld:false})}>{included?'Stop sharing':'Share this one'}</button>}
-     {policy.share==='eligible'&&(item.status==='withheld'||['sharing','eligible'].includes(item.status))&&<button className="sk-btn sk-outline" disabled={busy} onClick={()=>void act('desktop-community-choose',{copy_id:item.copy_id,chosen:false,withheld:item.status!=='withheld'})}>{item.status==='withheld'?'Share again':'Keep this one back'}</button>}
+     {policy.share==='eligible'&&(item.status==='withheld'||['sharing','eligible','failed'].includes(item.status))&&<button className="sk-btn sk-outline" disabled={busy} onClick={()=>void act('desktop-community-choose',{copy_id:item.copy_id,chosen:false,withheld:item.status!=='withheld'})}>{item.status==='withheld'?'Share again':'Keep this one back'}</button>}
     </li>;})}</ul>
     <p>Keeping a backup back, or turning sharing off, only stops serving it. Nothing is deleted.</p>
    </Details>
