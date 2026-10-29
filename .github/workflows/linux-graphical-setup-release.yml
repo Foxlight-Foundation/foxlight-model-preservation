@@ -1,4 +1,4 @@
-name: Publish graphical Ubuntu setup
+name: Publish graphical Linux APT setup
 on:
   push:
     tags: ['sovereign-graphical-setup-v*']
@@ -132,7 +132,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > notes.md <<'MD'
-          Graphical setup for Sovereign on Ubuntu 24.04, for both 64-bit Intel/AMD and ARM. Download the single `all.deb` setup package from this official release, open it with App Center, install it, then open **Install Sovereign** from Applications. The window reviews its changes, verifies the exact app and software key, uses Ubuntu's permission dialog, and offers **Open Sovereign** when ready. No Skulk, account, GPU or terminal commands are required.
+          Graphical setup for Sovereign on compatible Linux APT desktops, for both 64-bit Intel/AMD and ARM. Download the single `all.deb` setup package from this official release, open it with your desktop package installer (App Center on Ubuntu), install it, then open **Install Sovereign** from Applications. The window reviews its changes, verifies the exact app and software key, uses your system's permission dialog, and offers **Open Sovereign** when ready. No Skulk, account, GPU or terminal commands are required. Ubuntu 24.04 is the tested baseline, not an OS allowlist; APT checks the actual required libraries.
 
           A local .deb is trusted software: App Center's installation prompt does not itself authenticate Foxlight as publisher. This release publishes checksums and independently verifiable build provenance for advanced verification. The installed setup verifies its downstream inputs and preserves scoped APT signature/expiry checks; software authentication remains separate from model provenance and trust.
 
@@ -141,4 +141,4 @@ jobs:
           [Instructions and verification](https://github.com/Foxlight-Foundation/foxlight-model-preservation/blob/main/docs/linux-distribution.md#graphical-setup-recommended)
           MD
           gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \
-            --verify-tag --prerelease --title 'Sovereign graphical Ubuntu setup 0.1.2' --notes-file notes.md
+            --verify-tag --prerelease --title 'Sovereign graphical Linux setup 0.1.3' --notes-file notes.md

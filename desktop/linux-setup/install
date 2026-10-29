@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 if os.geteuid() != 0 or len(sys.argv) != 2:
-    raise SystemExit("Ubuntu administrator authorization is required.")
+    raise SystemExit("System administrator authorization is required.")
 try:
     caller = int(os.environ["PKEXEC_UID"])
     incoming = Path(sys.argv[1])

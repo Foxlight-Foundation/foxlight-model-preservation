@@ -193,7 +193,7 @@ def main() -> None:
             app = subprocess.Popen(
                 ["/usr/bin/sovereign-setup"], env=env, stdout=log, stderr=log
             )  # noqa: S603
-            wait(lambda: visible("Ready for Ubuntu 24.04"), "initial review")
+            wait(lambda: visible("Ready to install"), "initial review")
             require_reachable("Install Sovereign")
             normal_heading_height = heading_height()
             snapshot(root, "01-review")
@@ -228,7 +228,7 @@ def main() -> None:
             app = subprocess.Popen(
                 ["/usr/bin/sovereign-setup"], env=env, stdout=log, stderr=log
             )  # noqa: S603
-            wait(lambda: visible("Ready for Ubuntu 24.04"), "second review")
+            wait(lambda: visible("Ready to install"), "second review")
             click("Install Sovereign")
             wait(lambda: password_entry() is not None, "real Ubuntu permission dialog")
             require(agent.poll() is None, "Ubuntu authentication agent exited")
@@ -242,7 +242,10 @@ def main() -> None:
             )
             snapshot(root, "02-ubuntu-permission", setup_only=False)
             click("Cancel")
-            wait(lambda: visible("Ubuntu did not grant"), "permission refusal feedback")
+            wait(
+                lambda: visible("Your system did not grant"),
+                "permission refusal feedback",
+            )
             require_reachable("Try again")
             require(
                 not key.exists() and not source.exists(),
@@ -344,7 +347,7 @@ def main() -> None:
     (root / "qualification.json").write_text(
         json.dumps(
             {
-                "setup_package_version": "0.1.2-1",
+                "setup_package_version": "0.1.3-1",
                 "app_package_version": "0.1.0-3",
                 "architecture": subprocess.check_output(
                     ["/usr/bin/dpkg", "--print-architecture"], text=True

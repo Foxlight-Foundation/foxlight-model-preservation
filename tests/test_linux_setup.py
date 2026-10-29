@@ -54,32 +54,62 @@ def user_flow(monkeypatch, configured):
 
 
 @pytest.mark.parametrize(
-    "system,release,arch",
+    "system,arch",
     [
-        ("Darwin", {}, "amd64"),
-        ("Linux", {"ID": "ubuntu", "VERSION_ID": "22.04"}, "amd64"),
-        ("Linux", {"ID": "debian", "VERSION_ID": "24.04"}, "amd64"),
-        ("Linux", {"ID": "ubuntu", "VERSION_ID": "24.04"}, "i386"),
+        ("Darwin", "amd64"),
+        ("Linux", "i386"),
     ],
 )
-def test_unqualified_platform_stops(system, release, arch, monkeypatch):
+def test_incompatible_platform_stops(system, arch, monkeypatch):
     monkeypatch.setattr(setup.platform, "system", lambda: system)
-    monkeypatch.setattr(setup.platform, "freedesktop_os_release", lambda: release)
+    monkeypatch.setattr(setup.os, "access", lambda *a: True)
     monkeypatch.setattr(setup.subprocess, "check_output", lambda *a, **k: arch)
     with pytest.raises(setup.SetupError):
         setup.architecture()
 
 
 @pytest.mark.parametrize("arch", ["amd64", "arm64"])
-def test_native_architecture_detection(arch, monkeypatch):
+@pytest.mark.parametrize(
+    "release",
+    [
+        {"ID": "ubuntu", "VERSION_ID": "22.04"},
+        {"ID": "ubuntu", "VERSION_ID": "24.04"},
+        {"ID": "ubuntu", "VERSION_ID": "99.10"},
+        {"ID": "debian", "VERSION_ID": "13"},
+        {"ID": "linuxmint", "VERSION_ID": "22"},
+        {},
+    ],
+)
+def test_requirements_allow_untested_release_and_derivative(arch, release, monkeypatch):
     monkeypatch.setattr(setup.platform, "system", lambda: "Linux")
     monkeypatch.setattr(
         setup.platform,
         "freedesktop_os_release",
-        lambda: {"ID": "ubuntu", "VERSION_ID": "24.04"},
+        lambda: release,
     )
+    monkeypatch.setattr(setup.os, "access", lambda *a: True)
     monkeypatch.setattr(setup.subprocess, "check_output", lambda *a, **k: arch + "\n")
     assert setup.architecture() == arch
+
+
+@pytest.mark.parametrize("program", ["apt-get", "dpkg", "dpkg-query", "python3"])
+def test_missing_package_tools_stop_before_architecture_query(program, monkeypatch):
+    monkeypatch.setattr(setup.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(
+        setup.os, "access", lambda path, _: path != "/usr/bin/" + program
+    )
+    child = Mock()
+    monkeypatch.setattr(setup.subprocess, "check_output", child)
+    with pytest.raises(setup.SetupError, match=program):
+        setup.architecture()
+    child.assert_not_called()
+
+
+def test_missing_python_feature_requirement_stops(monkeypatch):
+    monkeypatch.setattr(setup.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(setup.sys, "version_info", (3, 10))
+    with pytest.raises(setup.SetupError, match="Python 3.11"):
+        setup.architecture()
 
 
 def test_cancel_and_check_never_download_or_elevate(user_flow, monkeypatch):
@@ -157,10 +187,12 @@ def test_unsafe_configuration_is_not_replaced(kind, configured, tmp_path, monkey
 def root_install(stage, monkeypatch):
     """Load the exact by-value helper with inert privileged system commands."""
     monkeypatch.setattr(setup.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(setup.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(setup.os, "access", lambda *a: True)
     monkeypatch.setattr(
         setup.platform,
         "freedesktop_os_release",
-        lambda: {"ID": "ubuntu", "VERSION_ID": "24.04"},
+        lambda: {"ID": "debian", "VERSION_ID": "13"},
     )
     monkeypatch.setattr(
         setup.subprocess,
@@ -179,7 +211,7 @@ def root_install(stage, monkeypatch):
     return lambda: namespace["install"](json.loads(command[5]), str(stage))
 
 
-@pytest.mark.parametrize("failure", ["digest", "update"])
+@pytest.mark.parametrize("failure", ["digest", "update", "dependencies"])
 def test_privileged_failure_never_executes_package(
     failure, configured, tmp_path, monkeypatch
 ):
@@ -190,7 +222,12 @@ def test_privileged_failure_never_executes_package(
     package = stage / ("foxlight-sovereign_" + setup.VERSION + "_amd64.deb")
     package.write_bytes(b"package")
     install = root_install(stage, monkeypatch)
-    commands = Mock(side_effect=subprocess.CalledProcessError(1, "apt update"))
+    failure_result = subprocess.CalledProcessError(1, "apt " + failure)
+    commands = Mock(
+        side_effect=[None, failure_result]
+        if failure == "dependencies"
+        else failure_result
+    )
     monkeypatch.setattr(setup.subprocess, "run", commands)
     if failure == "digest":
         package.write_bytes(b"changed")
@@ -199,11 +236,31 @@ def test_privileged_failure_never_executes_package(
     if failure == "digest":
         commands.assert_not_called()
         assert not key.exists()
-    else:
+    elif failure == "update":
         assert commands.call_count == 1
         assert commands.call_args.args[0][-1] == "update"
         assert "APT::Update::Error-Mode=any" in commands.call_args.args[0]
         assert "Acquire::Check-Valid-Until=true" in commands.call_args.args[0]
+    else:
+        assert commands.call_count == 2
+        command = commands.call_args.args[0]
+        assert "--no-remove" in command
+        assert command[-4:-1] == ["--no-remove", "install", "-y"]
+        assert "APT::Get::AllowUnauthenticated=false" in command
+
+
+def test_privileged_processor_mismatch_stops_before_staging(
+    configured, tmp_path, monkeypatch
+):
+    stage = tmp_path / "missing-inputs"
+    install = root_install(stage, monkeypatch)
+    monkeypatch.setattr(setup.subprocess, "check_output", lambda *a, **k: "arm64")
+    commands = Mock()
+    monkeypatch.setattr(setup.subprocess, "run", commands)
+    with pytest.raises(RuntimeError, match="processor architecture"):
+        install()
+    commands.assert_not_called()
+    assert not configured[0].exists()
 
 
 def test_user_replacement_during_update_cannot_change_installed_bytes(

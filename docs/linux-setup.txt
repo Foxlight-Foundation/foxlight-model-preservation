@@ -1,16 +1,19 @@
-Sovereign guided Ubuntu setup 0.1.0
+Sovereign guided Linux APT setup 0.1.1
 
-Ubuntu 24.04, 64-bit Intel/AMD or ARM. No Skulk, account or GPU required.
+APT-based Linux desktop, 64-bit Intel/AMD or ARM, Python 3.11+. No Skulk, account or GPU required.
+
+No OS-version allowlist is used. Ubuntu 24.04 is the tested baseline.
+APT checks actual app dependencies, including AppArmor 4+ and WebKitGTK 4.1.
 
 Start with the independently pinned verification command in:
 https://github.com/Foxlight-Foundation/foxlight-model-preservation/blob/main/docs/linux-distribution.md#guided-setup-recommended
 
-It verifies the installer before running it with Ubuntu's built-in Python.
+It verifies the installer before running it with system Python.
 No GitHub login, GitHub CLI, curl or Python packages are needed.
 
 Review the changes and type install to continue. The installer verifies the
 software key and exact app package before requesting administrator permission.
-Enter your Ubuntu password only at Ubuntu's sudo password prompt. No password
+Enter your administrator password only at the system sudo password prompt. No password
 is sent to Foxlight. It may not be displayed while you type.
 
 After setup, open Sovereign from Applications. Choose Browse public models,
@@ -30,7 +33,7 @@ on another drive so you can recover even if the original machine disappears.
 
 For an additional independent provenance check with GitHub CLI, download all
 four release files, verify SHA256SUMS, then:
-gh attestation verify Install-Sovereign.py --repo Foxlight-Foundation/foxlight-model-preservation --bundle linux-setup.sigstore.json --signer-workflow Foxlight-Foundation/foxlight-model-preservation/.github/workflows/linux-setup-release.yml --source-ref refs/tags/sovereign-setup-v0.1.0 --deny-self-hosted-runners
+gh attestation verify Install-Sovereign.py --repo Foxlight-Foundation/foxlight-model-preservation --bundle linux-setup.sigstore.json --signer-workflow Foxlight-Foundation/foxlight-model-preservation/.github/workflows/linux-setup-release.yml --source-ref refs/tags/sovereign-setup-v0.1.1 --deny-self-hosted-runners
 
 Installer signing, software archive signing, and model provenance are separate.
 Installing the app grants no trust to a model, publisher or capture key.
