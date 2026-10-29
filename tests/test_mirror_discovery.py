@@ -199,3 +199,166 @@ def test_spot_check_vouches_only_for_mirrors_that_serve_matching_bytes(
             assert directory.spot_check({identity}, LAB) == 1
             assert directory.gossip() == (good,)
     assert (capture.store / manifest_path(identity)).is_file()
+
+
+def test_newest_card_wins_and_a_replacement_needs_its_own_spot_check(
+    tmp_path: Path,
+) -> None:
+    key = Ed25519PrivateKey.generate()
+    older = issue_card(key, ("https://old.example",), set(), now=NOW - 100)
+    newer = issue_card(key, ("https://new.example",), set(), now=NOW)
+    directory = MirrorDirectory(tmp_path / "d")
+    directory.ingest((newer,), now=NOW)
+    directory.ingest((older,), now=NOW)  # A replayed older card never wins.
+    (seen,) = directory.read().mirrors.values()
+    assert encode_record(seen.card) == newer
+    # Mark it checked, then a renewed card resets that.
+    from foxlight_model_preservation import mirror_directory as module
+
+    directory._update(  # noqa: SLF001 - direct state seeding for the test
+        lambda mirrors: mirrors.update(
+            {k: v.model_copy(update={"checked": True}) for k, v in mirrors.items()}
+        ),
+        now=NOW,
+    )
+    renewed = issue_card(key, ("https://moved.example",), set(), now=NOW + 10)
+    directory.ingest((renewed,), now=NOW + 10)
+    (seen,) = directory.read().mirrors.values()
+    assert not seen.checked and directory.gossip(now=NOW + 10) == ()
+    assert module.MAX_CARD_BYTES > len(renewed)
+
+
+def test_directory_reclaims_expired_mirrors_and_stays_readable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from foxlight_model_preservation import mirror_directory as module
+
+    monkeypatch.setattr(module, "MAX_MIRRORS", 2)
+    directory = MirrorDirectory(tmp_path / "d")
+    stale = [
+        issue_card(Ed25519PrivateKey.generate(), ("https://a.example",), set(), now=NOW)
+        for _ in range(2)
+    ]
+    assert directory.ingest(stale, now=NOW) == 2
+    later = NOW + 8 * 86400  # Both cards have expired by now.
+    fresh = issue_card(
+        Ed25519PrivateKey.generate(), ("https://b.example",), set(), now=later
+    )
+    assert directory.ingest((fresh,), now=later) == 1
+    # A tight byte budget evicts the least useful entries instead of failing.
+    monkeypatch.setattr(module, "MAX_DIRECTORY_BYTES", 6000)
+    monkeypatch.setattr(module, "MAX_MIRRORS", 64)
+    many = [
+        issue_card(
+            Ed25519PrivateKey.generate(), ("https://c.example",), set(), now=later
+        )
+        for _ in range(20)
+    ]
+    directory.ingest(many, now=later)
+    raw = (tmp_path / "d" / "directory.json").read_bytes()
+    assert len(raw) <= 6000 and directory.read().mirrors
+
+
+def test_a_trickling_peers_document_cannot_outlast_the_discovery_deadline(
+    tmp_path: Path,
+) -> None:
+    import socket as sockets
+
+    listener = sockets.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen()
+    port = listener.getsockname()[1]
+    stop = threading.Event()
+
+    def trickle() -> None:
+        connection, _ = listener.accept()
+        connection.recv(4096)
+        connection.sendall(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 1000000\r\n"
+            b"Content-Type: application/json\r\n\r\n"
+        )
+        while not stop.is_set():
+            try:
+                connection.sendall(b" ")
+            except OSError:
+                break
+            time.sleep(0.2)
+        connection.close()
+
+    thread = threading.Thread(target=trickle, daemon=True)
+    thread.start()
+    started = time.monotonic()
+    try:
+        directory = MirrorDirectory(tmp_path / "d")
+        policy = TransferPolicy(
+            allow_http=True, allow_private=True, timeout=1, deadline_seconds=2
+        )
+        assert directory.crawl((f"http://127.0.0.1:{port}",), policy) == 0
+    finally:
+        stop.set()
+        listener.close()
+    assert time.monotonic() - started < 6
+
+
+def test_mirrors_are_scored_by_what_they_actually_delivered(
+    tmp_path: Path, capture: Capture
+) -> None:
+    identity = capture.identity
+    corrupt = tmp_path / "corrupt"
+    shutil.copytree(capture.store, corrupt)
+    weights = verify_store(capture.store, identity, capture.trust).members[0]
+    with (
+        mirror(corrupt, (identity,), capture, tmp_path / "x.json") as bad,
+        mirror(capture.store, (identity,), capture, tmp_path / "y.json") as good,
+    ):
+        target = corrupt / object_path(weights.files[0].sha256)
+        target.chmod(0o600)
+        target.write_bytes(b"x" * weights.files[0].size)
+        directory = MirrorDirectory(tmp_path / "d")
+        directory.ingest(
+            (
+                issue_card(Ed25519PrivateKey.generate(), (bad,), {identity}),
+                issue_card(Ed25519PrivateKey.generate(), (good,), {identity}),
+            )
+        )
+        fetch_discovered(
+            identity,
+            capture.trust,
+            tmp_path / "received",
+            directory,
+            LAB,
+            extra_sources=(bad, good),
+        )
+        scores = {
+            verify_card(encode_record(seen.card)).addresses[0]: seen
+            for seen in directory.read().mirrors.values()
+        }
+        assert scores[bad].failures >= 1 and scores[bad].successes == 0
+        assert scores[good].successes >= 1 and scores[good].failures == 0
+
+
+def test_spot_check_results_merge_with_cards_learned_meanwhile(
+    tmp_path: Path, capture: Capture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from foxlight_model_preservation import mirror_directory as module
+
+    identity = capture.identity
+    directory = MirrorDirectory(tmp_path / "d")
+    with mirror(capture.store, (identity,), capture, tmp_path / "p.json") as honest:
+        directory.ingest(
+            (issue_card(Ed25519PrivateKey.generate(), (honest,), {identity}),)
+        )
+        learned = issue_card(
+            Ed25519PrivateKey.generate(), ("https://learned.example",), set()
+        )
+        real = module._bounded_read  # noqa: SLF001
+
+        def read_and_learn(*args: object, **kwargs: object) -> bytes:
+            # A download learns a new card while the spot-check is in flight.
+            directory.ingest((learned,))
+            return real(*args, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(module, "_bounded_read", read_and_learn)
+        assert directory.spot_check({identity}, LAB) == 1
+    cards = {encode_record(seen.card) for seen in directory.read().mirrors.values()}
+    assert learned in cards and len(cards) == 2
