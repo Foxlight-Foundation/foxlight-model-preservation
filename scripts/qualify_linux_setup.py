@@ -74,7 +74,7 @@ def wait(
     while time.monotonic() < deadline:
         if check():
             return
-        if abort_on_error and visible("Setup stopped."):
+        if abort_on_error and visible("Setup needs attention."):
             raise RuntimeError(
                 "Setup stopped; retained native details describe the failure"
             )
@@ -203,6 +203,17 @@ def main() -> None:
                 abort_on_error=True,
             )
             snapshot(root, "04-ready")
+            bounds = None
+            for node in nodes():
+                if (
+                    node.name == "Install Sovereign"
+                    and node.getRole() == pyatspi.ROLE_FRAME
+                ):
+                    bounds = node.queryComponent().getExtents(pyatspi.DESKTOP_COORDS)
+            require(
+                bounds is not None and bounds.width <= 1024 and bounds.height <= 720,
+                "setup's ready action does not fit a small laptop screen",
+            )
             require(
                 key.exists() and source.exists(), "verified software settings missing"
             )
@@ -279,6 +290,7 @@ def main() -> None:
                 "real_os_permission_cancel_no_changes": True,
                 "real_os_password_authentication": True,
                 "verified_app_install_and_graphical_handoff": True,
+                "ready_window_fits_1024x768_after_permission_retry": True,
                 "authorization_bypass_or_cached_grant": False,
                 "app_center_download_handoff_or_participant_study": False,
             },

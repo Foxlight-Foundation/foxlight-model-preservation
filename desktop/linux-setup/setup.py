@@ -234,6 +234,7 @@ class SetupWindow(Gtk.Window):
             return
         self.busy = True
         self.authorizing = False
+        self.heading.set_markup("<big><b>Installing Sovereign…</b></big>")
         self.cancelled.clear()
         self.log = ""
         self.details.get_buffer().set_text("")
@@ -326,8 +327,8 @@ class SetupWindow(Gtk.Window):
                         self.finished,
                         "error",
                         "Ubuntu did not grant administrator permission. "
-                        "You can try again. If no permission window appeared, "
-                        "sign in to your Ubuntu desktop and reopen setup.",
+                        "You can try again. If no window appeared, "
+                        "reopen setup from your Ubuntu desktop.",
                     )
                 elif result:
                     raise RuntimeError(
@@ -371,12 +372,19 @@ class SetupWindow(Gtk.Window):
             self.primary.set_label("Open Sovereign")
         else:
             self.primary.set_label("Try again")
+            self.heading.set_markup("<big><b>Setup needs attention.</b></big>")
             self.status.set_text(
-                "Setup cancelled before system changes. Nothing was installed."
+                "Setup cancelled before system changes. Nothing was installed. "
+                "Choose Try again when you’re ready."
                 if outcome == "cancelled"
-                else "Setup stopped. " + message + " Verification stays required. "
-                "Custom settings, your Library and saved kits are retained."
+                else message
+                if len(message) <= 240
+                else "Setup couldn’t finish. Installation details explain the problem. "
+                "Your Library and saved kits are retained."
             )
+        # GTK grows to fit temporary messages but does not automatically shrink
+        # afterward. Keep the next action within a laptop's first viewport.
+        self.resize(600, 620)
 
 
 if __name__ == "__main__":

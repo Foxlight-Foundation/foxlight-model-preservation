@@ -71,6 +71,7 @@ jobs:
               assert evidence['real_os_password_authentication'] is True
               assert evidence['real_os_permission_cancel_no_changes'] is True
               assert evidence['verified_app_install_and_graphical_handoff'] is True
+              assert evidence['ready_window_fits_1024x768_after_permission_retry'] is True
               assert evidence['authorization_bypass_or_cached_grant'] is False
               package, = (root / 'graphical-a').glob('*.deb')
               packages.append(package)
