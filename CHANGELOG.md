@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Add decentralized mirror discovery. Each mirror signs short-lived,
+  self-certifying mirror cards (addresses plus a Bloom filter of what it holds)
+  with its own mirror key, and serves `/.well-known/sovereign/peers.json` with
+  its card and the peers it has itself spot-checked. Clients keep their own
+  scored directory, crawl outward from any mirror they know, sample untrusted
+  candidates at random, and fetch from whichever deliver verified bytes
+  (`mirror_directory.fetch_discovered`). The app's community mirror announces
+  itself when reachable (a declared `public_url` or a public address), gossips
+  every half hour over public routes only, and learns from the mirrors a user
+  already approved when downloading. No mirror list is required.
 - Add **Help keep models available** to the desktop owner: one long-lived
   mirror of every backup whose licence is in one permissive, widenable policy
   (Apache-2.0, MIT, BSD and OpenRAIL-M by default; licences come from the backup
