@@ -9,7 +9,6 @@ dependencies = ["httpx>=0.28,<1", "pydantic>=2.12,<3", "PyYAML>=6,<7"]
 
 [project.optional-dependencies]
 desktop = ["foxlight-model-preservation==0.26.0"]
-managed = ["skulk-capability-sdk==0.5.0"]
 
 [tool.uv.sources]
 foxlight-model-preservation = { path = "..", editable = true }
@@ -31,6 +30,10 @@ build-backend = "hatchling.build"
 packages = ["src/foxlight_preservation_library"]
 
 [dependency-groups]
+# The private SDK is a development group, never published wheel metadata: its
+# name is not on PyPI, so a public extra would let anyone who claims it ship
+# code to people installing the extra.
+managed = ["skulk-capability-sdk==0.5.0"]
 dev = ["pytest>=8,<10", "pytest-asyncio>=1,<2", "ruff>=0.12,<1", "basedpyright>=1.31,<2", "build>=1.3,<2", "types-jsonschema", "types-PyYAML"]
 
 [tool.pytest.ini_options]
