@@ -9,7 +9,7 @@ import shutil
 import socket
 import ssl
 import time
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
@@ -499,6 +499,7 @@ def fetch(
     operation_id: str | None = None,
     expected_directory: tuple[int, int] | None = None,
     envelope: bytes | None = None,
+    source_outcome: Callable[[str, bool], None] | None = None,
 ) -> ArchiveManifest:
     """Receive exact trusted content with optional control and persistent allowance.
 
@@ -511,6 +512,8 @@ def fetch(
     Ordinary fetch retains its existing signature-merging publication behavior.
     Draft PMF archives travel natively: the same store layout and object rules
     apply, and every PMF member file and source document is fetched and hashed.
+    An optional source_outcome callback learns, per object attempt, whether each
+    source delivered verified bytes, so callers can score mirrors honestly.
     """
     with (control or OperationControl()).operation("fetch") as active:
         policy.validate()
@@ -622,10 +625,14 @@ def fetch(
                                     active,
                                 )
                                 complete = True
+                                if source_outcome is not None:
+                                    source_outcome(source, True)
                                 break
                             except OperationError:
                                 raise
                             except (OSError, ValueError, http.client.HTTPException):
+                                if source_outcome is not None:
+                                    source_outcome(source, False)
                                 if isinstance(policy, I2PTransferPolicy):
                                     current = _partial_size(target, file)
                                     stalled = 0 if current > previous else stalled + 1
