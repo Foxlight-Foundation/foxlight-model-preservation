@@ -637,3 +637,18 @@ main[inert] .sk-scrim {opacity:0;}
 }
 
 .sk-public-descriptor{max-height:28rem;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:.78rem;line-height:1.5;}
+
+/* Help keep models available */
+.sk-community {margin:0 0 28px;}
+.sk-community .sk-page-head {align-items:flex-start;}
+.sk-community-list {list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px;}
+.sk-community-list li {display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line-control);overflow-wrap:anywhere;}
+.sk-community-list li > span:first-child {flex:1 1 240px;min-width:0;}
+.sk-community-licences {list-style:none;margin:0 0 12px;padding:0;display:flex;flex-wrap:wrap;gap:8px;}
+.sk-licence-chip {display:inline-flex;align-items:center;gap:4px;padding:3px 4px 3px 12px;border-radius:999px;border:1px solid var(--line-control);background:var(--fill-hover);font-size:13px;color:var(--text-1);}
+.sk-licence-chip button {display:inline-grid;place-items:center;width:24px;height:24px;border:0;border-radius:50%;background:transparent;color:var(--text-2);font-size:16px;line-height:1;cursor:pointer;}
+.sk-licence-chip button:hover {background:var(--fill-live);color:var(--text-1);}
+.sk-licence-chip button:focus-visible {outline:2px solid var(--starlight);outline-offset:1px;}
+.sk-licence-add {display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;}
+.sk-licence-add .sk-field {flex:1 1 220px;margin:0;}
+.sk-section-title {margin:8px 0 12px;font-size:17px;}
