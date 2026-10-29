@@ -378,7 +378,9 @@ def export_preservation(
                 )
                 verify_manifest(envelope, candidates, expected_source_manifest_id)
             with new_pmf_tree(destination, active) as target:
-                check_pmf_space(target, manifest)
+                check_pmf_space(
+                    target, manifest, linked_from=source if link_objects else None
+                )
                 for file in unique_objects(original):
                     copy_verified_object(
                         source,
@@ -494,7 +496,9 @@ def publish_network_pmf(
             if signed_identity != identity:
                 raise PreservationError("network PMF identity changed during signing")
             with new_pmf_tree(destination, active) as target:
-                check_pmf_space(target, manifest)
+                check_pmf_space(
+                    target, manifest, linked_from=source if link_objects else None
+                )
                 for file in unique_objects(original):
                     copy_verified_object(
                         source,

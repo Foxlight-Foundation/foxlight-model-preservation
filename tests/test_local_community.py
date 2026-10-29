@@ -306,3 +306,40 @@ def test_registry_backup_licence_comes_from_its_original_model_card(
             wait_for(lambda: served(port, identity) == 200)
     finally:
         owner.close()
+
+
+def test_one_damaged_backup_never_takes_healthy_models_offline(
+    tmp_path: Path, capture: Capture
+) -> None:
+    port = free_port()
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        healthy = saved(owner, tmp_path, capture)
+        (tmp_path / "second").mkdir()
+        saved(owner, tmp_path / "second", private_capture(capture, tmp_path))
+        damaged = next(
+            item
+            for item in owner.read()["copies"]
+            if item["copy_id"] != healthy["copy_id"]
+        )
+        # Corrupt the damaged copy's private evidence object, which only it has.
+        evidence = digest(b"private installed paths and old grants\n")
+        target = owner.home / "copies" / damaged["copy_id"] / object_path(evidence)
+        target.chmod(0o600)
+        target.write_bytes(b"damaged")
+        enable(owner, port)
+        wait_for(lambda: status(owner, damaged["copy_id"]) == "failed", seconds=60)
+        identity = wait_for(
+            lambda: next(
+                (
+                    row["public_manifest_id"]
+                    for row in owner.control("community-read", {})["copies"]
+                    if row["copy_id"] == healthy["copy_id"]
+                    and row["status"] == "sharing"
+                ),
+                None,
+            )
+        )
+        wait_for(lambda: served(port, identity) == 200)
+    finally:
+        owner.close()

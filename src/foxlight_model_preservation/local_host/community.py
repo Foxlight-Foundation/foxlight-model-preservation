@@ -34,7 +34,7 @@ from ..models import (
     Record,
     TrustProfile,
 )
-from ..operations import OperationControl
+from ..operations import OperationControl, OperationError, failure_code
 from ..signing import digest, encode_record
 from ..storage import atomic_bytes, directory, read_metadata
 from .presentation import card_summary
@@ -153,6 +153,7 @@ class Joined(Record):
 Status = Literal[
     "sharing",
     "eligible",
+    "failed",
     "withheld",
     "not_chosen",
     "license_not_selected",
@@ -222,6 +223,7 @@ class CommunityMirror:
         self.path = home / "sharing/community"
         self.observation: MirrorObservation | None = None
         self.last_error: str | None = None
+        self.failures: dict[str, str] = {}
 
     # Policy and membership -------------------------------------------------
 
@@ -363,6 +365,8 @@ class CommunityMirror:
                 status = "not_chosen"
             elif copy.copy_id in joined:
                 status = "sharing"
+            elif copy.copy_id in self.failures:
+                status = "failed"
         return {
             "copy_id": copy.copy_id,
             "name": copy.name,
@@ -370,6 +374,9 @@ class CommunityMirror:
             "status": status,
             "licenses": licenses,
             "public_manifest_id": joined.get(copy.copy_id),
+            "error_code": self.failures.get(copy.copy_id)
+            if status == "failed"
+            else None,
             "decisions": cast(JsonValue, decisions),
         }
 
@@ -429,11 +436,20 @@ class CommunityMirror:
         for copy in copies:
             control.checkpoint()
             view = self.candidate(copy)
-            if view["status"] not in {"sharing", "eligible"}:
+            if view["status"] not in {"sharing", "eligible", "failed"}:
                 continue
             identity = self.joined().copies.get(copy.copy_id)
             if identity is None:
-                self._join(ledger, copy, view, control)
+                try:
+                    self._join(ledger, copy, view, control)
+                except OperationError:
+                    raise
+                except (ValueError, OSError) as error:
+                    # One damaged or unreadable backup must not take healthy
+                    # models offline: record it and keep reconciling the rest.
+                    self.failures[copy.copy_id] = failure_code(error)
+                    continue
+                self.failures.pop(copy.copy_id, None)
                 identity = self.joined().copies[copy.copy_id]
                 added += 1
             wanted.add(identity)

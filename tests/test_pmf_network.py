@@ -488,3 +488,35 @@ def test_mirror_intake_can_share_immutable_objects_instead_of_copying(
     duplicate = copied.path / "store" / object_path(member.sha256)
     assert os.stat(duplicate).st_ino != os.stat(source).st_ino
     assert duplicate.read_bytes() == source.read_bytes()
+
+
+def test_linked_pmf_admission_needs_space_only_for_documents(
+    public_pmf: PublicPMF, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+    import shutil
+    from collections import namedtuple
+
+    from foxlight_model_preservation import pmf as pmf_module
+    from foxlight_model_preservation.storage import CHUNK_SIZE
+
+    documents = sum(item.size for item in public_pmf.manifest.documents)
+    assert documents < public_pmf.manifest.total_bytes
+    usage = namedtuple("usage", "total used free")
+    real = shutil.disk_usage
+    monkeypatch.setattr(
+        pmf_module.shutil,
+        "disk_usage",
+        lambda path: usage(real(path).total, 0, documents + 16 * CHUNK_SIZE),
+    )
+    target = tmp_path / "target"
+    target.mkdir()
+    source = os.open(public_pmf.store, os.O_RDONLY | os.O_DIRECTORY)
+    destination = os.open(target, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        with pytest.raises(PreservationError, match="insufficient space"):
+            pmf_module.check_pmf_space(destination, public_pmf.manifest)
+        pmf_module.check_pmf_space(destination, public_pmf.manifest, linked_from=source)
+    finally:
+        os.close(source)
+        os.close(destination)

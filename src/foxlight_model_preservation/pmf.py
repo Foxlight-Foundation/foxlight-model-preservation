@@ -60,14 +60,30 @@ def _unique_objects(manifest: PMFManifest) -> tuple[FileIdentity, ...]:
 
 
 def check_pmf_space(
-    target: int, manifest: PMFManifest, *, restoring: bool = False
+    target: int,
+    manifest: PMFManifest,
+    *,
+    restoring: bool = False,
+    linked_from: int | None = None,
 ) -> None:
-    """Reserve space for objects or the larger materialized member/document tree."""
-    required = (
-        manifest.total_bytes
-        if restoring
-        else sum(file.size for file in _unique_objects(manifest))
-    )
+    """Reserve space for objects or the larger materialized member/document tree.
+
+    ``linked_from`` names the source store when its immutable objects will be
+    hardlinked: on the same filesystem only the source documents need new
+    space. Each object still checks free space itself if it falls back to a copy.
+    """
+    if (
+        linked_from is not None
+        and not restoring
+        and (os.fstat(linked_from).st_dev == os.fstat(target).st_dev)
+    ):
+        required = sum(item.size for item in manifest.documents)
+    else:
+        required = (
+            manifest.total_bytes
+            if restoring
+            else sum(file.size for file in _unique_objects(manifest))
+        )
     if shutil.disk_usage(target).free < required + 16 * CHUNK_SIZE:
         raise PreservationError("insufficient space for complete PMF archive")
 
