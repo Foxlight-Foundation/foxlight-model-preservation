@@ -11,11 +11,26 @@ from test_local_handoffs import review
 from test_local_owner import finish, submit
 from test_publication import private_capture
 
+from foxlight_model_preservation.archives import verify_archive
 from foxlight_model_preservation.handoffs import read_reference
 from foxlight_model_preservation.local_host.owner import LocalOwner
 from foxlight_model_preservation.mirror_state import MirrorLedger
 from foxlight_model_preservation.models import PreservationError
-from foxlight_model_preservation.storage import manifest_path, verify_store
+from foxlight_model_preservation.pmf_preservation import (
+    PUBLIC_DOCUMENT,
+    inspect_network_pmf,
+)
+from foxlight_model_preservation.storage import manifest_path, object_path, verify_store
+
+
+def public_selection(store, identity, trust):
+    """Verify a shared network PMF and return its exact public v1 selection."""
+    network = verify_archive(store, identity, trust)
+    document = next(
+        item for item in network.documents if item.document_id == PUBLIC_DOCUMENT
+    )
+    payload = (store / object_path(document.sha256)).read_bytes()
+    return inspect_network_pmf(network, payload)
 
 
 def published(owner, tmp_path, capture):
@@ -67,7 +82,7 @@ def test_publication_offline_omits_private_evidence_and_uses_separate_key(
         record = owner.sharing.get(public["public_id"])
         assert record.trust.keys != capture.trust.keys
         store = owner.home / "sharing/mirrors" / public["public_id"] / "store"
-        manifest = verify_store(store, public["manifest_id"], record.trust)
+        _, manifest = public_selection(store, public["manifest_id"], record.trust)
         assert {item.member_id for item in manifest.members} == {"weights", "tokenizer"}
         assert all(item.intake.audience == "public" for item in manifest.members)
         assert b"old grants" not in b"".join(
@@ -137,7 +152,23 @@ def test_real_share_receive_stop_and_concurrent_private_kit(tmp_path, capture):
             ),
         )
         assert received["state"] == "succeeded", received
-        assert recipient.read()["copies"]
+        kept = recipient.read()["copies"][0]
+        # The recipient keeps the exact public PMF, and can help keep it
+        # available under the same identity without republishing anything.
+        assert kept["manifest_id"] == public["manifest_id"]
+        assert recipient.control("sharing-review", {"copy_id": kept["copy_id"]})[
+            "already_public"
+        ]
+        reshare = recipient.control(
+            "plan", {"kind": "publish", "copy_id": kept["copy_id"], "decisions": []}
+        )
+        assert reshare["public_manifest_id"] == public["manifest_id"]
+        rejoined = finish(recipient, submit(recipient, reshare))
+        assert rejoined["state"] == "succeeded", rejoined
+        assert (
+            recipient.control("sharing-read", {})["public_copies"][0]["manifest_id"]
+            == public["manifest_id"]
+        )
         # Listening is a separate executor, so private work can finish meanwhile.
         kit = finish(
             owner,
@@ -254,7 +285,7 @@ def test_registry_card_extensions_and_signed_proof_survive_public_projection(
         result = finish(owner, submit(owner, plan))
         assert result["state"] == "succeeded", result
         public = owner.sharing.get(result["job_id"])
-        manifest = verify_store(
+        _, manifest = public_selection(
             owner.home / "sharing/mirrors" / public.public_id / "store",
             public.manifest_id,
             public.trust,
@@ -578,7 +609,7 @@ def test_failed_publication_retains_scratch_until_operator_cleanup_after_restart
         owner.close()
 
 
-def test_already_public_omitted_defaults_keep_original_signed_identity(
+def test_already_public_omitted_defaults_keep_original_identity_inside_pmf(
     tmp_path, capture
 ):
     import base64
@@ -621,14 +652,38 @@ def test_already_public_omitted_defaults_keep_original_signed_identity(
         plan = owner.control(
             "plan", {"kind": "publish", "copy_id": copy["copy_id"], "decisions": []}
         )
-        assert (
-            plan["already_public"] is True and plan["public_manifest_id"] == identifier
-        )
+        assert plan["already_public"] is True and plan["public_v1_id"] == identifier
         job = finish(owner, submit(owner, plan))
         assert job["state"] == "succeeded", job
         public = owner.sharing.get(job["job_id"])
-        assert public.manifest_id == identifier
+        assert public.manifest_id == plan["public_manifest_id"]
         store = owner.home / "sharing/mirrors" / job["job_id"] / "store"
-        assert (store / manifest_path(identifier)).read_bytes() == raw
+        # The exact original payload, with its omitted defaults, travels inside
+        # the network PMF: its digest is still the original v1 identity.
+        v1_identity, selection = public_selection(
+            store, public.manifest_id, public.trust
+        )
+        assert v1_identity == identifier
+        assert selection == verify_store(capture.store, identifier, capture.trust)
+        assert raw
     finally:
         owner.close()
+
+
+def test_independent_publishers_of_the_same_selection_share_one_network_identity(
+    tmp_path, capture
+):
+    """Different owners and publishing keys converge on one shared identity."""
+    results = []
+    for name in ("first", "second"):
+        owner = LocalOwner(tmp_path / name / "owner")
+        (tmp_path / name / "work").mkdir()
+        try:
+            _copy, public = published(owner, tmp_path / name / "work", capture)
+            record = owner.sharing.get(public["public_id"])
+            results.append((public["manifest_id"], record.trust))
+        finally:
+            owner.close()
+    (first_id, first_trust), (second_id, second_trust) = results
+    assert first_trust.keys != second_trust.keys
+    assert first_id == second_id

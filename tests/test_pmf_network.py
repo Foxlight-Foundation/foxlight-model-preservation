@@ -400,3 +400,52 @@ def test_pmf_mirror_selection_recovers_and_exports_a_pmf_kit(
     assert verify_pmf(recovered, public_pmf.identity, public_pmf.trust) == (
         public_pmf.manifest
     )
+
+
+def test_network_pmf_identity_is_signer_independent_and_bound_to_its_payload(
+    capture: Capture, tmp_path: Path
+) -> None:
+    from foxlight_model_preservation.pmf_preservation import (
+        PUBLIC_DOCUMENT,
+        inspect_network_pmf,
+        is_network_pmf,
+        public_network_pmf,
+        publish_network_pmf,
+    )
+
+    original = verify_store(capture.store, capture.identity, capture.trust)
+    identities = set()
+    for name in ("one", "two"):
+        key = Ed25519PrivateKey.generate()
+        store = tmp_path / name
+        identity = publish_network_pmf(
+            capture.store, capture.identity, capture.trust, store, (key,)
+        )
+        manifest = verify_pmf(store, identity, pmf_trust(key))
+        assert is_network_pmf(manifest)
+        document = next(
+            item for item in manifest.documents if item.document_id == PUBLIC_DOCUMENT
+        )
+        payload = (store / object_path(document.sha256)).read_bytes()
+        assert inspect_network_pmf(manifest, payload) == (capture.identity, original)
+        with pytest.raises(PreservationError):
+            inspect_network_pmf(manifest, payload.replace(b"fixture", b"fixturf"))
+        identities.add(identity)
+    assert identities == {public_network_pmf(original, None)[0]}
+
+    private = original.model_copy(
+        update={
+            "members": tuple(
+                member.model_copy(
+                    update={
+                        "intake": member.intake.model_copy(
+                            update={"audience": "private"}
+                        )
+                    }
+                )
+                for member in original.members
+            )
+        }
+    )
+    with pytest.raises(PreservationError, match="public intake"):
+        public_network_pmf(private)

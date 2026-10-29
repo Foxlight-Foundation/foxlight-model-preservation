@@ -207,14 +207,19 @@ the [protocol](protocol.md#storage-and-publication).
 ### Prepare a public copy, then choose when to serve it
 
 In **Library → Share**, inspect the redistribution terms for each data member.
-An already-public original archive keeps its existing identity and signatures,
-including original signed payloads that omit optional default-valued fields.
-A supported private capture uses the existing lossless preservation projection
-and a separate publishing identity. Its private installed-record history and
-owner-only capture notices are excluded. Public original card fields, unknown
-card properties and retained signed registry evidence remain unchanged. Common
-PMF archives without this supported projection remain restorable and are refused
-for this transport rather than silently flattened.
+A public copy is a network PMF (the `foxlight.public-preservation.v1` profile in
+[PMF](portable-model-format.md#public-network-profile)) signed by this computer's
+separate publishing key. Its identity depends only on the public selection, so
+everyone who shares the same model under the same terms shares one identity and
+their mirrors serve each other's recipients. A private capture's installed-record
+history and owner-only capture notices are excluded. Public original card fields,
+unknown card properties and retained signed registry evidence remain unchanged.
+An already-public original keeps its exact signed payload inside the PMF, including
+payloads that omit optional default-valued fields, so its original identity stays
+recoverable. A copy received from another person's mirror is already public:
+sharing it keeps its exact identity and signer, with no new publication. Common
+PMF archives without a supported projection remain restorable and are refused
+for sharing rather than silently flattened.
 
 Review the complete public descriptor, file list, decoded original card fields
 (including unknown properties) and terms, then choose **Create public copy**.
@@ -341,9 +346,10 @@ details and weight downloads. Changing metadata connection settings requires a
 new review before starting. Direct mirrors see the recipient's address and
 requested paths. None of these operations starts serving, a swarm, a router,
 runtime execution or global model-key enrollment. The desktop source adapter
-currently accepts direct HTTP(S) sources and v1 signed preservation manifests.
-Peer/I2P source following remains a separate command/Core adapter, and the
-core's native PMF network transport is not yet wired into this adapter;
+accepts direct HTTP(S) sources with v1 signed preservation manifests or public
+PMF archives. A received PMF is kept exactly as published, under the publisher
+keys you accept.
+Peer/I2P source following remains a separate command/Core adapter;
 unsupported routes are never silently enabled. Skulk's
 existing source interface and admission checks remain separate.
 

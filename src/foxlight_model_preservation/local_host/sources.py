@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 
 from pydantic import Field, JsonValue
 
+from ..archives import ArchiveManifest, verify_archive_manifest
 from ..cards import identity_json
 from ..discovery import (
     follow_source,
@@ -33,9 +34,10 @@ from ..invitations import (
     invitation_from_envelope,
     normalize_mirror_bases,
 )
-from ..models import Digest, Manifest, PreservationError, Record, TrustProfile
+from ..models import Digest, PreservationError, Record, TrustProfile
 from ..operations import OperationControl
-from ..signing import Envelope, digest, encode_record, strict_json, verify_manifest
+from ..pmf_models import PMFManifest
+from ..signing import Envelope, digest, encode_record, strict_json
 from ..storage import atomic_bytes, directory, open_file, read_metadata
 from ..transfer import TransferPolicy, inspect_envelope
 
@@ -194,7 +196,7 @@ class SourceLibrary:
             "name": manifest.name,
             "size_bytes": manifest.total_bytes,
             "member_count": len(manifest.members),
-            "members": [member.origin_repository for member in manifest.members[:8]],
+            "members": member_names(manifest),
             "keys": [key.key_id for key in candidates.keys],
             "threshold": candidates.threshold,
             "revoked_keys": list(candidates.revoked_keys),
@@ -485,7 +487,7 @@ class SourceLibrary:
 
     def reference(
         self, job_id: str
-    ) -> tuple[ModelReference | HandoffReference, bytes, Manifest, TrustProfile]:
+    ) -> tuple[ModelReference | HandoffReference, bytes, ArchiveManifest, TrustProfile]:
         """Reauthenticate retained candidate metadata, never granting model trust."""
         if len(job_id) != 64 or any(char not in "0123456789abcdef" for char in job_id):
             raise PreservationError("invalid_job_identity")
@@ -515,7 +517,7 @@ class SourceLibrary:
         candidates = record.candidates
         if digest(raw) != record.envelope_sha256 or candidates is None:
             raise PreservationError("source_model_reference_changed")
-        manifest = verify_manifest(raw, candidates, record.manifest_id)
+        manifest = verify_archive_manifest(raw, candidates, record.manifest_id)
         return record, raw, manifest, candidates
 
     def receive_plan(self, body: dict[str, JsonValue]) -> dict[str, JsonValue]:
@@ -558,7 +560,7 @@ class SourceLibrary:
             "envelope_sha256": record.envelope_sha256,
             "reference_sha256": digest(encode_record(record)),
             "size_bytes": manifest.total_bytes,
-            "members": [member.origin_repository for member in manifest.members[:8]],
+            "members": member_names(manifest),
             "member_count": len(manifest.members),
             "trust": trust.model_dump(mode="json"),
             "mirrors": list(self.http_mirrors(record.mirrors)),
@@ -571,3 +573,15 @@ class SourceLibrary:
         if not selected:
             raise PreservationError("public_model_mirror_required")
         return selected
+
+
+def member_names(manifest: ArchiveManifest) -> list[JsonValue]:
+    """Name up to eight members by origin, for v1 bundles and PMF archives alike."""
+    if isinstance(manifest, PMFManifest):
+        return [
+            member.origin.repository
+            if member.origin is not None and member.origin.repository is not None
+            else member.member_id
+            for member in manifest.members[:8]
+        ]
+    return [member.origin_repository for member in manifest.members[:8]]

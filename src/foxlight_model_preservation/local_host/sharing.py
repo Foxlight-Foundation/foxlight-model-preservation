@@ -39,9 +39,14 @@ from ..models import (
 from ..operations import OperationControl
 from ..pmf import verify_pmf_manifest
 from ..pmf_preservation import (
+    PUBLIC_DOCUMENT,
     SOURCE_KEYS_DOCUMENT,
     export_preservation,
+    inspect_network_pmf,
     inspect_preservation_pmf,
+    is_network_pmf,
+    public_network_pmf,
+    publish_network_pmf,
 )
 from ..publication import (
     PUBLISHER_NOTICE_PATH,
@@ -51,7 +56,16 @@ from ..publication import (
     publish_public,
     review_publication,
 )
-from ..signing import create_key, digest, encode_record, load_key
+from ..signing import (
+    Envelope,
+    canonical_bytes,
+    create_key,
+    decode_base64,
+    digest,
+    encode_record,
+    load_key,
+    strict_json,
+)
 from ..storage import atomic_bytes, directory, manifest_path, object_path, read_metadata
 from .presentation import metadata_page
 
@@ -139,7 +153,7 @@ class Sharing:
     @staticmethod
     def _origin(
         store: Path, identity: str, trust: TrustProfile
-    ) -> tuple[str, Manifest, TrustProfile]:
+    ) -> tuple[str, Manifest, TrustProfile, bytes]:
         with directory(store) as source:
             manifest = verify_pmf_manifest(
                 read_metadata(source, manifest_path(identity)), trust, identity
@@ -157,6 +171,12 @@ class Sharing:
                     raise PreservationError("public_copy_review_changed")
                 return data
 
+            if is_network_pmf(manifest):
+                # A received public copy: its signed PMF already carries the
+                # exact public selection. Sharing it keeps the same identity.
+                payload = document(PUBLIC_DOCUMENT)
+                public = inspect_network_pmf(manifest, payload)
+                return (*public, trust, payload)
             envelope = document("preservation-envelope")
             original_trust = trust
             if any(
@@ -168,13 +188,18 @@ class Sharing:
             original_id, original = inspect_preservation_pmf(
                 manifest, envelope, source_trust=original_trust
             )
-            return original_id, original, original_trust
+            payload = decode_base64(
+                Envelope.model_validate_json(
+                    canonical_bytes(strict_json(envelope))
+                ).payload
+            )
+            return original_id, original, original_trust, payload
 
     def review(
         self, store: Path, identity: str, trust: TrustProfile
     ) -> dict[str, JsonValue]:
         """Inspect signed metadata offline, without publishing or creating a key."""
-        _, source, _ = self._origin(store, identity, trust)
+        _, source, _, _ = self._origin(store, identity, trust)
         value: dict[str, JsonValue] = {
             "name": source.name,
             "already_public": all(
@@ -243,7 +268,7 @@ class Sharing:
         self, store: Path, identity: str, trust: TrustProfile, decisions: JsonValue
     ) -> dict[str, JsonValue]:
         """Bind the complete public descriptor and every explicit member decision."""
-        original_id, source, _ = self._origin(store, identity, trust)
+        original_id, source, _, payload = self._origin(store, identity, trust)
         already_public = all(
             member.intake.audience == "public" for member in source.members
         )
@@ -300,11 +325,15 @@ class Sharing:
                 notices=tuple(notices),
             )
             public = review_publication(source, request)
+        public_v1_id = original_id if already_public else digest(encode_record(public))
         value: dict[str, JsonValue] = {
             "original_id": original_id,
-            "public_manifest_id": original_id
-            if already_public
-            else digest(encode_record(public)),
+            # The network identity depends only on the public selection, so
+            # everyone who shares the same model and terms shares one identity.
+            "public_manifest_id": public_network_pmf(
+                public, payload if already_public else None
+            )[0],
+            "public_v1_id": public_v1_id,
             "public_manifest": public.model_dump(mode="json"),
             "publication_request": request.model_dump(mode="json") if request else None,
             "decisions": decisions,
@@ -339,66 +368,38 @@ class Sharing:
             < cast(int, plan["size_bytes"]) * 3 + HEADROOM
         ):
             raise PreservationError("insufficient_space")
-        original_id, _, original_trust = self._origin(store, identity, trust)
-        work = self.home / "sharing/work" / job_id
-        with directory(work, create=True):
-            pass
-        original = work / "original"
-        export_preservation(
-            store,
-            identity,
-            trust,
-            original,
-            source_trust=original_trust,
-            expected_source_manifest_id=original_id,
-            control=control.fork(),
-        )
         public_id = str(plan["public_manifest_id"])
-        public_store, public_trust = original, original_trust
-        if plan["publication_request"] is not None:
-            key_path = self.home / "sharing/publisher-key.pem"
-            trust_path = "sharing/publisher-trust.json"
-            with directory(self.home) as owner:
-                try:
-                    public_trust = TrustProfile.model_validate_json(
-                        read_metadata(owner, trust_path)
-                    )
-                except FileNotFoundError:
-                    if key_path.exists():
-                        raise PreservationError(
-                            "sovereign_capture_trust_missing"
-                        ) from None
-                    public_trust = create_key(key_path, None)
-                    atomic_bytes(owner, trust_path, encode_record(public_trust))
-            public_store = work / "public"
-            request = PublicationRequest.model_validate_json(
-                identity_json(plan["publication_request"])
+        with directory(store) as source:
+            held = verify_pmf_manifest(
+                read_metadata(source, manifest_path(identity)), trust, identity
             )
-            publish_public(
-                original,
-                original_id,
-                original_trust,
-                request,
-                public_store,
-                (load_key(key_path, None),),
-                expected_manifest_id=public_id,
-                control=control.fork(),
+        if is_network_pmf(held):
+            # Re-sharing a received public copy keeps its exact identity and
+            # signer, so this computer joins the mirrors already holding it.
+            if identity != public_id:
+                raise PreservationError("public_copy_review_changed")
+            public_store, public_trust = store, trust
+        else:
+            public_store, public_trust = self._publish_network(
+                job_id, store, identity, trust, plan, control
             )
 
         public_manifest = Manifest.model_validate_json(
             identity_json(plan["public_manifest"])
+        )
+        # Network bytes add the retained card and public payload documents.
+        network_bytes = (
+            public_network_pmf(public_manifest)[1].total_bytes + MAX_METADATA_BYTES
         )
         with directory(self.home / "sharing/mirrors", create=True):
             pass
         ledger = MirrorLedger.initialize(
             self.home / "sharing/mirrors" / job_id,
             name=public_manifest.name,
-            disk_bytes=max(
-                public_manifest.total_bytes * 3 + 2 * HEADROOM, 512 * 1024**2
-            ),
+            disk_bytes=max(network_bytes * 3 + 2 * HEADROOM, 512 * 1024**2),
             ingress_daily=1,
-            egress_daily=max(public_manifest.total_bytes * 2, 64 * 1024**2),
-            egress_monthly=max(public_manifest.total_bytes * 62, 64 * 1024**2),
+            egress_daily=max(network_bytes * 2, 64 * 1024**2),
+            egress_monthly=max(network_bytes * 62, 64 * 1024**2),
             bind="0.0.0.0",  # noqa: S104 - explicit later public start required
             port=0,
         )
@@ -418,7 +419,7 @@ class Sharing:
                     Terms(license_id=license_id, terms_reference=reference)
                     for license_id, reference in sorted(terms)
                 ),
-                max_bytes=max(public_manifest.total_bytes, 1),
+                max_bytes=max(network_bytes, 1),
             ),
             control=control.fork(),
         )
@@ -442,6 +443,77 @@ class Sharing:
             self.remove_work(job_id)
         except OSError:
             pass  # Activity exposes retained staging for explicit cleanup.
+
+    def _publish_network(
+        self,
+        job_id: str,
+        store: Path,
+        identity: str,
+        trust: TrustProfile,
+        plan: dict[str, JsonValue],
+        control: OperationControl,
+    ) -> tuple[Path, TrustProfile]:
+        """Project a private backup into its signed public network PMF copy."""
+        public_id = str(plan["public_manifest_id"])
+        public_v1_id = str(plan["public_v1_id"])
+        original_id, _, original_trust, _ = self._origin(store, identity, trust)
+        work = self.home / "sharing/work" / job_id
+        with directory(work, create=True):
+            pass
+        original = work / "original"
+        export_preservation(
+            store,
+            identity,
+            trust,
+            original,
+            source_trust=original_trust,
+            expected_source_manifest_id=original_id,
+            control=control.fork(),
+        )
+        public_store, public_trust = original, original_trust
+        key_path = self.home / "sharing/publisher-key.pem"
+        trust_path = "sharing/publisher-trust.json"
+        with directory(self.home) as owner:
+            try:
+                publisher_trust = TrustProfile.model_validate_json(
+                    read_metadata(owner, trust_path)
+                )
+            except FileNotFoundError:
+                if key_path.exists():
+                    raise PreservationError("sovereign_capture_trust_missing") from None
+                publisher_trust = create_key(key_path, None)
+                atomic_bytes(owner, trust_path, encode_record(publisher_trust))
+        if plan["publication_request"] is not None:
+            public_trust = publisher_trust
+            public_store = work / "public"
+            request = PublicationRequest.model_validate_json(
+                identity_json(plan["publication_request"])
+            )
+            publish_public(
+                original,
+                original_id,
+                original_trust,
+                request,
+                public_store,
+                (load_key(key_path, None),),
+                expected_manifest_id=public_v1_id,
+                control=control.fork(),
+            )
+        network_store = work / "network"
+        if (
+            publish_network_pmf(
+                public_store,
+                public_v1_id,
+                public_trust,
+                network_store,
+                (load_key(key_path, None),),
+                control=control.fork(),
+            )
+            != public_id
+        ):
+            raise PreservationError("public_copy_review_changed")
+        public_store, public_trust = network_store, publisher_trust
+        return public_store, public_trust
 
     def work_exists(self, identifier: str) -> bool:
         """Inspect only this owner's publication scratch, never a retained copy."""

@@ -1120,7 +1120,7 @@ class LocalOwner:
     def _source_receive(
         self, job: Job, plan: dict[str, JsonValue], control: OperationControl
     ) -> None:
-        record, envelope, _, candidates = self.sources.reference(
+        record, envelope, selected, candidates = self.sources.reference(
             str(plan["reference_job_id"])
         )
         if (
@@ -1136,18 +1136,48 @@ class LocalOwner:
             < cast(int, plan["size_bytes"]) * 4 + 32 * 1024**2
         ):
             raise PreservationError("insufficient_space")
+        policy = TransferPolicy(
+            max_bytes=cast(int, plan["max_bytes"]),
+            deadline_seconds=86400,
+            allow_http=plan["allow_http"] is True,
+            allow_private=plan["allow_private"] is True,
+        )
+        if isinstance(selected, PMFManifest):
+            # A public PMF is kept exactly as published, under the publisher
+            # keys this user accepted. Its identity is shared by every mirror
+            # holding it, so this copy can later help keep it available.
+            destination = self.home / "copies" / job.job_id
+            with directory(destination.parent, create=True):
+                pass
+            manifest = fetch(
+                record.manifest_id,
+                trust,
+                tuple(cast(list[str], plan["mirrors"])),
+                destination,
+                policy,
+                control=control.fork(),
+                operation_id="receive_" + job.job_id[:56],
+                envelope=envelope,
+            )
+            self._record_copy(
+                job,
+                Copy(
+                    copy_id=job.job_id,
+                    manifest_id=record.manifest_id,
+                    name=manifest.name,
+                    size_bytes=manifest.total_bytes,
+                    member_count=len(manifest.members),
+                    trust=trust,
+                ),
+            )
+            return
         original = self.home / "work" / job.job_id / "original"
         fetch(
             record.manifest_id,
             trust,
             tuple(cast(list[str], plan["mirrors"])),
             original,
-            TransferPolicy(
-                max_bytes=cast(int, plan["max_bytes"]),
-                deadline_seconds=86400,
-                allow_http=plan["allow_http"] is True,
-                allow_private=plan["allow_private"] is True,
-            ),
+            policy,
             control=control.fork(),
             operation_id="receive_" + job.job_id[:56],
             envelope=envelope,
