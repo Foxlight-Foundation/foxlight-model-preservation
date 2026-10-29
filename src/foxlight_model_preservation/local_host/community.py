@@ -473,6 +473,10 @@ class CommunityMirror:
         # backup and a received copy of the same model): serve it while any of
         # them is eligible, and block it only when none is.
         for identity, held in ledger.read().models.items():
+            if identity in wanted and held.error:
+                # A transient verification error must not end serving for good:
+                # retry it, and the controller re-verifies every byte first.
+                model_action(ledger, identity, "retry")
             if identity in wanted and held.blocked:
                 model_action(ledger, identity, "unblock")
             elif identity not in wanted and not held.blocked:
@@ -542,8 +546,12 @@ class CommunityMirror:
         if not self.consented(policy) or policy.consent_expires is None:
             raise PreservationError("community_consent_required")
         ledger = self.ledger()
+        # A pending selection is complete but awaits re-verification; the
+        # controller verifies every byte and promotes it before serving it.
         if not any(
-            held.state == "retained" and not held.blocked
+            held.state in {"retained", "pending"}
+            and not held.blocked
+            and not held.error
             for held in ledger.read().models.values()
         ):
             raise PreservationError("community_nothing_to_share")
