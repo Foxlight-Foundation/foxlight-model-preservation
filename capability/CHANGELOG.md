@@ -6,6 +6,14 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Add **Help keep models available** to Sovereign's Sharing screen: one switch
+  and one licence policy share every eligible backup from a long-lived mirror,
+  with no per-model step. Setup asks once for standing consent, says plainly
+  what others can see, and lets the licence list be widened as chips. The panel
+  states whether this computer is reachable or behind a router, lists every
+  backup's standing (sharing, kept back, licence not on the list, no licence),
+  and offers Keep this one back, Change what's shared and Turn off. It hides on
+  an older core that lacks the feature.
 - Prepare Mac build 8 / Linux revision 3 from the authenticated public core 0.26
   / Library 0.22 installation archive. Native signing/publication and signed apt
   indexes remain distinct gates. Require the new first-launch controls during

@@ -136,6 +136,10 @@ class DesktopClient(CoreClient):
                 "safe_temporary_cleanup_unavailable",
                 "sharing_address_required",
                 "sharing_address_invalid",
+                "community_consent_required",
+                "community_license_unidentified",
+                "community_nothing_to_share",
+                "insufficient_space",
             }
             raise CoreRefused(
                 code if code in allowed else "invalid_or_unsafe"
