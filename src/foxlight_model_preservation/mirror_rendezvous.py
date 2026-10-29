@@ -42,6 +42,8 @@ class _DhtSession(Protocol):
     def pop_alerts(self) -> list[object]: ...
     def listen_port(self) -> int: ...
     def pause(self) -> None: ...
+    def is_dht_running(self) -> bool: ...
+    def apply_settings(self, settings: dict[str, str | int | bool]) -> None: ...
 
 
 class _Binding(Protocol):
@@ -125,14 +127,41 @@ class Rendezvous:
         """Add a known DHT node (another mirror, or a lab peer)."""
         self.session.add_dht_node(node)
 
-    def announce(self, http_port: int) -> None:
+    def ready(
+        self, *, seconds: float = 10.0, control: OperationControl | None = None
+    ) -> bool:
+        """Wait, within bounds, until the DHT has started.
+
+        libtorrent starts the DHT only after resolving its bootstrap routers;
+        requests made before that are silently discarded.
+        """
+        active = control or OperationControl()
+        end = time.monotonic() + seconds
+        while not self.session.is_dht_running():
+            active.checkpoint()
+            if time.monotonic() >= end:
+                return False
+            time.sleep(0.1)
+        return True
+
+    def announce(
+        self,
+        http_port: int,
+        *,
+        seconds: float = 10.0,
+        control: OperationControl | None = None,
+    ) -> bool:
         """Announce this mirror's HTTP port; DHT nodes record the address they see.
 
         DHT entries expire, so callers re-announce every 15 minutes or so.
+        Returns False if the DHT did not start in time.
         """
         if not 1 <= http_port <= 65535:
             raise PreservationError("invalid mirror port")
+        if not self.ready(seconds=seconds, control=control):
+            return False
         self.session.dht_announce(self._key, http_port, 0)
+        return True
 
     def lookup(
         self,
@@ -143,11 +172,19 @@ class Rendezvous:
         """Find announced mirror base URLs; none of them is trusted for anything."""
         active = control or OperationControl()
         reply = cast(_Alerts, self._engine).dht_get_peers_reply_alert
-        self.session.dht_get_peers(self._key)
         found: dict[str, None] = {}
         end = time.monotonic() + seconds
+        if not self.ready(seconds=seconds, control=active):
+            return ()
+        self.session.dht_get_peers(self._key)
+        asked = time.monotonic()
         while time.monotonic() < end and len(found) < MAX_ADDRESSES:
             active.checkpoint()
+            if not found and time.monotonic() - asked > 3:
+                # A lookup issued while the routing table was still filling can
+                # return nothing; ask again rather than wait for a lost reply.
+                self.session.dht_get_peers(self._key)
+                asked = time.monotonic()
             self.session.wait_for_alert(250)
             for alert in self.session.pop_alerts():
                 if not isinstance(alert, reply):
@@ -161,7 +198,12 @@ class Rendezvous:
         return tuple(found)[:MAX_ADDRESSES]
 
     def close(self) -> None:
-        """Stop participating in the DHT."""
+        """Stop participating in the DHT now, not when this object is collected.
+
+        Pausing a libtorrent session does not stop its DHT, so the DHT itself
+        is switched off.
+        """
+        self.session.apply_settings({"enable_dht": False})
         self.session.pause()
 
 

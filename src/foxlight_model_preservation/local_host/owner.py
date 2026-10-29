@@ -142,6 +142,7 @@ class LocalOwner:
             self._community_thread: threading.Thread | None = None
             self._gossip_thread: threading.Thread | None = None
             self._gossip_control: OperationControl | None = None
+            self._gossip_wake = threading.Event()
             self._stopping = threading.Event()
             self._lock = threading.RLock()
             self._idle = threading.Condition(self._lock)
@@ -229,6 +230,7 @@ class LocalOwner:
             community = self._community_thread
             gossip = self._gossip_thread
             self._stopping.set()
+            self._gossip_wake.set()
             if self._gossip_control is not None:
                 self._gossip_control.cancel()
             self._community_wake.set()
@@ -535,6 +537,11 @@ class LocalOwner:
                 try:
                     policy = self.community.configure(body)
                 finally:
+                    # Any policy change re-runs discovery under the new choice,
+                    # and an opt-out leaves the DHT immediately.
+                    if self._gossip_control is not None:
+                        self._gossip_control.cancel()
+                    self._gossip_wake.set()
                     # Turning sharing off always stops the running mirror, even
                     # if saving or revoking failed part-way.
                     if not self.community.consented():
@@ -1410,8 +1417,10 @@ class LocalOwner:
                     with self._lock:
                         self._gossip_control = None
                 # DHT entries expire after about half an hour; re-announce sooner.
-                if self._stopping.wait(900):
-                    return
+                # A policy change wakes this worker at once, so opting out or
+                # turning the DHT off takes effect immediately.
+                self._gossip_wake.wait(900)
+                self._gossip_wake.clear()
         finally:
             self.community.close_rendezvous()
 
