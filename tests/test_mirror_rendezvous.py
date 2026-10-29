@@ -120,6 +120,7 @@ def test_reachable_app_mirror_announces_itself_on_the_dht(
                 "port": port,
                 "public_url": f"http://127.0.0.1:{port}",
                 "licenses": [*DEFAULT_LICENSES, "test-only"],
+                "publish_nostr": False,
             },
         )
         wait_for(lambda: owner.control("community-read", {})["sharing_count"] == 1)
@@ -191,6 +192,7 @@ def test_opting_out_leaves_the_dht_immediately(
                 "port": port,
                 "public_url": f"http://127.0.0.1:{port}",
                 "licenses": [*DEFAULT_LICENSES, "test-only"],
+                "publish_nostr": False,
             },
         )
         wait_for(lambda: owner.community.rendezvous is not None, seconds=60)

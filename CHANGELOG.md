@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add Nostr relays as a discovery channel (`nostr`). Mirrors publish their
+  signed cards as replaceable kind-30471 events to several independent relays,
+  and clients query any relays they choose. Events are checked with BIP340
+  (validated against the official test vectors) and the card inside is still
+  verified with its own mirror key, so relays can drop cards but not forge them.
+  The app's mirror publishes and reads when reachable and `publish_nostr` is on,
+  to `wss://` relays it can change. No new dependency is required.
 - Add the BitTorrent DHT rendezvous (`mirror_rendezvous`, optional `bittorrent`
   extra). Mirrors announce their HTTP port under one well-known key on the public
   mainline DHT, so a client with no contacts can find a first mirror and then

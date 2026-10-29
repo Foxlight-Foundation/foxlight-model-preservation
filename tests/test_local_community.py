@@ -76,8 +76,9 @@ def enable(owner: LocalOwner, port: int) -> dict:
             "consent": True,
             "port": port,
             "licenses": [*DEFAULT_LICENSES, "test-only"],
-            # Tests never join the public BitTorrent DHT.
+            # Tests never join the public BitTorrent DHT or public relays.
             "announce_dht": False,
+            "publish_nostr": False,
         },
     )
 
@@ -304,7 +305,13 @@ def test_registry_backup_licence_comes_from_its_original_model_card(
             port = free_port()
             owner.control(
                 "community-configure",
-                {"enabled": True, "consent": True, "port": port, "announce_dht": False},
+                {
+                    "enabled": True,
+                    "consent": True,
+                    "port": port,
+                    "announce_dht": False,
+                    "publish_nostr": False,
+                },
             )
             identity = wait_for(
                 lambda: next(
@@ -584,6 +591,56 @@ def test_a_transient_verification_error_does_not_end_serving_for_good(
         )
         wait_for(lambda: served(port, identity) == 200)
         assert not ledger.read().models[identity].error
+    finally:
+        owner.close()
+
+
+def test_reachable_mirror_publishes_its_card_to_the_chosen_relays(
+    tmp_path: Path, capture: Capture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from foxlight_model_preservation.local_host import community as module
+    from foxlight_model_preservation.mirror_cards import verify_card
+    from foxlight_model_preservation.operations import OperationControl
+
+    published: list[tuple[bytes, tuple[str, ...]]] = []
+    queried: list[tuple[str, ...]] = []
+    monkeypatch.setattr(
+        module,
+        "publish_card",
+        lambda card, secret, relays, policy, control=None: (
+            published.append((card, tuple(relays))) or len(relays)
+        ),
+    )
+    monkeypatch.setattr(
+        module,
+        "find_cards",
+        lambda relays, policy, control=None: queried.append(tuple(relays)) or [],
+    )
+    port = free_port()
+    relays = ["wss://relay.one.example", "wss://relay.two.example"]
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        saved(owner, tmp_path, capture)
+        enable(owner, port)
+        wait_for(lambda: owner.control("community-read", {})["sharing_count"] == 1)
+        owner.control(
+            "community-configure",
+            {
+                "public_url": f"http://127.0.0.1:{port}",
+                "publish_nostr": True,
+                "nostr_relays": relays,
+            },
+        )
+        published.clear()
+        owner.community.gossip(OperationControl())
+        assert queried[-1] == tuple(relays)
+        card, used = published[-1]
+        assert used == tuple(relays)
+        assert verify_card(card).addresses == (f"http://127.0.0.1:{port}",)
+        with pytest.raises(PreservationError, match="relay_invalid"):
+            owner.control(
+                "community-configure", {"nostr_relays": ["https://x.example"]}
+            )
     finally:
         owner.close()
 

@@ -138,6 +138,7 @@ class DesktopClient(CoreClient):
                 "sharing_address_invalid",
                 "community_consent_required",
                 "community_license_unidentified",
+                "community_relay_invalid",
                 "community_nothing_to_share",
                 "insufficient_space",
             }

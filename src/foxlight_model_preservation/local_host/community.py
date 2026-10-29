@@ -11,6 +11,7 @@ private. Withholding or disabling blocks serving without deleting anything.
 from __future__ import annotations
 
 import ipaddress
+import secrets
 import shutil
 import socket
 import threading
@@ -21,7 +22,7 @@ from typing import Literal, Protocol, cast
 from urllib.parse import urlsplit
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from pydantic import Field, JsonValue, field_validator
+from pydantic import Field, JsonValue, ValidationError, field_validator
 
 from ..assurance import load_retained_card
 from ..cards import identity_json
@@ -40,6 +41,7 @@ from ..models import (
     Record,
     TrustProfile,
 )
+from ..nostr import DEFAULT_RELAYS, find_cards, publish_card
 from ..operations import OperationControl, OperationError, failure_code
 from ..signing import create_key, digest, encode_record, load_key
 from ..storage import atomic_bytes, directory, read_metadata
@@ -137,6 +139,8 @@ class CommunityPolicy(Record):
     port: int = Field(default=DEFAULT_PORT, ge=1024, le=65535)
     public_url: str | None = Field(default=None, min_length=8, max_length=2048)
     announce_dht: bool = True
+    publish_nostr: bool = True
+    nostr_relays: tuple[str, ...] = Field(default=DEFAULT_RELAYS, max_length=16)
     consent_expires: int | None = None
     rarest_first: bool = False
 
@@ -145,6 +149,23 @@ class CommunityPolicy(Record):
     def plain_url(cls, value: str | None) -> str | None:
         """Accept only a credential-free HTTP(S) base URL the owner says works."""
         return None if value is None else base_url(value)
+
+    @field_validator("nostr_relays")
+    @classmethod
+    def secure_relays(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        """Accept only credential-free wss:// relay URLs, once each."""
+        for value in values:
+            parsed = urlsplit(value)
+            if (
+                parsed.scheme != "wss"
+                or not parsed.hostname
+                or parsed.username is not None
+                or parsed.password is not None
+                or parsed.fragment
+                or len(value) > 512
+            ):
+                raise PreservationError("community_relay_invalid")
+        return tuple(dict.fromkeys(values))
 
     @field_validator("licenses")
     @classmethod
@@ -307,6 +328,8 @@ class CommunityMirror:
             "port",
             "public_url",
             "announce_dht",
+            "publish_nostr",
+            "nostr_relays",
             "rarest_first",
         }
         if not body or not set(body) <= allowed:
@@ -321,9 +344,17 @@ class CommunityMirror:
             changes["consent_expires"] = None
         elif "consent" in body:
             raise PreservationError("invalid_control")
-        updated = CommunityPolicy.model_validate_json(
-            identity_json({**policy.model_dump(mode="json"), **changes})
-        )
+        try:
+            updated = CommunityPolicy.model_validate_json(
+                identity_json({**policy.model_dump(mode="json"), **changes})
+            )
+        except ValidationError as error:
+            # Surface this module's own refusal codes; anything else is invalid.
+            for detail in error.errors():
+                cause = detail.get("ctx", {}).get("error")
+                if isinstance(cause, PreservationError):
+                    raise PreservationError(str(cause)) from None
+            raise PreservationError("invalid_control") from None
         self._save(updated)
         if not updated.enabled:
             # The saved opt-out already stops new serving; the owner cancels the
@@ -617,7 +648,7 @@ class CommunityMirror:
             if held.state == "retained" and not held.blocked and not held.error
         )
 
-    def announce(self) -> None:
+    def announce(self) -> bytes | None:
         """Publish this mirror's signed card and the peers it has itself checked.
 
         The document is served at /.well-known/sovereign/peers.json and read on
@@ -636,6 +667,18 @@ class CommunityMirror:
                 atomic_bytes(root, "peers.json", document)
         except FileNotFoundError:
             pass  # No mirror yet; the next sync creates it and announces.
+        return card
+
+    def _nostr_key(self) -> bytes:
+        with directory(self.path, create=True) as root:
+            try:
+                secret = read_metadata(root, "nostr-key")
+            except FileNotFoundError:
+                atomic_bytes(root, "nostr-key", secrets.token_bytes(32))
+                secret = read_metadata(root, "nostr-key")
+        if len(secret) != 32:
+            raise PreservationError("community_nostr_key_invalid")
+        return secret
 
     def gossip(self, control: OperationControl) -> None:
         """One round: announce, learn mirrors, confirm what they serve, re-publish.
@@ -649,6 +692,7 @@ class CommunityMirror:
 
     def _gossip(self, control: OperationControl) -> None:
         policy = TransferPolicy(allow_http=True, timeout=10, deadline_seconds=600)
+        relay_policy = TransferPolicy(timeout=10, deadline_seconds=600)
         seeds: tuple[str, ...] = ()
         port = self.dht_port()
         if port is not None and rendezvous_available():
@@ -658,9 +702,17 @@ class CommunityMirror:
             seeds = self.rendezvous.lookup(seconds=20, control=control)
         else:
             self._close_rendezvous()
+        current = self.policy()
+        relays = current.nostr_relays if current.publish_nostr else ()
+        if relays:
+            # Cards found on relays are verified like any other; relays only
+            # see this mirror's address, which its card publishes anyway.
+            self.directory.ingest(find_cards(relays, relay_policy, control=control))
         self.directory.crawl(seeds, policy, control=control)
         self.directory.spot_check(self.held(), policy, control=control)
-        self.announce()
+        card = self.announce()
+        if card is not None and relays:
+            publish_card(card, self._nostr_key(), relays, relay_policy, control=control)
 
     def dht_port(self) -> int | None:
         """The public HTTP port to announce on the DHT, or None to stay off it.
