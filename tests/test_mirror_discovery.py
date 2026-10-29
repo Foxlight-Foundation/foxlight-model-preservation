@@ -404,3 +404,25 @@ def test_spot_checks_skip_dropped_mirrors(tmp_path: Path, capture: Capture) -> N
         patch.setattr(module, "_bounded_read", watch)
         assert directory.spot_check({identity}, LAB) == 0
     assert contacted == []
+
+
+def test_bounded_crawls_rotate_through_every_known_mirror(tmp_path: Path) -> None:
+    from foxlight_model_preservation import mirror_directory as module
+
+    directory = MirrorDirectory(tmp_path / "d")
+    addresses = [f"https://m{index}.example" for index in range(12)]
+    directory.ingest(
+        issue_card(Ed25519PrivateKey.generate(), (address,), set())
+        for address in addresses
+    )
+    asked: set[str] = set()
+
+    def offline(base: str, *args: object, **kwargs: object) -> bytes:
+        asked.add(base)
+        raise OSError("unreachable")
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(module, "_bounded_read", offline)
+        for _ in range(30):
+            directory.crawl((), LAB, max_documents=3)
+    assert asked == set(addresses)
