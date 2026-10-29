@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import time
 from pathlib import Path
@@ -33,6 +34,7 @@ def retain_local(
     *,
     control: OperationControl | None = None,
     confirm_reintake: bool = False,
+    link_objects: bool = False,
 ) -> ArchiveManifest:
     """Copy one exact public selection offline without following a source or serving.
 
@@ -47,6 +49,8 @@ def retain_local(
     Public preservation-v1 and draft PMF archives are both retained natively:
     the signed payload type selects verification, and PMF source documents are
     copied and verified as objects. Private intake on any member still refuses.
+    ``link_objects`` hardlinks the store's immutable objects on the same
+    filesystem, so a mirror of a local archive needs no second copy of its bytes.
     """
     active = control or OperationControl()
     with active.operation("mirror_retain"), ledger.service_lock():
@@ -118,9 +122,17 @@ def retain_local(
                     # restore those original bytes after destination damage.
                 missing, _reused, _partial = observe_objects(target, files, active)
                 additional = sum(file.size for file in missing) + 2 * len(envelope)
+                # Linked objects on the same filesystem consume no new space;
+                # the mirror's own logical budget still counts their bytes.
+                physical = (
+                    2 * len(envelope)
+                    if link_objects
+                    and os.fstat(source).st_dev == os.fstat(target).st_dev
+                    else additional
+                )
                 if (
                     ledger.usage() + additional + HEADROOM > state.disk_bytes
-                    or shutil.disk_usage(target).free < additional + HEADROOM
+                    or shutil.disk_usage(target).free < physical + HEADROOM
                 ):
                     raise PreservationError("mirror disk admission budget exhausted")
                 active.checkpoint()
@@ -160,6 +172,7 @@ def retain_local(
                             file,
                             active,
                             verify_reused_source=True,
+                            link=link_objects,
                         )
                     active.phase("publishing")
                     active.checkpoint()

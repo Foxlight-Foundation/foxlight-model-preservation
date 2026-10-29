@@ -449,3 +449,149 @@ def test_network_pmf_identity_is_signer_independent_and_bound_to_its_payload(
     )
     with pytest.raises(PreservationError, match="public intake"):
         public_network_pmf(private)
+
+
+def test_mirror_intake_can_share_immutable_objects_instead_of_copying(
+    public_pmf: PublicPMF, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+
+    member = public_pmf.manifest.members[0].files[0]
+    source = public_pmf.store / object_path(member.sha256)
+    (tmp_path / "linked").mkdir()
+    (tmp_path / "copied").mkdir()
+    linked = mirror_ledger(tmp_path / "linked")
+    retain_local(
+        linked,
+        public_pmf.store,
+        public_pmf.identity,
+        grant(public_pmf.trust),
+        link_objects=True,
+    )
+    retained = linked.path / "store" / object_path(member.sha256)
+    assert os.stat(retained).st_ino == os.stat(source).st_ino
+    assert verify_archive(linked.path / "store", public_pmf.identity, public_pmf.trust)
+
+    # A filesystem that cannot link falls back to an ordinary verified copy.
+    def refuse(*_args: object, **_kwargs: object) -> None:
+        raise OSError("cross-device link")
+
+    monkeypatch.setattr(os, "link", refuse)
+    copied = mirror_ledger(tmp_path / "copied")
+    retain_local(
+        copied,
+        public_pmf.store,
+        public_pmf.identity,
+        grant(public_pmf.trust),
+        link_objects=True,
+    )
+    duplicate = copied.path / "store" / object_path(member.sha256)
+    assert os.stat(duplicate).st_ino != os.stat(source).st_ino
+    assert duplicate.read_bytes() == source.read_bytes()
+
+
+def test_linked_pmf_admission_needs_space_only_for_documents(
+    public_pmf: PublicPMF, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+    import shutil
+    from collections import namedtuple
+
+    from foxlight_model_preservation import pmf as pmf_module
+    from foxlight_model_preservation.storage import CHUNK_SIZE
+
+    documents = sum(item.size for item in public_pmf.manifest.documents)
+    assert documents < public_pmf.manifest.total_bytes
+    usage = namedtuple("usage", "total used free")
+    real = shutil.disk_usage
+    monkeypatch.setattr(
+        pmf_module.shutil,
+        "disk_usage",
+        lambda path: usage(real(path).total, 0, documents + 16 * CHUNK_SIZE),
+    )
+    target = tmp_path / "target"
+    target.mkdir()
+    source = os.open(public_pmf.store, os.O_RDONLY | os.O_DIRECTORY)
+    destination = os.open(target, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        with pytest.raises(PreservationError, match="insufficient space"):
+            pmf_module.check_pmf_space(destination, public_pmf.manifest)
+        pmf_module.check_pmf_space(destination, public_pmf.manifest, linked_from=source)
+    finally:
+        os.close(source)
+        os.close(destination)
+
+
+def test_cancelled_linked_copy_leaves_no_pending_link(
+    public_pmf: PublicPMF, tmp_path: Path
+) -> None:
+    import os
+
+    from foxlight_model_preservation.operations import (
+        OperationCancelled,
+        OperationControl,
+    )
+    from foxlight_model_preservation.storage import copy_verified_object
+
+    class CancelOnCopy(OperationControl):
+        def phase(self, name: str) -> None:
+            if name == "copying":
+                raise OperationCancelled("cancelled after linking")
+            super().phase(name)
+
+    file = public_pmf.manifest.members[0].files[0]
+    target = tmp_path / "target"
+    target.mkdir()
+    source = os.open(public_pmf.store, os.O_RDONLY | os.O_DIRECTORY)
+    destination = os.open(target, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        with pytest.raises(OperationCancelled):
+            copy_verified_object(
+                source,
+                object_path(file.sha256),
+                destination,
+                file,
+                CancelOnCopy(),
+                link=True,
+            )
+    finally:
+        os.close(source)
+        os.close(destination)
+    leftovers = [path for path in target.rglob("*") if path.is_file()]
+    assert leftovers == []
+
+
+def test_a_concurrent_hardlink_does_not_fail_verification_but_tampering_does(
+    tmp_path: Path,
+) -> None:
+    import os
+
+    from foxlight_model_preservation.operations import OperationControl
+    from foxlight_model_preservation.storage import directory, file_identity
+
+    data = b"immutable weights" * 1000
+    (tmp_path / "object").write_bytes(data)
+
+    class LinkWhileHashing(OperationControl):
+        linked = False
+
+        def advance(self, **counts: int) -> None:
+            if not self.linked:
+                self.linked = True
+                os.link(tmp_path / "object", tmp_path / "another-store-link")
+            super().advance(**counts)
+
+    with directory(tmp_path) as root:
+        observed = file_identity(root, "object", control=LinkWhileHashing())
+    assert observed.size == len(data)
+
+    class TamperKeepingMtime(OperationControl):
+        def advance(self, **counts: int) -> None:
+            target = tmp_path / "object"
+            stat = os.stat(target)
+            target.write_bytes(b"X" * len(data))
+            os.utime(target, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+            super().advance(**counts)
+
+    with directory(tmp_path) as root, pytest.raises(PreservationError, match="changed"):
+        file_identity(root, "object", control=TamperKeepingMtime())

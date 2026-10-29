@@ -2,7 +2,8 @@
 
 A public copy, a listening session and a recipient's independent trust are three
 separate choices. Stop never removes retained archives; restarting the owner
-never silently opens a listener. No Skulk, account, router or swarm is required.
+opens a listener only under the community mirror's separate standing consent.
+No Skulk, account, router or swarm is required.
 """
 
 from __future__ import annotations
@@ -363,26 +364,11 @@ class Sharing:
             raise PreservationError("public_copy_capacity")
         if any(current[key] != plan[key] for key in current):
             raise PreservationError("public_copy_review_changed")
-        if (
-            shutil.disk_usage(self.home).free
-            < cast(int, plan["size_bytes"]) * 3 + HEADROOM
-        ):
-            raise PreservationError("insufficient_space")
+        self.require_space(store, cast(int, plan["size_bytes"]))
         public_id = str(plan["public_manifest_id"])
-        with directory(store) as source:
-            held = verify_pmf_manifest(
-                read_metadata(source, manifest_path(identity)), trust, identity
-            )
-        if is_network_pmf(held):
-            # Re-sharing a received public copy keeps its exact identity and
-            # signer, so this computer joins the mirrors already holding it.
-            if identity != public_id:
-                raise PreservationError("public_copy_review_changed")
-            public_store, public_trust = store, trust
-        else:
-            public_store, public_trust = self._publish_network(
-                job_id, store, identity, trust, plan, control
-            )
+        public_store, public_trust = self.prepare_public(
+            job_id, store, identity, trust, plan, control
+        )
 
         public_manifest = Manifest.model_validate_json(
             identity_json(plan["public_manifest"])
@@ -422,6 +408,7 @@ class Sharing:
                 max_bytes=max(network_bytes, 1),
             ),
             control=control.fork(),
+            link_objects=True,
         )
         result = PublicCopy(
             public_id=job_id,
@@ -443,6 +430,46 @@ class Sharing:
             self.remove_work(job_id)
         except OSError:
             pass  # Activity exposes retained staging for explicit cleanup.
+
+    def require_space(self, store: Path, size: int) -> None:
+        """Refuse publication without working space; linked stores need little."""
+        linked = os.stat(store).st_dev == os.stat(self.home).st_dev
+        needed = 8 * MAX_METADATA_BYTES if linked else size * 3
+        if shutil.disk_usage(self.home).free < needed + HEADROOM:
+            raise PreservationError("insufficient_space")
+
+    def origin_manifest(
+        self, store: Path, identity: str, trust: TrustProfile
+    ) -> Manifest:
+        """Return the authenticated original selection a saved copy preserves."""
+        return self._origin(store, identity, trust)[1]
+
+    def prepare_public(
+        self,
+        job_id: str,
+        store: Path,
+        identity: str,
+        trust: TrustProfile,
+        plan: dict[str, JsonValue],
+        control: OperationControl,
+    ) -> tuple[Path, TrustProfile]:
+        """Return a complete public network PMF store for a reviewed plan.
+
+        A received public copy is already that store: re-sharing keeps its exact
+        identity and signer, so this computer joins the mirrors that hold it.
+        Otherwise a separate signed publication is written to owner scratch,
+        sharing immutable objects with the private copy instead of copying them.
+        """
+        public_id = str(plan["public_manifest_id"])
+        with directory(store) as source:
+            held = verify_pmf_manifest(
+                read_metadata(source, manifest_path(identity)), trust, identity
+            )
+        if is_network_pmf(held):
+            if identity != public_id:
+                raise PreservationError("public_copy_review_changed")
+            return store, trust
+        return self._publish_network(job_id, store, identity, trust, plan, control)
 
     def _publish_network(
         self,
@@ -469,6 +496,7 @@ class Sharing:
             source_trust=original_trust,
             expected_source_manifest_id=original_id,
             control=control.fork(),
+            link_objects=True,
         )
         public_store, public_trust = original, original_trust
         key_path = self.home / "sharing/publisher-key.pem"
@@ -498,6 +526,7 @@ class Sharing:
                 (load_key(key_path, None),),
                 expected_manifest_id=public_v1_id,
                 control=control.fork(),
+                link_objects=True,
             )
         network_store = work / "network"
         if (
@@ -508,6 +537,7 @@ class Sharing:
                 network_store,
                 (load_key(key_path, None),),
                 control=control.fork(),
+                link_objects=True,
             )
             != public_id
         ):

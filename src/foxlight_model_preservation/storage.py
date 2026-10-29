@@ -212,36 +212,47 @@ def file_identity(
     *,
     control: OperationControl | None = None,
 ) -> FileIdentity:
-    """Hash a stable source snapshot and reject mutation during the read."""
-    if control is not None:
-        control.checkpoint()
-    with open_file(root, path) as stream:
-        before = os.fstat(stream.fileno())
-        if expected_size is not None and before.st_size != expected_size:
-            raise PreservationError("file length differs from signed size")
-        hasher = hashlib.sha256()
-        size = 0
-        while chunk := stream.read(min(CHUNK_SIZE, before.st_size + 1 - size)):
-            hasher.update(chunk)
-            size += len(chunk)
-            if control is not None:
-                control.advance(hashed=len(chunk))
-        after = os.fstat(stream.fileno())
-    if (
-        before.st_dev,
-        before.st_ino,
-        before.st_size,
-        before.st_mtime_ns,
-        before.st_ctime_ns,
-    ) != (
-        after.st_dev,
-        after.st_ino,
-        after.st_size,
-        after.st_mtime_ns,
-        after.st_ctime_ns,
-    ) or size != before.st_size:
-        raise PreservationError("source file changed while being captured")
-    return FileIdentity(path=path, size=size, sha256=hasher.hexdigest())
+    """Hash a stable source snapshot and reject mutation during the read.
+
+    Creating or removing another hardlink to an immutable store object changes
+    only its link count and ctime. When that is the only change, the whole file
+    is hashed again (a few times at most) until one complete read is stable, so
+    a concurrent link never fails verification while any change to size,
+    mtime or identity still refuses.
+    """
+    for attempt in range(4):
+        if control is not None:
+            control.checkpoint()
+        with open_file(root, path) as stream:
+            before = os.fstat(stream.fileno())
+            if expected_size is not None and before.st_size != expected_size:
+                raise PreservationError("file length differs from signed size")
+            hasher = hashlib.sha256()
+            size = 0
+            while chunk := stream.read(min(CHUNK_SIZE, before.st_size + 1 - size)):
+                hasher.update(chunk)
+                size += len(chunk)
+                if control is not None:
+                    control.advance(hashed=len(chunk))
+            after = os.fstat(stream.fileno())
+        content = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
+        if (
+            content
+            != (
+                after.st_dev,
+                after.st_ino,
+                after.st_size,
+                after.st_mtime_ns,
+            )
+            or size != before.st_size
+        ):
+            break
+        if before.st_ctime_ns == after.st_ctime_ns:
+            return FileIdentity(path=path, size=size, sha256=hasher.hexdigest())
+        if before.st_nlink == after.st_nlink or attempt == 3:
+            break
+        # Only the link count and ctime moved: a hardlink came or went. Reread.
+    raise PreservationError("source file changed while being captured")
 
 
 def verify_object(
@@ -419,12 +430,19 @@ def copy_verified_object(
     control: OperationControl,
     *,
     verify_reused_source: bool = False,
+    link: bool = False,
 ) -> None:
     """Copy a checked object; optionally verify each input even when deduplicated.
 
     A content-store caller can reuse an authenticated target object. A capture
     caller promising that every supplied local path matches must additionally
     request source verification on that reuse path.
+
+    ``link`` is only for copies between content stores, whose objects are never
+    modified in place: the target then shares the source's immutable object on
+    the same filesystem instead of duplicating its bytes. The linked object is
+    still hashed before and after publication, and any filesystem that cannot
+    link falls back to an ordinary copy. Never link a user's own source files.
     """
     control.phase("checking")
     try:
@@ -444,16 +462,20 @@ def copy_verified_object(
         return
     # Verified content needs no copy; missing or corrupt content needs a full
     # temporary replacement while any old object remains in place.
-    if shutil.disk_usage(target).free < file.size + 16 * CHUNK_SIZE:
-        raise PreservationError("destination has insufficient free space")
     pending = ".pending/" + uuid.uuid4().hex
-    control.phase("copying")
     try:
-        with (
-            open_file(source, source_path) as origin,
-            open_file(target, pending, write=True) as output,
-        ):
-            copy_exact(origin, output, file.size, control=control)
+        # The link is created inside the cleanup-protected region, so a
+        # cancellation at any later checkpoint never leaves it behind.
+        linked = link and _link_object(source, source_path, target, pending)
+        if not linked and shutil.disk_usage(target).free < file.size + 16 * CHUNK_SIZE:
+            raise PreservationError("destination has insufficient free space")
+        control.phase("copying")
+        if not linked:
+            with (
+                open_file(source, source_path) as origin,
+                open_file(target, pending, write=True) as output,
+            ):
+                copy_exact(origin, output, file.size, control=control)
         control.phase("checking")
         observed = file_identity(target, pending, control=control)
         if (observed.size, observed.sha256) != (file.size, file.sha256):
@@ -470,12 +492,31 @@ def copy_verified_object(
                 os.fsync(parent)
         verify_object(target, file, control=control)
     finally:
-        with parent_directory(target, pending) as (parent, name):
-            try:
+        try:
+            with parent_directory(target, pending) as (parent, name):
                 os.unlink(name, dir_fd=parent)
                 os.fsync(parent)
-            except FileNotFoundError:
-                pass
+        except FileNotFoundError:
+            pass
+
+
+def _link_object(source: int, source_path: str, target: int, pending: str) -> bool:
+    """Hardlink an immutable store object into pending work, or report False."""
+    try:
+        with (
+            parent_directory(source, source_path) as (source_parent, source_name),
+            parent_directory(target, pending, create=True) as (parent, name),
+        ):
+            os.link(
+                source_name,
+                name,
+                src_dir_fd=source_parent,
+                dst_dir_fd=parent,
+                follow_symlinks=False,
+            )
+            return True
+    except OSError:
+        return False
 
 
 def pack(

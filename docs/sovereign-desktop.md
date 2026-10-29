@@ -247,7 +247,9 @@ Its daily and monthly UTC upload allowances are shown and retained across
 sessions. Starting again does not reset those counters. A second simultaneous
 session is refused; private download, kit and restore jobs can continue while
 the mirror runs. **Stop** drains its owned connections and retains all copies.
-Quit stops sharing safely; reopening never silently resumes it. Advanced
+Quit stops sharing safely; reopening never silently resumes a one-hour
+session. Only the separate standing consent of **Help keep models available**
+resumes serving after a restart. Advanced
 operator-controlled retention uses the existing [persistent mirror
 commands](persistent-mirrors.md), with no remote deletion path.
 
@@ -269,6 +271,39 @@ settings, choose **Review address change**, then give fresh session consent.
 An explicitly reviewed address needs no external route lookup. Failure of
 automatic address selection stops the session and asks for that review; it does
 not switch transport or configure a router.
+
+### Help keep models available
+
+One switch, **Help keep models available**, turns this computer into a
+long-lived mirror of its backups. There is one choice, not a step per model:
+
+- **Share every backed-up model whose licence allows it** (the default), or
+  **only the models I choose**. With the first, new backups join on their own.
+- **One licence policy** covers every model. It starts with Apache-2.0, MIT,
+  BSD and the OpenRAIL-M family, and you can widen it. The licence comes from
+  the backup itself, or from its original model card for registry backups;
+  common spelled-out names such as "MIT License" are recognized. Eligibility
+  follows the licence, never whether the original download was gated. A backup
+  with no identifiable licence, or with any member outside the policy, stays
+  private. You can keep any single backup back.
+- **No hour limit.** Turning the switch on records one standing consent for a
+  year; serving then resumes after a restart or reboot with no further step.
+  Turning it off revokes that consent at once. The daily and monthly upload caps
+  still apply (20 GiB and 300 GiB by default).
+
+Each eligible backup joins as a signed public network PMF, exactly as **Create
+public copy** would make it, and the same people sharing the same model and
+terms share one identity. On the same disk the mirror links the backup's bytes
+instead of copying them, so sharing needs almost no extra space. Withholding a
+backup, narrowing the policy or turning the switch off blocks serving; nothing
+is ever deleted.
+
+The mirror serves HTTP on a fixed port (8743 by default) on every network
+interface. Sovereign says plainly whether this computer has a public address or
+sits behind a router; it never configures the router (UPnP stays off) and asks
+no outside service. Mirrors behind a router are reachable from their own network
+only, until mirror discovery and peer transports reach the app. Direct HTTP is
+not anonymous or encrypted: recipients see this computer's address.
 
 ### Open a sharing file without Skulk
 

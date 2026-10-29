@@ -313,12 +313,14 @@ def export_preservation(
     source_trust: TrustProfile,
     expected_source_manifest_id: str,
     control: OperationControl | None = None,
+    link_objects: bool = False,
 ) -> PMFConversion:
     """Recover the unchanged original archive for Skulk or standalone v1 tools.
 
     Authenticate PMF and the original capture independently. Refuse altered or
     extended projections that cannot be exported losslessly to that original.
     A PMF owner key cannot substitute for original publisher/registry authority.
+    ``link_objects`` hardlinks immutable store objects on the same filesystem.
     """
     with (control or OperationControl()).operation("restore") as active:
         with directory(store) as source:
@@ -376,10 +378,17 @@ def export_preservation(
                 )
                 verify_manifest(envelope, candidates, expected_source_manifest_id)
             with new_pmf_tree(destination, active) as target:
-                check_pmf_space(target, manifest)
+                check_pmf_space(
+                    target, manifest, linked_from=source if link_objects else None
+                )
                 for file in unique_objects(original):
                     copy_verified_object(
-                        source, object_path(file.sha256), target, file, active
+                        source,
+                        object_path(file.sha256),
+                        target,
+                        file,
+                        active,
+                        link=link_objects,
                     )
                 atomic_bytes(
                     target, manifest_path(expected_source_manifest_id), envelope
@@ -463,12 +472,14 @@ def publish_network_pmf(
     keys: tuple[Ed25519PrivateKey, ...],
     *,
     control: OperationControl | None = None,
+    link_objects: bool = False,
 ) -> str:
     """Write a signed public network PMF of a complete public v1 archive.
 
     Every object is verified while copying. The v1 envelope's own signatures are
     not embedded: recipients authenticate the PMF signer they choose to trust.
     Nothing is served, listed or enrolled by this operation.
+    ``link_objects`` hardlinks immutable store objects on the same filesystem.
     """
     with (control or OperationControl()).operation("pack") as active:
         with directory(store) as source:
@@ -485,10 +496,17 @@ def publish_network_pmf(
             if signed_identity != identity:
                 raise PreservationError("network PMF identity changed during signing")
             with new_pmf_tree(destination, active) as target:
-                check_pmf_space(target, manifest)
+                check_pmf_space(
+                    target, manifest, linked_from=source if link_objects else None
+                )
                 for file in unique_objects(original):
                     copy_verified_object(
-                        source, object_path(file.sha256), target, file, active
+                        source,
+                        object_path(file.sha256),
+                        target,
+                        file,
+                        active,
+                        link=link_objects,
                     )
                 for data in records.values():
                     active.checkpoint()
