@@ -522,11 +522,17 @@ class LocalOwner:
             if action == "community-read" and not body:
                 return self.community.read(self._journal.copies)
             if action == "community-configure":
-                policy = self.community.configure(body)
+                try:
+                    policy = self.community.configure(body)
+                finally:
+                    # Turning sharing off always stops the running mirror, even
+                    # if saving or revoking failed part-way.
+                    if not self.community.consented():
+                        if self._community_control is not None:
+                            self._community_control.cancel()
+                        self._community_wake.set()
                 if policy.enabled:
                     self._community_refresh()
-                elif self._community_control is not None:
-                    self._community_control.cancel()
                 return self.community.read(self._journal.copies)
             if action == "community-choose" and set(body) == {
                 "copy_id",
@@ -1350,14 +1356,25 @@ class LocalOwner:
 
     def _community_loop(self) -> None:
         while True:
+            control = OperationControl()
+            copies: tuple[Copy, ...] = ()
             with self._lock:
                 self._community_wake.clear()
-                if self._closing or not self.community.consented():
+                stop = self._closing or not self.community.consented()
+                if stop:
                     self._community_control = None
-                    return
-                control = OperationControl()
-                self._community_control = control
-                copies = self._journal.copies
+                else:
+                    self._community_control = control
+                    copies = self._journal.copies
+            if stop:
+                if not self.community.consented():
+                    # The controller has drained. Retry clearing a standing grant
+                    # that a concurrent upload reservation kept from clearing.
+                    for _attempt in range(10):
+                        if self.community.revoke_grant():
+                            break
+                        time.sleep(0.5)
+                return
             try:
                 self.community.sync(copies, control)
                 if not self._community_wake.is_set():

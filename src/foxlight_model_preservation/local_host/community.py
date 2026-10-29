@@ -305,7 +305,10 @@ class CommunityMirror:
         )
         self._save(updated)
         if not updated.enabled:
-            self._revoke()
+            # The saved opt-out already stops new serving; the owner cancels the
+            # running controller regardless. A grant that cannot be cleared now
+            # (for example during an upload reservation) is cleared after drain.
+            self.revoke_grant()
         return updated
 
     def choose(self, copy_id: str, *, chosen: bool, withheld: bool) -> None:
@@ -540,13 +543,17 @@ class CommunityMirror:
 
         run_mirror(ledger, resume=True, control=control, observe=record)
 
-    def _revoke(self) -> None:
+    def revoke_grant(self) -> bool:
+        """Clear the mirror's standing restart grant; report whether it is gone."""
         try:
             MirrorLedger(self.path / "mirror").update(
                 lambda current: current.model_copy(update={"restart": None})
             )
         except FileNotFoundError:
-            pass  # No mirror yet, so there is no standing grant to revoke.
+            return True  # No mirror yet, so there is no standing grant to revoke.
+        except (OSError, ValueError):
+            return False
+        return True
 
     # Reachability ------------------------------------------------------------
 
