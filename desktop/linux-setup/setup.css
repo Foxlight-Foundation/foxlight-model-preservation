@@ -73,4 +73,4 @@
 #sovereign-setup button.suggested-action:hover { background-color: #ffb066; }
 #sovereign-setup button:disabled { background-color: #1a2440; color: #aab4cc; border-color: #2b3a63; }
 #sovereign-setup scrollbar { background: transparent; }
-#sovereign-setup scrollbar slider { background: #2b3a63; border-radius: 8px; }
+#sovereign-setup scrollbar slider { background: #7aa6ff; border-radius: 8px; }
