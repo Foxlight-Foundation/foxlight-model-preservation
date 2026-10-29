@@ -2,10 +2,10 @@ name: Graphical Ubuntu setup
 on:
   workflow_call:
   pull_request:
-    paths: ['desktop/linux-setup/**', 'scripts/build_linux_setup.py', 'scripts/qualify_linux_setup.py', 'scripts/install_sovereign_linux.py', 'tests/test_linux_graphical_setup.py', '.github/workflows/linux-graphical-setup*.yml']
+    paths: ['desktop/linux-setup/**', 'scripts/build_linux_setup.py', 'scripts/qualify_linux_setup.py', 'scripts/install_sovereign_linux.py', 'tests/test_linux_graphical_setup.py', 'docs/linux-distribution.md', 'docs/linux-graphical-setup.txt', 'docs/getting-started.md', '.github/workflows/linux-graphical-setup*.yml']
   push:
     branches: [main]
-    paths: ['desktop/linux-setup/**', 'scripts/build_linux_setup.py', 'scripts/qualify_linux_setup.py', 'scripts/install_sovereign_linux.py', 'tests/test_linux_graphical_setup.py', '.github/workflows/linux-graphical-setup*.yml']
+    paths: ['desktop/linux-setup/**', 'scripts/build_linux_setup.py', 'scripts/qualify_linux_setup.py', 'scripts/install_sovereign_linux.py', 'tests/test_linux_graphical_setup.py', 'docs/linux-distribution.md', 'docs/linux-graphical-setup.txt', 'docs/getting-started.md', '.github/workflows/linux-graphical-setup*.yml']
 permissions:
   contents: read
 jobs:

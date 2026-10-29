@@ -20,9 +20,10 @@ is also available without a native app or Skulk.
   release verification.
 - **Ubuntu 24.04, amd64 or arm64:** follow the
   [graphical setup](linux-distribution.md#graphical-setup-recommended), then open
-  **Sovereign** from your applications menu. The system package manager checks
-  the software archive signature. The documented first-time archive setup needs
-  a terminal; no Skulk or Python setup is required.
+  **Sovereign** from your applications menu. Setup checks the app and update key,
+  then Ubuntu checks signed software updates. No Terminal commands, Skulk or
+  Python setup are required. The guide also explains how to independently verify
+  the initial setup download; that optional advanced check uses Terminal.
 
 Installation and first launch start no model download or sharing. Choose what
 you want to do: browse models, open a recovery kit, or receive a sharing file.
