@@ -249,7 +249,11 @@ class MirrorDirectory:
         deadline = time.monotonic() + policy.deadline_seconds
         queue = list(dict.fromkeys(seeds))
         if expand:
-            for item in self._known_addresses():
+            # Known mirrors are visited in random order each round, so a bounded
+            # crawl eventually reaches every one, whatever sits at the front.
+            known = self._known_addresses()
+            self._rng.shuffle(known)
+            for item in known:
                 if item not in queue:
                     queue.append(item)
         visited: set[str] = set()
