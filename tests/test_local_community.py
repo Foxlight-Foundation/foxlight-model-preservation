@@ -53,7 +53,8 @@ def served(port: int, identity: str) -> int:
         response = connection.getresponse()
         response.read()
         return response.status
-    except OSError:
+    except (OSError, http.client.HTTPException):
+        # A listener that is restarting may cut a response short.
         return 0
     finally:
         connection.close()
