@@ -1367,13 +1367,19 @@ class LocalOwner:
                     self._community_control = control
                     copies = self._journal.copies
             if stop:
-                if not self.community.consented():
-                    # The controller has drained. Retry clearing a standing grant
-                    # that a concurrent upload reservation kept from clearing.
-                    for _attempt in range(10):
-                        if self.community.revoke_grant():
-                            break
-                        time.sleep(0.5)
+                # The controller has drained. Retry clearing a standing grant
+                # that a concurrent upload reservation kept from clearing, unless
+                # sharing has been turned back on meanwhile.
+                for _attempt in range(10):
+                    if self.community.consented() or self.community.revoke_grant():
+                        break
+                    time.sleep(0.5)
+                with self._lock:
+                    # A refresh that arrived while this worker was retiring saw
+                    # it alive; keep serving instead of dropping that request.
+                    if not self._closing and self.community.consented():
+                        continue
+                    self._community_thread = None
                 return
             try:
                 self.community.sync(copies, control)

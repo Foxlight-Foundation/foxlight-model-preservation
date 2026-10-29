@@ -428,3 +428,34 @@ def test_turning_off_stops_serving_even_if_revocation_must_wait(
         wait_for(lambda: ledger.read().restart is None)
     finally:
         owner.close()
+
+
+def test_turning_back_on_while_the_old_worker_retires_keeps_serving(
+    tmp_path: Path, capture: Capture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from foxlight_model_preservation.local_host.community import CommunityMirror
+
+    port = free_port()
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        saved(owner, tmp_path, capture)
+        enable(owner, port)
+        identity = wait_for(
+            lambda: next(
+                (
+                    row["public_manifest_id"]
+                    for row in owner.control("community-read", {})["copies"]
+                    if row["status"] == "sharing"
+                ),
+                None,
+            )
+        )
+        wait_for(lambda: served(port, identity) == 200)
+        # Revocation keeps losing a lock race, so the old worker retires slowly.
+        monkeypatch.setattr(CommunityMirror, "revoke_grant", lambda self: False)
+        owner.control("community-configure", {"enabled": False})
+        wait_for(lambda: served(port, identity) == 0)
+        enable(owner, port)
+        wait_for(lambda: served(port, identity) == 200, seconds=30)
+    finally:
+        owner.close()
