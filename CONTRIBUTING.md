@@ -1,16 +1,8 @@
 # Contributing
 
-Contributions are made under the [Apache License 2.0](LICENSE) and the
-[Developer Certificate of Origin 1.1](https://developercertificate.org/).
-Sign off every commit (`git commit -s`), adding a line such as:
-
-```text
-Signed-off-by: Your Name <you@example.com>
-```
-
-The sign-off certifies that you wrote the change or otherwise have the right to
-submit it under the project's license. There is no contributor license
-agreement: you keep your copyright. Project governance and trademark use are
+Contributions are made under the [Apache License 2.0](LICENSE): as its
+section 5 provides, anything you submit is licensed on the same terms, and you
+keep your copyright. Project governance and trademark use are
 described in [GOVERNANCE.md](GOVERNANCE.md) and [TRADEMARKS.md](TRADEMARKS.md).
 
 ## Development

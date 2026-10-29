@@ -27,8 +27,7 @@ requests, cut releases through the attested release workflow
 
 ## Contributing
 
-Contributions are welcome under the Apache License 2.0 with a Developer
-Certificate of Origin sign-off. There is no CLA: contributors keep their
+Contributions are welcome under the Apache License 2.0; contributors keep their
 copyright. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Names
