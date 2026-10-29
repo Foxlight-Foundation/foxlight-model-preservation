@@ -21,7 +21,10 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
  useEffect(()=>{live.current=true;return()=>{live.current=false;};},[]);
  // Setup is a modal step: the page behind it becomes inert while it is open.
  useEffect(()=>{onDialogChange?.(setup);return()=>onDialogChange?.(false);},[setup,onDialogChange]);
- const refresh=useCallback(async()=>{try{const value=await api<Community>('desktop-community-read',{});if(live.current){setState(value);setUnavailable(false);}}catch{if(live.current)setUnavailable(true);}},[]);
+ const loaded=useRef(false);
+ // Hide only when this core never answered; a transient failure keeps the last
+ // state, so an open setup sheet (and its Close control) is never torn away.
+ const refresh=useCallback(async()=>{try{const value=await api<Community>('desktop-community-read',{});if(live.current){loaded.current=true;setState(value);setUnavailable(false);}}catch{if(live.current&&!loaded.current)setUnavailable(true);}},[]);
  useEffect(()=>{void refresh();const timer=setInterval(()=>void refresh(),5000);return()=>clearInterval(timer);},[refresh,version]);
  async function act(action:string,body:Record<string,unknown>){setBusy(true);setError('');try{const value=await api<Community>(action,body);if(live.current)setState(value);return true;}catch(err){if(live.current)setError(err instanceof Error?err.message:'host_unavailable');return false;}finally{if(live.current)setBusy(false);}}
  function open(){if(!state)return;setLicenses(state.policy.licenses);setShare(state.policy.share);setAgreed(false);setExtra('');setError('');setSetup(true);}
