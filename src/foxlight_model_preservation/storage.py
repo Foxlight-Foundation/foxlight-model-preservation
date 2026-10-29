@@ -212,36 +212,47 @@ def file_identity(
     *,
     control: OperationControl | None = None,
 ) -> FileIdentity:
-    """Hash a stable source snapshot and reject mutation during the read."""
-    if control is not None:
-        control.checkpoint()
-    with open_file(root, path) as stream:
-        before = os.fstat(stream.fileno())
-        if expected_size is not None and before.st_size != expected_size:
-            raise PreservationError("file length differs from signed size")
-        hasher = hashlib.sha256()
-        size = 0
-        while chunk := stream.read(min(CHUNK_SIZE, before.st_size + 1 - size)):
-            hasher.update(chunk)
-            size += len(chunk)
-            if control is not None:
-                control.advance(hashed=len(chunk))
-        after = os.fstat(stream.fileno())
-    if (
-        before.st_dev,
-        before.st_ino,
-        before.st_size,
-        before.st_mtime_ns,
-        before.st_ctime_ns,
-    ) != (
-        after.st_dev,
-        after.st_ino,
-        after.st_size,
-        after.st_mtime_ns,
-        after.st_ctime_ns,
-    ) or size != before.st_size:
-        raise PreservationError("source file changed while being captured")
-    return FileIdentity(path=path, size=size, sha256=hasher.hexdigest())
+    """Hash a stable source snapshot and reject mutation during the read.
+
+    Creating or removing another hardlink to an immutable store object changes
+    only its link count and ctime. When that is the only change, the whole file
+    is hashed again (a few times at most) until one complete read is stable, so
+    a concurrent link never fails verification while any change to size,
+    mtime or identity still refuses.
+    """
+    for attempt in range(4):
+        if control is not None:
+            control.checkpoint()
+        with open_file(root, path) as stream:
+            before = os.fstat(stream.fileno())
+            if expected_size is not None and before.st_size != expected_size:
+                raise PreservationError("file length differs from signed size")
+            hasher = hashlib.sha256()
+            size = 0
+            while chunk := stream.read(min(CHUNK_SIZE, before.st_size + 1 - size)):
+                hasher.update(chunk)
+                size += len(chunk)
+                if control is not None:
+                    control.advance(hashed=len(chunk))
+            after = os.fstat(stream.fileno())
+        content = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
+        if (
+            content
+            != (
+                after.st_dev,
+                after.st_ino,
+                after.st_size,
+                after.st_mtime_ns,
+            )
+            or size != before.st_size
+        ):
+            break
+        if before.st_ctime_ns == after.st_ctime_ns:
+            return FileIdentity(path=path, size=size, sha256=hasher.hexdigest())
+        if before.st_nlink == after.st_nlink or attempt == 3:
+            break
+        # Only the link count and ctime moved: a hardlink came or went. Reread.
+    raise PreservationError("source file changed while being captured")
 
 
 def verify_object(
