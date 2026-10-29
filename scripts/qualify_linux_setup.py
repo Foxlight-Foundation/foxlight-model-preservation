@@ -344,7 +344,7 @@ def main() -> None:
     (root / "qualification.json").write_text(
         json.dumps(
             {
-                "setup_package_version": "0.1.1-1",
+                "setup_package_version": "0.1.2-1",
                 "app_package_version": "0.1.0-3",
                 "architecture": subprocess.check_output(
                     ["/usr/bin/dpkg", "--print-architecture"], text=True

@@ -1,13 +1,17 @@
 /* Sovereign Horizon colors, scoped to setup. Ubuntu owns authentication UI.
    The native high-contrast theme takes precedence by omitting this provider. */
 #sovereign-setup {
-    background: linear-gradient(150deg, #18233b 0%, #0e1426 42%, #070a14 100%);
+    background-color: #070a14;
+    background-image: linear-gradient(180deg, rgba(7, 10, 20, 0.40) 0%, rgba(7, 10, 20, 0.48) 55%, rgba(7, 10, 20, 0.66) 100%), url("starry-background.png");
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
     color: #c8d0e4;
     font-size: 10.5pt;
 }
 #sovereign-setup label { color: #c8d0e4; }
 #sovereign-setup .setup-eyebrow {
-    color: #aab4cc;
+    color: #c8d0e4;
     font-size: 8.25pt;
     font-weight: 600;
     letter-spacing: 1.2px;
@@ -19,6 +23,11 @@
     letter-spacing: -0.8px;
 }
 #sovereign-setup .setup-introduction { font-size: 11.25pt; }
+#sovereign-setup .setup-introduction, #sovereign-setup .setup-eyebrow { color: #eef2fb; }
+#sovereign-setup .setup-heading, #sovereign-setup .setup-introduction,
+#sovereign-setup .setup-eyebrow, #sovereign-setup .setup-details label {
+    text-shadow: 0 1px 3px #070a14;
+}
 #sovereign-setup .setup-card {
     background: rgba(18, 26, 49, 0.88);
     border: 1px solid #2b3a63;
@@ -29,7 +38,7 @@
 #sovereign-setup .setup-feature-title { color: #eef2fb; font-weight: 600; }
 #sovereign-setup .setup-feature-detail { font-size: 9.75pt; }
 #sovereign-setup .setup-notice {
-    background: rgba(122, 166, 255, 0.08);
+    background: rgba(14, 20, 38, 0.94);
     border: 1px solid rgba(122, 166, 255, 0.25);
     border-radius: 12px;
     padding: 14px;
@@ -39,10 +48,10 @@
 #sovereign-setup .setup-error { border-color: #f07a73; }
 #sovereign-setup spinner { color: #ffa24a; }
 #sovereign-setup .setup-details, #sovereign-setup .setup-details label {
-    color: #aab4cc;
+    color: #c8d0e4;
     font-size: 9pt;
 }
-#sovereign-setup .setup-details arrow { color: #aab4cc; }
+#sovereign-setup .setup-details arrow { color: #c8d0e4; }
 #sovereign-setup textview, #sovereign-setup textview text {
     background: #0e1426;
     color: #c8d0e4;
@@ -72,5 +81,5 @@
 #sovereign-setup button.suggested-action { background-color: #ffa24a; color: #1a0d00; border-color: #ffa24a; }
 #sovereign-setup button.suggested-action:hover { background-color: #ffb066; }
 #sovereign-setup button:disabled { background-color: #1a2440; color: #aab4cc; border-color: #2b3a63; }
-#sovereign-setup scrollbar { background: transparent; }
+#sovereign-setup scrollbar { background: #0e1426; }
 #sovereign-setup scrollbar slider { background: #7aa6ff; border-radius: 8px; }
