@@ -292,3 +292,11 @@ Its self-contained PMF kits also work with the independent tools; Skulk is not
 required to recover the archived files/cards/provenance. Earlier kits retain
 their own identities and verification. PMF preservation/recovery is included in
 Library 0.12.0; generic PMF public transport adapters remain separate work.
+
+## License, governance and names
+
+Apache-2.0 ([LICENSE](LICENSE), [NOTICE](NOTICE)), published by FoxlightAI Inc.
+Contributions use a DCO sign-off with no CLA ([CONTRIBUTING.md](CONTRIBUTING.md)).
+How decisions and format changes are made is in [GOVERNANCE.md](GOVERNANCE.md);
+the code is free to fork, and the Sovereign and Foxlight names are covered by
+[TRADEMARKS.md](TRADEMARKS.md).
