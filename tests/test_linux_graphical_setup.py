@@ -87,7 +87,9 @@ def gui(monkeypatch):
         sys.modules, "gi", types.SimpleNamespace(require_version=Mock())
     )
     monkeypatch.setitem(
-        sys.modules, "gi.repository", types.SimpleNamespace(Gtk=gtk, GLib=glib)
+        sys.modules,
+        "gi.repository",
+        types.SimpleNamespace(Gtk=gtk, GLib=glib, Gdk=Mock(), GdkPixbuf=Mock()),
     )
     original = runpy.run_path
     setup = original(str(ROOT / "scripts/install_sovereign_linux.py"))
@@ -103,6 +105,7 @@ def gui(monkeypatch):
     window.cancelled = threading.Event()
     window.cancel = Mock()
     window.status = Mock()
+    window.notice = Mock()
     window.finished = Mock()
     window.append_log = Mock()
     return module, window

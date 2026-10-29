@@ -1,7 +1,7 @@
 Sovereign graphical setup for Ubuntu 24.04
 
-1. Download foxlight-sovereign-setup_0.1.0-1_all.deb from the official release:
-   https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/sovereign-graphical-setup-v0.1.0
+1. Download foxlight-sovereign-setup_0.1.1-1_all.deb from the official release:
+   https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/sovereign-graphical-setup-v0.1.1
    The same small file supports 64-bit Intel/AMD and ARM computers.
 2. Open the downloaded file with Ubuntu App Center and choose Install.
    If necessary, right-click the file and choose Open With > App Center.
