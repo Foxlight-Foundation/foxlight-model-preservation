@@ -84,3 +84,16 @@ test('a backup that failed to join can still be kept back before its retry',asyn
  await panel.getByRole('button',{name:'Keep this one back',exact:true}).click();
  expect(chosen).toEqual({copy_id:id,chosen:false,withheld:true});
 });
+
+test('a failed status refresh keeps an open setup sheet usable',async({page})=>{
+ let reads=0;
+ await page.route('**/api/desktop-community-read',r=>{reads++;return reads===1?r.fulfill({json:view(false)}):r.fulfill({status:503,json:{error:'host_unavailable'}});});
+ await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();
+ const panel=page.getByRole('region',{name:'Help keep models available'});
+ await panel.getByRole('button',{name:'Turn on',exact:true}).click();
+ await expect.poll(()=>reads,{timeout:12000}).toBeGreaterThan(1);
+ await expect(page.getByRole('heading',{name:'Share your backups with everyone'})).toBeVisible();
+ await page.getByRole('button',{name:'Close sharing setup'}).click();
+ await expect(page.locator('#sovereign-main')).not.toHaveAttribute('inert','');
+ await expect(panel).toBeVisible();
+});
