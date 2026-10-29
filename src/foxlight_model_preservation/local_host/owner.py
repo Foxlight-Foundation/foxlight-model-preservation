@@ -540,6 +540,9 @@ class LocalOwner:
                     if not self.community.consented():
                         if self._community_control is not None:
                             self._community_control.cancel()
+                        # Opting out also stops discovery traffic in progress.
+                        if self._gossip_control is not None:
+                            self._gossip_control.cancel()
                         self._community_wake.set()
                 if policy.enabled:
                     self._community_refresh()
