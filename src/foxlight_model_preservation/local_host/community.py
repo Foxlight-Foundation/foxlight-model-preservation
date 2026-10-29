@@ -18,11 +18,14 @@ from collections.abc import Callable, Sequence
 from pathlib import Path, PurePosixPath
 from typing import Literal, Protocol, cast
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from pydantic import Field, JsonValue, field_validator
 
 from ..assurance import load_retained_card
 from ..cards import identity_json
 from ..mirror import model_action, run_mirror
+from ..mirror_cards import base_url, build_peers, issue_card
+from ..mirror_directory import MirrorDirectory
 from ..mirror_intake import retain_local
 from ..mirror_models import MirrorObservation, SourceGrant, Terms
 from ..mirror_state import MirrorLedger, grant_restart
@@ -35,8 +38,9 @@ from ..models import (
     TrustProfile,
 )
 from ..operations import OperationControl, OperationError, failure_code
-from ..signing import digest, encode_record
+from ..signing import create_key, digest, encode_record, load_key
 from ..storage import atomic_bytes, directory, read_metadata
+from ..transfer import TransferPolicy
 from .presentation import card_summary
 from .sharing import MemberDecision, Sharing
 
@@ -128,8 +132,15 @@ class CommunityPolicy(Record):
     daily_upload_bytes: int = Field(default=20 * 1024**3, ge=1, le=2**53 - 1)
     monthly_upload_bytes: int = Field(default=300 * 1024**3, ge=1, le=2**53 - 1)
     port: int = Field(default=DEFAULT_PORT, ge=1024, le=65535)
+    public_url: str | None = Field(default=None, min_length=8, max_length=2048)
     consent_expires: int | None = None
     rarest_first: bool = False
+
+    @field_validator("public_url")
+    @classmethod
+    def plain_url(cls, value: str | None) -> str | None:
+        """Accept only a credential-free HTTP(S) base URL the owner says works."""
+        return None if value is None else base_url(value)
 
     @field_validator("licenses")
     @classmethod
@@ -224,6 +235,7 @@ class CommunityMirror:
         self.observation: MirrorObservation | None = None
         self.last_error: str | None = None
         self.failures: dict[str, str] = {}
+        self.directory = MirrorDirectory(home / "mirror-directory")
 
     # Policy and membership -------------------------------------------------
 
@@ -286,6 +298,7 @@ class CommunityMirror:
             "daily_upload_bytes",
             "monthly_upload_bytes",
             "port",
+            "public_url",
             "rarest_first",
         }
         if not body or not set(body) <= allowed:
@@ -562,6 +575,69 @@ class CommunityMirror:
         except (OSError, ValueError):
             return False
         return True
+
+    # Discovery ---------------------------------------------------------------
+
+    def _mirror_key(self) -> Ed25519PrivateKey:
+        path = self.path / "mirror-key.pem"
+        if not path.exists():
+            with directory(self.path, create=True):
+                pass
+            create_key(path, None)
+        return load_key(path, None)
+
+    def addresses(self) -> tuple[str, ...]:
+        """Addresses worth announcing: a declared public URL, or a public address."""
+        policy = self.policy()
+        if policy.public_url is not None:
+            return (policy.public_url,)
+        reach = self.reachability()
+        if reach["status"] == "public_address" and isinstance(reach["mirror_url"], str):
+            return (reach["mirror_url"],)
+        # A computer behind a router publishes no card: nobody could reach it.
+        return ()
+
+    def held(self) -> frozenset[str]:
+        """Public identities this mirror retains and serves right now."""
+        try:
+            models = MirrorLedger(self.path / "mirror").read().models
+        except FileNotFoundError:
+            return frozenset()
+        return frozenset(
+            identity
+            for identity, held in models.items()
+            if held.state == "retained" and not held.blocked and not held.error
+        )
+
+    def announce(self) -> None:
+        """Publish this mirror's signed card and the peers it has itself checked.
+
+        The document is served at /.well-known/sovereign/peers.json and read on
+        every request, so updating it needs no restart.
+        """
+        held = self.held()
+        addresses = self.addresses()
+        card = (
+            issue_card(self._mirror_key(), addresses, held)
+            if addresses and held
+            else None
+        )
+        document = build_peers(card, self.directory.gossip())
+        try:
+            with directory(self.path / "mirror") as root:
+                atomic_bytes(root, "peers.json", document)
+        except FileNotFoundError:
+            pass  # No mirror yet; the next sync creates it and announces.
+
+    def gossip(self, control: OperationControl) -> None:
+        """One round: learn mirrors, confirm what they serve, re-announce.
+
+        Only plain public routes are crawled; private addresses never are.
+        """
+        policy = TransferPolicy(allow_http=True, timeout=10, deadline_seconds=600)
+        self.directory.crawl((), policy, control=control)
+        self.directory.spot_check(self.held(), policy, control=control)
+        self.announce()
 
     # Reachability ------------------------------------------------------------
 

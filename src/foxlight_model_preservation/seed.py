@@ -24,6 +24,8 @@ from .storage import (
     read_metadata,
 )
 
+MAX_DOCUMENT_BYTES = 1024 * 1024
+
 
 class SeedServer(http.server.ThreadingHTTPServer):
     """Serve only selected bundle paths, with bounded threads and total upload."""
@@ -49,6 +51,7 @@ class SeedServer(http.server.ThreadingHTTPServer):
             )
         self.tls_context = tls_context
         self.store = store
+        self.documents: dict[str, Path] = {}
         self.allowed: dict[str, int] = {}
         for manifest_id in bundles:
             manifest = verify_archive(store, manifest_id, trust)
@@ -122,6 +125,10 @@ class SeedServer(http.server.ThreadingHTTPServer):
         finally:
             self._slots.release()
 
+    def charge_document(self, count: int) -> bool:
+        """Charge a small public document against the same upload budget."""
+        return self.charge(count)
+
     def charge(self, count: int, path: str | None = None) -> bool:
         """Reserve actual response bytes globally before they leave the process."""
         with self._budget_lock:
@@ -165,6 +172,10 @@ class SeedHandler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         """Serve only exact allowlisted regular files with single-range support."""
+        document = self.seed.documents.get(self.path)
+        if document is not None:
+            self._document(document)
+            return
         size = self.seed.allowed.get(self.path)
         if size is None:
             self.send_error(404)
@@ -209,6 +220,24 @@ class SeedHandler(http.server.BaseHTTPRequestHandler):
                 self._send(stream, start, count)
         except (OSError, PreservationError):
             self.close_connection = True
+
+    def _document(self, path: Path) -> None:
+        """Serve one small public JSON document that its owner rewrites atomically."""
+        try:
+            with directory(path.parent) as root, open_file(root, path.name) as stream:
+                data = stream.read(MAX_DOCUMENT_BYTES + 1)
+        except OSError:
+            self.send_error(404)
+            return
+        if len(data) > MAX_DOCUMENT_BYTES or not self.seed.charge_document(len(data)):
+            self.send_error(503)
+            return
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Cache-Control", "max-age=300")
+        self.end_headers()
+        self.wfile.write(data)
 
     def _send(self, stream: BinaryIO, offset: int, count: int) -> None:
         stream.seek(offset)

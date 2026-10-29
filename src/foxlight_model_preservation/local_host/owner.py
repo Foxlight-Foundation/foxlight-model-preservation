@@ -30,6 +30,7 @@ from ..models import Manifest, PreservationError, Record, TrustProfile
 from ..operations import (
     OperationCancelled,
     OperationControl,
+    OperationError,
     Progress,
     failure_code,
 )
@@ -139,6 +140,9 @@ class LocalOwner:
             self._community_wake = threading.Event()
             self._community_control: OperationControl | None = None
             self._community_thread: threading.Thread | None = None
+            self._gossip_thread: threading.Thread | None = None
+            self._gossip_control: OperationControl | None = None
+            self._stopping = threading.Event()
             self._lock = threading.RLock()
             self._idle = threading.Condition(self._lock)
             self._backup_calls = 0
@@ -223,11 +227,17 @@ class LocalOwner:
             for control in self._controls.values():
                 control.cancel()
             community = self._community_thread
+            gossip = self._gossip_thread
+            self._stopping.set()
+            if self._gossip_control is not None:
+                self._gossip_control.cancel()
             self._community_wake.set()
             if self._community_control is not None:
                 self._community_control.cancel()
         if community is not None:
             community.join()
+        if gossip is not None:
+            gossip.join()
         self._executor.shutdown(wait=True)
         self._sharing_executor.shutdown(wait=True)
         with self._idle:
@@ -530,6 +540,9 @@ class LocalOwner:
                     if not self.community.consented():
                         if self._community_control is not None:
                             self._community_control.cancel()
+                        # Opting out also stops discovery traffic in progress.
+                        if self._gossip_control is not None:
+                            self._gossip_control.cancel()
                         self._community_wake.set()
                 if policy.enabled:
                     self._community_refresh()
@@ -1183,6 +1196,26 @@ class LocalOwner:
             < cast(int, plan["size_bytes"]) * 4 + 32 * 1024**2
         ):
             raise PreservationError("insufficient_space")
+        approved = tuple(cast(list[str], plan["mirrors"]))
+        try:
+            # Learn from the mirrors this download already contacts, and only
+            # those: their signed peer cards seed this computer's own directory.
+            self.community.directory.crawl(
+                approved,
+                TransferPolicy(
+                    allow_http=plan["allow_http"] is True,
+                    allow_private=plan["allow_private"] is True,
+                    timeout=10,
+                    deadline_seconds=60,
+                ),
+                max_documents=len(approved),
+                expand=False,
+                control=control.fork(),
+            )
+        except OperationError:
+            raise
+        except (ValueError, OSError):
+            pass  # Discovery is optional; the approved download proceeds.
         policy = TransferPolicy(
             max_bytes=cast(int, plan["max_bytes"]),
             deadline_seconds=86400,
@@ -1353,6 +1386,30 @@ class LocalOwner:
                     daemon=True,
                 )
                 self._community_thread.start()
+            if self._gossip_thread is None or not self._gossip_thread.is_alive():
+                self._gossip_thread = threading.Thread(
+                    target=self._gossip_loop, name="sovereign-gossip", daemon=True
+                )
+                self._gossip_thread.start()
+
+    def _gossip_loop(self) -> None:
+        """Every half hour while sharing: find mirrors, check them, re-announce."""
+        while not self._stopping.is_set() and self.community.consented():
+            control = OperationControl()
+            with self._lock:
+                if self._stopping.is_set():
+                    return
+                # Retained so shutdown can cancel a round in progress.
+                self._gossip_control = control
+            try:
+                self.community.gossip(control)
+            except (ValueError, OSError):
+                pass  # Discovery is best effort; serving never depends on it.
+            finally:
+                with self._lock:
+                    self._gossip_control = None
+            if self._stopping.wait(1800):
+                return
 
     def _community_loop(self) -> None:
         while True:
@@ -1385,6 +1442,10 @@ class LocalOwner:
                 self.community.sync(copies, control)
                 if not self._community_wake.is_set():
                     self.community.last_error = None
+                    try:
+                        self.community.announce()
+                    except (ValueError, OSError):
+                        pass  # Serving does not depend on announcing.
                     self.community.serve(control)
             except OperationCancelled:
                 continue

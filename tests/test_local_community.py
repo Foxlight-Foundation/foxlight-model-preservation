@@ -5,6 +5,7 @@ from __future__ import annotations
 import http.client
 import os
 import socket
+import threading
 import time
 from pathlib import Path
 
@@ -430,6 +431,77 @@ def test_turning_off_stops_serving_even_if_revocation_must_wait(
         owner.close()
 
 
+def test_reachable_mirror_announces_a_signed_card_for_what_it_serves(
+    tmp_path: Path, capture: Capture
+) -> None:
+    from foxlight_model_preservation.mirror_cards import read_peers, verify_card
+
+    port = free_port()
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        saved(owner, tmp_path, capture)
+        owner.control(
+            "community-configure", {"public_url": f"http://127.0.0.1:{port}/"}
+        )
+        enable(owner, port)
+        identity = wait_for(
+            lambda: next(
+                (
+                    row["public_manifest_id"]
+                    for row in owner.control("community-read", {})["copies"]
+                    if row["status"] == "sharing"
+                ),
+                None,
+            )
+        )
+
+        def card() -> bytes | None:
+            connection = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
+            try:
+                connection.request("GET", "/.well-known/sovereign/peers.json")
+                response = connection.getresponse()
+                body = response.read()
+            except OSError:
+                return None
+            finally:
+                connection.close()
+            if response.status != 200:
+                return None
+            cards = read_peers(body)
+            return cards[0] if cards else None
+
+        announced = verify_card(wait_for(card))
+        assert announced.addresses == (f"http://127.0.0.1:{port}",)
+        assert announced.covers(identity)
+        assert announced.coverage_count == 1
+        # The mirror key is separate from every publishing or capture key.
+        assert announced.mirror_key.key_id not in {
+            key.key_id for key in capture.trust.keys
+        }
+    finally:
+        owner.close()
+
+
+def test_mirror_behind_a_router_announces_no_card(
+    tmp_path: Path, capture: Capture
+) -> None:
+    from foxlight_model_preservation.mirror_cards import read_peers
+
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        saved(owner, tmp_path, capture)
+        port = free_port()
+        enable(owner, port)
+        wait_for(lambda: owner.control("community-read", {})["sharing_count"] == 1)
+        if owner.community.reachability()["status"] == "public_address":
+            pytest.skip("this test host has a public address")
+        owner.community.announce()
+        document = (owner.home / "sharing/community/mirror/peers.json").read_bytes()
+        assert read_peers(document) == []
+    finally:
+        owner.close()
+
+
 def test_turning_back_on_while_the_old_worker_retires_keeps_serving(
     tmp_path: Path, capture: Capture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -493,5 +565,58 @@ def test_a_transient_verification_error_does_not_end_serving_for_good(
         )
         wait_for(lambda: served(port, identity) == 200)
         assert not ledger.read().models[identity].error
+    finally:
+        owner.close()
+
+
+def test_closing_the_owner_cancels_a_gossip_round_in_progress(
+    tmp_path: Path, capture: Capture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from foxlight_model_preservation.local_host.community import CommunityMirror
+    from foxlight_model_preservation.operations import OperationControl
+
+    started = threading.Event()
+
+    def slow_round(self: CommunityMirror, control: OperationControl) -> None:
+        started.set()
+        while True:  # A long crawl that only cancellation can end.
+            control.checkpoint()
+            time.sleep(0.05)
+
+    monkeypatch.setattr(CommunityMirror, "gossip", slow_round)
+    owner = LocalOwner(tmp_path / "owner")
+    saved(owner, tmp_path, capture)
+    enable(owner, free_port())
+    assert started.wait(30)
+    begun = time.monotonic()
+    owner.close()
+    assert time.monotonic() - begun < 10
+
+
+def test_turning_sharing_off_stops_a_gossip_round_in_progress(
+    tmp_path: Path, capture: Capture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from foxlight_model_preservation.local_host.community import CommunityMirror
+    from foxlight_model_preservation.operations import OperationControl
+
+    started, stopped = threading.Event(), threading.Event()
+
+    def slow_round(self: CommunityMirror, control: OperationControl) -> None:
+        started.set()
+        try:
+            while True:
+                control.checkpoint()
+                time.sleep(0.05)
+        finally:
+            stopped.set()
+
+    monkeypatch.setattr(CommunityMirror, "gossip", slow_round)
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        saved(owner, tmp_path, capture)
+        enable(owner, free_port())
+        assert started.wait(30)
+        owner.control("community-configure", {"enabled": False})
+        assert stopped.wait(10)
     finally:
         owner.close()

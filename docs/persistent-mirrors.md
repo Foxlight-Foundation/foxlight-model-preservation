@@ -10,8 +10,9 @@ This implementation supplies a controller and a Linux service recipe.
 Standalone 0.13 and later include separately opted-in
 [persistent IPFS/BitTorrent sessions](persistent-peers.md). Mirrors carry both
 public preservation-v1 bundles and draft [PMF](portable-model-format.md)
-archives natively (see [PMF over the network](#pmf-over-the-network)). Delegated
-mirror discovery remains separate work. Existing finite
+archives natively (see [PMF over the network](#pmf-over-the-network)). Mirrors
+find each other through signed cards and gossip; see
+[mirror discovery](mirror-discovery.md). Existing finite
 peer/BitTorrent tools remain usable. It makes no anonymity or censorship-resistance
 qualification.
 

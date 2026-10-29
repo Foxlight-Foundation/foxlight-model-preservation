@@ -17,6 +17,7 @@ from pydantic import JsonValue
 
 from .archives import ArchiveManifest, archive_objects, verify_archive_manifest
 from .discovery import follow_source, list_sources, refresh_source, search_sources
+from .mirror_cards import PEERS_PATH
 from .mirror_models import (
     HeldModel,
     MirrorObservation,
@@ -687,6 +688,9 @@ class MirrorServer(SeedServer):
         self.ledger = ledger
         self.authorized = authorized
         self.store = ledger.path / "public"
+        # A mirror's owner may publish its signed peers document here; it is
+        # read on each request so gossip updates need no restart.
+        self.documents = {"/" + PEERS_PATH: ledger.path / "peers.json"}
         self.allowed = {}
         self.owners: dict[str, set[str]] = {}
         self._slots = threading.BoundedSemaphore(4)
@@ -756,6 +760,13 @@ class MirrorServer(SeedServer):
             and held.state == "retained"
             for identity in self.owners.get(path, ())
         )
+
+    def charge_document(self, count: int) -> bool:
+        """Charge a peers document while this mirror is authorized to serve at all."""
+        try:
+            return self.ledger.reserve(count, authorized=self.authorized)
+        except (ValueError, OSError):
+            return False
 
     def charge(self, count: int, path: str | None = None) -> bool:
         """Fsync full response reservation before sending; fail closed on contention."""

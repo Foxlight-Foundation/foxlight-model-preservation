@@ -1,0 +1,87 @@
+# Mirror discovery: the network is the list
+
+Mirrors find each other without a central list. Integrity never depends on
+discovery: every byte a client receives is checked against model keys it chose
+independently. So a list of mirrors only has to be *useful*, not *correct*. A
+wrong or hostile entry costs one failed connection and can never substitute a
+model. That is what lets discovery be decentralized here.
+
+## Mirror cards
+
+Each mirror has its own Ed25519 **mirror key**, separate from any capture or
+publishing key. It signs a short-lived **mirror card**
+(`application/vnd.sovereign.mirror-card.v1+json`) holding:
+
+- one to eight plain HTTP(S) base URLs where it can be reached;
+- a coverage filter: a Bloom filter of the manifest identities it holds,
+  with about one percent false positives and no false negatives;
+- optionally the catalogs it follows, a coarse self-declared region and an
+  operator contact;
+- an issue time and an expiry, at most 14 days later (7 by default).
+
+A card is self-certifying: it is signed by the key it names, so nobody can forge
+another mirror's card. It grants nothing else. A mirror that stops renewing its
+card simply lapses.
+
+## Gossip: `/.well-known/sovereign/peers.json`
+
+A mirror serves a `sovereign.peers.v1` document at
+`/.well-known/sovereign/peers.json`. It contains:
+
+- `self`: the mirror's own card, when it has a reachable address;
+- `peers`: up to 64 other mirrors' cards that **this mirror has checked
+  itself**. For each, it fetched a manifest the card claims and confirmed that
+  the signed payload hashes to that identity.
+
+Knowing one mirror therefore reveals more. A client verifies every card it reads
+and skips any that fail.
+
+## A client's own directory
+
+Each client keeps an owner-private directory of the mirrors it has seen,
+together with its own record of which ones delivered correct bytes. The
+directory is filled from any bootstrap, and none is required:
+
+- mirrors named in a handoff, invitation or source the user already approved
+  (Sovereign reads only those mirrors' peers documents when it downloads);
+- peers documents reached outward from known mirrors;
+- the DHT rendezvous and Nostr relays (coming next);
+- optional seed lists, with Foxlight's as one among several (deferred).
+
+To choose mirrors, a client takes those whose cards claim the model and samples
+them at random within score bands. It confirms each one serves the
+authenticated manifest before any weights move, and lets the ones that do share
+the download. A mirror that fails is scored down and dropped after three
+failures more than successes. A flood of fake cards can waste bounded attempts,
+but it cannot corrupt anything.
+
+## The app's community mirror
+
+When **Help keep models available** is on, the app's mirror:
+
+- publishes a card when it is reachable: either at an address the owner declares
+  (`public_url`, for a port forward or a domain) or because the computer has a
+  public address. A computer behind a router publishes no card, because nobody
+  could reach it;
+- serves its peers document, rewritten without a restart;
+- every half hour, crawls known mirrors over public routes only (never private
+  addresses), checks the ones holding models it holds, and re-announces.
+
+Receiving or backing up never announces anything. Announcing is part of the
+explicit mirror role.
+
+## Python API
+
+- `mirror_cards.issue_card`, `verify_card`, `build_peers` and `read_peers` cover
+  the card and document formats.
+- `mirror_directory.MirrorDirectory` provides `crawl`, `ingest`, `candidates`,
+  `record`, `spot_check` and `gossip`.
+- `mirror_directory.fetch_discovered(manifest_id, trust, destination, directory,
+  policy)` fetches an exact model from whichever discovered mirrors deliver it.
+
+## Limits
+
+Decentralization removes the single point of failure. It does not hide anyone:
+mirrors see the addresses of clients that connect to them, and a mirror's card
+publishes its own address. Sovereign makes no anonymity or
+censorship-resistance claim.
