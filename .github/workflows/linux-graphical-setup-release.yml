@@ -68,6 +68,8 @@ jobs:
               root = pathlib.Path('incoming/sovereign-graphical-setup-' + arch)
               evidence = json.loads((root / 'sovereign-graphical-setup/qualification.json').read_bytes())
               assert evidence['architecture'] == arch
+              assert evidence['high_contrast_review_and_action'] is True
+              assert evidence['large_text_review_and_action'] is True
               assert evidence['real_os_password_authentication'] is True
               assert evidence['real_os_permission_cancel_no_changes'] is True
               assert evidence['verified_app_install_and_graphical_handoff'] is True
@@ -139,4 +141,4 @@ jobs:
           [Instructions and verification](https://github.com/Foxlight-Foundation/foxlight-model-preservation/blob/main/docs/linux-distribution.md#graphical-setup-recommended)
           MD
           gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \
-            --verify-tag --prerelease --title 'Sovereign graphical Ubuntu setup 0.1.0' --notes-file notes.md
+            --verify-tag --prerelease --title 'Sovereign graphical Ubuntu setup 0.1.1' --notes-file notes.md

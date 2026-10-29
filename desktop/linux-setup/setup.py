@@ -17,8 +17,9 @@ from pathlib import Path
 import gi
 
 gi.require_version("Gtk", "3.0")
-from gi.repository import GLib, Gtk  # noqa: E402
+from gi.repository import Gdk, GdkPixbuf, GLib, Gtk  # noqa: E402
 
+RESOURCES = Path("/usr/share/foxlight-sovereign-setup")
 SETUP = runpy.run_path("/usr/share/foxlight-sovereign-setup/installer.py")
 DOWNLOAD_PROGRAM = """
 import runpy, sys
@@ -95,9 +96,10 @@ class SetupWindow(Gtk.Window):
 
     def __init__(self) -> None:
         super().__init__(title="Install Sovereign")
-        self.set_default_size(600, 620)
-        self.set_border_width(28)
+        self.set_default_size(640, 680)
+        self.set_name("sovereign-setup")
         self.set_icon_name("ai.foxlight.Sovereign.Setup")
+        branded = self.apply_style()
         self.busy = False
         self.authorizing = False
         self.ready = False
@@ -105,81 +107,150 @@ class SetupWindow(Gtk.Window):
         self.log = ""
         self.connect("delete-event", self.close_requested)
         self.connect("destroy", Gtk.main_quit)
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.add(root)
+        # Only the middle scrolls. The primary action remains reachable with
+        # large desktop text, expanded diagnostics and a small laptop display.
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        root.pack_start(scroll, True, True, 0)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
-        self.add(box)
+        box.set_border_width(24)
+        scroll.add(box)
         brand = Gtk.Box(spacing=12)
-        brand.pack_start(
-            Gtk.Image.new_from_icon_name(
+        if branded:
+            logo = Gtk.Image.new_from_pixbuf(
+                GdkPixbuf.Pixbuf.new_from_file_at_scale(
+                    str(RESOURCES / "wordmark.svg"), 162, 39, True
+                )
+            )
+        else:
+            logo = Gtk.Image.new_from_icon_name(
                 "ai.foxlight.Sovereign.Setup", Gtk.IconSize.DIALOG
-            ),
-            False,
-            False,
-            0,
-        )
-        brand.pack_start(self.label("Sovereign · by Foxlight"), False, False, 0)
+            )
+        logo.get_accessible().set_name("Sovereign by Foxlight")
+        brand.pack_start(logo, False, False, 0)
+        if not branded:
+            brand.pack_start(self.label("Sovereign"), False, False, 0)
+        badge = self.label("UBUNTU SETUP")
+        badge.set_line_wrap(False)
+        badge.get_style_context().add_class("setup-eyebrow")
+        brand.pack_end(badge, False, False, 0)
         box.pack_start(brand, False, False, 0)
+        intro = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         self.heading = self.label("Keep a copy. Keep access.")
-        self.heading.set_markup("<big><b>Keep a copy. Keep access.</b></big>")
-        box.pack_start(self.heading, False, False, 0)
-        box.pack_start(
-            self.label(
-                "Keep AI models and the information about where they came from. "
-                "Recover your saved copies even if their original source disappears."
-            ),
-            False,
-            False,
-            0,
+        self.heading.get_style_context().add_class("setup-heading")
+        intro.pack_start(self.heading, False, False, 0)
+        self.introduction = self.label(
+            "Keep the AI models you choose. Recover your saved copies, "
+            "even if their original source disappears."
         )
-        box.pack_start(
-            self.label(
-                "Setup installs Sovereign and connects its signed Foxlight software "
-                "updates. Ubuntu may also install missing desktop libraries."
+        self.introduction.get_style_context().add_class("setup-introduction")
+        intro.pack_start(self.introduction, False, False, 0)
+        box.pack_start(intro, False, False, 0)
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        card.get_style_context().add_class("setup-card")
+        self.feature_copy: list[tuple[Gtk.Label, Gtk.Label]] = []
+        for icon, title, description in (
+            (
+                "system-search-symbolic",
+                "A home for your models",
+                "Find useful models or open a recovery kit.",
             ),
-            False,
-            False,
-            0,
-        )
-        box.pack_start(
-            self.label(
-                "• No Skulk, account or GPU required.\n"
-                "• Models download only when you choose to preserve one.\n"
-                "• Sharing stays off until you choose to enable it.\n"
-                "• Removing the app keeps your Library and recovery files."
+            (
+                "software-update-available-symbolic",
+                "Verified app. Signed updates.",
+                "Setup checks the app, enables software updates and may "
+                "add desktop libraries.",
             ),
-            False,
-            False,
-            0,
-        )
-        self.status = self.label("Checking this computer…")
-        self.status.set_selectable(True)
-        box.pack_start(self.status, False, False, 0)
+            (
+                "preferences-system-privacy-symbolic",
+                "You stay in control",
+                "No models download or sharing starts until you choose.",
+            ),
+        ):
+            card.pack_start(self.feature(icon, title, description), False, False, 0)
+        box.pack_start(card, False, False, 0)
+        self.notice = Gtk.Box(spacing=12)
+        self.notice.get_style_context().add_class("setup-notice")
         self.spinner = Gtk.Spinner()
-        box.pack_start(self.spinner, False, False, 0)
+        self.spinner.set_valign(Gtk.Align.START)
+        self.notice.pack_start(self.spinner, False, False, 0)
+        self.status = self.label("Checking this computer…")
+        self.notice.pack_start(self.status, True, True, 0)
+        box.pack_start(self.notice, False, False, 0)
         self.details = Gtk.TextView(editable=False, cursor_visible=False)
         self.details.set_monospace(True)
         self.details.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        scroll = Gtk.ScrolledWindow()
-        scroll.set_min_content_height(110)
-        scroll.add(self.details)
+        log_scroll = Gtk.ScrolledWindow()
+        log_scroll.set_min_content_height(110)
+        log_scroll.set_max_content_height(180)
+        log_scroll.add(self.details)
         expander = Gtk.Expander(label="Installation details")
-        expander.add(scroll)
-        box.pack_start(expander, True, True, 0)
-        actions = Gtk.ButtonBox(orientation=Gtk.Orientation.HORIZONTAL)
-        actions.set_layout(Gtk.ButtonBoxStyle.END)
+        expander.get_style_context().add_class("setup-details")
+        expander.add(log_scroll)
+        box.pack_start(expander, False, False, 0)
+        footer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        footer.get_style_context().add_class("setup-footer")
+        note = self.label("No account. No Skulk. No GPU required.")
+        note.get_style_context().add_class("setup-footnote")
+        footer.pack_start(note, False, False, 0)
+        actions = Gtk.Box(spacing=12)
         self.cancel = Gtk.Button(label="Cancel")
+        self.cancel.get_style_context().add_class("setup-secondary")
         self.cancel.connect("clicked", self.close_requested)
-        actions.add(self.cancel)
+        actions.pack_start(self.cancel, False, False, 0)
         self.primary = Gtk.Button(label="Install Sovereign")
         self.primary.get_style_context().add_class("suggested-action")
         self.primary.connect("clicked", self.start)
-        actions.add(self.primary)
-        box.pack_end(actions, False, False, 0)
+        self.primary.set_can_default(True)
+        actions.pack_end(self.primary, False, False, 0)
+        footer.pack_start(actions, False, False, 0)
+        root.pack_end(footer, False, False, 0)
+        self.primary.grab_default()
+        # The first focusable item in the middle is the details expander. Give
+        # focus to the visible action so GTK does not scroll the welcome away
+        # at large text sizes merely to reveal that collapsed expander.
+        self.primary.grab_focus()
         try:
             self.preflight()
         except Exception as error:
+            self.notice.get_style_context().add_class("setup-error")
             self.status.set_text(str(error))
             self.primary.set_sensitive(False)
             self.cancel.set_label("Close")
+
+    def apply_style(self) -> bool:
+        """Use local brand art and colors, retaining the OS high-contrast theme."""
+        settings = Gtk.Settings.get_default()
+        theme = settings.get_property("gtk-theme-name") if settings else ""
+        theme = str(theme) + os.environ.get("GTK_THEME", "")
+        if "highcontrast" in theme.replace("-", "").lower():
+            return False
+        provider = Gtk.CssProvider()
+        provider.load_from_path(str(RESOURCES / "setup.css"))
+        Gtk.StyleContext.add_provider_for_screen(
+            Gdk.Screen.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
+        return True
+
+    def feature(self, icon: str, title: str, description: str) -> Gtk.Box:
+        """Pair a readable benefit with supporting text and a decorative OS icon."""
+        row = Gtk.Box(spacing=14)
+        image = Gtk.Image.new_from_icon_name(icon, Gtk.IconSize.LARGE_TOOLBAR)
+        image.set_valign(Gtk.Align.START)
+        image.get_style_context().add_class("setup-feature-icon")
+        row.pack_start(image, False, False, 0)
+        copy = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        heading = self.label(title)
+        heading.get_style_context().add_class("setup-feature-title")
+        copy.pack_start(heading, False, False, 0)
+        detail = self.label(description)
+        detail.get_style_context().add_class("setup-feature-detail")
+        copy.pack_start(detail, False, False, 0)
+        self.feature_copy.append((heading, detail))
+        row.pack_start(copy, True, True, 0)
+        return row
 
     @staticmethod
     def label(text: str) -> Gtk.Label:
@@ -196,9 +267,8 @@ class SetupWindow(Gtk.Window):
         selected = SETUP["architecture"]()
         SETUP["check_configuration"]()
         self.status.set_text(
-            "Ready for Ubuntu 24.04. Click Install Sovereign to begin. "
-            "Ubuntu will ask an administrator for permission. Use the password "
-            "for the account named in that window."
+            "Ready for Ubuntu 24.04. Ubuntu will ask an administrator "
+            "for permission to install."
         )
         return selected
 
@@ -234,7 +304,14 @@ class SetupWindow(Gtk.Window):
             return
         self.busy = True
         self.authorizing = False
-        self.heading.set_markup("<big><b>Installing Sovereign…</b></big>")
+        self.heading.set_text("Installing Sovereign…")
+        self.introduction.set_text(
+            "Installing the app and its software updates. "
+            "You’ll choose which models to keep once it’s ready."
+        )
+        context = self.notice.get_style_context()
+        context.remove_class("setup-error")
+        context.remove_class("setup-ready")
         self.cancelled.clear()
         self.log = ""
         self.details.get_buffer().set_text("")
@@ -363,7 +440,31 @@ class SetupWindow(Gtk.Window):
         self.primary.set_sensitive(True)
         if outcome == "ready":
             self.ready = True
-            self.heading.set_markup("<big><b>Sovereign is ready.</b></big>")
+            self.notice.get_style_context().add_class("setup-ready")
+            self.heading.set_text("Sovereign is ready.")
+            self.introduction.set_text(
+                "Find something worth keeping. Or bring a saved model back, "
+                "with its information about where it came from."
+            )
+            for (title, description), (heading, detail) in zip(
+                (
+                    ("Find a useful model", "Browse models by what they can do."),
+                    (
+                        "Keep a copy you control",
+                        "Preserve a model with its files and provenance, or recover "
+                        "one from a saved kit.",
+                    ),
+                    (
+                        "Come back anytime",
+                        "Sovereign is in Applications. Signed app updates arrive "
+                        "through Ubuntu’s normal software updates.",
+                    ),
+                ),
+                self.feature_copy,
+                strict=True,
+            ):
+                heading.set_text(title)
+                detail.set_text(description)
             self.status.set_text(
                 "Open Sovereign to browse models or recover a saved kit. "
                 "You can find it in Applications later. Updates arrive through "
@@ -371,8 +472,13 @@ class SetupWindow(Gtk.Window):
             )
             self.primary.set_label("Open Sovereign")
         else:
+            self.notice.get_style_context().add_class("setup-error")
             self.primary.set_label("Try again")
-            self.heading.set_markup("<big><b>Setup needs attention.</b></big>")
+            self.heading.set_text("Setup needs attention.")
+            self.introduction.set_text(
+                "Your Library and saved recovery kits are retained. "
+                "Read the message below, then try again when you’re ready."
+            )
             self.status.set_text(
                 "Setup cancelled before system changes. Nothing was installed. "
                 "Choose Try again when you’re ready."
@@ -384,7 +490,7 @@ class SetupWindow(Gtk.Window):
             )
         # GTK grows to fit temporary messages but does not automatically shrink
         # afterward. Keep the next action within a laptop's first viewport.
-        self.resize(600, 620)
+        self.resize(640, 680)
 
 
 if __name__ == "__main__":

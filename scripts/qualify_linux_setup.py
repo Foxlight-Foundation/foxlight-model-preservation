@@ -114,13 +114,48 @@ def password_entry() -> Atspi.Accessible | None:
     return None
 
 
-def snapshot(root: Path, name: str) -> None:
+def snapshot(root: Path, name: str, setup_only: bool = True) -> None:
     """Retain only native rendered pixels, with no password entered."""
     screen = Gdk.get_default_root_window()
-    image = Gdk.pixbuf_get_from_window(
-        screen, 0, 0, screen.get_width(), screen.get_height()
-    )
+    x, y, width, height = 0, 0, screen.get_width(), screen.get_height()
+    if setup_only:
+        for node in nodes():
+            if (
+                node.name == "Install Sovereign"
+                and node.getRole() == pyatspi.ROLE_FRAME
+            ):
+                bounds = node.queryComponent().getExtents(pyatspi.DESKTOP_COORDS)
+                x, y, width, height = bounds.x, bounds.y, bounds.width, bounds.height
+                break
+    image = Gdk.pixbuf_get_from_window(screen, x, y, width, height)
     image.savev(str(root / (name + ".png")), "png", [], [])
+
+
+def require_reachable(name: str) -> None:
+    """Require the main action to fit the visible viewport, including scaled text."""
+    screen = Gdk.get_default_root_window()
+    for node in nodes():
+        if node.name == name and node.getRole() == pyatspi.ROLE_PUSH_BUTTON:
+            bounds = node.queryComponent().getExtents(pyatspi.DESKTOP_COORDS)
+            require(
+                bounds.width > 0
+                and bounds.height > 0
+                and bounds.x >= 0
+                and bounds.y >= 0
+                and bounds.x + bounds.width <= min(1024, screen.get_width())
+                and bounds.y + bounds.height <= min(720, screen.get_height()),
+                "primary action is outside the small-screen viewport: " + name,
+            )
+            return
+    raise RuntimeError("Primary action not available: " + name)
+
+
+def heading_height() -> int:
+    """Measure actual native text so an ineffective scaling preference fails."""
+    for node in nodes():
+        if node.name == "Keep a copy. Keep access.":
+            return node.queryComponent().getExtents(pyatspi.DESKTOP_COORDS).height
+    raise RuntimeError("Review heading not available")
 
 
 def main() -> None:
@@ -159,11 +194,37 @@ def main() -> None:
                 ["/usr/bin/sovereign-setup"], env=env, stdout=log, stderr=log
             )  # noqa: S603
             wait(lambda: visible("Ready for Ubuntu 24.04"), "initial review")
+            require_reachable("Install Sovereign")
+            normal_heading_height = heading_height()
             snapshot(root, "01-review")
             click("Cancel")
             require(app.wait(timeout=15) == 0, "review cancellation did not close")
             require(not key.exists() and not source.exists(), "cancel changed settings")
             print("Native review cancellation preserved settings.", flush=True)
+            for variant, additions in (
+                ("high-contrast", {"GTK_THEME": "HighContrast"}),
+                ("large-text", {"GDK_DPI_SCALE": "1.5"}),
+            ):
+                app = subprocess.Popen(
+                    ["/usr/bin/sovereign-setup"],
+                    env={**env, **additions},
+                    stdout=log,
+                    stderr=log,
+                )  # noqa: S603 - same installed app, display preferences only
+                wait(lambda: visible("Keep a copy. Keep access."), variant + " review")
+                require_reachable("Install Sovereign")
+                if variant == "large-text":
+                    require(
+                        heading_height() >= normal_heading_height * 1.3,
+                        "desktop text scaling did not enlarge setup’s heading",
+                    )
+                snapshot(root, "01-review-" + variant)
+                click("Cancel")
+                require(app.wait(timeout=15) == 0, variant + " did not close")
+                require(
+                    not key.exists() and not source.exists(),
+                    variant + " review changed system settings",
+                )
             app = subprocess.Popen(
                 ["/usr/bin/sovereign-setup"], env=env, stdout=log, stderr=log
             )  # noqa: S603
@@ -179,9 +240,10 @@ def main() -> None:
                 visible("install Sovereign and enable its signed"),
                 "friendly OS permission message missing",
             )
-            snapshot(root, "02-ubuntu-permission")
+            snapshot(root, "02-ubuntu-permission", setup_only=False)
             click("Cancel")
             wait(lambda: visible("Ubuntu did not grant"), "permission refusal feedback")
+            require_reachable("Try again")
             require(
                 not key.exists() and not source.exists(),
                 "denied permission changed settings",
@@ -203,6 +265,7 @@ def main() -> None:
                 abort_on_error=True,
             )
             snapshot(root, "04-ready")
+            require_reachable("Open Sovereign")
             bounds = None
             for node in nodes():
                 if (
@@ -281,7 +344,7 @@ def main() -> None:
     (root / "qualification.json").write_text(
         json.dumps(
             {
-                "setup_package_version": "0.1.0-1",
+                "setup_package_version": "0.1.1-1",
                 "app_package_version": "0.1.0-3",
                 "architecture": subprocess.check_output(
                     ["/usr/bin/dpkg", "--print-architecture"], text=True
@@ -291,6 +354,8 @@ def main() -> None:
                 "real_os_password_authentication": True,
                 "verified_app_install_and_graphical_handoff": True,
                 "ready_window_fits_1024x768_after_permission_retry": True,
+                "high_contrast_review_and_action": True,
+                "large_text_review_and_action": True,
                 "authorization_bypass_or_cached_grant": False,
                 "app_center_download_handoff_or_participant_study": False,
             },

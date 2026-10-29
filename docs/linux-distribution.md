@@ -22,7 +22,7 @@ restart. These installed-app checks are separate from package build provenance.
 ## Graphical setup (recommended)
 
 On an updated **Ubuntu 24.04 desktop**, download the small
-[**Install Sovereign (.deb)**](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/sovereign-graphical-setup-v0.1.0/foxlight-sovereign-setup_0.1.0-1_all.deb).
+[**Install Sovereign (.deb)**](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/sovereign-graphical-setup-v0.1.1/foxlight-sovereign-setup_0.1.1-1_all.deb).
 The same file supports 64-bit Intel/AMD and ARM computers. No terminal commands,
 Skulk, account or GPU are required.
 
@@ -35,6 +35,13 @@ Skulk, account or GPU are required.
    **Open Sovereign**. Later, open Sovereign directly from Applications.
 4. Choose **Browse public models**, **Open recovery kit**, or **Open sharing file
    or source**. [Getting started](getting-started.md) explains those choices.
+
+Setup uses the Sovereign Horizon palette, the approved wordmark and a clear
+review-to-install-to-open flow. The main action stays outside the scrolling
+content, including when details are expanded or desktop text is enlarged.
+Launching with a native high-contrast theme retains Ubuntu’s colors and a
+readable icon/text identity instead of the dark wordmark. The theme is local;
+no fonts or artwork are fetched during setup.
 
 Setup detects your processor and checks Ubuntu compatibility. Its native window
 stays unprivileged; only a fixed package-owned helper runs through Ubuntu's
@@ -61,11 +68,11 @@ the package and use GitHub CLI:
 
 ```sh
 sha256sum --ignore-missing --check SHA256SUMS
-gh attestation verify foxlight-sovereign-setup_0.1.0-1_all.deb \
+gh attestation verify foxlight-sovereign-setup_0.1.1-1_all.deb \
   --repo Foxlight-Foundation/foxlight-model-preservation \
   --bundle linux-graphical-setup.sigstore.json \
   --signer-workflow Foxlight-Foundation/foxlight-model-preservation/.github/workflows/linux-graphical-setup-release.yml \
-  --source-ref refs/tags/sovereign-graphical-setup-v0.1.0 --deny-self-hosted-runners
+  --source-ref refs/tags/sovereign-graphical-setup-v0.1.1 --deny-self-hosted-runners
 ```
 
 That optional advanced verification uses a terminal; the graphical installation
@@ -74,7 +81,8 @@ bytes. Software build provenance, repository signatures, and model provenance
 remain distinct. The independently hash-pinned terminal route below is retained.
 
 Native amd64/arm64 qualification exercises installed setup, real Ubuntu permission
-cancellation/password authentication and the **Open Sovereign** handoff. The same
+cancellation/password authentication and the **Open Sovereign** handoff, plus
+high-contrast and enlarged-text review/cancellation with a reachable main action. The same
 setup package bytes reproduce on both architectures. This is not an observed
 participant study or a complete App Center download-to-launch qualification.
 Other distributions and desktops remain unqualified.
