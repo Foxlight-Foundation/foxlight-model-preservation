@@ -141,6 +141,7 @@ class LocalOwner:
             self._community_control: OperationControl | None = None
             self._community_thread: threading.Thread | None = None
             self._gossip_thread: threading.Thread | None = None
+            self._gossip_control: OperationControl | None = None
             self._stopping = threading.Event()
             self._lock = threading.RLock()
             self._idle = threading.Condition(self._lock)
@@ -228,6 +229,8 @@ class LocalOwner:
             community = self._community_thread
             gossip = self._gossip_thread
             self._stopping.set()
+            if self._gossip_control is not None:
+                self._gossip_control.cancel()
             self._community_wake.set()
             if self._community_control is not None:
                 self._community_control.cancel()
@@ -1390,10 +1393,18 @@ class LocalOwner:
         """Every half hour while sharing: find mirrors, check them, re-announce."""
         while not self._stopping.is_set() and self.community.consented():
             control = OperationControl()
+            with self._lock:
+                if self._stopping.is_set():
+                    return
+                # Retained so shutdown can cancel a round in progress.
+                self._gossip_control = control
             try:
                 self.community.gossip(control)
             except (ValueError, OSError):
                 pass  # Discovery is best effort; serving never depends on it.
+            finally:
+                with self._lock:
+                    self._gossip_control = None
             if self._stopping.wait(1800):
                 return
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import http.client
 import os
 import socket
+import threading
 import time
 from pathlib import Path
 
@@ -566,3 +567,27 @@ def test_a_transient_verification_error_does_not_end_serving_for_good(
         assert not ledger.read().models[identity].error
     finally:
         owner.close()
+
+
+def test_closing_the_owner_cancels_a_gossip_round_in_progress(
+    tmp_path: Path, capture: Capture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from foxlight_model_preservation.local_host.community import CommunityMirror
+    from foxlight_model_preservation.operations import OperationControl
+
+    started = threading.Event()
+
+    def slow_round(self: CommunityMirror, control: OperationControl) -> None:
+        started.set()
+        while True:  # A long crawl that only cancellation can end.
+            control.checkpoint()
+            time.sleep(0.05)
+
+    monkeypatch.setattr(CommunityMirror, "gossip", slow_round)
+    owner = LocalOwner(tmp_path / "owner")
+    saved(owner, tmp_path, capture)
+    enable(owner, free_port())
+    assert started.wait(30)
+    begun = time.monotonic()
+    owner.close()
+    assert time.monotonic() - begun < 10
