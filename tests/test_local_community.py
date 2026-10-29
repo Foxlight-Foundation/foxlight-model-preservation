@@ -343,3 +343,48 @@ def test_one_damaged_backup_never_takes_healthy_models_offline(
         wait_for(lambda: served(port, identity) == 200)
     finally:
         owner.close()
+
+
+def test_interrupted_intake_is_retried_before_the_copy_counts_as_joined(
+    tmp_path: Path, capture: Capture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from foxlight_model_preservation import mirror_intake
+
+    real = mirror_intake.copy_verified_object
+    failures = {"left": 1}
+
+    def interrupted(*args: object, **kwargs: object) -> None:
+        if failures["left"]:
+            failures["left"] -= 1
+            raise OSError("interrupted intake")
+        real(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(mirror_intake, "copy_verified_object", interrupted)
+    port = free_port()
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        copy = saved(owner, tmp_path, capture)
+        enable(owner, port)
+        wait_for(lambda: status(owner, copy["copy_id"]) == "failed")
+        ledger = MirrorLedger(owner.home / "sharing/community/mirror")
+        (held,) = ledger.read().models.values()
+        assert held.error and held.state != "retained"
+        # The next sync retries the interrupted intake and only then joins.
+        owner.control(
+            "community-choose",
+            {"copy_id": copy["copy_id"], "chosen": False, "withheld": False},
+        )
+        identity = wait_for(
+            lambda: next(
+                (
+                    row["public_manifest_id"]
+                    for row in owner.control("community-read", {})["copies"]
+                    if row["status"] == "sharing"
+                ),
+                None,
+            )
+        )
+        assert ledger.read().models[identity].state == "retained"
+        wait_for(lambda: served(port, identity) == 200)
+    finally:
+        owner.close()

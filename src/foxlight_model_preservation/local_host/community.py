@@ -480,7 +480,12 @@ class CommunityMirror:
         )
         public = Manifest.model_validate_json(identity_json(plan["public_manifest"]))
         identity = str(plan["public_manifest_id"])
-        if identity not in ledger.read().models:
+        held = ledger.read().models.get(identity)
+        if held is None or held.state != "retained" or held.error:
+            # A first join, or intake that was interrupted (a pending selection,
+            # possibly with an error): explicitly retry before claiming it.
+            if held is not None and held.error:
+                model_action(ledger, identity, "retry")
             retain_local(
                 ledger,
                 public_store,
@@ -499,8 +504,12 @@ class CommunityMirror:
                     max_bytes=public.total_bytes + 8 * 1024**2,
                 ),
                 control=control.fork(),
+                confirm_reintake=held is not None and held.state == "removed",
                 link_objects=True,
             )
+        held = ledger.read().models.get(identity)
+        if held is None or held.state != "retained" or held.error:
+            raise PreservationError("community_join_incomplete")
         self._record_joined(copy.copy_id, identity)
         try:
             self.sharing.remove_work(job_id)
