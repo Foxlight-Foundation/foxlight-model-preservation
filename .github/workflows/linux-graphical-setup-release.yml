@@ -141,4 +141,4 @@ jobs:
           [Instructions and verification](https://github.com/Foxlight-Foundation/foxlight-model-preservation/blob/main/docs/linux-distribution.md#graphical-setup-recommended)
           MD
           gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \
-            --verify-tag --prerelease --title 'Sovereign graphical Ubuntu setup 0.1.1' --notes-file notes.md
+            --verify-tag --prerelease --title 'Sovereign graphical Ubuntu setup 0.1.2' --notes-file notes.md

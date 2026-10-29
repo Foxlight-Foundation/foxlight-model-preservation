@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 
 PROJECT = Path(__file__).resolve().parents[1]
-SETUP_VERSION = "0.1.1"
+SETUP_VERSION = "0.1.2"
 PACKAGE_VERSION = SETUP_VERSION + "-1"
 SHARE = Path("usr/share/foxlight-sovereign-setup")
 
@@ -23,6 +23,7 @@ def stage(directory: Path) -> Path:
         "scripts/install_sovereign_linux.py": SHARE / "installer.py",
         "desktop/linux-setup/setup.py": SHARE / "setup.py",
         "desktop/linux-setup/setup.css": SHARE / "setup.css",
+        "desktop/linux-setup/starry-background.png": SHARE / "starry-background.png",
         "capability/web/src/branding/sovereign-dark-navbar.svg": SHARE / "wordmark.svg",
         "desktop/linux-setup/install": Path("usr/libexec/sovereign-setup-install"),
         "desktop/linux-setup/launcher": Path("usr/bin/sovereign-setup"),
@@ -36,6 +37,8 @@ def stage(directory: Path) -> Path:
             "usr/share/icons/hicolor/scalable/apps/ai.foxlight.Sovereign.Setup.svg"
         ),
         "LICENSE": Path("usr/share/doc/foxlight-sovereign-setup/copyright"),
+        "NOTICE": Path("usr/share/doc/foxlight-sovereign-setup/NOTICE"),
+        "TRADEMARKS.md": Path("usr/share/doc/foxlight-sovereign-setup/TRADEMARKS.md"),
     }
     executable = {"usr/libexec/sovereign-setup-install", "usr/bin/sovereign-setup"}
     for source, relative in files.items():

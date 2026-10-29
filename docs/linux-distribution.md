@@ -22,7 +22,7 @@ restart. These installed-app checks are separate from package build provenance.
 ## Graphical setup (recommended)
 
 On an updated **Ubuntu 24.04 desktop**, download the small
-[**Install Sovereign (.deb)**](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/sovereign-graphical-setup-v0.1.1/foxlight-sovereign-setup_0.1.1-1_all.deb).
+[**Install Sovereign (.deb)**](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/sovereign-graphical-setup-v0.1.2/foxlight-sovereign-setup_0.1.2-1_all.deb).
 The same file supports 64-bit Intel/AMD and ARM computers. No terminal commands,
 Skulk, account or GPU are required.
 
@@ -36,8 +36,10 @@ Skulk, account or GPU are required.
 4. Choose **Browse public models**, **Open recovery kit**, or **Open sharing file
    or source**. [Getting started](getting-started.md) explains those choices.
 
-Setup uses the Sovereign Horizon palette, the approved wordmark and a clear
-review-to-install-to-open flow. The main action stays outside the scrolling
+Setup uses the Sovereign Horizon starry-night backdrop, palette, approved
+wordmark and a clear review-to-install-to-open flow. The bundled background
+works offline without extra image libraries; a dark overlay and dark panels
+keep text readable. The main action stays outside the scrolling
 content, including when details are expanded or desktop text is enlarged.
 Launching with a native high-contrast theme retains Ubuntu’s colors and a
 readable icon/text identity instead of the dark wordmark. The theme is local;
@@ -68,11 +70,11 @@ the package and use GitHub CLI:
 
 ```sh
 sha256sum --ignore-missing --check SHA256SUMS
-gh attestation verify foxlight-sovereign-setup_0.1.1-1_all.deb \
+gh attestation verify foxlight-sovereign-setup_0.1.2-1_all.deb \
   --repo Foxlight-Foundation/foxlight-model-preservation \
   --bundle linux-graphical-setup.sigstore.json \
   --signer-workflow Foxlight-Foundation/foxlight-model-preservation/.github/workflows/linux-graphical-setup-release.yml \
-  --source-ref refs/tags/sovereign-graphical-setup-v0.1.1 --deny-self-hosted-runners
+  --source-ref refs/tags/sovereign-graphical-setup-v0.1.2 --deny-self-hosted-runners
 ```
 
 That optional advanced verification uses a terminal; the graphical installation
