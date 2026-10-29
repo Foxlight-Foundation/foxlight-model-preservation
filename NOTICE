@@ -1,0 +1,12 @@
+Sovereign by Foxlight (foxlight-model-preservation)
+Copyright 2026 FoxlightAI Inc. and contributors
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+"Sovereign", "Foxlight", "FoxlightAI", "FoxlightCore" and "Skulk" are
+trademarks of FoxlightAI Inc. The license grants no trademark rights; see
+TRADEMARKS.md.
+
+Third-party components bundled in release artifacts carry their own notices,
+retained alongside them (for example desktop/macos/runtime-notices/ and the
+Library interface's THIRD_PARTY_NOTICES.txt).
