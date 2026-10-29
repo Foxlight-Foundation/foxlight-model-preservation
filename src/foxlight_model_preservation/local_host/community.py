@@ -13,6 +13,7 @@ from __future__ import annotations
 import ipaddress
 import shutil
 import socket
+import threading
 import time
 from collections.abc import Callable, Sequence
 from pathlib import Path, PurePosixPath
@@ -240,6 +241,8 @@ class CommunityMirror:
         self.failures: dict[str, str] = {}
         self.directory = MirrorDirectory(home / "mirror-directory")
         self.rendezvous: Rendezvous | None = None
+        # Gossip rounds (and the rendezvous they own) never overlap.
+        self._gossip_lock = threading.Lock()
 
     # Policy and membership -------------------------------------------------
 
@@ -641,6 +644,10 @@ class CommunityMirror:
         binding is installed), announces its port and looks up other mirrors.
         Only plain public routes are crawled; private addresses never are.
         """
+        with self._gossip_lock:
+            self._gossip(control)
+
+    def _gossip(self, control: OperationControl) -> None:
         policy = TransferPolicy(allow_http=True, timeout=10, deadline_seconds=600)
         seeds: tuple[str, ...] = ()
         port = self.dht_port()
@@ -650,7 +657,7 @@ class CommunityMirror:
             self.rendezvous.announce(port, seconds=20, control=control)
             seeds = self.rendezvous.lookup(seconds=20, control=control)
         else:
-            self.close_rendezvous()
+            self._close_rendezvous()
         self.directory.crawl(seeds, policy, control=control)
         self.directory.spot_check(self.held(), policy, control=control)
         self.announce()
@@ -676,6 +683,10 @@ class CommunityMirror:
 
     def close_rendezvous(self) -> None:
         """Leave the DHT; the mirror no longer announces itself there."""
+        with self._gossip_lock:
+            self._close_rendezvous()
+
+    def _close_rendezvous(self) -> None:
         if self.rendezvous is not None:
             self.rendezvous.close()
             self.rendezvous = None
