@@ -362,3 +362,23 @@ def test_spot_check_results_merge_with_cards_learned_meanwhile(
         assert directory.spot_check({identity}, LAB) == 1
     cards = {encode_record(seen.card) for seen in directory.read().mirrors.values()}
     assert learned in cards and len(cards) == 2
+
+
+def test_peers_document_trims_gossip_to_its_budget_keeping_its_own_card(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from foxlight_model_preservation import mirror_cards as module
+
+    own = issue_card(Ed25519PrivateKey.generate(), ("https://self.example",), set())
+    peers = tuple(
+        issue_card(Ed25519PrivateKey.generate(), ("https://p.example",), set())
+        for _ in range(10)
+    )
+    monkeypatch.setattr(module, "MAX_PEERS_BYTES", len(own) * 4)
+    document = build_peers(own, peers)
+    assert len(document) <= len(own) * 4
+    cards = read_peers(document)
+    assert cards[0] == own and 1 < len(cards) < 11
+    with pytest.raises(PreservationError):
+        monkeypatch.setattr(module, "MAX_PEERS_BYTES", len(own) // 2)
+        build_peers(own, peers)
