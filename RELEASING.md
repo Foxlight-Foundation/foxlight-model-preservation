@@ -184,11 +184,11 @@ PyPI publishing stays off until the repository variable `PUBLISH_PYPI` is `true`
 4. The next tag push uploads after approval. Earlier releases stay GitHub-only.
    Update the PyPI statements in `README.md` and `docs/releases.md`.
 
-Before the Library's first upload: its `managed` extra requires
-`skulk-capability-sdk==0.5.0`, which is not on PyPI. Anyone could register that
-name, and installing the Library with `[managed]` from PyPI would then install
-their package. Hold the name on PyPI or remove the extra first. Installing the
-GitHub release wheel with `[managed]` has the same exposure today.
+The private `skulk-capability-sdk` is a development dependency group
+(`uv sync --group managed`), never published wheel metadata. Its name is not on
+PyPI, so it must not become a public extra or dependency: anyone who registered
+the name could ship code to people installing it. Holding the name on PyPI is
+still a sensible extra safeguard.
 
 ## Optional repository hardening
 

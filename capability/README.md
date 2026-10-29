@@ -424,11 +424,11 @@ it does not limit installing the public local launcher.
 cd capability
 npm ci --prefix web
 npm run build --prefix web
-uv sync --frozen --extra managed
-uv run --extra managed ruff check
-uv run --extra managed ruff format --check
-uv run --extra managed basedpyright
-uv run --extra managed pytest
+uv sync --frozen --group managed
+uv run --group managed ruff check
+uv run --group managed ruff format --check
+uv run --group managed basedpyright
+uv run --group managed pytest
 uv build
 ```
 
