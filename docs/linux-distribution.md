@@ -28,17 +28,14 @@ or edit software-source files.
 
 ```sh
 python3 -I -c '
-import hashlib, pathlib, subprocess, sys, tempfile, urllib.request
+import hashlib, subprocess, sys, urllib.request
 url = "https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/sovereign-setup-v0.1.0/Install-Sovereign.py"
-expected = "ae707435774b1d476b043f95571f1e0a4368f303919c47093e4845b80ff6c4d8"
+expected = "53e86800af10a356a8fa6d6c7f392db30ffea728533850b522033dbaa03476ae"
 with urllib.request.urlopen(url, timeout=60) as response:
     data = response.read(131073)
 if len(data) > 131072 or hashlib.sha256(data).hexdigest() != expected:
     raise SystemExit("Installer verification failed. Nothing was run.")
-with tempfile.TemporaryDirectory(prefix="sovereign-setup-") as folder:
-    script = pathlib.Path(folder) / "Install-Sovereign.py"
-    script.write_bytes(data)
-    raise SystemExit(subprocess.call([sys.executable, "-I", str(script)]))
+raise SystemExit(subprocess.call([sys.executable, "-I", "-c", data.decode("utf-8")]))
 '
 ```
 

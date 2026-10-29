@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
 import platform
 import ssl
@@ -48,6 +49,152 @@ APT = [
     "-o",
     "Acquire::Check-Valid-Until=true",
 ]
+
+# Pass fixed code by value to sudo's isolated interpreter. Never ask root to
+# reread an installer or package that the invoking user can replace.
+ROOT_PROGRAM = r"""
+import hashlib
+import json
+import os
+import platform
+import stat
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+
+def install(config, incoming):
+    release = platform.freedesktop_os_release()
+    architecture = subprocess.check_output(
+        ["/usr/bin/dpkg", "--print-architecture"], text=True
+    ).strip()
+    if (
+        os.geteuid() != 0
+        or release.get("ID") != "ubuntu"
+        or release.get("VERSION_ID") != "24.04"
+        or architecture != config["architecture"]
+    ):
+        raise RuntimeError(
+            "Administrator authorization on the qualified Ubuntu "
+            "architecture is required."
+        )
+    with tempfile.TemporaryDirectory(
+        prefix="sovereign-verified-", dir="/var/tmp"
+    ) as name:
+        protected = Path(name)
+        for filename, expected, limit in config["downloads"]:
+            source = Path(incoming) / filename
+            descriptor = os.open(source, os.O_RDONLY | os.O_NOFOLLOW)
+            with (
+                os.fdopen(descriptor, "rb") as origin,
+                (protected / filename).open("xb") as target,
+            ):
+                info = os.fstat(origin.fileno())
+                if not stat.S_ISREG(info.st_mode) or info.st_size > limit:
+                    raise RuntimeError("The input is not a bounded regular file.")
+                count = 0
+                while chunk := origin.read(1024 * 1024):
+                    count += len(chunk)
+                    if count > limit:
+                        raise RuntimeError("The input changed size during staging.")
+                    target.write(chunk)
+            with (protected / filename).open("rb") as stream:
+                if hashlib.file_digest(stream, "sha256").hexdigest() != expected:
+                    raise RuntimeError(
+                        "Verification of the protected copy failed. "
+                        "Nothing from it was installed."
+                    )
+        # Validate all destinations before creating any of them. Existing exact
+        # manual settings are reused; custom or unsafe settings are never replaced.
+        for path_string, expected in config["settings"]:
+            path = Path(path_string)
+            if any(parent.is_symlink() for parent in path.parents) or path.is_symlink():
+                raise RuntimeError(
+                    "A software setting is a link. Existing settings were preserved."
+                )
+            if path.exists():
+                if not path.is_file():
+                    raise RuntimeError("A software setting is not a regular file.")
+                content = path.read_bytes()
+                matches = (
+                    content == expected.encode()
+                    if path == Path(config["source_path"])
+                    else hashlib.sha256(content).hexdigest() == expected
+                )
+                if not matches:
+                    raise RuntimeError(
+                        "Software settings changed or were customized. "
+                        "They were preserved."
+                    )
+            if path.exists() and (
+                path.stat().st_uid != 0 or stat.S_IMODE(path.stat().st_mode) & 0o022
+            ):
+                raise RuntimeError(
+                    "Software settings need root ownership and safe permissions."
+                )
+        key = (protected / config["key_name"]).read_bytes()
+        for path_string, content in [
+            (config["key_path"], key),
+            (config["source_path"], config["source"].encode()),
+        ]:
+            path = Path(path_string)
+            if not path.exists():
+                path.parent.mkdir(parents=True, exist_ok=True)
+                # Publish a complete file exclusively; do not leave truncated
+                # configuration or overwrite an operator's concurrent changes.
+                with tempfile.NamedTemporaryFile(
+                    dir=path.parent, prefix=".sovereign-setup-", delete=False
+                ) as target:
+                    temporary = Path(target.name)
+                    try:
+                        target.write(content)
+                        target.flush()
+                        os.fsync(target.fileno())
+                        os.chmod(temporary, 0o644)
+                        os.link(temporary, path)
+                    finally:
+                        temporary.unlink(missing_ok=True)
+        # APT's unprivileged reader may read public bytes, but only root can
+        # change the protected directory or its files during update/install.
+        for path in protected.iterdir():
+            path.chmod(0o644)
+        protected.chmod(0o755)
+        print("\n2 of 3 — Checking signed software updates. Please wait…", flush=True)
+        subprocess.run([*config["apt"], "update"], check=True)  # noqa: S603
+        print(
+            "\n3 of 3 — Installing Sovereign and Ubuntu desktop libraries…", flush=True
+        )
+        subprocess.run(  # noqa: S603 - fixed APT and verified root-owned package
+            [
+                *config["apt"],
+                "--no-remove",
+                "install",
+                "-y",
+                str(protected / config["package_name"]),
+            ],
+            check=True,
+        )
+        installed = subprocess.check_output(
+            [
+                "/usr/bin/dpkg-query",
+                "-W",
+                "-f=${Status} ${Version}",
+                "foxlight-sovereign",
+            ],
+            text=True,
+        ).strip()
+        if installed != "install ok installed " + config["version"]:
+            raise RuntimeError("APT did not report the expected installed version.")
+
+
+if __name__ == "__main__":
+    try:
+        install(json.loads(sys.argv[1]), sys.argv[2])
+    except (RuntimeError, OSError, subprocess.CalledProcessError) as error:
+        print("System setup stopped: " + str(error), file=sys.stderr)
+        sys.exit(1)
+"""
 
 
 class SetupError(Exception):
@@ -147,51 +294,33 @@ def download(url: str, destination: Path, expected: str, limit: int) -> None:
     validate_file(destination, expected)
 
 
-def write_new(path: Path, content: bytes) -> None:
-    """Create a root-owned configuration file, preserving an existing exact file."""
-    if path.exists():
-        return  # check_configuration already required an exact, non-linked file.
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor = os.open(
-        path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644
-    )
-    with os.fdopen(descriptor, "wb") as stream:
-        stream.write(content)
-    path.chmod(0o644)
-
-
-def install_system(directory: Path, selected: str) -> None:
-    """Recheck inputs, configure only the scoped source and install with secure APT."""
-    if os.geteuid() != 0 or selected != architecture():
-        raise SetupError(
-            "The system installation step requires administrator authorization "
-            "on the same architecture."
-        )
-    key = directory / KEY_PATH.name
-    package = directory / f"foxlight-sovereign_{VERSION}_{selected}.deb"
-    validate_file(key, KEY_SHA256)
-    validate_file(package, PACKAGES[selected])
-    check_configuration()
-    write_new(KEY_PATH, key.read_bytes())
-    write_new(SOURCE_PATH, SOURCE)
-    print("\n2 of 3 — Checking signed software updates. Please wait…", flush=True)
-    run([*APT, "update"])
-    print(
-        "\n3 of 3 — Installing Sovereign and Ubuntu's required desktop libraries…",
-        flush=True,
-    )
-    # No allow-downgrades, allow-unauthenticated, kernel changes or model trust
-    # grants. A later installed version cannot be silently downgraded by -y.
-    run([*APT, "--no-remove", "install", "-y", str(package)])
-    installed = subprocess.check_output(  # noqa: S603
-        ["/usr/bin/dpkg-query", "-W", "-f=${Status} ${Version}", "foxlight-sovereign"],
-        text=True,
-    ).strip()
-    if installed != "install ok installed " + VERSION:
-        raise SetupError(
-            "APT did not report the expected installed version. "
-            "Setup stopped; retain the output for your administrator."
-        )
+def system_command(directory: Path, selected: str) -> list[str]:
+    """Pass trusted helper code and pins by value, never a writable code path."""
+    package_name = f"foxlight-sovereign_{VERSION}_{selected}.deb"
+    config = {
+        "architecture": selected,
+        "version": VERSION,
+        "key_name": KEY_PATH.name,
+        "key_path": str(KEY_PATH),
+        "source_path": str(SOURCE_PATH),
+        "source": SOURCE.decode(),
+        "package_name": package_name,
+        "downloads": [
+            [KEY_PATH.name, KEY_SHA256, 1024 * 1024],
+            [package_name, PACKAGES[selected], 256 * 1024 * 1024],
+        ],
+        "settings": [[str(KEY_PATH), KEY_SHA256], [str(SOURCE_PATH), SOURCE.decode()]],
+        "apt": APT,
+    }
+    return [
+        "/usr/bin/sudo",
+        "/usr/bin/python3",
+        "-I",
+        "-c",
+        ROOT_PROGRAM,
+        json.dumps(config),
+        str(directory),
+    ]
 
 
 def main() -> int:
@@ -205,20 +334,8 @@ def main() -> int:
     parser.add_argument(
         "--version", action="version", version="Sovereign setup " + SETUP_VERSION
     )
-    parser.add_argument(
-        "--system-install",
-        nargs=2,
-        metavar=("DIRECTORY", "ARCHITECTURE"),
-        help=argparse.SUPPRESS,
-    )
     args = parser.parse_args()
     try:
-        if args.system_install:
-            install_system(
-                Path(args.system_install[0]).resolve(strict=True),
-                args.system_install[1],
-            )
-            return 0
         selected = architecture()
         check_configuration()
         print(f"\nSovereign setup — Ubuntu 24.04 ({selected})\n")
@@ -291,17 +408,7 @@ def main() -> int:
                 "at its password prompt.",
                 flush=True,
             )
-            run(
-                [
-                    "/usr/bin/sudo",
-                    "/usr/bin/python3",
-                    "-I",
-                    str(Path(__file__).resolve()),
-                    "--system-install",
-                    str(directory),
-                    selected,
-                ]
-            )
+            run(system_command(directory, selected))
         print("\nSovereign is ready. Open Sovereign from your Applications menu.")
         print(
             "Choose Browse public models, Open recovery kit, or "

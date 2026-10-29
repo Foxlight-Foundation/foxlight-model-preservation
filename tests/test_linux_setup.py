@@ -3,7 +3,9 @@
 import hashlib
 import importlib.util
 import io
+import json
 import os
+import stat
 import subprocess
 from pathlib import Path
 from unittest.mock import Mock
@@ -126,8 +128,6 @@ def test_matching_manual_configuration_is_reused_without_rewrite(configured):
     source.chmod(0o644)
     before = (key.stat().st_mtime_ns, source.stat().st_mtime_ns)
     setup.check_configuration()
-    setup.write_new(key, b"different")
-    setup.write_new(source, b"different")
     assert before == (key.stat().st_mtime_ns, source.stat().st_mtime_ns)
     assert key.read_bytes() == b"key" and source.read_bytes() == setup.SOURCE
 
@@ -154,6 +154,31 @@ def test_unsafe_configuration_is_not_replaced(kind, configured, tmp_path, monkey
         setup.check_configuration()
 
 
+def root_install(stage, monkeypatch):
+    """Load the exact by-value helper with inert privileged system commands."""
+    monkeypatch.setattr(setup.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(
+        setup.platform,
+        "freedesktop_os_release",
+        lambda: {"ID": "ubuntu", "VERSION_ID": "24.04"},
+    )
+    monkeypatch.setattr(
+        setup.subprocess,
+        "check_output",
+        lambda command, **k: (
+            "amd64\n"
+            if command[0].endswith("/dpkg")
+            else "install ok installed " + setup.VERSION
+        ),
+    )
+    monkeypatch.setitem(setup.PACKAGES, "amd64", hashlib.sha256(b"package").hexdigest())
+    command = setup.system_command(stage, "amd64")
+    assert command[:4] == ["/usr/bin/sudo", "/usr/bin/python3", "-I", "-c"]
+    namespace = {"__name__": "root_helper_test"}
+    exec(compile(command[4], "by-value-root-helper", "exec"), namespace)  # noqa: S102 - exact owned helper, system calls replaced before use
+    return lambda: namespace["install"](json.loads(command[5]), str(stage))
+
+
 @pytest.mark.parametrize("failure", ["digest", "update"])
 def test_privileged_failure_never_executes_package(
     failure, configured, tmp_path, monkeypatch
@@ -164,15 +189,13 @@ def test_privileged_failure_never_executes_package(
     (stage / key.name).write_bytes(b"key")
     package = stage / ("foxlight-sovereign_" + setup.VERSION + "_amd64.deb")
     package.write_bytes(b"package")
-    monkeypatch.setattr(setup, "architecture", lambda: "amd64")
-    monkeypatch.setattr(setup.os, "geteuid", lambda: 0)
-    monkeypatch.setitem(setup.PACKAGES, "amd64", hashlib.sha256(b"package").hexdigest())
+    install = root_install(stage, monkeypatch)
     commands = Mock(side_effect=subprocess.CalledProcessError(1, "apt update"))
-    monkeypatch.setattr(setup, "run", commands)
+    monkeypatch.setattr(setup.subprocess, "run", commands)
     if failure == "digest":
         package.write_bytes(b"changed")
-    with pytest.raises((setup.SetupError, subprocess.CalledProcessError)):
-        setup.install_system(stage, "amd64")
+    with pytest.raises((RuntimeError, subprocess.CalledProcessError)):
+        install()
     if failure == "digest":
         commands.assert_not_called()
         assert not key.exists()
@@ -181,6 +204,37 @@ def test_privileged_failure_never_executes_package(
         assert commands.call_args.args[0][-1] == "update"
         assert "APT::Update::Error-Mode=any" in commands.call_args.args[0]
         assert "Acquire::Check-Valid-Until=true" in commands.call_args.args[0]
+
+
+def test_user_replacement_during_update_cannot_change_installed_bytes(
+    configured, tmp_path, monkeypatch
+):
+    key, source = configured
+    stage = tmp_path / "incoming"
+    stage.mkdir()
+    (stage / key.name).write_bytes(b"key")
+    package = stage / ("foxlight-sovereign_" + setup.VERSION + "_amd64.deb")
+    package.write_bytes(b"package")
+    install = root_install(stage, monkeypatch)
+    consumed = []
+
+    def apt(command, **kwargs):
+        if command[-1] == "update":
+            package.write_bytes(b"ATTACK: unverified maintainer scripts")
+            (stage / key.name).write_bytes(b"ATTACK: different key")
+        else:
+            protected = Path(command[-1])
+            assert protected.parent != stage
+            assert stat.S_IMODE(protected.stat().st_mode) == 0o644
+            assert stat.S_IMODE(protected.parent.stat().st_mode) == 0o755
+            consumed.append(protected.read_bytes())
+
+    monkeypatch.setattr(setup.subprocess, "run", apt)
+    install()
+    assert consumed == [b"package"]
+    assert key.read_bytes() == b"key"
+    assert source.read_bytes() == setup.SOURCE
+    assert package.read_bytes().startswith(b"ATTACK:")
 
 
 @pytest.mark.parametrize(
@@ -245,4 +299,5 @@ def test_actual_documented_bootstrap_authenticates_before_execution(
         child.assert_not_called()
     else:
         assert result.value.code == 0
-        assert child.call_args.args[0][1] == "-I"
+        assert child.call_args.args[0][1:3] == ["-I", "-c"]
+        assert child.call_args.args[0][3] == original.decode()
