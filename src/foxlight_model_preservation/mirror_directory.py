@@ -17,6 +17,7 @@ import threading
 import time
 from collections.abc import Callable, Generator, Iterable
 from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
 from typing import Literal
 
@@ -498,23 +499,30 @@ def fetch_discovered(
     )[: policy.max_sources]
     if not candidates:
         raise PreservationError("no known mirror lists this model yet")
+    # One absolute deadline covers every probe and the download itself.
+    deadline = time.monotonic() + policy.deadline_seconds
+
+    def remaining() -> TransferPolicy:
+        left = deadline - time.monotonic()
+        if left <= 0:
+            raise DeadlineExceeded("discovered download deadline exceeded")
+        return replace(policy, deadline_seconds=left, timeout=min(policy.timeout, left))
+
     working: list[str] = []
     outcomes: dict[str, bool] = {}
-    envelope: bytes | None = None
     for source in candidates:
         active.checkpoint()
         try:
-            found = inspect_envelope(
-                manifest_id, trust, (source,), policy, control=active.fork()
+            inspect_envelope(
+                manifest_id, trust, (source,), remaining(), control=active.fork()
             )
         except OperationError:
             raise
         except (OSError, ValueError, http.client.HTTPException):
             outcomes[source] = False
             continue
-        envelope = envelope or found
         working.append(source)
-    if not working or envelope is None:
+    if not working:
         mirrors.record_many(outcomes)
         raise PreservationError("no discovered mirror served this exact model")
     delivered: dict[str, bool] = {}
@@ -524,14 +532,15 @@ def fetch_discovered(
         delivered[source] = delivered.get(source, True) and ok
 
     try:
+        # The ordinary path keeps signature merging: different mirrors may
+        # serve differently signed wrappers of the same exact payload.
         return fetch(
             manifest_id,
             trust,
             tuple(working),
             destination,
-            policy,
+            remaining(),
             control=active.fork(),
-            envelope=envelope,
             source_outcome=observe,
         )
     finally:
