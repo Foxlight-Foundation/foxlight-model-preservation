@@ -382,3 +382,25 @@ def test_peers_document_trims_gossip_to_its_budget_keeping_its_own_card(
     with pytest.raises(PreservationError):
         monkeypatch.setattr(module, "MAX_PEERS_BYTES", len(own) // 2)
         build_peers(own, peers)
+
+
+def test_spot_checks_skip_dropped_mirrors(tmp_path: Path, capture: Capture) -> None:
+    from foxlight_model_preservation import mirror_directory as module
+
+    identity = capture.identity
+    dead = issue_card(Ed25519PrivateKey.generate(), ("http://127.0.0.1:9",), {identity})
+    directory = MirrorDirectory(tmp_path / "d")
+    directory.ingest((dead,))
+    for _ in range(module.DROP_AFTER):
+        directory.record("http://127.0.0.1:9", delivered=False)
+    contacted: list[str] = []
+    real = module._bounded_read  # noqa: SLF001
+
+    def watch(base: str, *args: object, **kwargs: object) -> bytes:
+        contacted.append(base)
+        return real(base, *args, **kwargs)  # type: ignore[arg-type]
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(module, "_bounded_read", watch)
+        assert directory.spot_check({identity}, LAB) == 0
+    assert contacted == []
