@@ -426,3 +426,90 @@ def test_bounded_crawls_rotate_through_every_known_mirror(tmp_path: Path) -> Non
         for _ in range(30):
             directory.crawl((), LAB, max_documents=3)
     assert asked == set(addresses)
+
+
+def test_repeat_discovered_download_merges_a_differently_signed_wrapper(
+    tmp_path: Path, capture: Capture
+) -> None:
+    from foxlight_model_preservation.signing import sign_manifest
+
+    identity = capture.identity
+    resigned = tmp_path / "resigned"
+    shutil.copytree(capture.store, resigned)
+    manifest = verify_store(capture.store, identity, capture.trust)
+    target = resigned / manifest_path(identity)
+    target.chmod(0o600)
+    target.write_bytes(
+        encode_record(
+            sign_manifest(manifest, (capture.key, Ed25519PrivateKey.generate()))
+        )
+    )
+    received = tmp_path / "received"
+    with (
+        mirror(capture.store, (identity,), capture, tmp_path / "a.json") as first,
+        mirror(resigned, (identity,), capture, tmp_path / "b.json") as second,
+    ):
+        directory = MirrorDirectory(tmp_path / "d")
+        for source in (first, second):
+            fetch_discovered(
+                identity,
+                capture.trust,
+                received,
+                directory,
+                LAB,
+                extra_sources=(source,),
+            )
+    assert verify_store(received, identity, capture.trust) == manifest
+
+
+def test_slow_candidates_share_one_discovered_download_deadline(
+    tmp_path: Path, capture: Capture
+) -> None:
+    import socket as sockets
+
+    listener = sockets.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(16)
+    port = listener.getsockname()[1]
+    stop = threading.Event()
+
+    def trickle(connection: sockets.socket) -> None:
+        try:
+            connection.recv(4096)
+            connection.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 100000\r\n\r\n")
+            while not stop.is_set():
+                connection.sendall(b" ")
+                time.sleep(0.2)
+        except OSError:
+            pass
+        finally:
+            connection.close()
+
+    def serve() -> None:
+        while not stop.is_set():
+            try:
+                connection, _ = listener.accept()
+            except OSError:
+                return
+            threading.Thread(target=trickle, args=(connection,), daemon=True).start()
+
+    threading.Thread(target=serve, daemon=True).start()
+    policy = TransferPolicy(
+        allow_http=True, allow_private=True, timeout=1, deadline_seconds=2
+    )
+    slow = tuple(f"http://127.0.0.1:{port}/m{index}" for index in range(4))
+    started = time.monotonic()
+    try:
+        with pytest.raises(PreservationError):
+            fetch_discovered(
+                capture.identity,
+                capture.trust,
+                tmp_path / "received",
+                MirrorDirectory(tmp_path / "d"),
+                policy,
+                extra_sources=slow,
+            )
+    finally:
+        stop.set()
+        listener.close()
+    assert time.monotonic() - started < 5
