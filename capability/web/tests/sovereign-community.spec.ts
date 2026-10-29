@@ -29,6 +29,8 @@ test('one switch shares every eligible backup after a single standing consent',a
  const panel=page.getByRole('region',{name:'Help keep models available'});
  await expect(panel.getByText('1 backup can be shared',{exact:false})).toBeVisible();
  await panel.getByRole('button',{name:'Turn on',exact:true}).click();
+ // The consent sheet is modal: the page behind it is inert until it closes.
+ await expect(page.locator('#sovereign-main')).toHaveAttribute('inert','');
  await expect(page.getByRole('radio',{name:/Every backup whose licence allows it/})).toBeChecked();
  const start=page.getByRole('button',{name:'Start sharing',exact:true});
  await expect(start).toBeDisabled();
@@ -38,6 +40,7 @@ test('one switch shares every eligible backup after a single standing consent',a
  await page.getByRole('checkbox',{name:'Keep sharing these models from this computer until I turn it off.'}).check();
  await start.click();
  expect(configured).toEqual({enabled:true,consent:true,share:'eligible',licenses:[...defaults,'CC-BY-4.0']});
+ await expect(page.locator('#sovereign-main')).not.toHaveAttribute('inert','');
  await expect(panel.getByText('Sharing 1 model',{exact:true})).toBeVisible();
  // Reachability is stated plainly; the router is never changed.
  await expect(panel.getByText('behind a router',{exact:false})).toBeVisible();
@@ -68,4 +71,16 @@ test('an older core without community sharing hides the switch',async({page})=>{
  await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();
  await expect(page.getByRole('heading',{name:'Sharing',exact:true})).toBeVisible();
  await expect(page.getByRole('region',{name:'Help keep models available'})).toHaveCount(0);
+});
+
+test('a backup that failed to join can still be kept back before its retry',async({page})=>{
+ let chosen:Record<string,unknown>|null=null;
+ await page.route('**/api/desktop-community-read',r=>r.fulfill({json:view(true,{copies:copies.map(item=>item.copy_id===id?{...item,status:'failed',error_code:'insufficient_space'}:item)})}));
+ await page.route('**/api/desktop-community-choose',r=>{chosen=r.request().postDataJSON();return r.fulfill({json:view(true)});});
+ await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();
+ const panel=page.getByRole('region',{name:'Help keep models available'});
+ await panel.getByText(/Your backups ·/).click();
+ await expect(panel.getByText('Couldn’t join · will retry',{exact:true})).toBeVisible();
+ await panel.getByRole('button',{name:'Keep this one back',exact:true}).click();
+ expect(chosen).toEqual({copy_id:id,chosen:false,withheld:true});
 });
