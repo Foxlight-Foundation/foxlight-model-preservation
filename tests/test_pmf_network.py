@@ -520,3 +520,42 @@ def test_linked_pmf_admission_needs_space_only_for_documents(
     finally:
         os.close(source)
         os.close(destination)
+
+
+def test_cancelled_linked_copy_leaves_no_pending_link(
+    public_pmf: PublicPMF, tmp_path: Path
+) -> None:
+    import os
+
+    from foxlight_model_preservation.operations import (
+        OperationCancelled,
+        OperationControl,
+    )
+    from foxlight_model_preservation.storage import copy_verified_object
+
+    class CancelOnCopy(OperationControl):
+        def phase(self, name: str) -> None:
+            if name == "copying":
+                raise OperationCancelled("cancelled after linking")
+            super().phase(name)
+
+    file = public_pmf.manifest.members[0].files[0]
+    target = tmp_path / "target"
+    target.mkdir()
+    source = os.open(public_pmf.store, os.O_RDONLY | os.O_DIRECTORY)
+    destination = os.open(target, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        with pytest.raises(OperationCancelled):
+            copy_verified_object(
+                source,
+                object_path(file.sha256),
+                destination,
+                file,
+                CancelOnCopy(),
+                link=True,
+            )
+    finally:
+        os.close(source)
+        os.close(destination)
+    leftovers = [path for path in target.rglob("*") if path.is_file()]
+    assert leftovers == []

@@ -452,11 +452,13 @@ def copy_verified_object(
     # Verified content needs no copy; missing or corrupt content needs a full
     # temporary replacement while any old object remains in place.
     pending = ".pending/" + uuid.uuid4().hex
-    linked = link and _link_object(source, source_path, target, pending)
-    if not linked and shutil.disk_usage(target).free < file.size + 16 * CHUNK_SIZE:
-        raise PreservationError("destination has insufficient free space")
-    control.phase("copying")
     try:
+        # The link is created inside the cleanup-protected region, so a
+        # cancellation at any later checkpoint never leaves it behind.
+        linked = link and _link_object(source, source_path, target, pending)
+        if not linked and shutil.disk_usage(target).free < file.size + 16 * CHUNK_SIZE:
+            raise PreservationError("destination has insufficient free space")
+        control.phase("copying")
         if not linked:
             with (
                 open_file(source, source_path) as origin,
@@ -479,12 +481,12 @@ def copy_verified_object(
                 os.fsync(parent)
         verify_object(target, file, control=control)
     finally:
-        with parent_directory(target, pending) as (parent, name):
-            try:
+        try:
+            with parent_directory(target, pending) as (parent, name):
                 os.unlink(name, dir_fd=parent)
                 os.fsync(parent)
-            except FileNotFoundError:
-                pass
+        except FileNotFoundError:
+            pass
 
 
 def _link_object(source: int, source_path: str, target: int, pending: str) -> bool:

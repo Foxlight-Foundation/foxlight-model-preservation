@@ -541,11 +541,12 @@ class CommunityMirror:
         run_mirror(ledger, resume=True, control=control, observe=record)
 
     def _revoke(self) -> None:
-        path = self.path / "mirror"
-        if path.exists():
-            MirrorLedger(path).update(
+        try:
+            MirrorLedger(self.path / "mirror").update(
                 lambda current: current.model_copy(update={"restart": None})
             )
+        except FileNotFoundError:
+            pass  # No mirror yet, so there is no standing grant to revoke.
 
     # Reachability ------------------------------------------------------------
 
@@ -584,8 +585,11 @@ class CommunityMirror:
         observation = self.observation
         usage: dict[str, JsonValue] = {}
         path = self.path / "mirror"
-        if path.exists():
+        try:
             state = MirrorLedger(path).read()
+        except FileNotFoundError:
+            pass  # Not created yet, or being created by the mirror thread.
+        else:
             usage = {
                 "uploaded_today_bytes": state.egress_day_used,
                 "uploaded_this_month_bytes": state.egress_month_used,
