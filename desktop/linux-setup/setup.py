@@ -208,6 +208,10 @@ class SetupWindow(Gtk.Window):
         footer.pack_start(actions, False, False, 0)
         root.pack_end(footer, False, False, 0)
         self.primary.grab_default()
+        # The first focusable item in the middle is the details expander. Give
+        # focus to the visible action so GTK does not scroll the welcome away
+        # at large text sizes merely to reveal that collapsed expander.
+        self.primary.grab_focus()
         try:
             self.preflight()
         except Exception as error:

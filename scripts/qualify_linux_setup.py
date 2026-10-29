@@ -211,7 +211,7 @@ def main() -> None:
                     stdout=log,
                     stderr=log,
                 )  # noqa: S603 - same installed app, display preferences only
-                wait(lambda: visible("Ready for Ubuntu 24.04"), variant + " review")
+                wait(lambda: visible("Keep a copy. Keep access."), variant + " review")
                 require_reachable("Install Sovereign")
                 if variant == "large-text":
                     require(
