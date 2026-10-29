@@ -46,6 +46,14 @@ def status(owner: LocalOwner, copy_id: str) -> str:
     return next(row["status"] for row in rows if row["copy_id"] == copy_id)
 
 
+def _try(action) -> bool:
+    try:
+        action()
+    except PreservationError:
+        return False
+    return True
+
+
 def served(port: int, identity: str) -> int:
     connection = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
     try:
@@ -567,7 +575,14 @@ def test_a_transient_verification_error_does_not_end_serving_for_good(
         wait_for(lambda: served(port, identity) == 200)
         ledger = MirrorLedger(owner.home / "sharing/community/mirror")
         # A concurrent reader once failed: the model is marked with an error.
-        record_model(ledger, identity, {"error": "transient: changed while read"})
+        # The running controller may hold the ledger's writer lock briefly.
+        wait_for(
+            lambda: _try(
+                lambda: record_model(
+                    ledger, identity, {"error": "transient: changed while read"}
+                )
+            )
+        )
         wait_for(lambda: served(port, identity) != 200)
         # The next sync retries it; every byte is verified before serving again.
         owner.control(
