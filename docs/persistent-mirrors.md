@@ -8,8 +8,10 @@ and the standalone package. Skulk, its SDK, GPUs and hosted accounts are optiona
 
 This implementation supplies a controller and a Linux service recipe.
 Standalone 0.13 and later include separately opted-in
-[persistent IPFS/BitTorrent sessions](persistent-peers.md). Generic PMF network
-transport and delegated mirror discovery remain separate work. Existing finite
+[persistent IPFS/BitTorrent sessions](persistent-peers.md). Mirrors carry both
+public preservation-v1 bundles and draft [PMF](portable-model-format.md)
+archives natively (see [PMF over the network](#pmf-over-the-network)). Delegated
+mirror discovery remains separate work. Existing finite
 peer/BitTorrent tools remain usable. It makes no anonymity or censorship-resistance
 qualification.
 
@@ -66,7 +68,7 @@ before changing sources; pause/block/pin are separate live local controls.
 
 ## Retain a public copy you already have
 
-`mirror retain` copies one exact public preservation-v1 archive into this mirror
+`mirror retain` copies one exact public preservation-v1 or PMF archive into this mirror
 without a catalog, registry, source publisher or network connection. Supply the
 exact manifest, independently accepted model keys, and terms you reviewed for
 every member:
@@ -126,10 +128,22 @@ copy it again, repeat its original `mirror retain` command with the separate
 remain; restart consent is cleared. Unblock and grant serving separately if
 desired. Retrying one removed selection cannot prevent pruning a different model.
 
-This direct local adapter accepts the existing preservation-v1 public transport
-profile. PMF network transport remains separate: a PMF envelope refuses before
-selection or copying rather than being translated into a different identity.
-PMF's existing offline kit/restore tools remain available.
+### PMF over the network
+
+A PMF archive travels under its own identity, never converted into another
+one. It uses the same `manifests/<id>.json` and `objects/sha256/<hash>` layout as
+a preservation-v1 bundle. Fetch, `mirror retain`, source following, serving,
+prune and recovery all read the signed payload type and verify that format; a
+failed PMF verification is never retried as another format. A PMF archive's
+objects are its member files plus every source document (cards, the original
+signed preservation envelope and any optional profile records), so each is
+fetched, hashed and served like a model file. Prune protects objects shared
+between formats.
+
+The public intake rule is unchanged: every PMF member must declare public
+intake under terms you reviewed. A private owner backup is refused before any
+mirror change, so a private copy is never served unchanged; publish a public
+copy first. PMF remains a draft: an incompatible change needs a new payload type.
 
 ## Original source metadata before downloading
 
@@ -244,8 +258,8 @@ model-preserve kit-import --kit model.foxkit \
 The kit profile also supports a deliberate first-contact key decision, which
 does not establish publisher identity. Model, source, registry and runtime
 authority remain separate. No private signing key or mirror policy is exported.
-These tools recover the existing public preservation-v1 mirror profile;
-standalone PMF kit tools retain their separate existing contract.
+These tools recover both public preservation-v1 and PMF selections; a PMF
+selection exports as a PMF (v2) recovery kit.
 
 ## Run manually, then choose restart permission separately
 

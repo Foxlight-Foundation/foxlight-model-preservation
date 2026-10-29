@@ -10,12 +10,12 @@ from typing import Literal
 
 from pydantic import Field, TypeAdapter, field_validator, model_validator
 
+from .archives import ArchiveManifest, archive_objects, verify_archive_manifest
 from .invitations import accept_model_keys
 from .ledger import TransferBudget
 from .models import (
     MAX_METADATA_BYTES,
     Digest,
-    Manifest,
     PreservationError,
     Record,
     TrustProfile,
@@ -28,7 +28,6 @@ from .signing import (
     digest,
     encode_record,
     strict_json,
-    verify_manifest,
 )
 from .storage import (
     CHUNK_SIZE,
@@ -39,7 +38,6 @@ from .storage import (
     object_path,
     observe_objects,
     parent_directory,
-    unique_objects,
     verify_object,
     writer_lock,
 )
@@ -73,9 +71,9 @@ class PeerInvitation(Record):
         return values
 
     @property
-    def manifest(self) -> Manifest:
+    def manifest(self) -> ArchiveManifest:
         """Inspect candidate signatures; this does not authenticate the publisher."""
-        return verify_manifest(
+        return verify_archive_manifest(
             encode_record(self.envelope), self.candidate_trust, self.manifest_id
         )
 
@@ -111,10 +109,12 @@ def peer_invitation_from_envelope(
 
 def authenticate_peer_invitation(
     invitation: PeerInvitation, trust: TrustProfile
-) -> Manifest:
+) -> ArchiveManifest:
     """Authenticate independently selected keys and exact metadata before bytes."""
     checked = read_peer_invitation(encode_record(invitation))
-    return verify_manifest(encode_record(checked.envelope), trust, checked.manifest_id)
+    return verify_archive_manifest(
+        encode_record(checked.envelope), trust, checked.manifest_id
+    )
 
 
 def accept_peer_invitation_keys(
@@ -161,7 +161,7 @@ def fetch_peer_invitation(
     *,
     maximum_bytes: int = 20 * 1024**3,
     operation_id: str | None = None,
-) -> Manifest:
+) -> ArchiveManifest:
     """Receive an independently trusted exact closure with conservative retry charges.
 
     Optional local operation accounting is fsynced before each file request.
@@ -187,11 +187,11 @@ def _fetch_peer_invitation(
     *,
     maximum_bytes: int,
     operation_id: str | None,
-) -> Manifest:
+) -> ArchiveManifest:
     manifest = authenticate_peer_invitation(invitation, trust)
     if client.profile.mode != "receive":
         raise PreservationError("model receiving needs a receive-only peer")
-    files = unique_objects(manifest)
+    files = archive_objects(manifest)
     if sum(file.size for file in files) > maximum_bytes:
         raise PreservationError("complete model exceeds peer allowance")
     with directory(destination, create=True) as target, writer_lock(target):

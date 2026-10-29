@@ -7,11 +7,12 @@ from typing import Literal
 
 from pydantic import Field
 
+from .archives import ArchiveManifest, archive_objects
 from .mirror import selection_envelope, selection_manifest
 from .mirror_models import HeldModel, NativeCustodyName
 from .mirror_native import prune_native
 from .mirror_state import MAX_STATE, MirrorLedger, encode_state
-from .models import Digest, Manifest, PreservationError, Record
+from .models import Digest, PreservationError, Record
 from .signing import encode_record, strict_json
 from .storage import (
     atomic_bytes,
@@ -19,7 +20,6 @@ from .storage import (
     object_path,
     open_file,
     parent_directory,
-    unique_objects,
     writer_lock,
 )
 
@@ -49,7 +49,7 @@ def _unlink(root: int, path: str) -> None:
 
 def _selection(
     ledger: MirrorLedger, store: int, identity: str, held: HeldModel
-) -> Manifest:
+) -> ArchiveManifest:
     # The private pinned local intent survives partial publication and damage to
     # the complete envelope. It grants deletion only after the operator's exact
     # blocked/unpinned confirmation, never unauthenticated object discovery.
@@ -87,7 +87,7 @@ def prune(ledger: MirrorLedger, manifest: str, confirmation: str) -> dict[str, o
                 original = _selection(ledger, store, manifest, held)
                 intent = PruneIntent(
                     manifest=manifest,
-                    objects=tuple(f.sha256 for f in unique_objects(original)),
+                    objects=tuple(f.sha256 for f in archive_objects(original)),
                     native_identity=state.native_models[manifest].identity
                     if manifest in state.native_models
                     else None,
@@ -118,7 +118,7 @@ def prune(ledger: MirrorLedger, manifest: str, confirmation: str) -> dict[str, o
                         "unknown retained manifest; refusing shared-object deletion"
                     )
                 value = _selection(ledger, store, identity, other)
-                references.update(file.sha256 for file in unique_objects(value))
+                references.update(file.sha256 for file in archive_objects(value))
             # A pinned partial selection has authenticated metadata before its
             # complete store envelope exists. Protect those shared objects too.
             for identity, other in state.models.items():
@@ -130,7 +130,7 @@ def prune(ledger: MirrorLedger, manifest: str, confirmation: str) -> dict[str, o
                 ):
                     continue
                 value = _selection(ledger, store, identity, other)
-                references.update(file.sha256 for file in unique_objects(value))
+                references.update(file.sha256 for file in archive_objects(value))
             # Retire public routes before touching retained files. No readers can
             # exist: the service lock is held until every HTTP worker has drained.
             with ledger.child("public") as public:

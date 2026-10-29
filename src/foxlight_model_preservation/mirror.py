@@ -15,6 +15,7 @@ from typing import cast
 
 from pydantic import JsonValue
 
+from .archives import ArchiveManifest, archive_objects, verify_archive_manifest
 from .discovery import follow_source, list_sources, refresh_source, search_sources
 from .mirror_models import (
     HeldModel,
@@ -31,7 +32,7 @@ from .mirror_state import (
     restart_allowed,
     serving_hour,
 )
-from .models import Manifest, PreservationError
+from .models import PreservationError
 from .operations import OperationCancelled, OperationControl, failure_code
 from .seed import SeedHandler, SeedServer
 from .signing import (
@@ -39,7 +40,6 @@ from .signing import (
     digest,
     encode_record,
     strict_json,
-    verify_manifest,
 )
 from .storage import (
     atomic_bytes,
@@ -49,7 +49,6 @@ from .storage import (
     open_file,
     parent_directory,
     read_metadata,
-    unique_objects,
     verify_object,
     writer_lock,
 )
@@ -198,7 +197,7 @@ def record_model(
     return ledger.update(apply)
 
 
-def require_terms(manifest: Manifest, grant: SourceGrant) -> None:
+def require_terms(manifest: ArchiveManifest, grant: SourceGrant) -> None:
     """Require every member to match independently reviewed public intake terms."""
     accepted = {(item.license_id, item.terms_reference) for item in grant.terms}
     for member in manifest.members:
@@ -220,11 +219,13 @@ def _policy(grant: SourceGrant, maximum: int | None = None) -> TransferPolicy:
     )
 
 
-def selection_manifest(envelope: bytes, identity: str, held: HeldModel) -> Manifest:
+def selection_manifest(
+    envelope: bytes, identity: str, held: HeldModel
+) -> ArchiveManifest:
     """Authenticate a selected wrapper and terms without claiming complete bytes."""
     if held.envelope_sha256 is not None and digest(envelope) != held.envelope_sha256:
         raise PreservationError("selection's original signed wrapper changed")
-    manifest = verify_manifest(envelope, held.grant.trust, identity)
+    manifest = verify_archive_manifest(envelope, held.grant.trust, identity)
     require_terms(manifest, held.grant)
     return manifest
 
@@ -324,7 +325,7 @@ def verify_retained(
     control: OperationControl,
     *,
     ledger: MirrorLedger | None = None,
-) -> Manifest:
+) -> ArchiveManifest:
     """Verify original model trust, public terms and every retained object."""
     if held.origin == "source" and held.envelope_sha256 is not None:
         if ledger is None:
@@ -333,7 +334,7 @@ def verify_retained(
     else:
         envelope = read_metadata(root, manifest_path(identity))
     manifest = selection_manifest(envelope, identity, held)
-    for file in unique_objects(manifest):
+    for file in archive_objects(manifest):
         verify_object(root, file, control=control)
     return manifest
 
@@ -506,7 +507,7 @@ def reconcile(ledger: MirrorLedger, control: OperationControl) -> None:
                 if allowance is None:
                     allowance = min(
                         held.grant.max_bytes,
-                        3 * sum(f.size for f in unique_objects(manifest))
+                        3 * sum(f.size for f in archive_objects(manifest))
                         + 16 * 1024**2,
                     )
                     held = record_model(
@@ -519,7 +520,7 @@ def reconcile(ledger: MirrorLedger, control: OperationControl) -> None:
                 with ledger.child("store") as store:
                     missing, _reused, partial = observe_objects(
                         store,
-                        unique_objects(manifest),
+                        archive_objects(manifest),
                         control.fork(),
                         include_partials=True,
                     )
@@ -635,7 +636,7 @@ def public_selection(
                 )
                 require_terms(manifest, held.grant)
                 paths = {
-                    object_path(f.sha256): f.size for f in unique_objects(manifest)
+                    object_path(f.sha256): f.size for f in archive_objects(manifest)
                 }
                 paths[manifest_path(identity)] = len(
                     read_metadata(source, manifest_path(identity))

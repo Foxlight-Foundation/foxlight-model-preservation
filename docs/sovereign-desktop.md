@@ -342,8 +342,9 @@ new review before starting. Direct mirrors see the recipient's address and
 requested paths. None of these operations starts serving, a swarm, a router,
 runtime execution or global model-key enrollment. The desktop source adapter
 currently accepts direct HTTP(S) sources and v1 signed preservation manifests.
-Peer/I2P source following and direct PMF network transport remain separate
-command/Core adapters; unsupported routes are never silently enabled. Skulk's
+Peer/I2P source following remains a separate command/Core adapter, and the
+core's native PMF network transport is not yet wired into this adapter;
+unsupported routes are never silently enabled. Skulk's
 existing source interface and admission checks remain separate.
 
 ### Built-in registry source

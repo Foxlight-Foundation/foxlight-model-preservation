@@ -14,10 +14,16 @@ from urllib.parse import urlsplit
 
 from pydantic import Field
 
+from .archives import (
+    ArchiveManifest,
+    archive_objects,
+    verify_archive,
+    verify_archive_contents,
+    verify_archive_manifest,
+)
 from .models import (
     MAX_METADATA_BYTES,
     Digest,
-    Manifest,
     PreservationError,
     Record,
     TrustProfile,
@@ -28,7 +34,7 @@ from .operations import (
     OperationControl,
     RequestChanged,
 )
-from .signing import digest, encode_record, verify_manifest
+from .signing import digest, encode_record
 from .storage import (
     CHUNK_SIZE,
     atomic_bytes,
@@ -37,9 +43,6 @@ from .storage import (
     manifest_path,
     object_path,
     read_metadata,
-    unique_objects,
-    verify_store,
-    verify_store_contents,
     writer_lock,
 )
 from .torrent_binding import TorrentHandle, TorrentSession, torrent_engine
@@ -85,11 +88,11 @@ def _public_manifest(
     manifest_id: str,
     trust: TrustProfile,
     control: OperationControl | None = None,
-) -> Manifest:
+) -> ArchiveManifest:
     manifest = (
-        verify_store_contents(store, manifest_id, trust, control)
+        verify_archive_contents(store, manifest_id, trust, control)
         if control is not None
-        else verify_store(store, manifest_id, trust)
+        else verify_archive(store, manifest_id, trust)
     )
     if any(member.intake.audience != "public" for member in manifest.members):
         raise PreservationError(
@@ -98,12 +101,14 @@ def _public_manifest(
     return manifest
 
 
-def _files(manifest: Manifest, envelope: bytes, manifest_id: str) -> dict[str, int]:
+def _files(
+    manifest: ArchiveManifest, envelope: bytes, manifest_id: str
+) -> dict[str, int]:
     return {
         manifest_id + "/" + manifest_path(manifest_id): len(envelope),
         **{
             manifest_id + "/" + object_path(file.sha256): file.size
-            for file in unique_objects(manifest)
+            for file in archive_objects(manifest)
         },
     }
 
@@ -187,7 +192,7 @@ def _export_torrent(
         envelope = read_metadata(origin, manifest_path(manifest_id))
     # This exact read enters the export. A source writer or corrupt filesystem
     # can replace its envelope after the earlier complete-store verification.
-    verify_manifest(envelope, trust, manifest_id)
+    verify_archive_manifest(envelope, trust, manifest_id)
     parent = destination.parent.resolve(strict=True)
     with directory(parent) as parent_fd:
         parent_identity = os.fstat(parent_fd)
@@ -200,7 +205,7 @@ def _export_torrent(
                 directory(wire_root, create=True) as target,
                 writer_lock(target),
             ):
-                for file in unique_objects(manifest):
+                for file in archive_objects(manifest):
                     copy_verified_object(
                         origin, object_path(file.sha256), target, file, active
                     )

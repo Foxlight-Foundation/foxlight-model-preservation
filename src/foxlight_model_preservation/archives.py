@@ -41,6 +41,25 @@ def archive_objects(manifest: ArchiveManifest) -> tuple[FileIdentity, ...]:
     return unique_objects(manifest)
 
 
+def verify_archive_contents(
+    store: Path, manifest_id: str, trust: TrustProfile, control: OperationControl
+) -> ArchiveManifest:
+    """Verify a legacy or PMF archive inside a caller-owned operation.
+
+    Network serving and export paths use this so a PMF archive is checked as
+    completely as a preservation-v1 bundle: every member file and every source
+    document object is hashed before anything is published or listed.
+    """
+    control.phase("checking")
+    with directory(store) as source:
+        manifest = verify_archive_manifest(
+            read_metadata(source, manifest_path(manifest_id)), trust, manifest_id
+        )
+        for file in archive_objects(manifest):
+            verify_object(source, file, control=control)
+        return manifest
+
+
 def verify_archive(
     store: Path,
     manifest_id: str,
@@ -50,11 +69,4 @@ def verify_archive(
 ) -> ArchiveManifest:
     """Authenticate a selected legacy or PMF archive and hash every actual object."""
     with (control or OperationControl()).operation("verify") as active:
-        active.phase("checking")
-        with directory(store) as source:
-            manifest = verify_archive_manifest(
-                read_metadata(source, manifest_path(manifest_id)), trust, manifest_id
-            )
-            for file in archive_objects(manifest):
-                verify_object(source, file, control=active)
-            return manifest
+        return verify_archive_contents(store, manifest_id, trust, active)

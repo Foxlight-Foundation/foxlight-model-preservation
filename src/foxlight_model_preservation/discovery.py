@@ -40,6 +40,7 @@ from tuf.api.metadata import (
 from tuf.ngclient import Updater, UpdaterConfig
 from tuf.ngclient.fetcher import FetcherInterface
 
+from .archives import ArchiveManifest
 from .discovery_models import (
     MAX_CATALOG_BYTES,
     MAX_ROLE_BYTES,
@@ -60,7 +61,6 @@ from .models import (
     MAX_METADATA_BYTES,
     Catalog,
     CatalogEntry,
-    Manifest,
     PreservationError,
     TrustProfile,
 )
@@ -1120,7 +1120,7 @@ def fetch_selection(
     allow_local: bool = False,
     control: OperationControl | None = None,
     operation_id: str | None = None,
-) -> Manifest:
+) -> ArchiveManifest:
     """Fetch one exact selection with independent bundle trust and receive policy.
 
     Local-file hints need their own opt-in; following a local metadata source

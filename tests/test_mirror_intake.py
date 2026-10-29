@@ -568,7 +568,8 @@ def test_public_cli_retains_exact_copy_without_source_or_network(tmp_path, captu
     assert verify_store(ledger.path / "store", capture.identity, capture.trust)
 
 
-def test_pmf_transport_domain_refuses_before_local_selection(tmp_path):
+def test_pmf_with_unreviewed_terms_refuses_before_local_selection(tmp_path):
+    """PMF is retained natively, but only under exactly reviewed public terms."""
     from pathlib import Path
 
     from foxlight_model_preservation.models import TrustProfile

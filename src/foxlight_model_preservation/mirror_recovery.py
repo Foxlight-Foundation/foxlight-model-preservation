@@ -14,17 +14,17 @@ from pathlib import Path
 
 from pydantic import TypeAdapter
 
+from .archives import ArchiveManifest, archive_objects
 from .kits import KitInspection, export_kit
 from .mirror import selection_envelope, selection_manifest
 from .mirror_models import HeldModel, MirrorState
 from .mirror_state import MirrorLedger
-from .models import Digest, Manifest, PreservationError
+from .models import Digest, PreservationError
 from .operations import OperationControl
 from .storage import (
     atomic_bytes,
     manifest_path,
     read_metadata,
-    unique_objects,
     verify_object,
     writer_lock,
 )
@@ -46,7 +46,7 @@ def selection_status(ledger: MirrorLedger, manifest_id: str) -> HeldModel | None
 @dataclass(frozen=True)
 class _SelectedCapture:
     held: HeldModel
-    manifest: Manifest
+    manifest: ArchiveManifest
     envelope: bytes
     store_identity: tuple[int, int]
 
@@ -70,7 +70,7 @@ def _capture(
     return _SelectedCapture(held, manifest, envelope, (info.st_dev, info.st_ino))
 
 
-def inspect_selection(ledger: MirrorLedger, manifest_id: str) -> Manifest:
+def inspect_selection(ledger: MirrorLedger, manifest_id: str) -> ArchiveManifest:
     """Authenticate retained signed metadata without opening any weight objects.
 
     All original card values, unknown extensions and required companion/notice
@@ -88,7 +88,7 @@ def recover_selection(
     manifest_id: str,
     *,
     control: OperationControl | None = None,
-) -> Manifest:
+) -> ArchiveManifest:
     """Recover one already selected complete closure offline after interruption.
 
     Require a stopped controller and the selection's original independent trust,
@@ -112,7 +112,7 @@ def recover_selection(
         if (ledger.path / "prune.json").exists():
             raise PreservationError("finish the interrupted operator prune first")
         selected = _capture(ledger, manifest_id)
-        files = unique_objects(selected.manifest)
+        files = archive_objects(selected.manifest)
         if sum(file.size for file in files) > selected.held.grant.max_bytes:
             raise PreservationError("selection exceeds its accepted byte limit")
         with ledger.child("store") as store, writer_lock(store):

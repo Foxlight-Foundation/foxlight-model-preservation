@@ -8,10 +8,10 @@ from urllib.parse import urlsplit
 
 from pydantic import Field, field_validator, model_validator
 
+from .archives import ArchiveManifest, verify_archive_manifest
 from .models import (
     MAX_METADATA_BYTES,
     Digest,
-    Manifest,
     PreservationError,
     Record,
     TrustProfile,
@@ -22,7 +22,6 @@ from .signing import (
     canonical_bytes,
     encode_record,
     strict_json,
-    verify_manifest,
 )
 from .storage import directory, manifest_path, read_metadata
 from .transfer import DEFAULT_POLICY, TransferPolicy, fetch
@@ -92,9 +91,9 @@ class Invitation(Record):
         return self
 
     @property
-    def manifest(self) -> Manifest:
+    def manifest(self) -> ArchiveManifest:
         """Inspect candidate signatures without authenticating the owner."""
-        return verify_manifest(
+        return verify_archive_manifest(
             encode_record(self.envelope), self.candidate_trust, self.manifest_id
         )
 
@@ -153,7 +152,9 @@ def create_invitation(
     return invitation_from_envelope(envelope, manifest_id, trust, mirrors)
 
 
-def authenticate_invitation(invitation: Invitation, trust: TrustProfile) -> Manifest:
+def authenticate_invitation(
+    invitation: Invitation, trust: TrustProfile
+) -> ArchiveManifest:
     """Authenticate the exact included manifest using independently supplied trust.
 
     This never adopts embedded candidate keys or mirror operators as trusted.
@@ -162,7 +163,9 @@ def authenticate_invitation(invitation: Invitation, trust: TrustProfile) -> Mani
     compatibility and authorizes no loading, repository code or public serving.
     """
     checked = read_invitation(encode_record(invitation))
-    return verify_manifest(encode_record(checked.envelope), trust, checked.manifest_id)
+    return verify_archive_manifest(
+        encode_record(checked.envelope), trust, checked.manifest_id
+    )
 
 
 def accept_invitation_keys(
@@ -214,7 +217,7 @@ def accept_model_keys(
         raise PreservationError(
             "accepted fingerprints do not satisfy the candidate trust policy"
         ) from error
-    verify_manifest(encode_record(envelope), trust, manifest_id)
+    verify_archive_manifest(encode_record(envelope), trust, manifest_id)
     return trust
 
 
@@ -226,7 +229,7 @@ def fetch_invitation(
     *,
     control: OperationControl | None = None,
     operation_id: str | None = None,
-) -> Manifest:
+) -> ArchiveManifest:
     """Receive the exact public copy with existing pinned-DNS/budget verification.
 
     Args:

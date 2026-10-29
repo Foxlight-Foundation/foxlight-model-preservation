@@ -17,12 +17,12 @@ from typing import BinaryIO
 from urllib.parse import urlsplit
 
 from . import __version__
+from .archives import ArchiveManifest, archive_objects, verify_archive_manifest
 from .i2p_http import I2PHTTPProxy, i2p_http_response
 from .ledger import TransferBudget, receipt_path
 from .models import (
     MAX_METADATA_BYTES,
     FileIdentity,
-    Manifest,
     PreservationError,
     TrustProfile,
 )
@@ -34,13 +34,11 @@ from .operations import (
     OperationPlan,
 )
 from .signing import (
-    BUNDLE_TYPE,
     Envelope,
     canonical_bytes,
     decode_base64,
     digest,
     strict_json,
-    verify_manifest,
 )
 from .storage import (
     CHUNK_SIZE,
@@ -54,7 +52,6 @@ from .storage import (
     parent_directory,
     publish_envelope,
     read_metadata,
-    unique_objects,
     verify_object,
     writer_lock,
 )
@@ -420,7 +417,7 @@ def _load_manifest(
     policy: TransferPolicy,
     deadline: float,
     control: OperationControl,
-) -> tuple[Manifest, bytes]:
+) -> tuple[ArchiveManifest, bytes]:
     policy.validate()
     if not sources or len(sources) > policy.max_sources:
         raise PreservationError("supply a bounded nonempty mirror list")
@@ -430,8 +427,8 @@ def _load_manifest(
     for index, source in enumerate(sources):
         try:
             envelope = _metadata(source, relative, policy, deadline, control)
-            manifest = verify_manifest(envelope, trust, manifest_id)
-            if sum(file.size for file in unique_objects(manifest)) > policy.max_bytes:
+            manifest = verify_archive_manifest(envelope, trust, manifest_id)
+            if sum(file.size for file in archive_objects(manifest)) > policy.max_bytes:
                 raise BudgetExceeded(
                     "signed bundle exceeds the selected transfer budget"
                 )
@@ -453,10 +450,13 @@ def inspect_manifest(
     policy: TransferPolicy = DEFAULT_POLICY,
     *,
     control: OperationControl | None = None,
-) -> Manifest:
-    """Authenticate bounded metadata without weights, writes or implicit trust."""
+) -> ArchiveManifest:
+    """Authenticate bounded metadata without weights, writes or implicit trust.
+
+    The signed payload type selects preservation-v1 or draft PMF verification.
+    """
     envelope = inspect_envelope(manifest_id, trust, sources, policy, control=control)
-    return verify_manifest(envelope, trust, manifest_id)
+    return verify_archive_manifest(envelope, trust, manifest_id)
 
 
 def inspect_envelope(
@@ -499,7 +499,7 @@ def fetch(
     operation_id: str | None = None,
     expected_directory: tuple[int, int] | None = None,
     envelope: bytes | None = None,
-) -> Manifest:
+) -> ArchiveManifest:
     """Receive exact trusted content with optional control and persistent allowance.
 
     Reuse the same operation_id and immutable inputs after interruption. Local
@@ -509,6 +509,8 @@ def fetch(
     it avoids another metadata request and is published byte-for-byte. A different
     valid destination wrapper refuses rather than stripping any earlier signers.
     Ordinary fetch retains its existing signature-merging publication behavior.
+    Draft PMF archives travel natively: the same store layout and object rules
+    apply, and every PMF member file and source document is fetched and hashed.
     """
     with (control or OperationControl()).operation("fetch") as active:
         policy.validate()
@@ -524,13 +526,13 @@ def fetch(
         else:
             if not sources or len(sources) > policy.max_sources:
                 raise PreservationError("supply a bounded nonempty mirror list")
-            manifest = verify_manifest(envelope, trust, manifest_id)
-            if sum(f.size for f in unique_objects(manifest)) > policy.max_bytes:
+            manifest = verify_archive_manifest(envelope, trust, manifest_id)
+            if sum(f.size for f in archive_objects(manifest)) > policy.max_bytes:
                 raise BudgetExceeded(
                     "signed bundle exceeds the selected transfer budget"
                 )
             original_wrapper = True
-        files = unique_objects(manifest)
+        files = archive_objects(manifest)
         active.checkpoint()
         with directory(destination, create=expected_directory is None) as target:
             pinned = os.fstat(target)
@@ -547,12 +549,15 @@ def fetch(
                         pass
                     else:
                         if existing != envelope:
+                            incoming = Envelope.model_validate_json(
+                                canonical_bytes(strict_json(envelope))
+                            )
                             try:
                                 previous = Envelope.model_validate_json(
                                     canonical_bytes(strict_json(existing))
                                 )
                                 same_payload = (
-                                    previous.payloadType == BUNDLE_TYPE
+                                    previous.payloadType == incoming.payloadType
                                     and digest(decode_base64(previous.payload))
                                     == manifest_id
                                 )
@@ -665,7 +670,7 @@ def plan_fetch(
         manifest, envelope = _load_manifest(
             manifest_id, trust, sources, policy, deadline, active
         )
-        files = unique_objects(manifest)
+        files = archive_objects(manifest)
         reused = partial = 0
         if destination.exists() or destination.is_symlink():
             with directory(destination) as root:

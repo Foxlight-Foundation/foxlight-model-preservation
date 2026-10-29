@@ -6,12 +6,13 @@ import shutil
 import time
 from pathlib import Path
 
+from .archives import ArchiveManifest, archive_objects, verify_archive_manifest
 from .mirror import record_model, require_terms, verify_retained
 from .mirror_models import HeldModel, MirrorState, SourceGrant
 from .mirror_state import HEADROOM, MirrorLedger
-from .models import Manifest, PreservationError
+from .models import PreservationError
 from .operations import OperationControl, failure_code
-from .signing import digest, verify_manifest
+from .signing import digest
 from .storage import (
     atomic_bytes,
     copy_verified_object,
@@ -20,7 +21,6 @@ from .storage import (
     object_path,
     observe_objects,
     read_metadata,
-    unique_objects,
     writer_lock,
 )
 
@@ -33,7 +33,7 @@ def retain_local(
     *,
     control: OperationControl | None = None,
     confirm_reintake: bool = False,
-) -> Manifest:
+) -> ArchiveManifest:
     """Copy one exact public selection offline without following a source or serving.
 
     The caller supplies independently accepted model keys, the exact manifest ID
@@ -44,9 +44,9 @@ def retain_local(
     Original envelope bytes are committed only after every object is copied and
     verified. No signing, network, runtime admission or deletion occurs.
 
-    This adapter accepts the existing public preservation-v1 transport profile.
-    A PMF envelope refuses before any mirror mutation; its separate network
-    profile must be implemented explicitly rather than flattened into v1.
+    Public preservation-v1 and draft PMF archives are both retained natively:
+    the signed payload type selects verification, and PMF source documents are
+    copied and verified as objects. Private intake on any member still refuses.
     """
     active = control or OperationControl()
     with active.operation("mirror_retain"), ledger.service_lock():
@@ -54,9 +54,9 @@ def retain_local(
             raise PreservationError("finish the interrupted operator prune first")
         with directory(store) as source:
             envelope = read_metadata(source, manifest_path(manifest_id))
-            manifest = verify_manifest(envelope, grant.trust, manifest_id)
+            manifest = verify_archive_manifest(envelope, grant.trust, manifest_id)
             require_terms(manifest, grant)
-            files = unique_objects(manifest)
+            files = archive_objects(manifest)
             if sum(file.size for file in files) > grant.max_bytes:
                 raise PreservationError(
                     "local selection exceeds the reviewed byte limit"
