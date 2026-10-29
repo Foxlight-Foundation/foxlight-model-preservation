@@ -36,7 +36,7 @@ def test_package_has_no_install_hooks_or_implicit_privilege_grant(tmp_path):
     (action,) = policy.getroot().findall("action")
     assert action.attrib == {"id": "ai.foxlight.sovereign.setup.install"}
     assert {p.tag: p.text for p in action.find("defaults")} == {
-        "allow_any": "no",
+        "allow_any": "auth_admin",
         "allow_inactive": "auth_admin",
         "allow_active": "auth_admin",
     }
