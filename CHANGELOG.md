@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Carry draft PMF archives natively over the network. Fetch, invitations and
+  handoffs, persistent mirrors (retain, follow, serve, prune, recovery and kit
+  export), HTTP seeding, IPFS sessions and BitTorrent export dispatch on the
+  signed payload type, with no conversion into another identity. PMF source
+  documents travel and verify as objects. Public intake on every member is still
+  required, so private backups are never served unchanged.
 - Prepare Mac build 8 / Linux revision 3 from the authenticated public core 0.26
   / Library 0.22 installation archive. Native signing/publication and signed apt
   indexes remain distinct gates. Require the new first-launch controls during

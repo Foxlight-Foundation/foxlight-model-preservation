@@ -88,10 +88,13 @@ bytes with uncertain durability: verify the existing destination before retrying
 Linux/macOS filesystem, rename/fsync and mounted-storage limits still apply.
 
 These `pmf-*` commands operate on local stores. Recovery kits (v2) and the
-Library integration support PMF; see the sections below. PMF-aware network
-fetching, invitations and public sharing are not added by this draft. To use
-those transport and sharing paths, export the unchanged original v1 archive.
-Existing v1 tools never silently gain PMF support by being renamed.
+Library integration support PMF; see the sections below. Network transport
+also carries PMF natively: `fetch`, invitations and handoffs, persistent mirrors,
+HTTP seeding, IPFS sessions and BitTorrent export dispatch on the signed payload
+type, as offline archive verification does (see
+[persistent mirrors](persistent-mirrors.md#pmf-over-the-network)). Public
+serving still requires public intake on every member. The local `verify` and
+`restore` commands keep their v1 contract; use the `pmf-*` commands for PMF.
 
 ## Existing archive and Skulk profile
 

@@ -10,6 +10,7 @@ from pathlib import Path
 
 from pydantic import JsonValue
 
+from .archives import verify_archive_contents
 from .discovery import source_identity
 from .handoffs import (
     Handoff,
@@ -43,7 +44,6 @@ from .peer_runtime import bootstrap_address, executable
 from .peer_session import owned_peer
 from .peer_sharing import prepare_peer_handoff
 from .signing import encode_record, load_trust, strict_json
-from .storage import verify_store_contents
 from .transfer import TransferPolicy
 
 COMMANDS = (
@@ -350,7 +350,7 @@ def _share(args: HandoffArguments, control: OperationControl) -> dict[str, JsonV
         raise PreservationError("handoff output must be a new file")
     trust = load_trust(_read(args.handoff_trust))
     with control.operation("seed"):
-        manifest = verify_store_contents(
+        manifest = verify_archive_contents(
             args.handoff_store, args.handoff_manifest, trust, control
         )
         if any(member.intake.audience != "public" for member in manifest.members):

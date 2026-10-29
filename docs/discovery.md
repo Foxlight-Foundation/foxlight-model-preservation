@@ -51,9 +51,9 @@ model-preserve restore MANIFEST_SHA256 --trust model-trust.json \
 Changing the entry's manifest between search and selection requires a new review;
 it cannot silently substitute a new model. Fetch retains ordinary SHA-256 file,
 complete companion, transfer-budget and signature checks. It does not execute
-code or grant registry provenance. Current network receiving uses preservation
-v1 public bundles; PMF file/kit recovery remains separately available. Discovery
-does not add a direct PMF network adapter.
+code or grant registry provenance. Network receiving accepts public
+preservation-v1 bundles and public PMF archives; the signed payload type selects
+verification.
 
 ## Trust, updates and cached results
 

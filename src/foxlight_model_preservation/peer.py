@@ -13,6 +13,12 @@ from typing import Literal
 from pydantic import Field, field_validator
 from tuf.api.metadata import Root, Snapshot, Targets, Timestamp  # pyright: ignore[reportPrivateImportUsage]
 
+from .archives import (
+    ArchiveManifest,
+    archive_objects,
+    verify_archive_contents,
+    verify_archive_manifest,
+)
 from .discovery import (
     bootstrap_identity,
     export_source,
@@ -34,7 +40,6 @@ from .discovery_models import (
 from .models import (
     MAX_METADATA_BYTES,
     FileIdentity,
-    Manifest,
     PreservationError,
     Record,
     TrustProfile,
@@ -46,7 +51,6 @@ from .signing import (
     digest,
     encode_record,
     strict_json,
-    verify_manifest,
 )
 from .storage import (
     CHUNK_SIZE,
@@ -59,8 +63,6 @@ from .storage import (
     observe_objects,
     open_file,
     read_metadata,
-    unique_objects,
-    verify_store_contents,
     writer_lock,
 )
 from .transfer import TransferPolicy, fetch
@@ -332,15 +334,15 @@ def publish_peer_model(
 ) -> dict[str, str | int]:
     """Verify the complete public closure before publishing only its exact objects."""
     _require_mirror(client, public_model)
-    manifest = verify_store_contents(store, manifest_id, trust, client.control)
+    manifest = verify_archive_contents(store, manifest_id, trust, client.control)
     if any(member.intake.audience != "public" for member in manifest.members):
         raise PreservationError(
             "peer model publication requires public intake for every member"
         )
     with directory(store) as root:
         envelope = read_metadata(root, manifest_path(manifest_id))
-    verify_manifest(envelope, trust, manifest_id)
-    files = unique_objects(manifest)
+    verify_archive_manifest(envelope, trust, manifest_id)
+    files = archive_objects(manifest)
     # Stage beside the store, on its volume, instead of in system temporary
     # storage. Exporters serialize on this private area's own lock (not the
     # store writer lock), so a crash-orphaned stage is removed by the next one.
@@ -447,7 +449,7 @@ def fetch_peer_model(
     client: PeerClient,
     *,
     maximum_bytes: int = 20 * 1024**3,
-) -> Manifest:
+) -> ArchiveManifest:
     """Receive a selected complete public model; never publish or trust source keys.
 
     The explicit allowance covers exported manifest/object bytes, not native DAG
@@ -478,12 +480,12 @@ def fetch_peer_model(
                     maximum_bytes - (client.exported_bytes - started_bytes),
                 ),
             )
-            manifest = verify_manifest(envelope, trust, expected_manifest)
+            manifest = verify_archive_manifest(envelope, trust, expected_manifest)
             if any(member.intake.audience != "public" for member in manifest.members):
                 raise PreservationError(
                     "peer receiving requires public intake for every member"
                 )
-            files = unique_objects(manifest)
+            files = archive_objects(manifest)
             if sum(file.size for file in files) > maximum_bytes - (
                 client.exported_bytes - started_bytes
             ):

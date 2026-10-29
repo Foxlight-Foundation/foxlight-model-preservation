@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 from typing import BinaryIO, cast
 
+from .archives import archive_objects, verify_archive
 from .models import PreservationError, TrustProfile
 from .storage import (
     CHUNK_SIZE,
@@ -21,8 +22,6 @@ from .storage import (
     object_path,
     open_file,
     read_metadata,
-    unique_objects,
-    verify_store,
 )
 
 
@@ -52,7 +51,7 @@ class SeedServer(http.server.ThreadingHTTPServer):
         self.store = store
         self.allowed: dict[str, int] = {}
         for manifest_id in bundles:
-            manifest = verify_store(store, manifest_id, trust)
+            manifest = verify_archive(store, manifest_id, trust)
             if public and any(
                 member.intake.audience != "public" for member in manifest.members
             ):
@@ -63,7 +62,7 @@ class SeedServer(http.server.ThreadingHTTPServer):
                 self.allowed["/" + manifest_path(manifest_id)] = len(
                     read_metadata(root, manifest_path(manifest_id))
                 )
-            for file in unique_objects(manifest):
+            for file in archive_objects(manifest):
                 self.allowed["/" + object_path(file.sha256)] = file.size
         self._remaining = max_upload_bytes
         self._upload_limit = max_upload_bytes

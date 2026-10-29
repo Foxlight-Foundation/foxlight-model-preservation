@@ -5,6 +5,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
+from .archives import (
+    verify_archive_contents,
+)
 from .handoffs import Handoff, peer_contacts
 from .models import PreservationError, TrustProfile
 from .operations import OperationControl
@@ -12,7 +15,7 @@ from .peer import publish_peer_model
 from .peer_invitations import peer_invitation_from_envelope
 from .peer_runtime import PeerClient, initialize_peer, serve_peer
 from .signing import encode_record
-from .storage import directory, manifest_path, read_metadata, verify_store_contents
+from .storage import directory, manifest_path, read_metadata
 
 
 def prepare_peer_handoff(
@@ -74,7 +77,7 @@ def serve_peer_model(
         raise PreservationError("explicit public model and peer participation required")
     if not 1 <= seconds <= 86400 or not 1 <= max_upload_bytes <= 2**53 - 1:
         raise PreservationError("finite peer sharing bounds required")
-    manifest = verify_store_contents(store, manifest_id, trust, control)
+    manifest = verify_archive_contents(store, manifest_id, trust, control)
     if any(member.intake.audience != "public" for member in manifest.members):
         raise PreservationError("peer sharing requires a public complete closure")
     control.checkpoint()
