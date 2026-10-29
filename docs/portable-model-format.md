@@ -170,6 +170,26 @@ retained and unrepresentable scopes. Complete retention for this source profile
 does not mean all its semantics are native common PMF fields. Opaque retention
 is not universal runtime interoperability.
 
+## Public network profile
+
+`foxlight.public-preservation.v1` is the profile public copies use on the network.
+Its single global document, `public-preservation-manifest` (role
+`public-preservation-manifest`, media type `application/json`, schema
+`foxlight.model-preservation.v1`), holds the exact *unsigned* public v1 payload;
+its SHA-256 is that payload's v1 identity. Members, origins, intake terms and
+retained cards are projected exactly as in the preservation profile, with
+converter annotation `foxlight-model-preservation/public-pmf-v0.1`.
+
+Because no signature is embedded, the PMF identity depends only on the model's
+files, cards and reviewed public terms. Independent publishers of the same
+selection produce the same identity, and a mirror's envelope can carry several
+publishers' signatures. A recipient authenticates the PMF under signers they
+choose, then `inspect_network_pmf` recovers the exact public v1 manifest and
+checks that it reproduces the descriptor. Every member must declare public
+intake; `public_network_pmf` refuses anything else. The original v1 envelope's
+signatures are not carried, so original registry or publisher authority comes
+from the retained signed registry evidence, never from the PMF signer.
+
 ## Commands
 
 Convert an existing verified archive; keep original and converter keys separate

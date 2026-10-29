@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Make public copies network PMF archives (`foxlight.public-preservation.v1`)
+  whose identity depends only on the public selection, never on its signer.
+  People who share the same model under the same terms converge on one identity,
+  so their mirrors serve each other's recipients. The desktop app receives public
+  PMF archives directly, and a received public copy can be shared again under
+  its exact identity with no new publication.
 - Carry draft PMF archives natively over the network. Fetch, invitations and
   handoffs, persistent mirrors (retain, follow, serve, prune, recovery and kit
   export), HTTP seeding, IPFS sessions and BitTorrent export dispatch on the

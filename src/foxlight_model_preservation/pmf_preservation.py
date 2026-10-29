@@ -49,6 +49,9 @@ SKULK_PROFILE = "skulk.retained-card.v1"
 SOURCE_KEYS_PROFILE = "foxlight.preservation-source-keys.v1"
 SOURCE_KEYS_DOCUMENT = "preservation-source-keys"
 CONVERTER = "foxlight-model-preservation/pmf-preservation-v0.1"
+PUBLIC_PROFILE = "foxlight.public-preservation.v1"
+PUBLIC_DOCUMENT = "public-preservation-manifest"
+PUBLIC_CONVERTER = "foxlight-model-preservation/public-pmf-v0.1"
 
 
 def _adapter_revision() -> str:
@@ -88,8 +91,8 @@ class PMFConversion(Record):
 def _project(
     original: Manifest, envelope: bytes
 ) -> tuple[PMFManifest, dict[str, bytes]]:
-    records = {"preservation-envelope": envelope}
-    documents = [
+    return _projection(
+        original,
         PMFDocument(
             document_id="preservation-envelope",
             role="original-signed-archive",
@@ -97,13 +100,42 @@ def _project(
             schema_version="foxlight.model-preservation.v1",
             sha256=digest(envelope),
             size=len(envelope),
-        )
-    ]
-    profiles = [
-        PMFProfile(
-            profile_id=PRESERVATION_PROFILE, documents=("preservation-envelope",)
-        )
-    ]
+        ),
+        envelope,
+        PRESERVATION_PROFILE,
+        CONVERTER,
+    )
+
+
+def _project_public(
+    original: Manifest, payload: bytes
+) -> tuple[PMFManifest, dict[str, bytes]]:
+    return _projection(
+        original,
+        PMFDocument(
+            document_id=PUBLIC_DOCUMENT,
+            role="public-preservation-manifest",
+            media_type="application/json",
+            schema_version="foxlight.model-preservation.v1",
+            sha256=digest(payload),
+            size=len(payload),
+        ),
+        payload,
+        PUBLIC_PROFILE,
+        PUBLIC_CONVERTER,
+    )
+
+
+def _projection(
+    original: Manifest,
+    base: PMFDocument,
+    data: bytes,
+    profile_id: str,
+    converter: str,
+) -> tuple[PMFManifest, dict[str, bytes]]:
+    records = {base.document_id: data}
+    documents = [base]
+    profiles = [PMFProfile(profile_id=profile_id, documents=(base.document_id,))]
     for index, member in enumerate(original.members):
         if member.retained_card is None:
             continue
@@ -156,7 +188,7 @@ def _project(
         profiles=tuple(profiles),
         workloads=original.workloads,
         runtime_requirements=original.runtime_requirements,
-        annotations={"pmf.converter": CONVERTER},
+        annotations={"pmf.converter": converter},
     ), records
 
 
@@ -400,3 +432,86 @@ def inspect_preservation_pmf(
     # Equality with the recomputed descriptor binds every retained record's
     # digest and size. Full archive verification checks their actual bytes.
     return source_identity, original
+
+
+def public_network_pmf(
+    original: Manifest, payload: bytes | None = None
+) -> tuple[str, PMFManifest]:
+    """Return the network PMF identity and descriptor for a public v1 manifest.
+
+    ``payload`` is the exact signed payload when the manifest was read from an
+    existing envelope (its digest is the original v1 identity); a newly built
+    manifest uses its canonical encoding. The descriptor retains that unsigned
+    payload, so the identity
+    depends only on the model, its files, cards and reviewed terms, never on who
+    signs it. Independent publishers of the same selection therefore share one
+    identity, and mirrors holding it can serve each other's recipients.
+    """
+    if any(member.intake.audience != "public" for member in original.members):
+        raise PreservationError("network PMF requires public intake for every member")
+    manifest, _records = _project_public(
+        original, encode_record(original) if payload is None else payload
+    )
+    return digest(encode_record(manifest)), manifest
+
+
+def publish_network_pmf(
+    store: Path,
+    manifest_id: str,
+    trust: TrustProfile,
+    destination: Path,
+    keys: tuple[Ed25519PrivateKey, ...],
+    *,
+    control: OperationControl | None = None,
+) -> str:
+    """Write a signed public network PMF of a complete public v1 archive.
+
+    Every object is verified while copying. The v1 envelope's own signatures are
+    not embedded: recipients authenticate the PMF signer they choose to trust.
+    Nothing is served, listed or enrolled by this operation.
+    """
+    with (control or OperationControl()).operation("pack") as active:
+        with directory(store) as source:
+            envelope = read_metadata(source, manifest_path(manifest_id))
+            original = verify_manifest(envelope, trust, manifest_id)
+            payload = decode_base64(
+                Envelope.model_validate_json(
+                    canonical_bytes(strict_json(envelope))
+                ).payload
+            )
+            identity, manifest = public_network_pmf(original, payload)
+            records = _project_public(original, payload)[1]
+            signed_identity, signed = sign_pmf_manifest(manifest, keys)
+            if signed_identity != identity:
+                raise PreservationError("network PMF identity changed during signing")
+            with new_pmf_tree(destination, active) as target:
+                check_pmf_space(target, manifest)
+                for file in unique_objects(original):
+                    copy_verified_object(
+                        source, object_path(file.sha256), target, file, active
+                    )
+                for data in records.values():
+                    active.checkpoint()
+                    atomic_bytes(target, object_path(digest(data)), data)
+                atomic_bytes(target, manifest_path(identity), signed)
+    return identity
+
+
+def inspect_network_pmf(manifest: PMFManifest, payload: bytes) -> tuple[str, Manifest]:
+    """Recover the exact public v1 manifest a network PMF was projected from.
+
+    The caller first authenticates the PMF and reads its public document bytes.
+    Equality with the recomputed projection binds every member, card and term.
+    """
+    original = Manifest.model_validate_json(canonical_bytes(strict_json(payload)))
+    if manifest != public_network_pmf(original, payload)[1]:
+        raise PreservationError("network PMF differs from its public projection")
+    return digest(payload), original
+
+
+def is_network_pmf(manifest: PMFManifest) -> bool:
+    """Report whether a descriptor uses the public network projection profile."""
+    return any(
+        item.profile_id == PUBLIC_PROFILE and item.member_id is None
+        for item in manifest.profiles
+    )
