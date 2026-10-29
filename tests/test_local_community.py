@@ -459,3 +459,39 @@ def test_turning_back_on_while_the_old_worker_retires_keeps_serving(
         wait_for(lambda: served(port, identity) == 200, seconds=30)
     finally:
         owner.close()
+
+
+def test_a_transient_verification_error_does_not_end_serving_for_good(
+    tmp_path: Path, capture: Capture
+) -> None:
+    from foxlight_model_preservation.mirror import record_model
+
+    port = free_port()
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        copy = saved(owner, tmp_path, capture)
+        enable(owner, port)
+        identity = wait_for(
+            lambda: next(
+                (
+                    row["public_manifest_id"]
+                    for row in owner.control("community-read", {})["copies"]
+                    if row["status"] == "sharing"
+                ),
+                None,
+            )
+        )
+        wait_for(lambda: served(port, identity) == 200)
+        ledger = MirrorLedger(owner.home / "sharing/community/mirror")
+        # A concurrent reader once failed: the model is marked with an error.
+        record_model(ledger, identity, {"error": "transient: changed while read"})
+        wait_for(lambda: served(port, identity) != 200)
+        # The next sync retries it; every byte is verified before serving again.
+        owner.control(
+            "community-choose",
+            {"copy_id": copy["copy_id"], "chosen": False, "withheld": False},
+        )
+        wait_for(lambda: served(port, identity) == 200)
+        assert not ledger.read().models[identity].error
+    finally:
+        owner.close()

@@ -559,3 +559,39 @@ def test_cancelled_linked_copy_leaves_no_pending_link(
         os.close(destination)
     leftovers = [path for path in target.rglob("*") if path.is_file()]
     assert leftovers == []
+
+
+def test_a_concurrent_hardlink_does_not_fail_verification_but_tampering_does(
+    tmp_path: Path,
+) -> None:
+    import os
+
+    from foxlight_model_preservation.operations import OperationControl
+    from foxlight_model_preservation.storage import directory, file_identity
+
+    data = b"immutable weights" * 1000
+    (tmp_path / "object").write_bytes(data)
+
+    class LinkWhileHashing(OperationControl):
+        linked = False
+
+        def advance(self, **counts: int) -> None:
+            if not self.linked:
+                self.linked = True
+                os.link(tmp_path / "object", tmp_path / "another-store-link")
+            super().advance(**counts)
+
+    with directory(tmp_path) as root:
+        observed = file_identity(root, "object", control=LinkWhileHashing())
+    assert observed.size == len(data)
+
+    class TamperKeepingMtime(OperationControl):
+        def advance(self, **counts: int) -> None:
+            target = tmp_path / "object"
+            stat = os.stat(target)
+            target.write_bytes(b"X" * len(data))
+            os.utime(target, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+            super().advance(**counts)
+
+    with directory(tmp_path) as root, pytest.raises(PreservationError, match="changed"):
+        file_identity(root, "object", control=TamperKeepingMtime())
