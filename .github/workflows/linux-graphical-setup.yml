@@ -1,0 +1,83 @@
+name: Graphical Ubuntu setup
+on:
+  workflow_call:
+  pull_request:
+    paths: ['desktop/linux-setup/**', 'scripts/build_linux_setup.py', 'scripts/qualify_linux_setup.py', 'scripts/install_sovereign_linux.py', 'tests/test_linux_graphical_setup.py', 'docs/linux-distribution.md', 'docs/linux-graphical-setup.txt', 'docs/getting-started.md', '.github/workflows/linux-graphical-setup*.yml']
+  push:
+    branches: [main]
+    paths: ['desktop/linux-setup/**', 'scripts/build_linux_setup.py', 'scripts/qualify_linux_setup.py', 'scripts/install_sovereign_linux.py', 'tests/test_linux_graphical_setup.py', 'docs/linux-distribution.md', 'docs/linux-graphical-setup.txt', 'docs/getting-started.md', '.github/workflows/linux-graphical-setup*.yml']
+permissions:
+  contents: read
+jobs:
+  graphical:
+    name: Fresh graphical setup ${{ matrix.architecture }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            architecture: amd64
+          - runner: ubuntu-24.04-arm
+            architecture: arm64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install native qualification tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-pyatspi at-spi2-core xvfb dbus-x11 policykit-1-gnome desktop-file-utils
+      - name: Require reproducible offline setup package
+        run: |
+          python3 -I scripts/build_linux_setup.py --directory /tmp/graphical-a
+          (umask 0077; python3 -I scripts/build_linux_setup.py --directory /tmp/graphical-b)
+          cmp /tmp/graphical-a/*.deb /tmp/graphical-b/*.deb
+          desktop-file-validate /tmp/graphical-a/package/usr/share/applications/ai.foxlight.Sovereign.Setup.desktop
+          test "$(find /tmp/graphical-a/package/DEBIAN -type f -printf '%f\n')" = control
+          sudo apt-get install -y /tmp/graphical-a/*.deb
+          test ! -e /etc/apt/sources.list.d/sovereign.list
+          test ! -e /usr/share/keyrings/sovereign-archive-keyring.gpg
+      - name: Native review, actual Ubuntu authorization and installed app handoff
+        run: |
+          # A disposable local password is used only by the real OS agent. It is
+          # neither a project credential nor part of any retained test artifact.
+          qualification_password=$(openssl rand -hex 20)
+          # The stock image's default polkit administrator identity is packer;
+          # retain that OS policy and authenticate the account the dialog names.
+          id packer
+          printf '%s:%s\n' packer "$qualification_password" | sudo chpasswd
+          printf '%s\n' "$qualification_password" > /tmp/sovereign-test-password
+          chmod 600 /tmp/sovereign-test-password
+          unset qualification_password
+          sudo systemd-run --wait --pipe --uid="$USER" --property=PAMName=login \
+            --setenv=HOME="$HOME" --setenv=GTK_A11Y=1 \
+            /usr/bin/dbus-run-session -- /usr/bin/xvfb-run -a -s '-screen 0 1280x1000x24' \
+            /usr/bin/python3 -I -B "$GITHUB_WORKSPACE/scripts/qualify_linux_setup.py" \
+            --directory /tmp/sovereign-graphical-setup --password-file /tmp/sovereign-test-password
+      - name: Verify installed app trust and sandbox without Skulk
+        run: |
+          cd /tmp
+          dbus-run-session -- xvfb-run -a /usr/bin/python3 -I -B "$GITHUB_WORKSPACE/scripts/qualify_linux.py" --directory /tmp/sovereign-graphical-setup/native
+          test "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns)" = 1
+          for package in skulk skulk-runtime skulk-desktop; do
+            test "$(dpkg-query -W -f='${db:Status-Status}' "$package" 2>/dev/null || true)" != installed
+          done
+      - name: Removing setup keeps the app and operator-owned update source
+        run: |
+          sudo apt-get purge -y foxlight-sovereign-setup
+          test -f /etc/apt/sources.list.d/sovereign.list
+          test "$(dpkg-query -W -f='${Version}' foxlight-sovereign)" = 0.1.0-3
+          test ! -e /usr/libexec/sovereign-setup-install
+          test ! -e /usr/share/polkit-1/actions/ai.foxlight.sovereign.setup.policy
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: sovereign-graphical-setup-${{ matrix.architecture }}
+          path: |
+            /tmp/sovereign-graphical-setup
+            /tmp/graphical-a/*.deb
+            /tmp/graphical-a/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30

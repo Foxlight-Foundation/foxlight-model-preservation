@@ -1,0 +1,25 @@
+#!/usr/bin/python3 -I
+"""Install only the pinned app using package-owned code and freshly verified bytes."""
+
+import os
+import runpy
+import stat
+import sys
+from pathlib import Path
+
+if os.geteuid() != 0 or len(sys.argv) != 2:
+    raise SystemExit("Ubuntu administrator authorization is required.")
+try:
+    caller = int(os.environ["PKEXEC_UID"])
+    incoming = Path(sys.argv[1])
+    info = incoming.lstat()
+    if caller == 0 or not stat.S_ISDIR(info.st_mode) or info.st_uid != caller:
+        raise ValueError("Expected the invoking user's download directory.")
+    # These installed files are root-owned, never supplied by the calling user.
+    setup = runpy.run_path("/usr/share/foxlight-sovereign-setup/installer.py")
+    selected = setup["architecture"]()
+    command = setup["system_command"](incoming, selected)
+    sys.argv = [sys.argv[0], command[5], str(incoming)]
+    exec(compile(command[4], "sovereign-protected-install", "exec"))
+except (OSError, ValueError, KeyError) as error:
+    raise SystemExit("Setup stopped: " + str(error)) from error

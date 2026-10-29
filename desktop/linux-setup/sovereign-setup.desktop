@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Install Sovereign
+Comment=Keep AI models and recover them independently
+Exec=/usr/bin/sovereign-setup
+Icon=ai.foxlight.Sovereign.Setup
+Terminal=false
+Categories=Utility;
+StartupNotify=true

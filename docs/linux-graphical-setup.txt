@@ -1,0 +1,32 @@
+Sovereign graphical setup for Ubuntu 24.04
+
+1. Download foxlight-sovereign-setup_0.1.0-1_all.deb from the official release:
+   https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/sovereign-graphical-setup-v0.1.0
+   The same small file supports 64-bit Intel/AMD and ARM computers.
+2. Open the downloaded file with Ubuntu App Center and choose Install.
+   If necessary, right-click the file and choose Open With > App Center.
+   Use an updated Ubuntu 24.04 desktop. Do not disable any OS protection.
+3. Open Install Sovereign from Applications. Read the short review and click
+   Install Sovereign. Setup verifies its app and software key first.
+4. Enter the password for the account named in Ubuntu's permission window. Sovereign
+   does not collect it. Wait for Sovereign is ready, then click Open Sovereign.
+5. Choose Browse public models, Open recovery kit, or Open sharing file or source.
+   Help > Getting started remains available inside the app.
+
+No terminal commands, Skulk, account or GPU are required. No models download and
+no sharing starts until you choose. Signed updates for the app arrive through
+Ubuntu's normal software updates. Custom source/key files are never overwritten.
+You may remove Install Sovereign from App Center after setup; this keeps the app,
+its update source, your Library, models, keys and saved recovery files.
+
+A downloaded .deb is trusted software. App Center's prompt does not authenticate
+Foxlight as publisher. Get it from the official release above; SHA256SUMS and
+linux-graphical-setup.sigstore.json provide independent advanced verification.
+The guide explains this boundary, signed downstream verification and removal:
+https://github.com/Foxlight-Foundation/foxlight-model-preservation/blob/main/docs/linux-distribution.md
+
+If setup stops, read its message and expand Installation details. Restore the
+network connection or close another package installer before trying again.
+Cancel before permission leaves system settings unchanged. Cancel in Ubuntu's
+permission window declines installation. Once installation has started, let
+Ubuntu finish; do not turn off the computer. No verification bypass is provided.
