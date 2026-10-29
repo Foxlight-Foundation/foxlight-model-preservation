@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import ipaddress
+import threading
 import time
 from importlib import import_module
 from typing import Protocol, cast
@@ -113,6 +114,9 @@ class Rendezvous:
                 }
             )
         self._engine = engine
+        # libtorrent sessions are not safe for concurrent alert handling: every
+        # native call goes through one lock.
+        self._lock = threading.RLock()
         self._key = engine.sha1_hash(RENDEZVOUS_KEY)
         self.session = engine.session(settings)
         for node in bootstrap or ():
@@ -125,7 +129,8 @@ class Rendezvous:
 
     def add_node(self, node: tuple[str, int]) -> None:
         """Add a known DHT node (another mirror, or a lab peer)."""
-        self.session.add_dht_node(node)
+        with self._lock:
+            self.session.add_dht_node(node)
 
     def ready(
         self, *, seconds: float = 10.0, control: OperationControl | None = None
@@ -137,7 +142,10 @@ class Rendezvous:
         """
         active = control or OperationControl()
         end = time.monotonic() + seconds
-        while not self.session.is_dht_running():
+        while True:
+            with self._lock:
+                if self.session.is_dht_running():
+                    break
             active.checkpoint()
             if time.monotonic() >= end:
                 return False
@@ -160,7 +168,8 @@ class Rendezvous:
             raise PreservationError("invalid mirror port")
         if not self.ready(seconds=seconds, control=control):
             return False
-        self.session.dht_announce(self._key, http_port, 0)
+        with self._lock:
+            self.session.dht_announce(self._key, http_port, 0)
         return True
 
     def lookup(
@@ -176,6 +185,17 @@ class Rendezvous:
         end = time.monotonic() + seconds
         if not self.ready(seconds=seconds, control=active):
             return ()
+        with self._lock:
+            return self._lookup(found, end, seconds, reply, active)
+
+    def _lookup(
+        self,
+        found: dict[str, None],
+        end: float,
+        seconds: float,
+        reply: type,
+        active: OperationControl,
+    ) -> tuple[str, ...]:
         self.session.dht_get_peers(self._key)
         asked = time.monotonic()
         while time.monotonic() < end and len(found) < MAX_ADDRESSES:
@@ -203,8 +223,9 @@ class Rendezvous:
         Pausing a libtorrent session does not stop its DHT, so the DHT itself
         is switched off.
         """
-        self.session.apply_settings({"enable_dht": False})
-        self.session.pause()
+        with self._lock:
+            self.session.apply_settings({"enable_dht": False})
+            self.session.pause()
 
 
 def _url(host: str, port: int) -> str | None:
