@@ -19,7 +19,62 @@ working-space reviews, separate kit/public-mirror sharing and recovery instructi
 passed on native Ubuntu 24.04 amd64 and arm64, including offline GUI recovery and
 restart. These installed-app checks are separate from package build provenance.
 
-## Install through the signed apt channel
+## Guided setup (recommended)
+
+On **Ubuntu 24.04**, open **Terminal**, paste this whole block and press Enter.
+It checks the installer before starting it. Ubuntu's built-in Python is enough;
+you do not need to choose a processor type, install developer tools, sign in,
+or edit software-source files.
+
+```sh
+python3 -I -c '
+import hashlib, subprocess, sys, urllib.request
+url = "https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/sovereign-setup-v0.1.0/Install-Sovereign.py"
+expected = "53e86800af10a356a8fa6d6c7f392db30ffea728533850b522033dbaa03476ae"
+with urllib.request.urlopen(url, timeout=60) as response:
+    data = response.read(131073)
+if len(data) > 131072 or hashlib.sha256(data).hexdigest() != expected:
+    raise SystemExit("Installer verification failed. Nothing was run.")
+raise SystemExit(subprocess.call([sys.executable, "-I", "-c", data.decode("utf-8")]))
+'
+```
+
+1. Read the short review. Type **install** to continue, or anything else to cancel.
+2. Setup verifies the software key and the exact app package before Ubuntu asks
+   for administrator permission. Enter **your Ubuntu password** at its password
+   prompt; the characters may not appear while you type. No password is sent
+   to Foxlight. Do not run the setup command with `sudo`.
+3. Wait for **Sovereign is ready**, then open **Sovereign** from Applications.
+   Choose **Browse public models**, **Open recovery kit**, or **Open sharing file
+   or source**. [Getting started](getting-started.md) walks through the next steps.
+
+Setup detects amd64/arm64 and refuses unqualified systems. It adds only the scoped
+Foxlight software source, retains apt signature and expiry checks, and installs
+the pinned 0.1.0-3 package plus any required Ubuntu desktop libraries. Future
+Sovereign releases arrive through normal software updates. It grants no model
+trust and starts no service, sharing or model download. Cancellation happens
+before downloads or system changes. Existing custom key/source files are
+preserved; setup stops and directs those operators to the manual route below.
+
+The [setup release](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/sovereign-setup-v0.1.0)
+also contains the standalone installer, instructions, checksums and detached
+GitHub provenance. The command above independently pins the installer bytes;
+the installer in turn pins the reviewed software key and both app packages.
+It never executes unchecked downloaded code. The package's original native build
+attestation and the software repository's signatures remain separate.
+
+If setup stops, read its last message. Restore the network connection or resolve
+the Ubuntu package-manager error, then run the same command again. Do not turn
+off verification to get past an error. Setup can reuse exact settings from a
+previous successful or interrupted run. It does not replace customized files.
+For a compatibility check only, the verified downloaded installer accepts
+`python3 -I Install-Sovereign.py --check` without downloads or system changes.
+
+This is guided **terminal setup**, with fresh native amd64/arm64 installation and
+installed-window checks. It is not a graphical installer or an observed
+nontechnical-user study. Other Linux distributions remain unqualified.
+
+## Install through the signed apt channel (manual)
 
 On **Ubuntu 24.04**, download the Foxlight software archive key and check its
 pinned checksum before adding the Sovereign source. This source installs only

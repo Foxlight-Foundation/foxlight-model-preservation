@@ -1,0 +1,36 @@
+Sovereign guided Ubuntu setup 0.1.0
+
+Ubuntu 24.04, 64-bit Intel/AMD or ARM. No Skulk, account or GPU required.
+
+Start with the independently pinned verification command in:
+https://github.com/Foxlight-Foundation/foxlight-model-preservation/blob/main/docs/linux-distribution.md#guided-setup-recommended
+
+It verifies the installer before running it with Ubuntu's built-in Python.
+No GitHub login, GitHub CLI, curl or Python packages are needed.
+
+Review the changes and type install to continue. The installer verifies the
+software key and exact app package before requesting administrator permission.
+Enter your Ubuntu password only at Ubuntu's sudo password prompt. No password
+is sent to Foxlight. It may not be displayed while you type.
+
+After setup, open Sovereign from Applications. Choose Browse public models,
+Open recovery kit, or Open sharing file or source. Help / Getting started
+is always available. The app preserves models as files; model execution is
+provided by a separate compatible application. Preservation works without one.
+
+If setup stops, retain its message. Do not disable verification or freshness
+checks. A network or package-manager error can be fixed and setup run again.
+Custom key/source settings are preserved; use the manual guide for those.
+
+To remove the app: sudo apt remove foxlight-sovereign
+To stop its update source: sudo rm /etc/apt/sources.list.d/sovereign.list
+Then: sudo apt update
+Your Library, keys, models and recovery files are retained. Keep recovery kits
+on another drive so you can recover even if the original machine disappears.
+
+For an additional independent provenance check with GitHub CLI, download all
+four release files, verify SHA256SUMS, then:
+gh attestation verify Install-Sovereign.py --repo Foxlight-Foundation/foxlight-model-preservation --bundle linux-setup.sigstore.json --signer-workflow Foxlight-Foundation/foxlight-model-preservation/.github/workflows/linux-setup-release.yml --source-ref refs/tags/sovereign-setup-v0.1.0 --deny-self-hosted-runners
+
+Installer signing, software archive signing, and model provenance are separate.
+Installing the app grants no trust to a model, publisher or capture key.
