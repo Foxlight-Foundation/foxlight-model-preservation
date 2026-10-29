@@ -15,13 +15,18 @@ import os
 import signal
 import subprocess
 import time
+from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import gi
 import pyatspi
 
 gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, GLib  # noqa: E402
+
+if TYPE_CHECKING:
+    from gi.repository import Atspi
 
 
 def require(condition: bool, message: str) -> None:
@@ -30,7 +35,7 @@ def require(condition: bool, message: str) -> None:
         raise RuntimeError(message)
 
 
-def nodes():
+def nodes() -> Iterator[Atspi.Accessible]:
     """Read bounded accessibility state without reading password contents."""
     pending = [(pyatspi.Registry.getDesktop(0), 0)]
     count = 0
@@ -58,12 +63,21 @@ def visible(text: str) -> bool:
     return False
 
 
-def wait(check, description: str, timeout: int = 120) -> None:
+def wait(
+    check: Callable[[], bool],
+    description: str,
+    timeout: int = 120,
+    abort_on_error: bool = False,
+) -> None:
     """Wait for a meaningful screen state, or fail without bypassing the step."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if check():
             return
+        if abort_on_error and visible("Setup stopped."):
+            raise RuntimeError(
+                "Setup stopped; retained native details describe the failure"
+            )
         time.sleep(0.25)
     raise RuntimeError("Timed out: " + description)
 
@@ -86,7 +100,7 @@ def click(name: str) -> None:
     raise RuntimeError("Button not available: " + name)
 
 
-def password_entry():
+def password_entry() -> Atspi.Accessible | None:
     """Find the OS agent's password field; never read or log its value."""
     for node in nodes():
         try:
@@ -149,6 +163,7 @@ def main() -> None:
             click("Cancel")
             require(app.wait(timeout=15) == 0, "review cancellation did not close")
             require(not key.exists() and not source.exists(), "cancel changed settings")
+            print("Native review cancellation preserved settings.", flush=True)
             app = subprocess.Popen(
                 ["/usr/bin/sovereign-setup"], env=env, stdout=log, stderr=log
             )  # noqa: S603
@@ -156,6 +171,14 @@ def main() -> None:
             click("Install Sovereign")
             wait(lambda: password_entry() is not None, "real Ubuntu permission dialog")
             require(agent.poll() is None, "Ubuntu authentication agent exited")
+            require(
+                visible("Password for packer:"),
+                "unexpected disposable image administrator",
+            )
+            require(
+                visible("install Sovereign and enable its signed"),
+                "friendly OS permission message missing",
+            )
             snapshot(root, "02-ubuntu-permission")
             click("Cancel")
             wait(lambda: visible("Ubuntu did not grant"), "permission refusal feedback")
@@ -164,10 +187,12 @@ def main() -> None:
                 "denied permission changed settings",
             )
             snapshot(root, "03-permission-cancelled")
+            print("Real OS permission cancellation preserved settings.", flush=True)
             click("Try again")
             wait(lambda: password_entry() is not None, "retry permission dialog")
             entry = password_entry()
             require(entry is not None, "password entry disappeared")
+            require(visible("Password for packer:"), "administrator identity changed")
             entry.queryEditableText().setTextContents(password)
             password = ""
             click("Authenticate")
@@ -175,6 +200,7 @@ def main() -> None:
                 lambda: visible("Sovereign is ready."),
                 "verified GUI installation",
                 timeout=480,
+                abort_on_error=True,
             )
             snapshot(root, "04-ready")
             require(
@@ -217,6 +243,24 @@ def main() -> None:
                 lambda: not Path("/proc", str(owned[0])).exists(),
                 "cooperative app shutdown",
             )
+        except Exception:
+            snapshot(root, "failure")
+            texts = []
+            for node in nodes():
+                try:
+                    if node.getRole() == pyatspi.ROLE_PASSWORD_TEXT:
+                        continue
+                    if node.name:
+                        texts.append(node.name)
+                    if (
+                        node.getRole() == pyatspi.ROLE_TEXT
+                        and "Text" in node.get_interfaces()
+                    ):
+                        texts.append(node.queryText().getText(0, 65536))
+                except (GLib.Error, RuntimeError):
+                    continue
+            (root / "failure-visible.txt").write_text("\n".join(texts))
+            raise
         finally:
             if app is not None and app.poll() is None:
                 app.terminate()
@@ -235,7 +279,7 @@ def main() -> None:
                 "real_os_permission_cancel_no_changes": True,
                 "real_os_password_authentication": True,
                 "verified_app_install_and_graphical_handoff": True,
-                "authorization_bypass_or_custom_policy": False,
+                "authorization_bypass_or_cached_grant": False,
                 "app_center_download_handoff_or_participant_study": False,
             },
             indent=2,

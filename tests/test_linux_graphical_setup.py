@@ -2,11 +2,13 @@
 
 import importlib.util
 import io
+import os
 import runpy
 import subprocess
 import sys
 import threading
 import types
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -22,13 +24,26 @@ def load(path):
     return module
 
 
-def test_package_has_no_install_hooks_or_privilege_policy(tmp_path):
+def test_package_has_no_install_hooks_or_implicit_privilege_grant(tmp_path):
     builder = load(ROOT / "scripts/build_linux_setup.py")
     tree = builder.stage(tmp_path / "package")
     assert {p.name for p in (tree / "DEBIAN").iterdir()} == {"control"}
     assert "Architecture: all\n" in (tree / "DEBIAN/control").read_text()
     assert not (tree / "etc").exists()
-    assert not (tree / "usr/share/polkit-1").exists()
+    policy = ET.parse(  # noqa: S314 - owned fixed policy, no external input
+        tree / "usr/share/polkit-1/actions/ai.foxlight.sovereign.setup.policy"
+    )
+    (action,) = policy.getroot().findall("action")
+    assert action.attrib == {"id": "ai.foxlight.sovereign.setup.install"}
+    assert {p.tag: p.text for p in action.find("defaults")} == {
+        "allow_any": "no",
+        "allow_inactive": "auth_admin",
+        "allow_active": "auth_admin",
+    }
+    annotations = action.findall("annotate")
+    assert len(annotations) == 1
+    assert annotations[0].attrib == {"key": "org.freedesktop.policykit.exec.path"}
+    assert annotations[0].text == "/usr/libexec/sovereign-setup-install"
     assert (tree / builder.SHARE / "installer.py").read_bytes() == (
         ROOT / "scripts/install_sovereign_linux.py"
     ).read_bytes()
@@ -39,6 +54,29 @@ def test_package_has_no_install_hooks_or_privilege_policy(tmp_path):
             tree / "usr/share/applications/ai.foxlight.Sovereign.Setup.desktop"
         ).read_text()
     )
+
+
+@pytest.mark.parametrize("mask", [0o022, 0o077])
+def test_package_modes_do_not_depend_on_builder_umask(tmp_path, mask):
+    builder = load(ROOT / "scripts/build_linux_setup.py")
+    previous = os.umask(mask)
+    try:
+        tree = builder.stage(tmp_path / "package")
+    finally:
+        os.umask(previous)
+    assert tree.stat().st_mode & 0o777 == 0o755
+    assert (tree / "DEBIAN/control").stat().st_mode & 0o777 == 0o644
+    for path in tree.rglob("*"):
+        if path.is_dir():
+            assert path.stat().st_mode & 0o777 == 0o755
+
+
+def test_manual_qualification_cannot_publish_provenance():
+    workflow = (
+        ROOT / ".github/workflows/linux-graphical-setup-release.yml"
+    ).read_text()
+    attestation = workflow.split("  attest:\n", 1)[1].split("  publish:\n", 1)[0]
+    assert attestation.splitlines()[0].strip() == "if: github.event_name == 'push'"
 
 
 @pytest.fixture
@@ -58,6 +96,7 @@ def gui(monkeypatch):
     setup["download"] = Mock()
     monkeypatch.setattr(runpy, "run_path", lambda _: setup)
     module = load(ROOT / "desktop/linux-setup/setup.py")
+    module.download = setup["download"]
     window = object.__new__(module.SetupWindow)
     window.busy = True
     window.authorizing = False
@@ -67,6 +106,38 @@ def gui(monkeypatch):
     window.finished = Mock()
     window.append_log = Mock()
     return module, window
+
+
+def test_blocked_download_is_promptly_terminated_before_elevation(
+    gui, monkeypatch, tmp_path
+):
+    module, _ = gui
+    actual_download = load(ROOT / "desktop/linux-setup/setup.py").download
+    cancel = threading.Event()
+    process = Mock()
+    process.__enter__ = Mock(return_value=process)
+    process.__exit__ = Mock(return_value=False)
+
+    def communicate(**kwargs):
+        if not cancel.is_set():
+            cancel.set()
+            raise subprocess.TimeoutExpired("owned download", 0.25)
+        return ("", None)
+
+    process.communicate.side_effect = communicate
+    child = Mock(return_value=process)
+    monkeypatch.setattr(module.subprocess, "Popen", child)
+    assert (
+        actual_download(
+            "https://example.org/file", tmp_path / "file", "a" * 64, 10, cancel
+        )
+        is False
+    )
+    process.terminate.assert_called_once()
+    command = child.call_args.args[0]
+    assert command[:4] == ["/usr/bin/python3", "-I", "-B", "-c"]
+    assert "pkexec" not in " ".join(command)
+    assert child.call_args.kwargs["stdin"] is subprocess.DEVNULL
 
 
 def test_cancellation_wins_permission_boundary(gui, monkeypatch):

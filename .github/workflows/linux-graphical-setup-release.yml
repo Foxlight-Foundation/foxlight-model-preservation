@@ -44,6 +44,7 @@ jobs:
       contents: read
     uses: ./.github/workflows/linux-graphical-setup.yml
   attest:
+    if: github.event_name == 'push'
     needs: qualify
     runs-on: ubuntu-24.04
     permissions:
@@ -70,7 +71,7 @@ jobs:
               assert evidence['real_os_password_authentication'] is True
               assert evidence['real_os_permission_cancel_no_changes'] is True
               assert evidence['verified_app_install_and_graphical_handoff'] is True
-              assert evidence['authorization_bypass_or_custom_policy'] is False
+              assert evidence['authorization_bypass_or_cached_grant'] is False
               package, = (root / 'graphical-a').glob('*.deb')
               packages.append(package)
           assert packages[0].read_bytes() == packages[1].read_bytes()

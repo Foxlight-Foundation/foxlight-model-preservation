@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN" "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>Foxlight Foundation</vendor>
+  <vendor_url>https://github.com/Foxlight-Foundation/foxlight-model-preservation</vendor_url>
+  <icon_name>ai.foxlight.Sovereign.Setup</icon_name>
+  <action id="ai.foxlight.sovereign.setup.install">
+    <description>Install Sovereign and enable signed software updates</description>
+    <message>Authentication is required to install Sovereign and enable its signed software updates.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/sovereign-setup-install</annotate>
+  </action>
+</policyconfig>

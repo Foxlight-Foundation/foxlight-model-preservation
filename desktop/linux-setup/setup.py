@@ -20,6 +20,64 @@ gi.require_version("Gtk", "3.0")
 from gi.repository import GLib, Gtk  # noqa: E402
 
 SETUP = runpy.run_path("/usr/share/foxlight-sovereign-setup/installer.py")
+DOWNLOAD_PROGRAM = """
+import runpy, sys
+from pathlib import Path
+setup = runpy.run_path('/usr/share/foxlight-sovereign-setup/installer.py')
+setup['download'](sys.argv[1], Path(sys.argv[2]), sys.argv[3], int(sys.argv[4]))
+"""
+
+
+class DownloadError(RuntimeError):
+    """Keep technical download diagnostics separate from the human-facing message."""
+
+    def __init__(self, details: str) -> None:
+        super().__init__(
+            "The download could not be verified. Check your network connection "
+            "and try again. Installation details have the technical message."
+        )
+        self.details = details[-4096:]
+
+
+def download(
+    url: str, destination: Path, digest: str, limit: int, cancelled: threading.Event
+) -> bool:
+    """Run the unchanged verifier in an owned, promptly cancellable user process."""
+    if cancelled.is_set():
+        return False
+    with subprocess.Popen(  # noqa: S603 - fixed isolated code, arguments never a shell
+        [
+            "/usr/bin/python3",
+            "-I",
+            "-B",
+            "-c",
+            DOWNLOAD_PROGRAM,
+            url,
+            str(destination),
+            digest,
+            str(limit),
+        ],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    ) as process:
+        while True:
+            if cancelled.is_set():
+                process.terminate()
+                try:
+                    process.communicate(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.communicate(timeout=5)
+                return False
+            try:
+                output, _ = process.communicate(timeout=0.25)
+            except subprocess.TimeoutExpired:
+                continue
+            if process.returncode:
+                raise DownloadError(output)
+            return True
 
 
 def permission_command(directory: Path) -> list[str]:
@@ -65,8 +123,8 @@ class SetupWindow(Gtk.Window):
         box.pack_start(self.heading, False, False, 0)
         box.pack_start(
             self.label(
-                "Find AI models, save their required files and signed provenance, "
-                "and recover them if their original source disappears."
+                "Keep AI models and the information about where they came from. "
+                "Recover your saved copies even if their original source disappears."
             ),
             False,
             False,
@@ -139,7 +197,8 @@ class SetupWindow(Gtk.Window):
         SETUP["check_configuration"]()
         self.status.set_text(
             "Ready for Ubuntu 24.04. Click Install Sovereign to begin. "
-            "Enter your Ubuntu password only in Ubuntu’s permission window."
+            "Ubuntu will ask an administrator for permission. Use the password "
+            "for the account named in that window."
         )
         return selected
 
@@ -226,7 +285,11 @@ class SetupWindow(Gtk.Window):
                 ):
                     if self.cancelled.is_set():
                         break
-                    SETUP["download"](url, directory / filename, digest, limit)
+                    if not download(
+                        url, directory / filename, digest, limit, self.cancelled
+                    ):
+                        self.cancelled.set()
+                        break
                 if self.cancelled.is_set():
                     GLib.idle_add(self.finished, "cancelled", "")
                     return
@@ -275,7 +338,7 @@ class SetupWindow(Gtk.Window):
                 else:
                     GLib.idle_add(self.finished, "ready", "")
         except Exception as error:
-            self.append_log(str(error) + "\n")
+            self.append_log(getattr(error, "details", str(error)) + "\n")
             GLib.idle_add(self.finished, "error", str(error))
 
     def permission_stage(self, event: threading.Event) -> None:
@@ -285,7 +348,8 @@ class SetupWindow(Gtk.Window):
             self.cancel.set_sensitive(False)
             self.status.set_text(
                 "Both downloads verified. Ubuntu will ask for permission to install. "
-                "Enter your Ubuntu password only in that window."
+                "Use the password for the account named in that window. "
+                "Sovereign does not collect it."
             )
         event.set()
 

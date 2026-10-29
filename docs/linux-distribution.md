@@ -22,7 +22,7 @@ restart. These installed-app checks are separate from package build provenance.
 ## Graphical setup (recommended)
 
 On an updated **Ubuntu 24.04 desktop**, download the small
-[`foxlight-sovereign-setup_0.1.0-1_all.deb` setup package](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/sovereign-graphical-setup-v0.1.0).
+[**Install Sovereign (.deb)**](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/sovereign-graphical-setup-v0.1.0/foxlight-sovereign-setup_0.1.0-1_all.deb).
 The same file supports 64-bit Intel/AMD and ARM computers. No terminal commands,
 Skulk, account or GPU are required.
 
@@ -30,7 +30,7 @@ Skulk, account or GPU are required.
    needed, right-click it and choose **Open With → App Center**.
 2. Open **Install Sovereign** from Applications. Read the review, then click
    **Install Sovereign**. Setup verifies the pinned app and software key first.
-3. Enter **your Ubuntu password** only in **Ubuntu's permission window**.
+3. Enter the password for the **administrator account named in Ubuntu's permission window**.
    Sovereign does not collect it. Wait for **Sovereign is ready**, then choose
    **Open Sovereign**. Later, open Sovereign directly from Applications.
 4. Choose **Browse public models**, **Open recovery kit**, or **Open sharing file
@@ -38,8 +38,8 @@ Skulk, account or GPU are required.
 
 Setup detects your processor and checks Ubuntu compatibility. Its native window
 stays unprivileged; only a fixed package-owned helper runs through Ubuntu's
-normal administrator authorization. No custom permission policy or retained
-authorization grant is installed. It reuses the guided installer's exact key,
+normal administrator authorization. Its named, helper-scoped OS action requires
+administrator authentication each time, without a retained authorization grant. It reuses the guided installer's exact key,
 package pins, verified root-owned staging and scoped APT signature/expiry checks.
 It does not replace customized source/key files, grant model trust, or start
 sharing, a service or a model download. Cancel before permission changes no system

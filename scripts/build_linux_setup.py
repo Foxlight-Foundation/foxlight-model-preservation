@@ -27,6 +27,9 @@ def stage(directory: Path) -> Path:
         "desktop/linux-setup/sovereign-setup.desktop": Path(
             "usr/share/applications/ai.foxlight.Sovereign.Setup.desktop"
         ),
+        "desktop/linux-setup/ai.foxlight.sovereign.setup.policy": Path(
+            "usr/share/polkit-1/actions/ai.foxlight.sovereign.setup.policy"
+        ),
         "capability/web/src/branding/sovereign-icon.svg": Path(
             "usr/share/icons/hicolor/scalable/apps/ai.foxlight.Sovereign.Setup.svg"
         ),
@@ -45,8 +48,8 @@ def stage(directory: Path) -> Path:
         "Package: foxlight-sovereign-setup\n"
         f"Version: {PACKAGE_VERSION}\nArchitecture: all\n"
         "Maintainer: Foxlight Foundation\nSection: utils\nPriority: optional\n"
-        "Depends: python3 (>= 3.12), python3-gi, gir1.2-gtk-3.0, pkexec, "
-        "ca-certificates\n"
+        "Depends: python3 (>= 3.12), python3-gi, gir1.2-gtk-3.0, "
+        "librsvg2-common, pkexec, ca-certificates\n"
         f"Installed-Size: {(size + 1023) // 1024}\n"
         "Homepage: https://github.com/Foxlight-Foundation/foxlight-model-preservation\n"
         "Description: Graphical setup for independent Sovereign model preservation\n"
@@ -54,6 +57,8 @@ def stage(directory: Path) -> Path:
         " Verifies the exact app and scoped software key before requesting Ubuntu\n"
         " authorization and enabling signed updates. No Skulk, account or GPU.\n"
     )
+    directory.chmod(0o755)
+    (control / "control").chmod(0o644)
     for path in directory.rglob("*"):
         if path.is_dir():
             path.chmod(0o755)
