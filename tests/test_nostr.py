@@ -264,3 +264,40 @@ def test_a_misbehaving_relay_costs_only_itself(mode: str) -> None:
         started = time.monotonic()
         assert find_cards((bad, good), policy) == [card]
         assert time.monotonic() - started < 8
+
+
+def test_a_relay_trickling_its_upgrade_headers_cannot_stall_discovery() -> None:
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen()
+    port = listener.getsockname()[1]
+    stop = threading.Event()
+
+    def trickle() -> None:
+        try:
+            connection, _ = listener.accept()
+        except OSError:
+            return
+        try:
+            connection.recv(4096)
+            while not stop.is_set():
+                connection.sendall(b"X")  # Headers that never finish.
+                time.sleep(0.3)
+        except OSError:
+            pass
+        finally:
+            connection.close()
+
+    threading.Thread(target=trickle, daemon=True).start()
+    secret = bytes(range(1, 33))
+    card = issue_card(Ed25519PrivateKey.generate(), ("https://m.example",), set())
+    policy = TransferPolicy(allow_http=True, allow_private=True, timeout=2)
+    try:
+        with relay() as (good, _):
+            assert publish_card(card, secret, (good,), LOCAL) == 1
+            started = time.monotonic()
+            assert find_cards((f"ws://127.0.0.1:{port}", good), policy) == [card]
+            assert time.monotonic() - started < 6
+    finally:
+        stop.set()
+        listener.close()

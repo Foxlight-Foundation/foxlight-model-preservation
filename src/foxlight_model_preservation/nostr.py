@@ -237,7 +237,17 @@ def card_from_event(event: object, *, now: int | None = None) -> bytes | None:
 class Relay:
     """One bounded websocket connection to a Nostr relay, with pinned DNS."""
 
-    def __init__(self, url: str, policy: TransferPolicy) -> None:
+    def __init__(
+        self,
+        url: str,
+        policy: TransferPolicy,
+        *,
+        deadline: float | None = None,
+        control: OperationControl | None = None,
+    ) -> None:
+        """Connect and upgrade within one absolute deadline, honoring cancellation."""
+        active = control or OperationControl()
+        until = time.monotonic() + policy.timeout if deadline is None else deadline
         parsed = urlsplit(url)
         if (
             parsed.scheme not in {"wss", "ws"}
@@ -270,6 +280,12 @@ class Relay:
         )
         header = b""
         while b"\r\n\r\n" not in header:
+            # A relay trickling its upgrade headers cannot outlast the deadline.
+            active.checkpoint()
+            remaining = until - time.monotonic()
+            if remaining <= 0:
+                raise PreservationError("relay handshake deadline exceeded")
+            self._socket.settimeout(remaining)
             chunk = self._socket.recv(1)
             if not chunk or len(header) > 16384:
                 raise PreservationError("relay handshake failed")
@@ -387,12 +403,12 @@ def publish_card(
     for url in relays:
         active.checkpoint()
         try:
-            relay = Relay(url, policy)
+            deadline = time.monotonic() + policy.timeout
+            relay = Relay(url, policy, deadline=deadline, control=active)
         except (OSError, ValueError):
             continue
         try:
             relay.send(["EVENT", event])
-            deadline = time.monotonic() + policy.timeout
             while time.monotonic() < deadline:
                 reply = relay.receive(deadline, active)
                 if len(reply) >= 3 and reply[0] == "OK" and reply[1] == event["id"]:
@@ -417,7 +433,8 @@ def find_cards(
     for url in relays:
         active.checkpoint()
         try:
-            relay = Relay(url, policy)
+            deadline = time.monotonic() + policy.timeout
+            relay = Relay(url, policy, deadline=deadline, control=active)
         except (OSError, ValueError):
             continue
         subscription = secrets.token_hex(8)
@@ -430,7 +447,6 @@ def find_cards(
                 ]
             )
             received = 0
-            deadline = time.monotonic() + policy.timeout
             while time.monotonic() < deadline and received < MAX_EVENTS:
                 message = relay.receive(deadline, active)
                 if not message:
