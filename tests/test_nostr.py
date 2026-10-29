@@ -9,6 +9,7 @@ import json
 import socket
 import socketserver
 import threading
+import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
@@ -196,3 +197,70 @@ def test_relays_must_be_plain_websocket_urls() -> None:
     ):
         with pytest.raises((PreservationError, OSError)):
             Relay(url, TransferPolicy())
+
+
+class _HostileHandler(_RelayHandler):
+    """Upgrades, then misbehaves: endless pings or deeply nested JSON."""
+
+    mode = "pings"
+
+    def handle(self) -> None:
+        sock: socket.socket = self.request
+        header = b""
+        while b"\r\n\r\n" not in header:
+            header += sock.recv(1)
+        key = next(
+            line.split(":", 1)[1].strip()
+            for line in header.decode().split("\r\n")
+            if line.lower().startswith("sec-websocket-key:")
+        )
+        accept = base64.b64encode(
+            hashlib.sha1(  # noqa: S324 - websocket protocol constant
+                (key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()
+            ).digest()
+        ).decode()
+        sock.sendall(
+            (
+                "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n"
+                f"Connection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
+            ).encode()
+        )
+        self._read(sock)
+        try:
+            if self.mode == "nested":
+                payload = b"[" * 100_000 + b"]" * 100_000
+                sock.sendall(bytes((0x81, 127)) + len(payload).to_bytes(8, "big"))
+                sock.sendall(payload)
+                time.sleep(2)
+                return
+            for _ in range(400):
+                sock.sendall(bytes((0x89, 0)))  # A ping, then another...
+                time.sleep(0.05)
+        except OSError:
+            return
+
+
+@contextmanager
+def hostile(mode: str) -> Generator[str]:
+    handler = type("Handler", (_HostileHandler,), {"mode": mode})
+    server = socketserver.ThreadingTCPServer(("127.0.0.1", 0), handler)
+    server.daemon_threads = True
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"ws://127.0.0.1:{server.server_address[1]}"
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+@pytest.mark.parametrize("mode", ["pings", "nested"])
+def test_a_misbehaving_relay_costs_only_itself(mode: str) -> None:
+    secret = bytes(range(1, 33))
+    card = issue_card(Ed25519PrivateKey.generate(), ("https://m.example",), set())
+    policy = TransferPolicy(allow_http=True, allow_private=True, timeout=2)
+    with hostile(mode) as bad, relay() as (good, _):
+        assert publish_card(card, secret, (good,), LOCAL) == 1
+        started = time.monotonic()
+        assert find_cards((bad, good), policy) == [card]
+        assert time.monotonic() - started < 8

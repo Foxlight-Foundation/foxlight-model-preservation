@@ -301,29 +301,41 @@ class Relay:
         masked = bytes(byte ^ mask[index % 4] for index, byte in enumerate(payload))
         self._socket.sendall(head + mask + masked)
 
-    def _exact(self, count: int) -> bytes:
+    def _exact(self, count: int, deadline: float, control: OperationControl) -> bytes:
         data = b""
         while len(data) < count:
-            chunk = self._socket.recv(count - len(data))
+            control.checkpoint()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise PreservationError("relay response deadline exceeded")
+            self._socket.settimeout(remaining)
+            chunk = self._socket.recv(min(count - len(data), 65536))
             if not chunk:
                 raise PreservationError("relay closed the connection")
             data += chunk
         return data
 
-    def receive(self) -> list[object]:
-        """Receive one JSON message, answering pings and joining fragments."""
+    def receive(
+        self, deadline: float, control: OperationControl | None = None
+    ) -> list[object]:
+        """Receive one JSON message, answering pings and joining fragments.
+
+        The absolute deadline and cancellation are checked between every read,
+        so a relay that streams pings or fragments slowly cannot hold the caller.
+        """
+        active = control or OperationControl()
         message = b""
         while True:
-            first, second = self._exact(2)
+            first, second = self._exact(2, deadline, active)
             length = second & 0x7F
             if length == 126:
-                length = int.from_bytes(self._exact(2), "big")
+                length = int.from_bytes(self._exact(2, deadline, active), "big")
             elif length == 127:
-                length = int.from_bytes(self._exact(8), "big")
+                length = int.from_bytes(self._exact(8, deadline, active), "big")
             if length + len(message) > MAX_MESSAGE_BYTES:
                 raise PreservationError("relay message exceeds size limit")
-            mask = self._exact(4) if second & 0x80 else b""
-            payload = self._exact(length)
+            mask = self._exact(4, deadline, active) if second & 0x80 else b""
+            payload = self._exact(length, deadline, active)
             if mask:
                 payload = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
             opcode = first & 0x0F
@@ -335,7 +347,12 @@ class Relay:
             if opcode in {0x1, 0x0}:
                 message += payload
                 if first & 0x80:
-                    value: object = json.loads(message.decode("utf-8"))
+                    try:
+                        value: object = json.loads(message.decode("utf-8"))
+                    except RecursionError as error:
+                        # Deeply nested JSON is a malformed relay reply, not a
+                        # reason to stop discovery.
+                        raise PreservationError("relay sent malformed JSON") from error
                     if not isinstance(value, list):
                         return []
                     return cast(list[object], value)
@@ -377,7 +394,7 @@ def publish_card(
             relay.send(["EVENT", event])
             deadline = time.monotonic() + policy.timeout
             while time.monotonic() < deadline:
-                reply = relay.receive()
+                reply = relay.receive(deadline, active)
                 if len(reply) >= 3 and reply[0] == "OK" and reply[1] == event["id"]:
                     accepted += reply[2] is True
                     break
@@ -415,7 +432,7 @@ def find_cards(
             received = 0
             deadline = time.monotonic() + policy.timeout
             while time.monotonic() < deadline and received < MAX_EVENTS:
-                message = relay.receive()
+                message = relay.receive(deadline, active)
                 if not message:
                     continue
                 if message[0] == "EOSE":
