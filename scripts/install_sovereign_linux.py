@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Guided installation of the independently verified Sovereign Ubuntu release.
+"""Guided installation of the independently verified Sovereign Linux APT release.
 
-Uses only Ubuntu's Python standard library and APT. Run as your normal user;
+Uses only Python's standard library and APT. Run as your normal user;
 administrator authorization is requested only after review and byte verification.
 """
 
@@ -21,7 +21,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-SETUP_VERSION = "0.1.0"
+SETUP_VERSION = "0.1.1"
 VERSION = "0.1.0-3"
 REPOSITORY = "https://apt.foxlight.ai"
 RELEASE = (
@@ -65,19 +65,17 @@ from pathlib import Path
 
 
 def install(config, incoming):
-    release = platform.freedesktop_os_release()
+    if platform.system() != "Linux" or sys.version_info < (3, 11):
+        raise RuntimeError("Linux and Python 3.11 or newer are required.")
+    if not os.access("/usr/bin/apt-get", os.X_OK):
+        raise RuntimeError("This package requires the APT package manager.")
     architecture = subprocess.check_output(
         ["/usr/bin/dpkg", "--print-architecture"], text=True
     ).strip()
-    if (
-        os.geteuid() != 0
-        or release.get("ID") != "ubuntu"
-        or release.get("VERSION_ID") != "24.04"
-        or architecture != config["architecture"]
-    ):
+    if os.geteuid() != 0 or architecture != config["architecture"]:
         raise RuntimeError(
-            "Administrator authorization on the qualified Ubuntu "
-            "architecture is required."
+            "Administrator authorization on the selected processor architecture "
+            "is required."
         )
     with tempfile.TemporaryDirectory(
         prefix="sovereign-verified-", dir="/var/tmp"
@@ -163,7 +161,8 @@ def install(config, incoming):
         print("\n2 of 3 — Checking signed software updates. Please wait…", flush=True)
         subprocess.run([*config["apt"], "update"], check=True)  # noqa: S603
         print(
-            "\n3 of 3 — Installing Sovereign and Ubuntu desktop libraries…", flush=True
+            "\n3 of 3 — Installing Sovereign and required desktop libraries…",
+            flush=True,
         )
         subprocess.run(  # noqa: S603 - fixed APT and verified root-owned package
             [
@@ -207,16 +206,20 @@ def run(arguments: list[str]) -> None:
 
 
 def architecture() -> str:
-    """Require the qualified Ubuntu release and a native supported architecture."""
+    """Check actual installer requirements; qualification is not an OS allowlist."""
     if platform.system() != "Linux":
         raise SetupError(
-            "This installer is for Ubuntu 24.04. Use the Mac installer on macOS."
+            "This installer is for Linux systems using APT. "
+            "Use the Mac installer on macOS."
         )
-    release = platform.freedesktop_os_release()
-    if release.get("ID") != "ubuntu" or release.get("VERSION_ID") != "24.04":
-        raise SetupError(
-            "Ubuntu 24.04 is required. Other Linux releases have not been qualified."
-        )
+    if sys.version_info < (3, 11):  # noqa: UP036 - standalone, before pip requirements
+        raise SetupError("Setup requires Python 3.11 or newer.")
+    for program in ("apt-get", "dpkg", "dpkg-query", "python3"):
+        if not os.access("/usr/bin/" + program, os.X_OK):
+            raise SetupError(
+                "This .deb installer requires APT, dpkg and system Python. "
+                f"The required program {program} is unavailable."
+            )
     value = subprocess.check_output(  # noqa: S603
         ["/usr/bin/dpkg", "--print-architecture"], text=True
     ).strip()
@@ -338,7 +341,7 @@ def main() -> int:
     try:
         selected = architecture()
         check_configuration()
-        print(f"\nSovereign setup — Ubuntu 24.04 ({selected})\n")
+        print(f"\nSovereign setup — Linux / APT ({selected})\n")
         print(
             "Keep AI models, their required files and signed provenance. "
             "Recover them even if the original source disappears."
@@ -349,7 +352,7 @@ def main() -> int:
             + " and add its signed Foxlight update source."
         )
         print(
-            "Ubuntu will also install any missing desktop libraries. "
+            "APT will check dependencies and install any missing desktop libraries. "
             "Your administrator password may be needed."
         )
         print(
@@ -361,7 +364,10 @@ def main() -> int:
             "when the app or update source is removed."
         )
         if args.check:
-            print("\nCompatibility check passed. No files were changed or downloaded.")
+            print(
+                "\nPreliminary checks passed. APT checks app dependencies during "
+                "installation. No files were changed or downloaded."
+            )
             return 0
         if os.geteuid() == 0:
             raise SetupError(
@@ -403,8 +409,8 @@ def main() -> int:
                 256 * 1024 * 1024,
             )
             print(
-                "\nBoth files verified. Ubuntu will now request permission "
-                "to install the app. Enter your Ubuntu password only "
+                "\nBoth files verified. Your system will now request permission "
+                "to install the app. Enter your administrator password only "
                 "at its password prompt.",
                 flush=True,
             )
@@ -416,7 +422,7 @@ def main() -> int:
             "is always available."
         )
         print(
-            "\nUpdates arrive through Ubuntu's normal software updates. "
+            "\nUpdates arrive through your system's normal software updates. "
             "To remove only the app: sudo apt remove foxlight-sovereign"
         )
         print(
@@ -433,7 +439,7 @@ def main() -> int:
     ) as error:
         print(f"\nSetup stopped: {error}", file=sys.stderr)
         print(
-            "No verification checks were bypassed. If Ubuntu reports a network "
+            "No verification checks were bypassed. If APT reports a network "
             "or package error, fix it and run setup again. "
             "Existing custom settings and your Library are retained.",
             file=sys.stderr,

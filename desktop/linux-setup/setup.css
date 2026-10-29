@@ -1,4 +1,4 @@
-/* Sovereign Horizon colors, scoped to setup. Ubuntu owns authentication UI.
+/* Sovereign Horizon colors, scoped to setup. The operating system owns authentication UI.
    The native high-contrast theme takes precedence by omitting this provider. */
 #sovereign-setup {
     background-color: #070a14;

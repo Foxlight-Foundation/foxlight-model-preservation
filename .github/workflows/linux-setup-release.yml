@@ -1,4 +1,4 @@
-name: Publish guided Ubuntu setup
+name: Publish guided Linux APT setup
 on:
   push:
     tags: ['sovereign-setup-v*']
@@ -108,11 +108,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > notes.md <<'MD'
-          Guided setup for Sovereign on Ubuntu 24.04 (amd64 or arm64). No Skulk, account, GPU, GitHub CLI or Python packages required. The installer detects the architecture, explains its changes, verifies the pinned software key and app bytes, then requests administrator authorization. It configures the scoped signed apt source for normal future updates. It preserves custom settings and starts no sharing, services or model downloads.
+          Guided setup for Sovereign on compatible Linux APT desktops (amd64 or arm64). Ubuntu 24.04 is the tested baseline; it is not a distribution/version allowlist. APT checks actual app dependencies. No Skulk, account, GPU, GitHub CLI or Python packages required. The installer detects the architecture, explains its changes, verifies the pinned software key and app bytes, then requests administrator authorization. It configures the scoped signed apt source for normal future updates. It preserves custom settings and starts no sharing, services or model downloads.
 
-          Follow [the verified setup instructions](https://github.com/Foxlight-Foundation/foxlight-model-preservation/blob/main/docs/linux-distribution.md#guided-setup-recommended). Verify before running; do not pipe downloads into a shell or run setup with sudo. The installer requests elevation only after review and verification. Existing manual apt and verified package installation remain supported.
+          Follow [the verified setup instructions](https://github.com/Foxlight-Foundation/foxlight-model-preservation/blob/main/docs/linux-distribution.md#guided-setup-terminal). Verify before running; do not pipe downloads into a shell or run setup with sudo. The installer requests elevation only after review and verification. Existing manual apt and verified package installation remain supported.
 
           Both native architectures pass fresh setup, cancellation, repeated installation, actual window launch, standalone PMF recovery/tamper checks and purge retaining exact user data. This is a guided terminal installer; other distributions, model inference and unassisted user research remain separate qualification.
           MD
           gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \
-            --verify-tag --prerelease --title 'Sovereign guided Ubuntu setup 0.1.0' --notes-file notes.md
+            --verify-tag --prerelease --title 'Sovereign guided Linux setup 0.1.1' --notes-file notes.md

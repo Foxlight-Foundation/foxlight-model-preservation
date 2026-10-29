@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the small, architecture-independent graphical Ubuntu setup package offline."""
+"""Build the architecture-independent graphical Linux APT setup package offline."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 
 PROJECT = Path(__file__).resolve().parents[1]
-SETUP_VERSION = "0.1.2"
+SETUP_VERSION = "0.1.3"
 PACKAGE_VERSION = SETUP_VERSION + "-1"
 SHARE = Path("usr/share/foxlight-sovereign-setup")
 
@@ -53,14 +53,14 @@ def stage(directory: Path) -> Path:
         "Package: foxlight-sovereign-setup\n"
         f"Version: {PACKAGE_VERSION}\nArchitecture: all\n"
         "Maintainer: Foxlight Foundation\nSection: utils\nPriority: optional\n"
-        "Depends: python3 (>= 3.12), python3-gi, gir1.2-gtk-3.0, "
+        "Depends: python3 (>= 3.11), python3-gi, gir1.2-gtk-3.0, "
         "librsvg2-common, pkexec, ca-certificates\n"
         f"Installed-Size: {(size + 1023) // 1024}\n"
         "Homepage: https://github.com/Foxlight-Foundation/foxlight-model-preservation\n"
         "Description: Graphical setup for independent Sovereign model preservation\n"
-        " Review and install Sovereign on Ubuntu 24.04 without a terminal.\n"
-        " Verifies the exact app and scoped software key before requesting Ubuntu\n"
-        " authorization and enabling signed updates. No Skulk, account or GPU.\n"
+        " Review and install Sovereign on Linux APT desktops without a terminal.\n"
+        " Verifies the exact app and scoped software key before requesting\n"
+        " administrator authorization and signed updates. No Skulk, account or GPU.\n"
     )
     directory.chmod(0o755)
     (control / "control").chmod(0o644)

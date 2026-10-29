@@ -1,25 +1,28 @@
-Sovereign graphical setup for Ubuntu 24.04
+Sovereign graphical setup for Linux desktops using APT
 
-1. Download foxlight-sovereign-setup_0.1.2-1_all.deb from the official release:
-   https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/sovereign-graphical-setup-v0.1.2
+1. Download foxlight-sovereign-setup_0.1.3-1_all.deb from the official release:
+   https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/sovereign-graphical-setup-v0.1.3
    The same small file supports 64-bit Intel/AMD and ARM computers.
-2. Open the downloaded file with Ubuntu App Center and choose Install.
-   If necessary, right-click the file and choose Open With > App Center.
-   Use an updated Ubuntu 24.04 desktop. Do not disable any OS protection.
+2. Open the downloaded file with your desktop package installer and choose Install.
+   If necessary, right-click the file and choose Open With (App Center on Ubuntu).
+   Use an APT desktop with Python 3.11+, AppArmor 4+ and GTK 3 / WebKitGTK 4.1.
+   APT checks required libraries; no distribution/version allowlist is used.
+   Ubuntu 24.04 is the tested baseline, not an installation restriction.
+   Do not disable any OS protection.
 3. Open Install Sovereign from Applications. Read the short review and click
    Install Sovereign. Setup verifies its app and software key first.
-4. Enter the password for the account named in Ubuntu's permission window. Sovereign
+4. Enter the password for the account named in your system's permission window. Sovereign
    does not collect it. Wait for Sovereign is ready, then click Open Sovereign.
 5. Choose Browse public models, Open recovery kit, or Open sharing file or source.
    Help > Getting started remains available inside the app.
 
 No terminal commands, Skulk, account or GPU are required. No models download and
 no sharing starts until you choose. Signed updates for the app arrive through
-Ubuntu's normal software updates. Custom source/key files are never overwritten.
-You may remove Install Sovereign from App Center after setup; this keeps the app,
+your system's normal software updates. Custom source/key files are never overwritten.
+You may remove Install Sovereign from your package installer after setup; this keeps the app,
 its update source, your Library, models, keys and saved recovery files.
 
-A downloaded .deb is trusted software. App Center's prompt does not authenticate
+A downloaded .deb is trusted software. The package installer's prompt does not authenticate
 Foxlight as publisher. Get it from the official release above; SHA256SUMS and
 linux-graphical-setup.sigstore.json provide independent advanced verification.
 The guide explains this boundary, signed downstream verification and removal:
@@ -27,6 +30,6 @@ https://github.com/Foxlight-Foundation/foxlight-model-preservation/blob/main/doc
 
 If setup stops, read its message and expand Installation details. Restore the
 network connection or close another package installer before trying again.
-Cancel before permission leaves system settings unchanged. Cancel in Ubuntu's
+Cancel before permission leaves system settings unchanged. Cancel in your system's
 permission window declines installation. Once installation has started, let
-Ubuntu finish; do not turn off the computer. No verification bypass is provided.
+APT finish; do not turn off the computer. No verification bypass is provided.

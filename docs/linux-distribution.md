@@ -1,4 +1,4 @@
-# Sovereign for Ubuntu
+# Sovereign for Linux (APT)
 
 The public Linux recipe builds `foxlight-sovereign` Debian packages for native
 amd64 and arm64 runners. The package contains the same independent Library and
@@ -19,18 +19,42 @@ working-space reviews, separate kit/public-mirror sharing and recovery instructi
 passed on native Ubuntu 24.04 amd64 and arm64, including offline GUI recovery and
 restart. These installed-app checks are separate from package build provenance.
 
+## Requirements and tested systems
+
+Setup checks capabilities, not distribution names or release numbers. Compatible
+APT-based desktops and derivatives can install without an OS-version allowlist.
+Testing a release provides evidence; an untested release is not automatically
+incompatible. Ubuntu 24.04 amd64/arm64 remains the native GUI test baseline.
+
+The current app package requires amd64 or arm64, Python 3.11+, AppArmor 4.0+,
+libc6 2.35+, GTK 3, WebKitGTK 4.1, Python GI, xdg-utils, zenity and the remaining
+dependencies declared in the package. APT resolves those dependencies and refuses
+an unsatisfiable installation before running package scripts. Setup does not
+force installation, remove packages to satisfy dependencies, or disable the
+WebKit sandbox or OS protections. The graphical setup also needs a desktop
+polkit authentication agent. Its own package requires Python 3.11+, GTK 3,
+Python GI, librsvg, pkexec and CA certificates.
+
+The preliminary check detects Linux, package tools and processor architecture;
+it is not a promise that all app dependencies are available. Read APT's error
+if installation stops. Systems without APT need a different native package;
+the [standalone Python tools and browser Library](getting-started.md) remain
+independent of Skulk. This `.deb` installer does not provide RPM or AppImage
+support.
+
 ## Graphical setup (recommended)
 
-On an updated **Ubuntu 24.04 desktop**, download the small
-[**Install Sovereign (.deb)**](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/sovereign-graphical-setup-v0.1.2/foxlight-sovereign-setup_0.1.2-1_all.deb).
+On a compatible **Linux desktop using APT**, download the small
+[**Install Sovereign (.deb)**](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/sovereign-graphical-setup-v0.1.3/foxlight-sovereign-setup_0.1.3-1_all.deb).
 The same file supports 64-bit Intel/AMD and ARM computers. No terminal commands,
 Skulk, account or GPU are required.
 
-1. Open the downloaded `.deb` with **App Center** and choose **Install**. If
-   needed, right-click it and choose **Open With → App Center**.
+1. Open the downloaded `.deb` with your desktop’s package installer and choose
+   **Install**. On Ubuntu, use **App Center**; another distribution may use a
+   different application. If needed, right-click and choose **Open With**.
 2. Open **Install Sovereign** from Applications. Read the review, then click
    **Install Sovereign**. Setup verifies the pinned app and software key first.
-3. Enter the password for the **administrator account named in Ubuntu's permission window**.
+3. Enter the password for the **administrator account named in your system’s permission window**.
    Sovereign does not collect it. Wait for **Sovereign is ready**, then choose
    **Open Sovereign**. Later, open Sovereign directly from Applications.
 4. Choose **Browse public models**, **Open recovery kit**, or **Open sharing file
@@ -41,23 +65,23 @@ wordmark and a clear review-to-install-to-open flow. The bundled background
 works offline without extra image libraries; a dark overlay and dark panels
 keep text readable. The main action stays outside the scrolling
 content, including when details are expanded or desktop text is enlarged.
-Launching with a native high-contrast theme retains Ubuntu’s colors and a
+Launching with a native high-contrast theme retains your desktop’s colors and a
 readable icon/text identity instead of the dark wordmark. The theme is local;
 no fonts or artwork are fetched during setup.
 
-Setup detects your processor and checks Ubuntu compatibility. Its native window
-stays unprivileged; only a fixed package-owned helper runs through Ubuntu's
+Setup detects your processor and checks the Linux/APT requirements. Its native window
+stays unprivileged; only a fixed package-owned helper runs through the system’s
 normal administrator authorization. Its named, helper-scoped OS action requires
 administrator authentication each time, without a retained authorization grant. It reuses the guided installer's exact key,
 package pins, verified root-owned staging and scoped APT signature/expiry checks.
 It does not replace customized source/key files, grant model trust, or start
 sharing, a service or a model download. Cancel before permission changes no system
-settings; declining Ubuntu's permission window also stops installation. Once
-installation starts, let Ubuntu finish. **Installation details** explains failures,
+settings; declining the system’s permission window also stops installation. Once
+installation starts, let APT finish. **Installation details** explains failures,
 and **Try again** repeats verification.
 
-App updates arrive through Ubuntu's normal signed software updates. The separate
-setup utility may be removed through App Center after installation; this retains
+App updates arrive through the system’s normal signed software updates. The separate
+setup utility may be removed through your package installer after installation; this retains
 Sovereign, its update source, your Library, keys, models and recovery files.
 Installing the setup package alone makes no source/key changes and runs no setup
 or app automatically. The app remains the existing **0.1.0-3** package.
@@ -70,11 +94,11 @@ the package and use GitHub CLI:
 
 ```sh
 sha256sum --ignore-missing --check SHA256SUMS
-gh attestation verify foxlight-sovereign-setup_0.1.2-1_all.deb \
+gh attestation verify foxlight-sovereign-setup_0.1.3-1_all.deb \
   --repo Foxlight-Foundation/foxlight-model-preservation \
   --bundle linux-graphical-setup.sigstore.json \
   --signer-workflow Foxlight-Foundation/foxlight-model-preservation/.github/workflows/linux-graphical-setup-release.yml \
-  --source-ref refs/tags/sovereign-graphical-setup-v0.1.2 --deny-self-hosted-runners
+  --source-ref refs/tags/sovereign-graphical-setup-v0.1.3 --deny-self-hosted-runners
 ```
 
 That optional advanced verification uses a terminal; the graphical installation
@@ -97,16 +121,16 @@ without running the GUI as root or enabling a textual password fallback.
 
 ## Guided setup (terminal)
 
-On **Ubuntu 24.04**, open **Terminal**, paste this whole block and press Enter.
-It checks the installer before starting it. Ubuntu's built-in Python is enough;
+On a compatible **Linux APT desktop** with **Python 3.11+**, open **Terminal**,
+paste this whole block and press Enter. It checks the installer before starting it;
 you do not need to choose a processor type, install developer tools, sign in,
 or edit software-source files.
 
 ```sh
 python3 -I -c '
 import hashlib, subprocess, sys, urllib.request
-url = "https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/sovereign-setup-v0.1.0/Install-Sovereign.py"
-expected = "53e86800af10a356a8fa6d6c7f392db30ffea728533850b522033dbaa03476ae"
+url = "https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/sovereign-setup-v0.1.1/Install-Sovereign.py"
+expected = "f54b28621781e1ae04b632bcf37ec814d7deff89e56024b8918326596beb0eff"
 with urllib.request.urlopen(url, timeout=60) as response:
     data = response.read(131073)
 if len(data) > 131072 or hashlib.sha256(data).hexdigest() != expected:
@@ -116,23 +140,23 @@ raise SystemExit(subprocess.call([sys.executable, "-I", "-c", data.decode("utf-8
 ```
 
 1. Read the short review. Type **install** to continue, or anything else to cancel.
-2. Setup verifies the software key and the exact app package before Ubuntu asks
-   for administrator permission. Enter **your Ubuntu password** at its password
+2. Setup verifies the software key and the exact app package before the system asks
+   for administrator permission. Enter **your administrator password** at its password
    prompt; the characters may not appear while you type. No password is sent
    to Foxlight. Do not run the setup command with `sudo`.
 3. Wait for **Sovereign is ready**, then open **Sovereign** from Applications.
    Choose **Browse public models**, **Open recovery kit**, or **Open sharing file
    or source**. [Getting started](getting-started.md) walks through the next steps.
 
-Setup detects amd64/arm64 and refuses unqualified systems. It adds only the scoped
+Setup detects amd64/arm64 and checks the actual installer requirements. It adds only the scoped
 Foxlight software source, retains apt signature and expiry checks, and installs
-the pinned 0.1.0-3 package plus any required Ubuntu desktop libraries. Future
+the pinned 0.1.0-3 package plus any required desktop libraries. Future
 Sovereign releases arrive through normal software updates. It grants no model
 trust and starts no service, sharing or model download. Cancellation happens
 before downloads or system changes. Existing custom key/source files are
 preserved; setup stops and directs those operators to the manual route below.
 
-The [setup release](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/sovereign-setup-v0.1.0)
+The [setup release](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/sovereign-setup-v0.1.1)
 also contains the standalone installer, instructions, checksums and detached
 GitHub provenance. The command above independently pins the installer bytes;
 the installer in turn pins the reviewed software key and both app packages.
@@ -140,10 +164,10 @@ It never executes unchecked downloaded code. The package's original native build
 attestation and the software repository's signatures remain separate.
 
 If setup stops, read its last message. Restore the network connection or resolve
-the Ubuntu package-manager error, then run the same command again. Do not turn
+the APT package-manager error, then run the same command again. Do not turn
 off verification to get past an error. Setup can reuse exact settings from a
 previous successful or interrupted run. It does not replace customized files.
-For a compatibility check only, the verified downloaded installer accepts
+For a preliminary check only, the verified downloaded installer accepts
 `python3 -I Install-Sovereign.py --check` without downloads or system changes.
 
 This is guided **terminal setup**, with fresh native amd64/arm64 installation and
@@ -152,7 +176,7 @@ nontechnical-user study. Other Linux distributions remain unqualified.
 
 ## Install through the signed apt channel (manual)
 
-On **Ubuntu 24.04**, download the Foxlight software archive key and check its
+On a compatible **Linux APT desktop**, download the Foxlight software archive key and check its
 pinned checksum before adding the Sovereign source. This source installs only
 Sovereign; it does not install Skulk. Run these commands in a terminal:
 
@@ -195,7 +219,7 @@ loss of the original machine.
 
 ## Verify and install the public package
 
-On Ubuntu 24.04, choose the `.deb` matching `dpkg --print-architecture` (`amd64`
+On a compatible Linux APT desktop, choose the `.deb` matching `dpkg --print-architecture` (`amd64`
 or `arm64`) from the [Linux release](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/sovereign-linux-v0.1.0-3).
 Download `SHA256SUMS` and `linux-release.sigstore.json` alongside it. With GitHub CLI
 installed, verify the downloaded package before installing:

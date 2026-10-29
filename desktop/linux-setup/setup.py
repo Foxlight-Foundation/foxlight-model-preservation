@@ -1,8 +1,8 @@
 #!/usr/bin/python3
-"""Native, unprivileged setup window for the pinned independent Ubuntu app.
+"""Native, unprivileged setup window for the pinned independent Linux app.
 
 Only the separate package-owned helper runs with administrator permission.
-Passwords belong exclusively to Ubuntu's existing polkit authentication agent.
+Passwords belong exclusively to the system's existing polkit authentication agent.
 """
 
 from __future__ import annotations
@@ -132,7 +132,7 @@ class SetupWindow(Gtk.Window):
         brand.pack_start(logo, False, False, 0)
         if not branded:
             brand.pack_start(self.label("Sovereign"), False, False, 0)
-        badge = self.label("UBUNTU SETUP")
+        badge = self.label("LINUX SETUP")
         badge.set_line_wrap(False)
         badge.get_style_context().add_class("setup-eyebrow")
         brand.pack_end(badge, False, False, 0)
@@ -263,11 +263,11 @@ class SetupWindow(Gtk.Window):
     def preflight(self) -> str:
         """Check compatibility and preserve customized settings before downloads."""
         if os.geteuid() == 0:
-            raise RuntimeError("Open Install Sovereign as your normal Ubuntu user.")
+            raise RuntimeError("Open Install Sovereign as your normal user.")
         selected = SETUP["architecture"]()
         SETUP["check_configuration"]()
         self.status.set_text(
-            "Ready for Ubuntu 24.04. Ubuntu will ask an administrator "
+            "Ready to install. Your system will ask an administrator "
             "for permission to install."
         )
         return selected
@@ -277,7 +277,7 @@ class SetupWindow(Gtk.Window):
         if self.busy:
             if self.authorizing:
                 self.status.set_text(
-                    "Please finish or cancel Ubuntu’s permission window, or wait "
+                    "Please finish or cancel your system’s permission window, or wait "
                     "for installation to finish. Do not turn off this computer."
                 )
             else:
@@ -330,7 +330,7 @@ class SetupWindow(Gtk.Window):
         GLib.idle_add(self.details.get_buffer().set_text, self.log)
 
     def install(self) -> None:
-        """Verify as the user, then run the fixed helper via Ubuntu authorization."""
+        """Verify as the user, then run the fixed helper via system authorization."""
         try:
             # Main-thread initial check is repeated here to catch changed settings.
             selected = SETUP["architecture"]()
@@ -388,7 +388,7 @@ class SetupWindow(Gtk.Window):
                 ) as process:
                     if process.stdout is None:
                         raise RuntimeError(
-                            "Ubuntu's installation details are unavailable."
+                            "Your system's installation details are unavailable."
                         )
                     for line in process.stdout:
                         self.append_log(line)
@@ -403,15 +403,15 @@ class SetupWindow(Gtk.Window):
                     GLib.idle_add(
                         self.finished,
                         "error",
-                        "Ubuntu did not grant administrator permission. "
+                        "Your system did not grant administrator permission. "
                         "You can try again. If no window appeared, "
-                        "reopen setup from your Ubuntu desktop.",
+                        "reopen setup from your desktop.",
                     )
                 elif result:
                     raise RuntimeError(
-                        "Ubuntu could not finish installation. Check your connection "
+                        "APT could not finish installation. Check your connection "
                         "and close other software installers, then try again. "
-                        "Installation details have Ubuntu’s message."
+                        "Installation details have your system’s message."
                     )
                 else:
                     GLib.idle_add(self.finished, "ready", "")
@@ -425,7 +425,8 @@ class SetupWindow(Gtk.Window):
             self.authorizing = True
             self.cancel.set_sensitive(False)
             self.status.set_text(
-                "Both downloads verified. Ubuntu will ask for permission to install. "
+                "Both downloads verified. Your system will ask for permission "
+                "to install. "
                 "Use the password for the account named in that window. "
                 "Sovereign does not collect it."
             )
@@ -457,7 +458,7 @@ class SetupWindow(Gtk.Window):
                     (
                         "Come back anytime",
                         "Sovereign is in Applications. Signed app updates arrive "
-                        "through Ubuntu’s normal software updates.",
+                        "through your system’s normal software updates.",
                     ),
                 ),
                 self.feature_copy,
@@ -468,7 +469,7 @@ class SetupWindow(Gtk.Window):
             self.status.set_text(
                 "Open Sovereign to browse models or recover a saved kit. "
                 "You can find it in Applications later. Updates arrive through "
-                "Ubuntu’s normal software updates."
+                "your system’s normal software updates."
             )
             self.primary.set_label("Open Sovereign")
         else:
