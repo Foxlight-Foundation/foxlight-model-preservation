@@ -150,6 +150,14 @@ def require_reachable(name: str) -> None:
     raise RuntimeError("Primary action not available: " + name)
 
 
+def heading_height() -> int:
+    """Measure actual native text so an ineffective scaling preference fails."""
+    for node in nodes():
+        if node.name == "Keep a copy. Keep access.":
+            return node.queryComponent().getExtents(pyatspi.DESKTOP_COORDS).height
+    raise RuntimeError("Review heading not available")
+
+
 def main() -> None:
     """Check review cancellation, denied permission, successful setup and launch."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -187,6 +195,7 @@ def main() -> None:
             )  # noqa: S603
             wait(lambda: visible("Ready for Ubuntu 24.04"), "initial review")
             require_reachable("Install Sovereign")
+            normal_heading_height = heading_height()
             snapshot(root, "01-review")
             click("Cancel")
             require(app.wait(timeout=15) == 0, "review cancellation did not close")
@@ -204,6 +213,11 @@ def main() -> None:
                 )  # noqa: S603 - same installed app, display preferences only
                 wait(lambda: visible("Ready for Ubuntu 24.04"), variant + " review")
                 require_reachable("Install Sovereign")
+                if variant == "large-text":
+                    require(
+                        heading_height() >= normal_heading_height * 1.3,
+                        "desktop text scaling did not enlarge setup’s heading",
+                    )
                 snapshot(root, "01-review-" + variant)
                 click("Cancel")
                 require(app.wait(timeout=15) == 0, variant + " did not close")

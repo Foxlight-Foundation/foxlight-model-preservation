@@ -133,6 +133,7 @@ class SetupWindow(Gtk.Window):
         if not branded:
             brand.pack_start(self.label("Sovereign"), False, False, 0)
         badge = self.label("UBUNTU SETUP")
+        badge.set_line_wrap(False)
         badge.get_style_context().add_class("setup-eyebrow")
         brand.pack_end(badge, False, False, 0)
         box.pack_start(brand, False, False, 0)
