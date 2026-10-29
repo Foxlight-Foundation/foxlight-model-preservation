@@ -47,6 +47,12 @@ from foxlight_model_preservation.storage import (
 )
 
 
+def _ignore_vanished(function, path, error) -> None:
+    """Tolerate files a stopping daemon removes while the repo is deleted."""
+    if not isinstance(error[1], FileNotFoundError):
+        raise error[1]
+
+
 @pytest.fixture
 def native_binary():
     pytest.importorskip("multiformats")
@@ -302,10 +308,15 @@ def test_one_file_receive_and_operator_stop_keep_archive(
                     process.kill()
                     process.wait(timeout=3)
                     end = time.monotonic() + 15
-                    while (sharing_repo / "api").exists() and time.monotonic() < end:
+                    # The dying daemon removes api, then repo.lock: wait for both
+                    # before deleting, or the deletion races the daemon's cleanup.
+                    while (
+                        (sharing_repo / "api").exists()
+                        or (sharing_repo / "repo.lock").exists()
+                    ) and time.monotonic() < end:
                         time.sleep(0.05)
                     assert not (sharing_repo / "api").exists()
-                    shutil.rmtree(sharing_repo)
+                    shutil.rmtree(sharing_repo, onerror=_ignore_vanished)
                 receiver = tmp_path / "one-file-receiver"
                 receiver_repo = tmp_path / "one-file-receiver-peer"
                 result = subprocess.run(  # noqa: S603 - own module, fixed arguments
