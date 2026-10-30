@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.27.0
+
 - Add Nostr relays as a discovery channel (`nostr`). Mirrors publish their
   signed cards as replaceable kind-30471 events to several independent relays,
   and clients query any relays they choose. Events are checked with BIP340
