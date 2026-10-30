@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Add bucket mirrors (`bucket`). A public-read bucket at Cloudflare R2, Backblaze
+  B2, Amazon S3, Wasabi or any S3-compatible service becomes a complete mirror
+  with no server or open port. Provider presets need only a few answers; keys
+  live in the OS keychain and never in files or logs. A setup check proves
+  upload and anonymous public download before anything is shared. Uploads
+  verify every object first, skip what the bucket already holds, use multipart
+  for large files and publish the signed manifest last. Private archives are
+  refused. Requests use AWS Signature Version 4 from the standard library.
+
 - Add Nostr relays as a discovery channel (`nostr`). Mirrors publish their
   signed cards as replaceable kind-30471 events to several independent relays,
   and clients query any relays they choose. Events are checked with BIP340
