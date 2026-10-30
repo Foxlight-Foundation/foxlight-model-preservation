@@ -6,6 +6,8 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+## 0.23.0
+
 - Add **Help keep models available** to Sovereign's Sharing screen: one switch
   and one licence policy share every eligible backup from a long-lived mirror,
   with no per-model step. Setup asks once for standing consent, says plainly

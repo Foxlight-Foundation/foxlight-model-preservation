@@ -40,9 +40,9 @@ software signing, and an unfamiliar capture key still needs explicit review.
 
 The [independent Library](docs/sovereign-desktop.md) also supports signed catalog
 browsing, independent source following and offline search. The public Library
-0.22 installation archive includes both independent public packages.
+0.23 installation archive includes both independent public packages.
 For the independent interface, authenticate and extract the
-[Library 0.22 archive](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/library-v0.22.0),
+[Library 0.23 archive](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/library-v0.23.0),
 then select its desktop profile:
 
 ```sh
@@ -53,19 +53,24 @@ python3 install.py --directory "$HOME/sovereign-desktop" \
 
 This Python installation path needs Python 3.13+ and uv. Follow the
 [verification and offline installation guide](docs/installation.md) before
-executing the helper. The 0.22 desktop profile offers first-launch choices for **Browse public models**,
+executing the helper. The 0.23 desktop profile offers first-launch choices for **Browse public models**,
 **Choose a recovery kit** and **Choose a sharing file**, with reusable **Getting started** help.
 **Share** separates a kit to send from public-mirror review; **Recovery instructions**
 provides the saved copy’s public verification identifiers for separate comparison. No Skulk or managed SDK is required.
 
 ## Current public previews
 
-- **Standalone 0.26.0** includes persistent HTTP/IPFS/BitTorrent mirrors,
+- **Standalone 0.27.0** includes persistent HTTP/IPFS/BitTorrent mirrors,
   offline local-copy intake, portable handoffs, signed source following,
   retained-copy inspection/recovery-kit export, offline completion recovery,
   PirateFace lookup/intake and
   the separately opted-in I2P pilots.
-- **Library 0.22.0** adds independent source review/update/search and separate
+- **Standalone 0.27.0 / Library 0.23.0** add the community mirror network:
+  PMF archives travel natively, public copies share one identity per model and
+  terms, the desktop app's **Help keep models available** mirror shares every
+  eligible backup under one standing consent, and mirrors find each other
+  through signed cards, gossip, the BitTorrent DHT and Nostr relays.
+- **Library 0.22.0** added independent source review/update/search and separate
   capture-key acceptance to Find/Library/Activity through
   its `requirements-desktop.lock` installation profile. The default profile keeps
   the local interface through its separately pinned compatible Skulk Core. That
@@ -77,8 +82,8 @@ provides the saved copy’s public verification identifiers for separate compari
   also offer a durable offline local-byte check before kit preparation, without
   receiving, sharing or new trust.
 - Public releases are pre-releases. The v1 preservation format has its existing
-  compatibility commitment; PMF remains a separately versioned draft. Standalone
-  persistent mirrors serve the public v1 transport profile, not generic PMF.
+  compatibility commitment; PMF remains a separately versioned draft. Persistent
+  mirrors serve public v1 bundles and public PMF archives natively.
 
 Ordinary IPFS/BitTorrent participation is not anonymous. The
 [I2P HTTP](docs/i2p-http.md) pilot is receive-only at the application level and
@@ -90,13 +95,13 @@ censorship resistance for at-risk users.
 ## Install
 
 Python 3.11+ on Linux or macOS, with an authenticated Python/uv toolchain. Use the
-[0.26.0 installation archive](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/v0.26.0)
+[0.27.0 installation archive](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/v0.27.0)
 and its detached attestation bundle. [Verify it first](docs/installation.md),
 extract it, then install into a new directory:
 
 ```sh
-python3 install.py --directory "$HOME/sovereign-0.26.0"
-"$HOME/sovereign-0.26.0/bin/model-preserve" --help
+python3 install.py --directory "$HOME/sovereign-0.27.0"
+"$HOME/sovereign-0.27.0/bin/model-preserve" --help
 ```
 
 The archive contains the exact package wheel, source, hash-locked dependencies
