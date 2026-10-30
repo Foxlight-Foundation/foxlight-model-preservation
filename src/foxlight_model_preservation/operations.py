@@ -15,6 +15,7 @@ from .models import Digest, PreservationError, Record
 from .signing import digest, encode_record
 
 Operation = Literal[
+    "bucket_publish",
     "pack",
     "verify",
     "restore",
