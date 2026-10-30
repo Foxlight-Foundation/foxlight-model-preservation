@@ -97,6 +97,7 @@ class _Bucket(http.server.ThreadingHTTPServer):
     def __init__(self) -> None:
         super().__init__(("127.0.0.1", 0), _Handler)
         self.objects: dict[str, bytes] = {}
+        self.metadata: dict[str, dict[str, str]] = {}
         self.uploads: dict[str, dict[int, bytes]] = {}
         self.order: list[str] = []
         self.public = True
@@ -180,8 +181,16 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             self.store.fail_puts -= 1
             return self._reply(500, b"<Error><Code>InternalError</Code></Error>")
         self.store.objects[key] = body
+        self.store.metadata[key] = self._meta()
         self.store.order.append(key)
         return self._reply(200)
+
+    def _meta(self) -> dict[str, str]:
+        return {
+            name.lower(): value
+            for name, value in self.headers.items()
+            if name.lower().startswith("x-amz-meta-")
+        }
 
     def do_POST(self) -> None:
         body = self._body()
@@ -192,6 +201,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         if "uploads" in query:
             upload = str(len(self.store.uploads) + 1)
             self.store.uploads[upload] = {}
+            self.store.metadata["upload:" + upload] = self._meta()
             return self._reply(
                 200,
                 f"<InitiateMultipartUploadResult><UploadId>{upload}</UploadId>"
@@ -199,6 +209,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             )
         parts = self.store.uploads.pop(query["uploadId"])
         self.store.objects[key] = b"".join(parts[n] for n in sorted(parts))
+        self.store.metadata[key] = self.store.metadata.pop(
+            "upload:" + query["uploadId"]
+        )
         self.store.order.append(key)
         return self._reply(200, b"<CompleteMultipartUploadResult/>")
 
@@ -211,6 +224,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             return self._reply(404)
         self.send_response(200)
         self.send_header("Content-Length", str(len(data)))
+        for name, value in self.store.metadata.get(key, {}).items():
+            self.send_header(name, value)
         self.end_headers()
         return None
 
@@ -358,3 +373,59 @@ def test_the_setup_check_explains_what_is_wrong(capture: Capture) -> None:
         result = check_bucket(wrong, LOCAL)
         assert result["status"] == "upload"
         assert "wrong" not in str(result)
+
+
+def test_an_unverified_object_of_the_right_size_is_replaced(capture: Capture) -> None:
+    manifest = verify_store(capture.store, capture.identity, capture.trust)
+    file = manifest.members[0].files[0]
+    with bucket() as (server, client):
+        # Something else left wrong bytes of exactly the right length.
+        server.objects[object_path(file.sha256)] = b"x" * file.size
+        publish_to_bucket(capture.store, capture.identity, capture.trust, client)
+        stored = server.objects[object_path(file.sha256)]
+        assert hashlib.sha256(stored).hexdigest() == file.sha256
+
+
+def test_a_multipart_upload_that_does_not_hash_to_its_identity_is_aborted(
+    capture: Capture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+
+    from foxlight_model_preservation.operations import OperationControl
+
+    monkeypatch.setattr(module, "PART_SIZE", 3000)
+    file = verify_store(capture.store, capture.identity, capture.trust).members[0]
+    item = file.files[0]
+    with bucket() as (server, client):
+        root = os.open(capture.store, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            with pytest.raises(PreservationError, match="changed"):
+                client._multipart(  # noqa: SLF001 - the changed-bytes path
+                    "objects/test",
+                    root,
+                    object_path(item.sha256),
+                    item.size,
+                    "0" * 64,
+                    OperationControl(),
+                )
+        finally:
+            os.close(root)
+        assert "objects/test" not in server.objects and server.uploads == {}
+
+
+def test_keychain_failures_never_carry_the_keys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import subprocess
+    import traceback
+
+    def slow(command: list[str], **kwargs: object) -> None:
+        raise subprocess.TimeoutExpired(command, 30, output=str(kwargs.get("input")))
+
+    monkeypatch.setattr(subprocess, "run", slow)
+    with pytest.raises(PreservationError) as raised:
+        module.save_credentials("probe", KEYS)
+    rendered = "".join(traceback.format_exception(raised.value))
+    assert KEYS.secret_key not in rendered
+    assert KEYS.secret_key.encode().hex() not in rendered
+    assert raised.value.__cause__ is None and raised.value.__suppress_context__

@@ -41,6 +41,8 @@ from .storage import CHUNK_SIZE, directory, manifest_path, object_path, open_fil
 from .transfer import PinnedConnection, TransferPolicy
 
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
+# Recorded on each object only after its full SHA-256 was verified on upload.
+SHA256_METADATA = "x-amz-meta-sovereign-sha256"
 SINGLE_PUT_LIMIT = 64 * 1024**2
 PART_SIZE = 64 * 1024**2
 CHECK_PATH = ".well-known/sovereign/bucket-check.json"
@@ -183,6 +185,7 @@ class BucketCredentials:
             and 1 <= len(self.secret_key) <= 512
             and self.access_key.isprintable()
             and self.secret_key.isprintable()
+            and not any(char.isspace() for char in self.access_key + self.secret_key)
         ):
             raise PreservationError("bucket_credentials_invalid")
 
@@ -193,22 +196,26 @@ class BucketCredentials:
 # Keychain ------------------------------------------------------------------
 
 
-def save_credentials(key_name: str, credentials: BucketCredentials) -> None:
-    """Store a key pair in the OS keychain (macOS Keychain or Secret Service)."""
-    secret = credentials.access_key + "\n" + credentials.secret_key
+def save_credentials(
+    key_name: str, credentials: BucketCredentials, *, keychain: Path | None = None
+) -> None:
+    """Store a key pair in the OS keychain (macOS Keychain or Secret Service).
+
+    ``keychain`` selects a specific macOS keychain file instead of the default.
+    """
+    if not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", key_name):
+        raise PreservationError("bucket_key_name_invalid")
+    secret = credentials.access_key + " " + credentials.secret_key
     if os.uname().sysname == "Darwin":
-        command = [
-            "/usr/bin/security",
-            "add-generic-password",
-            "-U",
-            "-s",
-            KEYCHAIN_SERVICE,
-            "-a",
-            key_name,
-            "-w",
-            secret,
-        ]
-        _run(command, None)
+        # Interactive mode reads the command from stdin, so the secret never
+        # appears in any process's argument list; -X takes it hex-encoded.
+        _run(
+            ["/usr/bin/security", "-i"],
+            f"add-generic-password -U -s {KEYCHAIN_SERVICE} -a {key_name} "
+            f"-X {secret.encode().hex()}"
+            + (f" {_keychain_arg(keychain)}" if keychain else "")
+            + "\n",
+        )
     else:
         _run(
             [
@@ -223,9 +230,14 @@ def save_credentials(key_name: str, credentials: BucketCredentials) -> None:
             ],
             secret,
         )
+    # Some keychain front ends report success on failure; read the item back.
+    if load_credentials(key_name, keychain=keychain) != credentials:
+        raise PreservationError("bucket_keychain_unavailable")
 
 
-def load_credentials(key_name: str) -> BucketCredentials:
+def load_credentials(
+    key_name: str, *, keychain: Path | None = None
+) -> BucketCredentials:
     """Read a key pair back from the OS keychain."""
     if os.uname().sysname == "Darwin":
         raw = _run(
@@ -237,6 +249,7 @@ def load_credentials(key_name: str) -> BucketCredentials:
                 "-a",
                 key_name,
                 "-w",
+                *([str(keychain)] if keychain else []),
             ],
             None,
         )
@@ -245,8 +258,15 @@ def load_credentials(key_name: str) -> BucketCredentials:
             ["secret-tool", "lookup", "service", KEYCHAIN_SERVICE, "account", key_name],
             None,
         )
-    access, _, secret = raw.rstrip("\n").partition("\n")
+    access, _, secret = raw.rstrip("\n").partition(" ")
     return BucketCredentials(access, secret)
+
+
+def _keychain_arg(path: Path) -> str:
+    text = str(path)
+    if not re.fullmatch(r"[A-Za-z0-9._/~-]+", text):
+        raise PreservationError("bucket_keychain_path_invalid")
+    return text
 
 
 def _run(command: list[str], stdin: str | None) -> str:
@@ -259,8 +279,10 @@ def _run(command: list[str], stdin: str | None) -> str:
             timeout=30,
             check=False,
         )
-    except (OSError, subprocess.TimeoutExpired) as error:
-        raise PreservationError("bucket_keychain_unavailable") from error
+    except (OSError, subprocess.TimeoutExpired):
+        # The original exception can carry the command and its input; it is
+        # deliberately not chained.
+        raise PreservationError("bucket_keychain_unavailable") from None
     if completed.returncode != 0:
         # Keychain tools may echo arguments; never surface their output.
         raise PreservationError("bucket_keychain_unavailable")
@@ -430,8 +452,12 @@ class BucketClient:
             )
         return data
 
-    def head(self, key: str) -> int | None:
-        """Return an object's size, or None when the bucket does not hold it."""
+    def head(self, key: str) -> tuple[int, str] | None:
+        """Return an object's size and recorded SHA-256, or None if absent.
+
+        The SHA-256 is the value Sovereign recorded when it uploaded and
+        verified the object; an object without it is not trusted as complete.
+        """
         with self._request("HEAD", key) as response:
             response.read()
             if response.status == 404:
@@ -439,7 +465,10 @@ class BucketClient:
             if response.status != 200:
                 raise PreservationError(f"bucket_refused:{response.status}")
             length = response.getheader("Content-Length")
-            return int(length) if length and length.isdecimal() else None
+            return (
+                int(length) if length and length.isdecimal() else -1,
+                response.getheader(SHA256_METADATA, "") or "",
+            )
 
     def put_bytes(self, key: str, data: bytes, content_type: str) -> None:
         """Upload a small object whose bytes are already in memory."""
@@ -483,6 +512,9 @@ class BucketClient:
                 headers={
                     "Content-Type": "application/octet-stream",
                     "Cache-Control": "public, max-age=31536000, immutable",
+                    # The provider rejects a body whose SHA-256 differs from
+                    # the signed payload hash, so this record is truthful.
+                    SHA256_METADATA: sha256,
                 },
                 payload_hash=sha256,
                 body=send,
@@ -490,10 +522,16 @@ class BucketClient:
             ) as response:
                 self._check(response, 200)
             return
-        self._multipart(key, root, path, size, control)
+        self._multipart(key, root, path, size, sha256, control)
 
     def _multipart(
-        self, key: str, root: int, path: str, size: int, control: OperationControl
+        self,
+        key: str,
+        root: int,
+        path: str,
+        size: int,
+        sha256: str,
+        control: OperationControl,
     ) -> None:
         with self._request(
             "POST",
@@ -502,11 +540,13 @@ class BucketClient:
             headers={
                 "Content-Type": "application/octet-stream",
                 "Cache-Control": "public, max-age=31536000, immutable",
+                SHA256_METADATA: sha256,
             },
         ) as response:
             created = self._check(response, 200)
         upload = _xml_text(created, "UploadId")
         parts: list[tuple[int, str]] = []
+        whole = hashlib.sha256()
         try:
             with open_file(root, path) as stream:
                 number, offset = 1, 0
@@ -516,6 +556,7 @@ class BucketClient:
                     data = stream.read(count)
                     if len(data) != count:
                         raise PreservationError("object changed during upload")
+                    whole.update(data)
                     with self._request(
                         "PUT",
                         key,
@@ -529,6 +570,10 @@ class BucketClient:
                     parts.append((number, etag))
                     control.advance(copied=count)
                     number, offset = number + 1, offset + count
+            # The parts must add up to the exact object, or the upload is
+            # aborted before it can ever become visible.
+            if whole.hexdigest() != sha256:
+                raise PreservationError("object changed during upload")
             document = (
                 "<CompleteMultipartUpload>"
                 + "".join(
@@ -605,10 +650,10 @@ def publish_to_bucket(
             for file in archive_objects(manifest):
                 active.checkpoint()
                 key = object_path(file.sha256)
-                if client.head(key) == file.size:
-                    continue
+                if client.head(key) == (file.size, file.sha256):
+                    continue  # Uploaded and verified earlier by Sovereign.
                 client.put_file(key, root, key, file.size, file.sha256, active)
-                if client.head(key) != file.size:
+                if client.head(key) != (file.size, file.sha256):
                     raise PreservationError("bucket_object_incomplete")
                 sent += 1
             with open_file(root, manifest_path(manifest_id)) as stream:
