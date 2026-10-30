@@ -102,6 +102,7 @@ class _Bucket(http.server.ThreadingHTTPServer):
         self.order: list[str] = []
         self.public = True
         self.fail_puts = 0
+        self.prefix = ""
 
 
 class _Handler(http.server.BaseHTTPRequestHandler):
@@ -116,6 +117,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 
     def _parts(self) -> tuple[str, dict[str, str]]:
         parsed = urlsplit(self.path)
+        if self.store.prefix and parsed.path.startswith(self.store.prefix + "/"):
+            parsed = parsed._replace(path=parsed.path[len(self.store.prefix) :])
         return unquote(parsed.path), dict(
             parse_qsl(parsed.query, keep_blank_values=True)
         )
@@ -263,8 +266,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 
 
 @contextmanager
-def bucket() -> Generator[tuple[_Bucket, BucketClient]]:
+def bucket(prefix: str = "") -> Generator[tuple[_Bucket, BucketClient]]:
     server = _Bucket()
+    server.prefix = prefix
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     port = server.server_address[1]
@@ -273,7 +277,7 @@ def bucket() -> Generator[tuple[_Bucket, BucketClient]]:
         bucket="models",
         key_name="local",
         region="local-1",
-        endpoint=f"http://127.0.0.1:{port}",
+        endpoint=f"http://127.0.0.1:{port}{prefix}",
         public_url=f"http://127.0.0.1:{port}/public",
     )
     try:
@@ -429,3 +433,29 @@ def test_keychain_failures_never_carry_the_keys(
     assert KEYS.secret_key not in rendered
     assert KEYS.secret_key.encode().hex() not in rendered
     assert raised.value.__cause__ is None and raised.value.__suppress_context__
+
+
+def test_the_published_manifest_is_the_one_that_was_verified(
+    capture: Capture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = capture.store / manifest_path(capture.identity)
+    original = path.read_bytes()
+    real = BucketClient.put_file
+
+    def swap_then_upload(self: BucketClient, *args: object, **kwargs: object) -> None:
+        # The local manifest is replaced while objects are uploading.
+        path.chmod(0o600)
+        path.write_bytes(b'{"tampered": true}')
+        real(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(BucketClient, "put_file", swap_then_upload)
+    with bucket() as (server, client):
+        publish_to_bucket(capture.store, capture.identity, capture.trust, client)
+        assert server.objects[manifest_path(capture.identity)] == original
+
+
+def test_an_endpoint_behind_a_path_prefix_works(capture: Capture) -> None:
+    with bucket("/s3") as (server, client):
+        assert check_bucket(client, LOCAL)["status"] == "ready"
+        publish_to_bucket(capture.store, capture.identity, capture.trust, client)
+        assert manifest_path(capture.identity) in server.objects

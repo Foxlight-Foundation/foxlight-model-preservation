@@ -33,11 +33,19 @@ from xml.etree import ElementTree
 
 from pydantic import Field, field_validator, model_validator
 
-from .archives import archive_objects, verify_archive_contents
+from .archives import archive_objects, verify_archive_manifest
 from .mirror_cards import PEERS_PATH, base_url
 from .models import PreservationError, Record, TrustProfile
 from .operations import OperationControl
-from .storage import CHUNK_SIZE, directory, manifest_path, object_path, open_file
+from .storage import (
+    CHUNK_SIZE,
+    directory,
+    manifest_path,
+    object_path,
+    open_file,
+    read_metadata,
+    verify_object,
+)
 from .transfer import PinnedConnection, TransferPolicy
 
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
@@ -375,12 +383,14 @@ class BucketClient:
         assert parsed.hostname is not None  # noqa: S101 - validated by BucketTarget
         self._tls = parsed.scheme == "https"
         self._port = parsed.port or (443 if self._tls else 80)
+        # A service behind a reverse proxy may live under a path prefix.
+        base = parsed.path.rstrip("/")
         if target.path_style:
             self._host = parsed.hostname
-            self._prefix = f"/{target.bucket}"
+            self._prefix = f"{base}/{target.bucket}"
         else:
             self._host = f"{target.bucket}.{parsed.hostname}"
-            self._prefix = ""
+            self._prefix = base
 
     def _authority(self) -> str:
         default = 443 if self._tls else 80
@@ -640,7 +650,14 @@ def publish_to_bucket(
     """
     active = control or OperationControl()
     with active.operation("bucket_publish"):
-        manifest = verify_archive_contents(store, manifest_id, trust, active)
+        # These exact envelope bytes are verified now and published last; the
+        # file is never reread after the (possibly long) uploads.
+        with directory(store) as root:
+            envelope = read_metadata(root, manifest_path(manifest_id))
+            manifest = verify_archive_manifest(envelope, trust, manifest_id)
+            active.phase("checking")
+            for file in archive_objects(manifest):
+                verify_object(root, file, control=active)
         if any(member.intake.audience != "public" for member in manifest.members):
             raise PreservationError(
                 "bucket mirrors require public intake for every member"
@@ -656,8 +673,6 @@ def publish_to_bucket(
                 if client.head(key) != (file.size, file.sha256):
                     raise PreservationError("bucket_object_incomplete")
                 sent += 1
-            with open_file(root, manifest_path(manifest_id)) as stream:
-                envelope = stream.read()
         active.phase("publishing")
         client.put_bytes(manifest_path(manifest_id), envelope, "application/json")
         active.mark_committed()
