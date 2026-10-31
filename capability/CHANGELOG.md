@@ -6,6 +6,11 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Prepare Mac build 9 from the authenticated public core 0.27 / Library 0.23
+  installation archive, which adds Help keep models available. Native signing,
+  notarization and publication remain separate gates; Linux revision 4 follows
+  separately with its installer pins.
+
 ## 0.23.0
 
 - Add **Help keep models available** to Sovereign's Sharing screen: one switch

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Prepare Mac build 9 from the authenticated public core 0.27 / Library 0.23
+  installation archive, which adds Help keep models available. Native signing,
+  notarization and publication remain separate gates; Linux revision 4 follows
+  separately with its installer pins.
+
 - Add bucket mirrors (`bucket`). A public-read bucket at Cloudflare R2, Backblaze
   B2, Amazon S3, Wasabi or any S3-compatible service becomes a complete mirror
   with no server or open port. Provider presets need only a few answers; keys

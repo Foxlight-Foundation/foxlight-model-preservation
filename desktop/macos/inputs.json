@@ -1,13 +1,13 @@
 {
   "schema_version": "sovereign.macos-inputs.v1",
   "version": "0.1.0",
-  "build_number": "8",
+  "build_number": "9",
   "architecture": "arm64",
   "minimum_macos": "13.0",
   "library": {
-    "url": "https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.22.0/foxlight-preservation-library-0.22.0-install.zip",
-    "sha256": "801dfcc7ebb3449c5cbe904f5d4d2a90cc245e2e52eb08a86408c71fe9247819",
-    "source_revision": "2ecf0d21441ad9b1683dc971ef338334c45b6653"
+    "url": "https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.23.0/foxlight-preservation-library-0.23.0-install.zip",
+    "sha256": "7f0605ff46f460e9a4b19bb2fe6cc5de831e6d6687adca8195191123f4a59ff9",
+    "source_revision": "14db0a57fa54f5456a46162d2209873d8a43fb5a"
   },
   "python": {
     "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.13.13%2B20260408-aarch64-apple-darwin-install_only_stripped.tar.gz",

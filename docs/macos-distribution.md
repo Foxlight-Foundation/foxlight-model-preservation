@@ -13,9 +13,12 @@ rebuilding or signing them. Developer ID signing, Apple notarization and an
 installed-app journey remain separate checks. A locally passing Gatekeeper
 check does not establish clean-host acceptance, model compatibility or anonymity.
 
-The build8 recipe pairs the authenticated public core 0.26 / Library 0.22 cohort
-with first-launch choices, Getting started help, complete working-space reviews,
-separate kit/public-mirror sharing and recipient recovery instructions. The shared
+The build9 recipe pairs the authenticated public core 0.27 / Library 0.23 cohort,
+which adds **Help keep models available**: an opt-in, long-lived mirror of every
+backup whose licence allows it, with native PMF transport and decentralized mirror
+discovery. Build 8 paired core 0.26 / Library 0.22 with first-launch choices,
+Getting started help, complete working-space reviews, separate kit/public-mirror
+sharing and recipient recovery instructions. The shared
 preservation foundation includes complete companions, verified backup folders,
 explicit finite sharing, independent source following and offline search. The
 Horizon interface explains model inputs/outputs, purpose, file variants and trust
