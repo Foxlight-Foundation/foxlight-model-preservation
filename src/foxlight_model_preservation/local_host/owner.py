@@ -516,6 +516,27 @@ class LocalOwner:
                 raise PreservationError("invalid_control")
             with self._backup_call():
                 return self.backups.setup(str(body["review_id"]))
+        if action in {"community-bucket-connect", "community-bucket-disconnect"}:
+            # Checking a bucket uploads and downloads over the network; do not
+            # hold the owner lock meanwhile.
+            with self._lock:
+                self._check()
+                if self._closing:
+                    raise PreservationError("sovereign_owner_closing")
+            if action == "community-bucket-connect":
+                result = self.community.connect_bucket(body)
+            elif not body:
+                self.community.disconnect_bucket()
+                result = {"status": "disconnected"}
+            else:
+                raise PreservationError("invalid_control")
+            with self._lock:
+                # The next discovery round uploads to the new bucket and
+                # announces its address.
+                if self._gossip_control is not None:
+                    self._gossip_control.cancel()
+                self._gossip_wake.set()
+                return {**result, **self.community.read(self._journal.copies)}
         with self._lock:
             self._check()
             if self._closing:
@@ -1421,6 +1442,12 @@ class LocalOwner:
                 # turning the DHT off takes effect immediately.
                 self._gossip_wake.wait(900)
                 self._gossip_wake.clear()
+            if not self._stopping.is_set():
+                # Sharing was turned off: withdraw models from a connected
+                # bucket too, so it stops offering them.
+                self.community.sync_bucket(OperationControl())
+        except (ValueError, OSError):
+            pass  # Retried the next time sharing turns on.
         finally:
             self.community.close_rendezvous()
 
@@ -1452,7 +1479,15 @@ class LocalOwner:
                     self._community_thread = None
                 return
             try:
+                before = self.community.held()
                 self.community.sync(copies, control)
+                if (
+                    self.community.held() != before
+                    and self.community.bucket() is not None
+                ):
+                    # Upload newly shared models to the bucket now rather than
+                    # at the next discovery round.
+                    self._gossip_wake.set()
                 if not self._community_wake.is_set():
                     self.community.last_error = None
                     try:

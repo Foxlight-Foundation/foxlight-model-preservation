@@ -277,6 +277,35 @@ def _keychain_arg(path: Path) -> str:
     return text
 
 
+def delete_credentials(key_name: str, *, keychain: Path | None = None) -> None:
+    """Remove a stored key pair; a missing entry is already removed."""
+    if not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", key_name):
+        raise PreservationError("bucket_key_name_invalid")
+    if os.uname().sysname == "Darwin":
+        command = [
+            "/usr/bin/security",
+            "delete-generic-password",
+            "-s",
+            KEYCHAIN_SERVICE,
+            "-a",
+            key_name,
+            *([str(keychain)] if keychain else []),
+        ]
+    else:
+        command = [
+            "secret-tool",
+            "clear",
+            "service",
+            KEYCHAIN_SERVICE,
+            "account",
+            key_name,
+        ]
+    try:
+        _run(command, None)
+    except PreservationError:
+        pass  # Already absent, or the keychain is unavailable; nothing to leak.
+
+
 def _run(command: list[str], stdin: str | None) -> str:
     try:
         completed = subprocess.run(  # noqa: S603 - fixed system keychain tools
