@@ -19,6 +19,11 @@ working-space reviews, separate kit/public-mirror sharing and recovery instructi
 passed on native Ubuntu 24.04 amd64 and arm64, including offline GUI recovery and
 restart. These installed-app checks are separate from package build provenance.
 
+The current source recipe targets **0.1.0-4**, pairing core 0.27 / Library 0.23,
+which adds the opt-in **Help keep models available** mirror on the Sharing screen.
+Its packages, signed apt indexes and qualification are published separately; until
+then the channel, guided setup and evidence on this page remain revision 3.
+
 ## Requirements and tested systems
 
 Setup checks capabilities, not distribution names or release numbers. Compatible

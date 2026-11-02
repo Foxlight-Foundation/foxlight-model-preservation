@@ -8,8 +8,10 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 - Prepare Mac build 9 from the authenticated public core 0.27 / Library 0.23
   installation archive, which adds Help keep models available. Native signing,
-  notarization and publication remain separate gates; Linux revision 4 follows
-  separately with its installer pins.
+  notarization and publication remain separate gates.
+- Prepare Linux revision 4 from the same core 0.27 / Library 0.23 archive. The
+  guided setup keeps pinning the published revision 3 packages until the
+  revision 4 packages and signed apt indexes are public.
 
 ## 0.23.0
 

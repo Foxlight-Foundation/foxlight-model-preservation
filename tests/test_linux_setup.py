@@ -321,7 +321,14 @@ def test_verification_uses_reviewed_native_release():
     import json
 
     manifest = json.loads((ROOT / "desktop/linux/inputs.json").read_text())
-    assert setup.VERSION == manifest["version"] + "-" + manifest["revision"]
+    version, revision = setup.VERSION.rsplit("-", 1)
+    assert version == manifest["version"]
+    # Setup pins published packages only, so the recipe may lead by one
+    # revision until its packages and signed apt indexes are public.
+    assert int(manifest["revision"]) - int(revision) in (0, 1)
+    for workflow in ("apt-install.yml", "linux-setup.yml", "linux-graphical-setup.yml"):
+        text = (ROOT / ".github/workflows" / workflow).read_text()
+        assert 'foxlight-sovereign)" = ' + setup.VERSION + "\n" in text
     assert all(len(value) == 64 for value in setup.PACKAGES.values())
     assert setup.SOURCE == (
         b"deb [signed-by=/usr/share/keyrings/sovereign-archive-keyring.gpg] "
