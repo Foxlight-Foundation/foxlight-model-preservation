@@ -34,7 +34,9 @@ export function CloudStorage<T extends {bucket:BucketSummary|null;bucket_provide
    <Row k="Keeping a copy in">{bucket.provider_name} · {bucket.bucket}</Row>
    <Row k="People download from"><code>{bucket.public_url}</code></Row>
    <Row k="Models in the bucket">{bucket.model_count}{bucket.last_synced?` · checked ${new Date(bucket.last_synced*1000).toLocaleString()}`:' · uploading…'}</Row>
-   {bucket.last_error&&<Callout tone="warn">The last upload didn’t finish ({errorText(bucket.last_error)}). It tries again on its own.</Callout>}
+   {bucket.last_error==='bucket_upload_limit_reached'
+    ?<Callout>Your upload limit is used up for now, so the rest uploads when it renews. Cloud uploads count toward the same daily and monthly limits as sharing from this computer.</Callout>
+    :bucket.last_error&&<Callout tone="warn">The last upload didn’t finish ({errorText(bucket.last_error)}). It tries again on its own.</Callout>}
    <p>Disconnecting forgets the keys on this computer. Whatever is already in the bucket stays there; turn sharing off first if you want Sovereign to withdraw the models.</p>
    {error&&!open&&<Callout tone="bad" role="alert">{bucketError(error)}</Callout>}
    <div className="sk-actions"><button className="sk-btn sk-outline" disabled={busy} onClick={()=>void send('desktop-community-bucket-disconnect',{})}>Disconnect</button></div>

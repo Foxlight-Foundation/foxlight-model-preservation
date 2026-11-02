@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import ipaddress
 import os
+import re
 import secrets
 import shutil
 import socket
@@ -192,6 +193,32 @@ class CommunityPolicy(Record):
         return result
 
 
+def _bucket_failure(error: BaseException) -> str:
+    """A bucket failure the app can explain, never exception text or a URL."""
+    code = str(error)
+    if isinstance(error, PreservationError) and re.fullmatch(
+        r"bucket_[a-z_]{1,60}", code
+    ):
+        return code
+    return failure_code(error)
+
+
+def _reserve(ledger: MirrorLedger, count: int) -> bool:
+    """Charge bucket uploads to the mirror's limits, waiting out brief contention.
+
+    Serving charges the same ledger and holds its lock only for one small write,
+    so a busy lock means "a moment", not "over the limit".
+    """
+    for _attempt in range(50):
+        try:
+            return ledger.reserve(count)
+        except PreservationError as error:
+            if str(error) != "another writer owns this destination":
+                raise
+            time.sleep(0.1)
+    return ledger.reserve(count)
+
+
 class BucketState(Record):
     """A connected cloud bucket; it names a keychain entry and holds no secret."""
 
@@ -280,6 +307,9 @@ def _data_members(manifest: Manifest) -> tuple[ManifestMember, ...]:
 class CommunityMirror:
     """Own the app's single long-lived public mirror and its standing choice."""
 
+    # Requests to a connected bucket's endpoint and public address.
+    bucket_policy = TransferPolicy(timeout=60, deadline_seconds=86400)
+
     def __init__(self, home: Path, sharing: Sharing) -> None:
         self.home = home
         self.sharing = sharing
@@ -289,11 +319,11 @@ class CommunityMirror:
         self.failures: dict[str, str] = {}
         self.directory = MirrorDirectory(home / "mirror-directory")
         self.rendezvous: Rendezvous | None = None
-        # Requests to the bucket's endpoint and public address.
-        self.bucket_policy = TransferPolicy(timeout=60, deadline_seconds=86400)
         # Connecting, disconnecting and sync progress replace bucket.json; this
         # keeps a long sync from writing over a bucket connected meanwhile.
         self._bucket_lock = threading.Lock()
+        # One reconciliation at a time: discovery rounds and withdrawal retries.
+        self._bucket_sync_lock = threading.Lock()
         # Gossip rounds (and the rendezvous they own) never overlap.
         self._gossip_lock = threading.Lock()
 
@@ -774,15 +804,31 @@ class CommunityMirror:
     def sync_bucket(self, control: OperationControl) -> BucketState | None:
         """Keep the bucket matching what this mirror serves.
 
-        Each served model is uploaded (only missing objects travel, manifest
-        last). A model that is withheld or no longer eligible is withdrawn by
-        removing only its manifest, and turning sharing off withdraws them all.
-        Failures are recorded and retried later.
+        Unwanted models are withdrawn first, by removing only their manifest, so
+        a failing upload can never keep a withheld model public. Turning sharing
+        off withdraws them all. Each served model is then uploaded (only missing
+        objects travel, manifest last), charged to the same daily and monthly
+        upload limits as serving. One model's failure does not stop the others;
+        failures are recorded and retried later.
         """
-        state = self.bucket()
-        if state is None:
+        with self._bucket_sync_lock:
+            return self._sync_bucket(control)
+
+    def _sync_bucket(self, control: OperationControl) -> BucketState | None:
+        found = self.bucket()
+        if found is None:
             return None
+        state: BucketState = found
         synced = list(state.synced)
+        failure: str | None = None
+
+        def save() -> bool:
+            nonlocal state
+            state = state.model_copy(
+                update={"synced": tuple(synced), "last_error": failure}
+            )
+            return self._save_bucket(state)
+
         try:
             client = BucketClient(
                 state.target,
@@ -790,44 +836,49 @@ class CommunityMirror:
                 self.bucket_policy,
             )
             try:
-                models = MirrorLedger(self.path / "mirror").read().models
+                ledger = MirrorLedger(self.path / "mirror")
+                models = ledger.read().models
             except FileNotFoundError:
-                models = {}
+                # Never shared yet: there is nothing to upload, only to withdraw.
+                ledger, models = None, {}
             held = self.held() if self.consented() else frozenset[str]()
-            for identity in sorted(held - set(synced)):
-                if identity not in models:
-                    continue
-                control.checkpoint()
-                publish_to_bucket(
-                    self.path / "mirror/store",
-                    identity,
-                    models[identity].grant.trust,
-                    client,
-                    control=control.fork(),
-                )
-                synced.append(identity)
-                state = state.model_copy(update={"synced": tuple(synced)})
-                if not self._save_bucket(state):
-                    return self.bucket()
             for identity in [item for item in synced if item not in held]:
                 control.checkpoint()
                 remove_from_bucket(client, identity)
                 synced.remove(identity)
-            state = state.model_copy(
-                update={
-                    "synced": tuple(synced),
-                    "last_error": None,
-                    "last_synced": int(time.time()),
-                }
-            )
+                if not save():
+                    return self.bucket()
+            for identity in sorted(held - set(synced)):
+                if ledger is None or identity not in models:
+                    continue
+                control.checkpoint()
+                try:
+                    publish_to_bucket(
+                        self.path / "mirror/store",
+                        identity,
+                        models[identity].grant.trust,
+                        client,
+                        control=control.fork(),
+                        reserve=lambda count: _reserve(ledger, count),
+                    )
+                except OperationError:
+                    raise
+                except (ValueError, OSError) as error:
+                    failure = _bucket_failure(error)
+                    if str(error) == "bucket_upload_limit_reached":
+                        break  # The allowance renews; try again then.
+                    continue  # Other models may still upload.
+                synced.append(identity)
+                if not save():
+                    return self.bucket()
         except OperationError:
-            _ = self._save_bucket(state.model_copy(update={"synced": tuple(synced)}))
+            _ = save()
             raise
         except (ValueError, OSError) as error:
-            state = state.model_copy(
-                update={"synced": tuple(synced), "last_error": failure_code(error)}
-            )
-        return state if self._save_bucket(state) else self.bucket()
+            failure = _bucket_failure(error)
+        else:
+            state = state.model_copy(update={"last_synced": int(time.time())})
+        return state if save() else self.bucket()
 
     def held(self) -> frozenset[str]:
         """Public identities this mirror retains and serves right now."""

@@ -102,6 +102,7 @@ class _Bucket(http.server.ThreadingHTTPServer):
         self.order: list[str] = []
         self.public = True
         self.fail_puts = 0
+        self.fail_deletes = 0
         self.prefix = ""
 
 
@@ -235,6 +236,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     def do_DELETE(self) -> None:
         if not self._authorized(b""):
             return self._reply(403)
+        if self.store.fail_deletes:
+            self.store.fail_deletes -= 1
+            return self._reply(503, b"<Error><Code>SlowDown</Code></Error>")
         path, query = self._parts()
         if "uploadId" in query:
             self.store.uploads.pop(query["uploadId"], None)

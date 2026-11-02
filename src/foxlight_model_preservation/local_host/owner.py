@@ -143,6 +143,8 @@ class LocalOwner:
             self._gossip_thread: threading.Thread | None = None
             self._gossip_control: OperationControl | None = None
             self._gossip_wake = threading.Event()
+            self._withdraw_thread: threading.Thread | None = None
+            self._withdraw_control: OperationControl | None = None
             self._stopping = threading.Event()
             self._lock = threading.RLock()
             self._idle = threading.Condition(self._lock)
@@ -199,6 +201,9 @@ class LocalOwner:
             # The owner's single standing consent resumes serving after restart.
             if self.community.consented():
                 self._community_refresh()
+            else:
+                # A withdrawal that failed before the last shutdown resumes.
+                self._bucket_withdrawal()
         except BaseException:
             self._stack.close()
             raise
@@ -229,10 +234,13 @@ class LocalOwner:
                 control.cancel()
             community = self._community_thread
             gossip = self._gossip_thread
+            withdraw = self._withdraw_thread
             self._stopping.set()
             self._gossip_wake.set()
             if self._gossip_control is not None:
                 self._gossip_control.cancel()
+            if self._withdraw_control is not None:
+                self._withdraw_control.cancel()
             self._community_wake.set()
             if self._community_control is not None:
                 self._community_control.cancel()
@@ -240,6 +248,8 @@ class LocalOwner:
             community.join()
         if gossip is not None:
             gossip.join()
+        if withdraw is not None:
+            withdraw.join()
         self._executor.shutdown(wait=True)
         self._sharing_executor.shutdown(wait=True)
         with self._idle:
@@ -566,6 +576,7 @@ class LocalOwner:
                     # Turning sharing off always stops the running mirror, even
                     # if saving or revoking failed part-way.
                     if not self.community.consented():
+                        self._bucket_withdrawal()
                         if self._community_control is not None:
                             self._community_control.cancel()
                         # Opting out also stops discovery traffic in progress.
@@ -1442,14 +1453,55 @@ class LocalOwner:
                 # turning the DHT off takes effect immediately.
                 self._gossip_wake.wait(900)
                 self._gossip_wake.clear()
-            if not self._stopping.is_set():
-                # Sharing was turned off: withdraw models from a connected
-                # bucket too, so it stops offering them.
-                self.community.sync_bucket(OperationControl())
-        except (ValueError, OSError):
-            pass  # Retried the next time sharing turns on.
         finally:
             self.community.close_rendezvous()
+            # Sharing was turned off: withdraw models from a connected bucket
+            # too, so it stops offering them.
+            self._bucket_withdrawal()
+
+    # Seconds before retrying a withdrawal the bucket refused; doubles.
+    _withdraw_retry = 30.0
+
+    def _bucket_withdrawal(self) -> None:
+        """Start withdrawing from the bucket while sharing is off, if needed."""
+        with self._lock:
+            if self._closing or self.community.consented():
+                return
+            if self._withdraw_thread is not None and self._withdraw_thread.is_alive():
+                return
+            self._withdraw_thread = threading.Thread(
+                target=self._withdraw_loop, name="sovereign-withdraw", daemon=True
+            )
+            self._withdraw_thread.start()
+
+    def _withdraw_loop(self) -> None:
+        """Retry until the bucket offers nothing, sharing resumes, or shutdown.
+
+        Opting out must stop the bucket offering models even if it was briefly
+        unreachable, and even across restarts, without renewed consent.
+        """
+        delay = self._withdraw_retry
+        while not self._stopping.is_set() and not self.community.consented():
+            state = self.community.bucket()
+            if state is None or not state.synced:
+                return
+            control = OperationControl()
+            with self._lock:
+                if self._stopping.is_set():
+                    return
+                self._withdraw_control = control
+            try:
+                self.community.sync_bucket(control)
+            except (ValueError, OSError):
+                pass  # Recorded on the bucket state; retried below.
+            finally:
+                with self._lock:
+                    self._withdraw_control = None
+            state = self.community.bucket()
+            if state is None or not state.synced:
+                return
+            self._stopping.wait(delay)
+            delay = min(delay * 2, 900.0)
 
     def _community_loop(self) -> None:
         while True:
@@ -1481,12 +1533,13 @@ class LocalOwner:
             try:
                 before = self.community.held()
                 self.community.sync(copies, control)
-                if (
-                    self.community.held() != before
-                    and self.community.bucket() is not None
+                bucket = self.community.bucket()
+                if bucket is not None and (
+                    self.community.held() != before or bucket.last_error is not None
                 ):
-                    # Upload newly shared models to the bucket now rather than
-                    # at the next discovery round.
+                    # Upload newly shared models now rather than at the next
+                    # discovery round, and retry a failed upload once the
+                    # mirror has applied changed settings such as upload limits.
                     self._gossip_wake.set()
                 if not self._community_wake.is_set():
                     self.community.last_error = None

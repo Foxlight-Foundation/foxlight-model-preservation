@@ -235,3 +235,171 @@ def test_a_sync_never_writes_over_a_bucket_connected_meanwhile(
             assert owner.community.bucket() == new
     finally:
         owner.close()
+
+
+def _shared(owner: LocalOwner, server, client) -> str:
+    """Turn sharing on with a connected bucket; return the shared identity."""
+    endpoint, public_url = addresses(client)
+    assert (
+        owner.control("community-bucket-connect", details(endpoint, public_url))[
+            "status"
+        ]
+        == "ready"
+    )
+    return wait_for(
+        lambda: next(
+            (
+                row["public_manifest_id"]
+                for row in owner.control("community-read", {})["copies"]
+                if row["status"] == "sharing"
+            ),
+            None,
+        )
+    )
+
+
+def test_bucket_uploads_count_against_the_owners_upload_limits(
+    tmp_path: Path, capture: Capture, keychain: dict[str, BucketCredentials]
+) -> None:
+    owner = LocalOwner(tmp_path / "owner")
+    owner.community.bucket_policy = LOCAL
+    try:
+        saved(owner, tmp_path, capture)
+        with bucket() as (server, client):
+            enable(owner, free_port())
+            # Far less than the model: nothing may be sent beyond it.
+            owner.control("community-configure", {"daily_upload_bytes": 64})
+            _shared(owner, server, client)
+            view = wait_for(
+                lambda: (
+                    (owner.control("community-read", {})["bucket"] or {}).get(
+                        "last_error"
+                    )
+                    == "bucket_upload_limit_reached"
+                    and owner.control("community-read", {})
+                )
+            )
+            assert view["bucket"]["model_count"] == 0
+            assert not any(key.startswith("objects/") for key in server.objects)
+            # A larger allowance lets the next round finish the upload, and the
+            # bytes sent show up in the same usage counters as serving.
+            owner.control("community-configure", {"daily_upload_bytes": 2**30})
+            done = wait_for(
+                lambda: (
+                    (owner.control("community-read", {})["bucket"] or {}).get(
+                        "model_count"
+                    )
+                    == 1
+                    and owner.control("community-read", {})
+                )
+            )
+            assert done["uploaded_today_bytes"] > 0
+    finally:
+        owner.close()
+
+
+def test_a_withdrawal_the_bucket_refused_is_retried_while_sharing_is_off(
+    tmp_path: Path,
+    capture: Capture,
+    keychain: dict[str, BucketCredentials],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(LocalOwner, "_withdraw_retry", 0.1)
+    owner = LocalOwner(tmp_path / "owner")
+    owner.community.bucket_policy = LOCAL
+    try:
+        saved(owner, tmp_path, capture)
+        with bucket() as (server, client):
+            enable(owner, free_port())
+            identity = _shared(owner, server, client)
+            wait_for(lambda: manifest_path(identity) in server.objects)
+            wait_for(lambda: owner.community.bucket().synced == (identity,))
+            server.fail_deletes = 3
+            owner.control("community-configure", {"enabled": False})
+            wait_for(lambda: owner.community.bucket().synced == ())
+            assert manifest_path(identity) not in server.objects
+            assert server.fail_deletes == 0
+    finally:
+        owner.close()
+
+
+def test_a_withdrawal_left_over_from_a_previous_run_resumes_at_start(
+    tmp_path: Path,
+    keychain: dict[str, BucketCredentials],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stale = "b" * 64
+    monkeypatch.setattr(module.CommunityMirror, "bucket_policy", LOCAL)
+    monkeypatch.setattr(LocalOwner, "_withdraw_retry", 0.1)
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        with bucket() as (server, client):
+            endpoint, public_url = addresses(client)
+            owner.control("community-bucket-connect", details(endpoint, public_url))
+            state = owner.community.bucket()
+            assert state is not None
+            assert owner.community._save_bucket(
+                state.model_copy(update={"synced": (stale,)})
+            )
+            server.objects[manifest_path(stale)] = b"{}"
+            owner.close()
+            again = LocalOwner(tmp_path / "owner")
+            try:
+                wait_for(lambda: again.community.bucket().synced == ())
+                assert manifest_path(stale) not in server.objects
+            finally:
+                again.close()
+    finally:
+        owner.close()
+
+
+def test_a_failing_upload_never_keeps_a_withdrawn_model_public(
+    tmp_path: Path,
+    keychain: dict[str, BucketCredentials],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    from foxlight_model_preservation.operations import OperationControl
+
+    wanted, unwanted = "a" * 64, "b" * 64
+    owner = LocalOwner(tmp_path / "owner")
+    owner.community.bucket_policy = LOCAL
+    try:
+        with bucket() as (server, client):
+            endpoint, public_url = addresses(client)
+            owner.control("community-bucket-connect", details(endpoint, public_url))
+            state = owner.community.bucket()
+            assert state is not None
+            owner.community._save_bucket(
+                state.model_copy(update={"synced": (unwanted,)})
+            )
+            server.objects[manifest_path(unwanted)] = b"{}"
+
+            class Ledger:
+                def __init__(self, path: Path) -> None:
+                    pass
+
+                def read(self):
+                    grant = SimpleNamespace(trust=None)
+                    return SimpleNamespace(
+                        models={wanted: SimpleNamespace(grant=grant)}
+                    )
+
+                def reserve(self, count: int) -> bool:
+                    return True
+
+            def failing(*args, **kwargs):
+                raise module.PreservationError("bucket_request_failed")
+
+            monkeypatch.setattr(module, "MirrorLedger", Ledger)
+            monkeypatch.setattr(module, "publish_to_bucket", failing)
+            monkeypatch.setattr(owner.community, "held", lambda: frozenset({wanted}))
+            monkeypatch.setattr(owner.community, "consented", lambda policy=None: True)
+            result = owner.community.sync_bucket(OperationControl())
+            assert result is not None
+            assert manifest_path(unwanted) not in server.objects
+            assert result.synced == ()
+            assert result.last_error == "bucket_request_failed"
+    finally:
+        owner.close()

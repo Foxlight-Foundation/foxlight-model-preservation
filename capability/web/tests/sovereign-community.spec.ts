@@ -155,3 +155,11 @@ test('choosing another provider asks only what that provider needs',async({page}
  await page.getByRole('button',{name:'Check and connect',exact:true}).click();
  await expect(page.getByRole('alert')).toContainText('Bucket names use lowercase letters');
 });
+
+test('a bucket waiting on the upload limit says so plainly',async({page})=>{
+ await page.route('**/api/desktop-community-read',r=>r.fulfill({json:view(true,{bucket:{...connected,model_count:0,last_error:'bucket_upload_limit_reached'}})}));
+ await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();
+ const panel=page.getByRole('region',{name:'Help keep models available'});
+ await expect(panel.getByText('the rest uploads when it renews',{exact:false})).toBeVisible();
+ await expect(panel.getByText('didn’t finish',{exact:false})).toHaveCount(0);
+});
