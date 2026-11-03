@@ -115,8 +115,11 @@ above select the macOS 14.0 build: a macOS 15 host would otherwise download the
 15.0 build. The builder refuses any bundled native code that needs a newer macOS
 than 14.0. The wheel brings its own `libssl` and `libcrypto` dylibs; the release
 signer signs every Mach-O file in the app individually with the hardened runtime,
-so these need no special handling for notarization. The app still declares macOS
-13, where the DHT binding is not supported; the rest of the app is unaffected.
+so these need no special handling for notarization. The app keeps its macOS 13
+minimum. On macOS 13 the bundled extension, built for macOS 14.0, is expected to
+fail to load. Python raises `ImportError`, which `mirror_rendezvous._binding`
+catches, so the DHT is reported unavailable and the mirror runs without it. The
+rest of the app is unaffected. This path has not been run on a macOS 13 host.
 
 The build verifies the archive pins before creating its output. It extracts
 confined runtime files, installs the hash-locked public dependencies without an
@@ -134,7 +137,11 @@ directories and `Resources/runtime-notices/`. The latter contains upstream
 dependency notices omitted from the small runtime archive, copied from the
 matching hash-verified full Python build. `SOURCES.json` records that archive and
 every notice digest; the builder checks and retains this inventory. Some full
-build notices cover components not used by this application.
+build notices cover components not used by this application. The builder also
+adds the notices in [`desktop/notices/`](../desktop/notices/) for bundled wheels
+that ship none: libtorrent's upstream `LICENSE` at tag v2.0.14 (BSD-3-Clause,
+with the notices of the components it includes). Its `SOURCES.json` records the
+exact URL and digest, and the build receipt lists it with the runtime notices.
 
 ## Bundled commands
 

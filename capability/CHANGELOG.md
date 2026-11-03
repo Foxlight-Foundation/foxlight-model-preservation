@@ -15,7 +15,8 @@ tagged `library-v*`; versions without a tag are source previews installed from
   mirror port as a Sovereign mirror to anyone who looks; it is not anonymous.
   The Mac wheelhouse now selects libtorrent's macOS 14.0 build and the Mac
   builder refuses bundled native code that needs a newer macOS; the DHT binding
-  is not supported on macOS 13. Linux needs no new apt dependency.
+  is not supported on macOS 13. Linux needs no new apt dependency. Both
+  builds ship libtorrent's upstream BSD-3-Clause notice (v2.0.14 `LICENSE`).
 - Prepare Mac build 9 from the authenticated public core 0.27 / Library 0.23
   installation archive, which adds Help keep models available. Native signing,
   notarization and publication remain separate gates.

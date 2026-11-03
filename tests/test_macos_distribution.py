@@ -36,6 +36,8 @@ def test_substituted_native_input_refuses(tmp_path):
 def test_runtime_notice_inventory_retained(tmp_path):
     retained = build.copy_runtime_notices(tmp_path)
     assert "LICENSE.openssl-3.txt" in retained
+    # The bundled DHT wheel ships no licence file; its upstream notice is added.
+    assert "LICENSE.libtorrent.txt" in retained
     for name, expected in retained.items():
         assert build.digest(tmp_path / "runtime-notices" / name) == expected
 
@@ -85,6 +87,23 @@ def test_bundled_native_code_newer_than_the_dht_floor_refuses(tmp_path):
     (native / "__init__.cpython-313-darwin.so").write_bytes(macho(15, 0))
     with pytest.raises(ValueError, match="macosx_14_0_arm64"):
         build.check_native_floor(tmp_path)
+
+
+def test_bundled_notices_are_exact_upstream_libtorrent_licence(tmp_path):
+    retained = build.copy_bundled_notices(tmp_path)
+    assert set(retained) == {"LICENSE.libtorrent.txt"}
+    text = (tmp_path / "LICENSE.libtorrent.txt").read_text()
+    assert text.startswith("Copyright (c) 2003-2020, Arvid Norberg")
+    assert "Redistributions in binary form must reproduce" in text
+    record = json.loads(
+        (Path(build.PROJECT) / "desktop/notices/SOURCES.json").read_bytes()
+    )
+    assert record["sources"]["LICENSE.libtorrent.txt"]["url"].endswith(
+        "arvidn/libtorrent/v2.0.14/LICENSE"
+    )
+    # Linux appends the same notices to its runtime-notice set; never twice.
+    with pytest.raises(ValueError, match="duplicate"):
+        build.copy_bundled_notices(tmp_path)
 
 
 @pytest.mark.parametrize("name", ["../outside", "/outside", "python/../../outside"])

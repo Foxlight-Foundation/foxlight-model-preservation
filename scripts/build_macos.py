@@ -179,6 +179,26 @@ def copy_runtime_notices(resources: Path) -> dict[str, str]:
             raise ValueError("unsafe runtime notice name")
         check_input(source / name, expected)
     shutil.copytree(source, resources / "runtime-notices")
+    return {**members, **copy_bundled_notices(resources / "runtime-notices")}
+
+
+def copy_bundled_notices(target: Path) -> dict[str, str]:
+    """Add notices for bundled wheels that ship none, e.g. libtorrent's licence.
+
+    desktop/notices/SOURCES.json records each file's exact upstream URL and
+    digest; both desktop builds copy them beside the Python runtime notices.
+    """
+    source = PROJECT / "desktop/notices"
+    record = json.loads((source / "SOURCES.json").read_bytes())
+    members: dict[str, str] = record["members"]
+    names = {path.name for path in source.iterdir()}
+    if names != {*members, "SOURCES.json"} or set(record["sources"]) != set(members):
+        raise ValueError("bundled notice inventory changed")
+    for name, expected in members.items():
+        if Path(name).name != name or (target / name).exists():
+            raise ValueError("unsafe or duplicate bundled notice name")
+        check_input(source / name, expected)
+        shutil.copyfile(source / name, target / name)
     return members
 
 

@@ -264,7 +264,10 @@ Input pins, native package provenance and signed APT metadata remain separate tr
 
 `desktop/linux/inputs.json` pins the public Library archive and separate native
 Python archives for both architectures. The original notices and build inventory
-come from each architecture's matching full upstream Python archive. A builder
+come from each architecture's matching full upstream Python archive. The builder
+adds the digest-checked notices in [`desktop/notices/`](../desktop/notices/) to
+the same `runtime-notices` directory, such as libtorrent's upstream BSD-3-Clause
+`LICENSE` at tag v2.0.14, because that wheel ships no licence file. A builder
 checks every input digest before staging and records exact software and source
 identities, including whether the recipe checkout was dirty.
 
