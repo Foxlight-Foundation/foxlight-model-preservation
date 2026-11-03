@@ -40,6 +40,14 @@ from .invitations import (
 )
 from .kits import export_kit, import_kit, inspect_kit, verify_kit
 from .mirror_cli import MirrorArguments, register_mirror_commands, run_mirror_command
+from .mirror_directory import fetch_with_mirrors
+from .mirror_directory_cli import (
+    DirectoryArguments,
+    add_receive_options,
+    receive_discovery,
+    register_directory_commands,
+    run_directory_command,
+)
 from .models import MAX_METADATA_BYTES, Catalog, PreservationError, Recipe, TrustProfile
 from .operations import OperationCancelled, OperationControl, Progress, failure_code
 from .peer_cli import PeerArguments, register_peer_commands, run_peer_command
@@ -86,6 +94,7 @@ class Arguments(
     MirrorArguments,
     PirateFaceArguments,
     I2PArguments,
+    DirectoryArguments,
 ):
     """Typed parser output; each command uses only its declared arguments."""
 
@@ -211,6 +220,7 @@ def argument_parser() -> argparse.ArgumentParser:
     register_peer_commands(commands.add_parser)
     register_handoff_commands(commands.add_parser)
     register_mirror_commands(commands.add_parser)
+    register_directory_commands(commands.add_parser)
     register_pirateface_commands(commands.add_parser)
     register_i2p_commands(commands.add_parser)
     register_i2p_http_commands(commands.add_parser)
@@ -325,6 +335,7 @@ def argument_parser() -> argparse.ArgumentParser:
     download.add_argument("--max-bytes", type=int, default=20 * 1024**3)
     download.add_argument("--allow-private", action="store_true")
     download.add_argument("--allow-http", action="store_true")
+    add_receive_options(download)
     invitation = commands.add_parser(
         "invite", help="export public signed metadata and mirror hints; no hosting"
     )
@@ -361,6 +372,7 @@ def argument_parser() -> argparse.ArgumentParser:
         "--operation-id", help="retain cumulative allowance on retry"
     )
     receiving.add_argument("--progress", action="store_true")
+    add_receive_options(receiving)
     materialize = commands.add_parser(
         "restore", help="restore member layouts into a new directory"
     )
@@ -630,6 +642,8 @@ def run(
         return run_pirateface_command(arguments, control or OperationControl())
     if arguments.command in {"mirror", "i2p"}:
         return run_mirror_command(arguments, control or OperationControl())
+    if arguments.command == "mirrors":
+        return run_directory_command(arguments, control)
     if arguments.command in HANDOFF_COMMANDS:
         return run_handoff_command(arguments, control or OperationControl())
     if arguments.command.startswith("peer-"):
@@ -850,17 +864,21 @@ def run(
     elif arguments.command == "fetch":
         if not isinstance(arguments.manifest, str):
             raise PreservationError("one exact manifest identity required")
-        manifest = fetch(
+        policy = TransferPolicy(
+            max_bytes=arguments.max_bytes,
+            deadline_seconds=arguments.deadline_seconds,
+            allow_private=arguments.allow_private,
+            allow_http=arguments.allow_http,
+        )
+        mirrors, seeds = receive_discovery(arguments, policy, control)
+        manifest = fetch_with_mirrors(
             arguments.manifest,
             trust,
             tuple(arguments.mirror),
             arguments.store,
-            TransferPolicy(
-                max_bytes=arguments.max_bytes,
-                deadline_seconds=arguments.deadline_seconds,
-                allow_private=arguments.allow_private,
-                allow_http=arguments.allow_http,
-            ),
+            policy,
+            mirrors=mirrors,
+            seeds=seeds,
             control=control,
             operation_id=arguments.operation_id,
         )
@@ -1007,18 +1025,22 @@ def _invitation_commands(
     if arguments.save_trust is not None:
         authenticate_invitation(invitation, trust)
         _save_invitation_trust(arguments.save_trust, trust)
+    policy = TransferPolicy(
+        max_bytes=arguments.max_bytes,
+        deadline_seconds=arguments.deadline_seconds,
+        allow_private=arguments.allow_private,
+        allow_http=arguments.allow_http,
+    )
+    mirrors, seeds = receive_discovery(arguments, policy, control)
     received = fetch_invitation(
         invitation,
         trust,
         arguments.store,
-        TransferPolicy(
-            max_bytes=arguments.max_bytes,
-            deadline_seconds=arguments.deadline_seconds,
-            allow_private=arguments.allow_private,
-            allow_http=arguments.allow_http,
-        ),
+        policy,
         control=control,
         operation_id=arguments.operation_id,
+        mirrors=mirrors,
+        seeds=seeds,
     )
     return {
         "manifest": invitation.manifest_id,
@@ -1146,6 +1168,7 @@ def main() -> int:
     } or arguments.command.startswith(("pmf-", "peer-", "handoff-"))
     controlled = controlled or arguments.command in {
         "mirror",
+        "mirrors",
         "pirateface",
         "i2p",
         "i2p-http",

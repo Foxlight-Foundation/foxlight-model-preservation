@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 from pydantic import Field, field_validator, model_validator
 
 from .archives import ArchiveManifest, verify_archive_manifest
+from .mirror_directory import MirrorDirectory, fetch_with_mirrors
 from .models import (
     MAX_METADATA_BYTES,
     Digest,
@@ -24,7 +25,7 @@ from .signing import (
     strict_json,
 )
 from .storage import directory, manifest_path, read_metadata
-from .transfer import DEFAULT_POLICY, TransferPolicy, fetch
+from .transfer import DEFAULT_POLICY, TransferPolicy
 
 
 def normalize_mirror_bases(values: tuple[str, ...]) -> tuple[str, ...]:
@@ -229,6 +230,8 @@ def fetch_invitation(
     *,
     control: OperationControl | None = None,
     operation_id: str | None = None,
+    mirrors: MirrorDirectory | None = None,
+    seeds: tuple[str, ...] = (),
 ) -> ArchiveManifest:
     """Receive the exact public copy with existing pinned-DNS/budget verification.
 
@@ -239,6 +242,9 @@ def fetch_invitation(
         policy: Finite allowance/deadlines; HTTP/private addresses need opt-in.
         control: Optional cooperative progress/cancellation owner.
         operation_id: Retained identity for cumulative allowance across retries.
+        mirrors: Optional private directory; discovered mirrors that pass the
+            same policy are tried after the signed hints and scored afterwards.
+        seeds: Untrusted seed addresses offered while not yet scored.
 
     Sender authentication fails before any source is contacted. The existing
     fetcher then reauthenticates the same manifest before weight requests and
@@ -248,12 +254,14 @@ def fetch_invitation(
     """
     checked = read_invitation(encode_record(invitation))
     authenticate_invitation(checked, trust)
-    return fetch(
+    return fetch_with_mirrors(
         checked.manifest_id,
         trust,
         checked.mirrors,
         destination,
         policy,
+        mirrors=mirrors,
+        seeds=seeds,
         control=control,
         operation_id=operation_id,
     )

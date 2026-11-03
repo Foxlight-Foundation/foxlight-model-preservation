@@ -31,13 +31,18 @@ from .discovery_models import (
     SourceBootstrap,
 )
 from .discovery_publish import DiscoverySigningKeys, publish_catalog
+from .mirror_directory_cli import (
+    DirectoryArguments,
+    add_receive_options,
+    receive_discovery,
+)
 from .models import PreservationError
 from .operations import OperationControl
 from .signing import canonical_bytes, encode_record, load_key, load_trust, strict_json
 from .transfer import TransferPolicy
 
 
-class DiscoveryArguments(argparse.Namespace):
+class DiscoveryArguments(DirectoryArguments):
     """Discovery-only arguments shared with the existing command parser."""
 
     cache: Path
@@ -197,6 +202,7 @@ def register_commands(add_parser: Callable[..., argparse.ArgumentParser]) -> Non
             command.add_argument("--allow-http", action="store_true")
             command.add_argument("--allow-local", action="store_true")
             command.add_argument("--operation-id")
+            add_receive_options(command)
 
 
 def _input(path: Path, maximum: int = MAX_STATE_BYTES) -> bytes:
@@ -311,6 +317,13 @@ def run_command(
     if arguments.command != "source-fetch" or arguments.bundle_trust is None:
         raise PreservationError("source fetch needs independent bundle trust")
     trust = load_trust(_input(arguments.bundle_trust, 8 * 1024 * 1024))
+    policy = TransferPolicy(
+        max_bytes=arguments.max_bytes,
+        deadline_seconds=arguments.deadline_seconds,
+        allow_private=arguments.allow_private,
+        allow_http=arguments.allow_http,
+    )
+    mirrors, seeds = receive_discovery(arguments, policy, control)
     manifest = fetch_selection(
         arguments.cache,
         arguments.source_id,
@@ -318,15 +331,12 @@ def run_command(
         arguments.expected_manifest_id,
         trust,
         arguments.store,
-        TransferPolicy(
-            max_bytes=arguments.max_bytes,
-            deadline_seconds=arguments.deadline_seconds,
-            allow_private=arguments.allow_private,
-            allow_http=arguments.allow_http,
-        ),
+        policy,
         control=control,
         operation_id=arguments.operation_id,
         allow_local=arguments.allow_local,
+        mirrors=mirrors,
+        seeds=seeds,
     )
     return {
         "manifest": arguments.expected_manifest_id,
