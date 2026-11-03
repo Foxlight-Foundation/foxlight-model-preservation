@@ -317,6 +317,16 @@ nothing is shared yet, there is no reachable address, an `https://` address
 cannot be carried by the DHT, or this copy of Sovereign lacks the DHT
 component. The DHT announces only while something is actually shared.
 
+The app records which announcement disclosure a consent was given under
+(`announce-review.json`, beside the unchanged policy file, so older versions
+still read the policy). A consent given in an earlier version, which turned both
+announcements on without this disclosure, keeps sharing exactly as before, but
+announces nothing on the DHT or Nostr: the status says both are waiting for your
+review, and **Choose how people find this computer** shows the same disclosure
+and toggles. Saving turns on exactly what you chose, without asking you to
+consent to sharing again. Consenting again without the disclosure, for example
+in an older version, needs a new review.
+
 **Check address** fetches `/.well-known/sovereign/peers.json` from your public
 address, from this computer, and says whether this mirror answered there. It
 contacts no other service and, like any visitor, follows public routes only.

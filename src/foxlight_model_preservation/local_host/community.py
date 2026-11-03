@@ -251,6 +251,26 @@ class BucketState(Record):
     last_synced: int | None = None
 
 
+# The version of the announcement disclosure (DHT and Nostr) the app shows before
+# consent. A consent recorded without it announces nothing until reviewed.
+ANNOUNCE_DISCLOSURE = 1
+
+
+class AnnounceReview(Record):
+    """Which announcement disclosure one standing consent was given under.
+
+    Kept beside the policy rather than in it, so a policy written by this
+    version still reads in older apps. A review covers exactly one consent:
+    a new consent, or one renewed elsewhere, needs a new review.
+    """
+
+    schema_version: Literal["sovereign.community-announce-review.v1"] = (
+        "sovereign.community-announce-review.v1"
+    )
+    disclosure: int = Field(ge=1)
+    consent_expires: int = Field(ge=0)
+
+
 class Joined(Record):
     """Which public identity each saved copy contributes to the mirror."""
 
@@ -394,6 +414,28 @@ class CommunityMirror:
             and selected.consent_expires > int(time.time())
         )
 
+    def announce_reviewed(self, policy: CommunityPolicy | None = None) -> bool:
+        """Whether the current consent was given with the announcement disclosure."""
+        selected = policy or self.policy()
+        try:
+            with directory(self.path) as root:
+                review = AnnounceReview.model_validate_json(
+                    read_metadata(root, "announce-review.json")
+                )
+        except (FileNotFoundError, ValueError):
+            return False
+        return (
+            review.disclosure >= ANNOUNCE_DISCLOSURE
+            and review.consent_expires == selected.consent_expires
+        )
+
+    def announcing(self) -> tuple[bool, bool]:
+        """The DHT and Nostr choices in force: both off until reviewed."""
+        policy = self.policy()
+        if not self.announce_reviewed(policy):
+            return False, False
+        return policy.announce_dht, policy.publish_nostr
+
     def configure(self, body: dict[str, JsonValue]) -> CommunityPolicy:
         """Apply a bounded change to the standing choice.
 
@@ -414,11 +456,19 @@ class CommunityMirror:
             "publish_nostr",
             "nostr_relays",
             "rarest_first",
+            "announce_disclosure",
         }
         if not body or not set(body) <= allowed:
             raise PreservationError("invalid_control")
+        disclosed = "announce_disclosure" in body
+        if disclosed and body["announce_disclosure"] != ANNOUNCE_DISCLOSURE:
+            raise PreservationError("invalid_control")
         policy = self.policy()
-        changes = {key: value for key, value in body.items() if key != "consent"}
+        changes = {
+            key: value
+            for key, value in body.items()
+            if key not in {"consent", "announce_disclosure"}
+        }
         if body.get("enabled") is True:
             if body.get("consent") is not True:
                 raise PreservationError("community_consent_required")
@@ -438,7 +488,28 @@ class CommunityMirror:
                 if isinstance(cause, PreservationError):
                     raise PreservationError(str(cause)) from None
             raise PreservationError("invalid_control") from None
+        if "enabled" in body and not disclosed:
+            # A consent recorded or revoked without the disclosure leaves no
+            # earlier review behind, even within the same second.
+            try:
+                with directory(self.path) as root:
+                    os.unlink("announce-review.json", dir_fd=root)
+            except FileNotFoundError:
+                pass
         self._save(updated)
+        # Saved after the policy: if this write fails, announcing stays off.
+        if disclosed and self.consented(updated) and updated.consent_expires:
+            with directory(self.path, create=True) as root:
+                atomic_bytes(
+                    root,
+                    "announce-review.json",
+                    encode_record(
+                        AnnounceReview(
+                            disclosure=ANNOUNCE_DISCLOSURE,
+                            consent_expires=updated.consent_expires,
+                        )
+                    ),
+                )
         if not updated.enabled:
             # The saved opt-out already stops new serving; the owner cancels the
             # running controller regardless. A grant that cannot be cleared now
@@ -1015,7 +1086,7 @@ class CommunityMirror:
         else:
             self._close_rendezvous()
         current = self.policy()
-        relays = current.nostr_relays if current.publish_nostr else ()
+        relays = current.nostr_relays if self.announcing()[1] else ()
         if relays:
             # Cards found on relays are verified like any other; relays only
             # see this mirror's address, which its card publishes anyway.
@@ -1036,9 +1107,12 @@ class CommunityMirror:
         computer has a public address. An HTTPS endpoint cannot be expressed
         that way, so it relies on cards, gossip and relays instead.
         """
-        policy = self.policy()
-        if not policy.announce_dht:
+        if not self.announcing()[0]:
             return None
+        return self._reachable_port(self.policy())
+
+    def _reachable_port(self, policy: CommunityPolicy) -> int | None:
+        """The plain HTTP port people reach, whatever the announcement choice."""
         if policy.public_url is not None:
             parsed = urlsplit(policy.public_url)
             if parsed.scheme != "http" or parsed.path not in {"", "/"}:
@@ -1101,9 +1175,12 @@ class CommunityMirror:
         own = self.addresses()
         bucket = self.bucket()
         bucket_live = bucket is not None and bool(bucket.synced)
-        port = self.dht_port()
+        port = self._reachable_port(policy)
+        review = consented and not self.announce_reviewed(policy)
         dht_reasons: list[JsonValue] = []
-        if not policy.announce_dht:
+        if review:
+            dht_reasons.append("awaiting_review")
+        elif not policy.announce_dht:
             dht_reasons.append("turned_off")
         else:
             if not consented:
@@ -1119,7 +1196,9 @@ class CommunityMirror:
                     else "no_reachable_address"
                 )
         nostr_reasons: list[JsonValue] = []
-        if not policy.publish_nostr:
+        if review:
+            nostr_reasons.append("awaiting_review")
+        elif not policy.publish_nostr:
             nostr_reasons.append("turned_off")
         elif not policy.nostr_relays:
             nostr_reasons.append("no_relays")
@@ -1135,6 +1214,7 @@ class CommunityMirror:
             "dht_announcing": not dht_reasons,
             "nostr_publishing": not nostr_reasons,
             "announce_reasons": {"dht": dht_reasons, "nostr": nostr_reasons},
+            "announce_review_required": review,
         }
 
     def check_address(self) -> dict[str, JsonValue]:

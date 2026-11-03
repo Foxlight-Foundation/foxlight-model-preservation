@@ -629,6 +629,7 @@ def test_reachable_mirror_publishes_its_card_to_the_chosen_relays(
                 "public_url": f"http://127.0.0.1:{port}",
                 "publish_nostr": True,
                 "nostr_relays": relays,
+                "announce_disclosure": 1,
             },
         )
         published.clear()
@@ -796,5 +797,95 @@ def test_address_check_finds_this_mirror_card_and_refuses_private_routes(
         assert owner.control("community-check-address", {})["outcome"] == (
             "unreachable"
         )
+    finally:
+        owner.close()
+
+
+def test_a_consent_given_before_the_disclosure_announces_nothing_until_reviewed(
+    tmp_path: Path, capture: Capture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from foxlight_model_preservation.local_host import community as module
+    from foxlight_model_preservation.operations import OperationControl
+
+    published: list[tuple[str, ...]] = []
+    queried: list[tuple[str, ...]] = []
+    joined: list[int] = []
+    monkeypatch.setattr(
+        module,
+        "publish_card",
+        lambda card, key, relays, policy, control=None: published.append(tuple(relays)),
+    )
+    monkeypatch.setattr(
+        module,
+        "find_cards",
+        lambda relays, policy, control=None: queried.append(tuple(relays)) or [],
+    )
+    monkeypatch.setattr(module, "rendezvous_available", lambda: True)
+
+    class Lab:
+        def __init__(self) -> None:
+            joined.append(1)
+
+        def announce(self, *args: object, **kwargs: object) -> None: ...
+
+        def lookup(self, *args: object, **kwargs: object) -> tuple[str, ...]:
+            return ()
+
+        def close(self) -> None: ...
+
+    monkeypatch.setattr(module, "Rendezvous", Lab)
+    port = free_port()
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        saved(owner, tmp_path, capture)
+        # What an earlier app stored: consent with both announcements on by
+        # default, and no record of having shown what they reveal.
+        owner.control(
+            "community-configure",
+            {
+                "enabled": True,
+                "consent": True,
+                "port": port,
+                "public_url": f"http://127.0.0.1:{port}",
+                "licenses": [*DEFAULT_LICENSES, "test-only"],
+            },
+        )
+        wait_for(lambda: owner.control("community-read", {})["sharing_count"] == 1)
+        stored = (owner.home / "sharing/community/policy.json").read_bytes()
+        # The policy format is unchanged, so older apps still read it.
+        assert b"disclosure" not in stored
+        state = owner.control("community-read", {})
+        assert state["announce_review_required"] is True
+        assert state["announce_reasons"] == {
+            "dht": ["awaiting_review"],
+            "nostr": ["awaiting_review"],
+        }
+        assert state["dht_announcing"] is False
+        assert state["nostr_publishing"] is False
+        expires = state["policy"]["consent_expires"]
+        published.clear()
+        queried.clear()
+        joined.clear()
+        owner.community.gossip(OperationControl())
+        assert (published, queried, joined) == ([], [], [])
+        assert owner.community.dht_port() is None
+        # Serving itself is untouched.
+        assert owner.control("community-read", {})["sharing_count"] == 1
+        # Reviewing turns on exactly what was chosen, without a new consent.
+        state = owner.control(
+            "community-configure",
+            {"announce_dht": False, "publish_nostr": True, "announce_disclosure": 1},
+        )
+        assert state["announce_review_required"] is False
+        assert state["policy"]["consent_expires"] == expires
+        assert state["announce_reasons"]["dht"] == ["turned_off"]
+        owner.community.gossip(OperationControl())
+        assert published and queried and joined == []
+        with pytest.raises(PreservationError, match="invalid_control"):
+            owner.control("community-configure", {"announce_disclosure": 2})
+        # A consent given again without the disclosure needs a new review.
+        owner.control("community-configure", {"enabled": False})
+        state = owner.control("community-configure", {"enabled": True, "consent": True})
+        assert state["announce_review_required"] is True
     finally:
         owner.close()

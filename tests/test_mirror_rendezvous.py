@@ -121,6 +121,7 @@ def test_reachable_app_mirror_announces_itself_on_the_dht(
                 "public_url": f"http://127.0.0.1:{port}",
                 "licenses": [*DEFAULT_LICENSES, "test-only"],
                 "publish_nostr": False,
+                "announce_disclosure": 1,
             },
         )
         wait_for(lambda: owner.control("community-read", {})["sharing_count"] == 1)
@@ -152,7 +153,15 @@ def test_dht_announces_only_a_port_people_can_actually_reach(tmp_path: Path) -> 
     from foxlight_model_preservation.local_host.sharing import Sharing
 
     community = CommunityMirror(tmp_path, Sharing(tmp_path))
-    community.configure({"public_url": "http://mirror.example:18080"})
+    # Only a consent given with the announcement disclosure announces at all.
+    community.configure(
+        {
+            "enabled": True,
+            "consent": True,
+            "announce_disclosure": 1,
+            "public_url": "http://mirror.example:18080",
+        }
+    )
     assert community.dht_port() == 18080  # The forwarded public port.
     community.configure({"public_url": "http://203.0.113.9/"})
     assert community.dht_port() == 80
@@ -193,6 +202,7 @@ def test_opting_out_leaves_the_dht_immediately(
                 "public_url": f"http://127.0.0.1:{port}",
                 "licenses": [*DEFAULT_LICENSES, "test-only"],
                 "publish_nostr": False,
+                "announce_disclosure": 1,
             },
         )
         wait_for(lambda: owner.community.rendezvous is not None, seconds=60)

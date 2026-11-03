@@ -11,7 +11,10 @@
   `dht_available`, `dht_announcing`, `nostr_publishing` and the reasons when
   either is not announcing. **Check address** fetches the public address's
   peers document from this computer only, labelled as a best-effort check. The
-  DHT now announces only while something is shared.
+  DHT now announces only while something is shared. A consent given before
+  this disclosure keeps sharing but announces nothing on the DHT or Nostr
+  until the owner reviews **Choose how people find this computer**; the
+  review is recorded beside the policy, which keeps its format.
 - Help keep models available can keep a copy in the owner's own cloud bucket.
   Connecting checks upload and anonymous public download before anything is
   saved; keys go only to the OS keychain. Shared models upload as soon as they
