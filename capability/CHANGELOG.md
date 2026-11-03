@@ -17,6 +17,12 @@ tagged `library-v*`; versions without a tag are source previews installed from
   builder refuses bundled native code that needs a newer macOS; the DHT binding
   is not supported on macOS 13. Linux needs no new apt dependency. Both
   builds ship libtorrent's upstream BSD-3-Clause notice (v2.0.14 `LICENSE`).
+- Help keep models available gains Cloud storage: pick a provider (Cloudflare
+  R2 is preselected), answer only what it needs, paste a key and choose Check
+  and connect. A failed check explains whether the upload or the public
+  download failed. Once connected the panel shows where people download from
+  and how many models the bucket holds.
+
 - Prepare Mac build 9 from the authenticated public core 0.27 / Library 0.23
   installation archive, which adds Help keep models available. Native signing,
   notarization and publication remain separate gates.

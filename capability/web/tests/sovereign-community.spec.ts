@@ -8,8 +8,14 @@ const copies=[
  {copy_id:other,name:'Community image model',size_bytes:2048,status:'license_not_selected',licenses:['CC-BY-4.0'],public_manifest_id:null},
  {copy_id:none,name:'Unlabelled model',size_bytes:4096,status:'no_license',licenses:[],public_manifest_id:null},
 ];
+const providers=[
+ {id:'r2',name:'Cloudflare R2',asks:['account_id','bucket','public_url'],note:'Recommended: R2 charges nothing for downloads.'},
+ {id:'b2',name:'Backblaze B2',asks:['region','bucket'],note:'Create a public bucket.'},
+ {id:'other',name:'Other S3-compatible storage',asks:['endpoint','region','bucket','public_url'],note:'For MinIO.'},
+];
+const connected={provider:'r2',provider_name:'Cloudflare R2',bucket:'my-models',public_url:'https://pub-abc.r2.dev',model_count:1,last_synced:2000000000,last_error:null};
 const reach={status:'private_network',local_address:'192.168.1.20',port:8743,mirror_url:'http://192.168.1.20:8743'};
-function view(on:boolean,overrides:Record<string,unknown>={}){return {policy:{...policy,enabled:on,consent_expires:on?2000000000:null},consented:on,default_licenses:defaults,copies:on?copies.map(item=>item.status==='eligible'?{...item,status:'sharing',public_manifest_id:'d'.repeat(64)}:item):copies,sharing_count:on?1:0,running:on,http_port:on?8743:null,reachability:reach,last_error:null,uploaded_today_bytes:0,uploaded_this_month_bytes:0,...overrides};}
+function view(on:boolean,overrides:Record<string,unknown>={}){return {policy:{...policy,enabled:on,consent_expires:on?2000000000:null},consented:on,default_licenses:defaults,copies:on?copies.map(item=>item.status==='eligible'?{...item,status:'sharing',public_manifest_id:'d'.repeat(64)}:item):copies,sharing_count:on?1:0,running:on,http_port:on?8743:null,reachability:reach,last_error:null,bucket:null,bucket_providers:providers,uploaded_today_bytes:0,uploaded_this_month_bytes:0,...overrides};}
 
 test.beforeEach(async({page})=>{
  await page.route('**/api/library*',r=>r.fulfill({json:{host_kind:'sovereign',copies:[copy],jobs:[],next_offset:null}}));
@@ -96,4 +102,83 @@ test('a failed status refresh keeps an open setup sheet usable',async({page})=>{
  await page.getByRole('button',{name:'Close sharing setup'}).click();
  await expect(page.locator('#sovereign-main')).not.toHaveAttribute('inert','');
  await expect(panel).toBeVisible();
+});
+
+test('cloud storage is checked end to end before it is saved, then shown plainly',async({page})=>{
+ let bucket:Record<string,unknown>|null=null;const sent:Record<string,unknown>[]=[];let disconnected=false;
+ await page.route('**/api/desktop-community-read',r=>r.fulfill({json:view(true,{bucket})}));
+ await page.route('**/api/desktop-community-bucket-connect',r=>{const body=r.request().postDataJSON();sent.push(body);
+  // The first try fails the public download; the second passes.
+  if(sent.length===1)return r.fulfill({json:{...view(true),status:'public'}});
+  bucket=connected;return r.fulfill({json:{...view(true,{bucket}),status:'ready'}});});
+ await page.route('**/api/desktop-community-bucket-disconnect',r=>{disconnected=true;bucket=null;return r.fulfill({json:{...view(true),status:'disconnected'}});});
+ await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();
+ const panel=page.getByRole('region',{name:'Help keep models available'});
+ await expect(panel.getByText('people anywhere can download from it',{exact:false})).toBeVisible();
+ await panel.getByRole('button',{name:'Set up cloud storage',exact:true}).click();
+ // R2 is preselected, and only its three questions plus the key are asked.
+ await expect(page.getByRole('radio',{name:/Cloudflare R2/})).toBeChecked();
+ await expect(page.getByLabel('Region')).toHaveCount(0);
+ const go=page.getByRole('button',{name:'Check and connect',exact:true});
+ await expect(go).toBeDisabled();
+ await page.getByLabel('Account ID').fill('0'.repeat(32));
+ await page.getByLabel('Bucket name').fill('my-models');
+ await page.getByLabel('Public address').fill('https://pub-abc.r2.dev');
+ await page.getByLabel('Access key ID').fill('AKIAEXAMPLE');
+ await expect(page.getByLabel('Secret access key')).toHaveAttribute('type','password');
+ await page.getByLabel('Secret access key').fill('s3cret');
+ await go.click();
+ await expect(page.getByText('nobody could download from the public address',{exact:false})).toBeVisible();
+ expect(sent[0]).toEqual({provider:'r2',account_id:'0'.repeat(32),bucket:'my-models',public_url:'https://pub-abc.r2.dev',access_key:'AKIAEXAMPLE',secret_key:'s3cret'});
+ await go.click();
+ await expect(page.getByRole('button',{name:'Check and connect'})).toHaveCount(0);
+ await expect(panel.getByText('Cloudflare R2 · my-models',{exact:true})).toBeVisible();
+ await expect(panel.getByText('https://pub-abc.r2.dev',{exact:true})).toBeVisible();
+ // The secret never appears on the page once connected.
+ expect(await page.content()).not.toContain('s3cret');
+ await panel.getByRole('button',{name:'Disconnect',exact:true}).click();
+ expect(disconnected).toBe(true);
+ await expect(panel.getByRole('button',{name:'Set up cloud storage',exact:true})).toBeVisible();
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
+});
+
+test('choosing another provider asks only what that provider needs',async({page})=>{
+ await page.route('**/api/desktop-community-read',r=>r.fulfill({json:view(true)}));
+ await page.route('**/api/desktop-community-bucket-connect',r=>r.fulfill({status:400,json:{error:'bucket_details_invalid'}}));
+ await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();
+ await page.getByRole('region',{name:'Help keep models available'}).getByRole('button',{name:'Set up cloud storage',exact:true}).click();
+ await page.getByRole('radio',{name:/Backblaze B2/}).check();
+ await expect(page.getByLabel('Account ID')).toHaveCount(0);
+ await expect(page.getByLabel('Public address')).toHaveCount(0);
+ await page.getByLabel('Region').fill('us-west-004');await page.getByLabel('Bucket name').fill('Bad Name');
+ await page.getByLabel('Access key ID').fill('k');await page.getByLabel('Secret access key').fill('s');
+ await page.getByRole('button',{name:'Check and connect',exact:true}).click();
+ await expect(page.getByRole('alert')).toContainText('Bucket names use lowercase letters');
+});
+
+test('a bucket waiting on the upload limit says so plainly',async({page})=>{
+ await page.route('**/api/desktop-community-read',r=>r.fulfill({json:view(true,{bucket:{...connected,model_count:0,last_error:'bucket_upload_limit_reached'}})}));
+ await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();
+ const panel=page.getByRole('region',{name:'Help keep models available'});
+ await expect(panel.getByText('the rest uploads when it renews',{exact:false})).toBeVisible();
+ await expect(panel.getByText('didn’t finish',{exact:false})).toHaveCount(0);
+});
+
+test('a connected bucket stays visible after sharing is turned off, until it is empty and disconnected',async({page})=>{
+ let bucket:Record<string,unknown>|null={...connected,model_count:2};
+ await page.route('**/api/desktop-community-read',r=>r.fulfill({json:view(false,{bucket})}));
+ await page.route('**/api/desktop-community-bucket-disconnect',r=>{bucket=null;return r.fulfill({json:{...view(false),status:'disconnected'}});});
+ await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();
+ const panel=page.getByRole('region',{name:'Help keep models available'});
+ await expect(panel.getByText('Off',{exact:true})).toBeVisible();
+ await expect(panel.getByText('taking your models out of the bucket',{exact:false})).toBeVisible();
+ // An upload whose outcome was never confirmed may still be public.
+ bucket={...connected,model_count:0,withdraw_count:1,last_error:'bucket_request_failed'};
+ await expect(panel.getByText('The bucket refused the last attempt',{exact:false})).toBeVisible({timeout:10000});
+ await expect(panel.getByText('your models are out of the bucket',{exact:false})).toHaveCount(0);
+ bucket={...connected,model_count:0,withdraw_count:0};
+ await expect(panel.getByText('your models are out of the bucket',{exact:false})).toBeVisible({timeout:10000});
+ await expect(panel.getByRole('button',{name:'Set up cloud storage'})).toHaveCount(0);
+ await panel.getByRole('button',{name:'Disconnect',exact:true}).click();
+ await expect(panel.getByRole('button',{name:'Disconnect'})).toHaveCount(0);
 });

@@ -13,6 +13,14 @@
   builder refuses bundled native code that needs a newer macOS; the DHT binding
   is not supported on macOS 13. Linux needs no new apt dependency. Both
   builds ship libtorrent's upstream BSD-3-Clause notice (v2.0.14 `LICENSE`).
+- Help keep models available can keep a copy in the owner's own cloud bucket.
+  Connecting checks upload and anonymous public download before anything is
+  saved; keys go only to the OS keychain. Shared models upload as soon as they
+  join, withheld ones are withdrawn, and turning sharing off withdraws them all.
+  The mirror's signed card then points at the bucket, so a computer behind a
+  router is still discoverable. Disconnecting forgets the keys and leaves the
+  bucket's contents alone.
+
 - Prepare Mac build 9 from the authenticated public core 0.27 / Library 0.23
   installation archive, which adds Help keep models available. Native signing,
   notarization and publication remain separate gates.
