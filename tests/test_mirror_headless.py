@@ -755,7 +755,8 @@ def test_review_shows_everything_consented_to(tmp_path, capture):
         assert key.key_id in text
     assert "test-only: LICENSE" in text and "bootstrap id" in text
     assert "2 GiB" in text and "8 GiB per UTC month" in text
-    assert "http://m.example" in text and "Nostr" in text
+    assert re.search(r"^Public URL: +http://m\.example$", text, re.MULTILINE)
+    assert "Nostr" in text
     assert "not anonymous" in text and "plain http://" in text
     assert "directly reachable" in text
     assert summary["anonymous"] is False and summary["warnings"]
@@ -915,7 +916,9 @@ def test_container_without_consent_is_plan_only(tmp_path):
     calls = log.read_text().splitlines()
     assert len(calls) == 1 and "--plan-only" in calls[0]
     assert "--yes-i-consent-to-public-serving" not in calls[0]
-    assert "https://mirror.example" in calls[0] and "500G" in calls[0]
+    arguments = calls[0].split()
+    assert arguments[arguments.index("--public-url") + 1] == "https://mirror.example"
+    assert arguments[arguments.index("--disk-bytes") + 1] == "500G"
     # Only the exact consent value enables serving.
     log.unlink()
     environment["SOVEREIGN_MIRROR_CONSENT"] = "yes"
