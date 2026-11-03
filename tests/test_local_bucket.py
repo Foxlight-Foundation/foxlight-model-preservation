@@ -159,23 +159,19 @@ def test_a_home_mirror_behind_a_router_is_found_through_its_bucket(
                         "model_count"
                     )
                     == 1
-                )
+                ),
+                seconds=120,
             )
             assert manifest_path(identity) in server.objects
-            card = verify_card(
-                wait_for(
-                    lambda: next(
-                        iter(
-                            read_peers(
-                                server.objects.get(
-                                    ".well-known/sovereign/peers.json", b"{}"
-                                )
-                            )
-                        ),
-                        None,
-                    )
-                )
-            )
+
+            def bucket_card() -> bytes | None:
+                # Announcing runs every round; call it too, so a slow runner
+                # need not wait for the next one.
+                owner.community.announce()
+                document = server.objects.get(".well-known/sovereign/peers.json")
+                return next(iter(read_peers(document)), None) if document else None
+
+            card = verify_card(wait_for(bucket_card, seconds=60))
             # Only the bucket can be reached, so the card points only there.
             assert card.addresses == (public_url,)
             assert card.covers(identity)
@@ -495,5 +491,38 @@ def test_withholding_a_model_cancels_a_bucket_upload_in_progress(
                 assert control._cancelled.is_set() is cancelled
                 assert owner._gossip_wake.is_set()
             owner._gossip_control = None
+    finally:
+        owner.close()
+
+
+def test_one_refused_withdrawal_never_keeps_the_others_public(
+    tmp_path: Path, keychain: dict[str, BucketCredentials]
+) -> None:
+    from foxlight_model_preservation.operations import OperationControl
+
+    stuck, other = "a" * 64, "b" * 64
+    owner = LocalOwner(tmp_path / "owner")
+    owner.community.bucket_policy = LOCAL
+    try:
+        with bucket() as (server, client):
+            endpoint, public_url = addresses(client)
+            owner.control("community-bucket-connect", details(endpoint, public_url))
+            state = owner.community.bucket()
+            assert state is not None
+            owner.community._save_bucket(
+                state.model_copy(update={"synced": (stuck, other)})
+            )
+            for identity in (stuck, other):
+                server.objects[manifest_path(identity)] = b"{}"
+            # A retention rule, say, forbids deleting one manifest.
+            server.locked.add(manifest_path(stuck))
+            result = owner.community.sync_bucket(OperationControl())
+            assert result is not None
+            assert manifest_path(other) not in server.objects
+            assert result.synced == (stuck,) and result.last_error is not None
+            server.locked.clear()
+            result = owner.community.sync_bucket(OperationControl())
+            assert result is not None and result.synced == ()
+            assert manifest_path(stuck) not in server.objects
     finally:
         owner.close()

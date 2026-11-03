@@ -853,7 +853,14 @@ class CommunityMirror:
             held = self.held() if self.consented() else frozenset[str]()
             for identity in [item for item in synced + pending if item not in held]:
                 control.checkpoint()
-                remove_from_bucket(client, identity)
+                try:
+                    remove_from_bucket(client, identity)
+                except OperationError:
+                    raise
+                except (ValueError, OSError) as error:
+                    # Kept for the next attempt; the others are still withdrawn.
+                    failure = _bucket_failure(error)
+                    continue
                 for listed in (synced, pending):
                     if identity in listed:
                         listed.remove(identity)

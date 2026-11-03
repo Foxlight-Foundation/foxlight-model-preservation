@@ -103,6 +103,7 @@ class _Bucket(http.server.ThreadingHTTPServer):
         self.public = True
         self.fail_puts = 0
         self.fail_deletes = 0
+        self.locked: set[str] = set()
         self.prefix = ""
 
 
@@ -239,6 +240,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         if self.store.fail_deletes:
             self.store.fail_deletes -= 1
             return self._reply(503, b"<Error><Code>SlowDown</Code></Error>")
+        if self._parts()[0].split("/", 2)[2] in self.store.locked:
+            return self._reply(403, b"<Error><Code>AccessDenied</Code></Error>")
         path, query = self._parts()
         if "uploadId" in query:
             self.store.uploads.pop(query["uploadId"], None)
