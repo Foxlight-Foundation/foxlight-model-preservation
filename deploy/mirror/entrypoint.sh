@@ -22,8 +22,10 @@ set -- mirror quickstart \
   --egress-monthly "${SOVEREIGN_MIRROR_EGRESS_MONTHLY:-1T}" \
   --resume-for "${SOVEREIGN_MIRROR_GRANT:-90d}"
 
-if [ -n "${SOVEREIGN_MIRROR_NAME:-}" ]; then
-  set -- "$@" --name "$SOVEREIGN_MIRROR_NAME"
+# A container's host name changes when it is recreated; prefer a stable name.
+name="${SOVEREIGN_MIRROR_NAME:-${SOVEREIGN_MIRROR_DOMAIN:-}}"
+if [ -n "$name" ]; then
+  set -- "$@" --name "$name"
 fi
 if [ -n "${SOVEREIGN_MIRROR_DOMAIN:-}" ]; then
   set -- "$@" --public-url "https://$SOVEREIGN_MIRROR_DOMAIN"
@@ -40,7 +42,10 @@ if [ "$consent" != "yes-i-consent-to-public-serving" ]; then
   # Stay up so the review remains visible in the container logs.
   idle="${SOVEREIGN_MIRROR_IDLE:-infinity}"
   if [ "$idle" != "0" ]; then
-    exec sleep "$idle"
+    # PID 1 ignores default signals: stop promptly on docker stop.
+    trap 'exit 0' TERM INT
+    sleep "$idle" &
+    wait $!
   fi
   exit 0
 fi
