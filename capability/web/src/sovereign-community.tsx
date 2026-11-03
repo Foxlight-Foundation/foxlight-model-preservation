@@ -61,11 +61,13 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
     </li>;})}</ul>
     <p>Keeping a backup back, or turning sharing off, only stops serving it. Nothing is deleted.</p>
    </Details>
-   <CloudStorage state={state} behindRouter={reachability.status!=='public_address'} onState={value=>{if(live.current)setState(value);}}/>
+   <CloudStorage state={state} sharing behindRouter={reachability.status!=='public_address'} onState={value=>{if(live.current)setState(value);}}/>
    <div className="sk-actions"><button className="sk-btn sk-outline" disabled={busy} onClick={open}>Change what’s shared</button><button className="sk-btn sk-outline" disabled={busy} onClick={()=>void act('desktop-community-configure',{enabled:false})}>Turn off</button></div>
   </>:<>
    <p>{eligible>0?`${eligible} ${eligible===1?'backup':'backups'} can be shared under your licence list.`:'Your backups join as soon as one has a licence on your list.'} Sharing uses almost no extra disk space: the mirror reuses your backup’s files.</p>
    <div className="sk-actions"><button className="sk-btn sk-solid" disabled={busy} onClick={open}>Turn on</button></div>
+   {/* A connected bucket stays visible while off: its withdrawal and Disconnect. */}
+   {state.bucket&&<CloudStorage state={state} sharing={false} behindRouter={false} onState={value=>{if(live.current)setState(value);}}/>}
   </>}
   {setup&&createPortal(<Sheet kicker="Help keep models available" title="Share your backups with everyone" back="Close sharing setup" onClose={()=>setSetup(false)} footer={<button className="sk-btn sk-solid" disabled={busy||!agreed||licenses.length===0} onClick={()=>void (on?act('desktop-community-configure',{share,licenses}).then(ok=>ok&&setSetup(false)):turnOn())}>{busy?'Saving…':on?'Save changes':'Start sharing'}</button>}>
    {alert}

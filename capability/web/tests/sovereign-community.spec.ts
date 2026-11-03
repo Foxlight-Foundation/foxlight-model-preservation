@@ -163,3 +163,18 @@ test('a bucket waiting on the upload limit says so plainly',async({page})=>{
  await expect(panel.getByText('the rest uploads when it renews',{exact:false})).toBeVisible();
  await expect(panel.getByText('didn’t finish',{exact:false})).toHaveCount(0);
 });
+
+test('a connected bucket stays visible after sharing is turned off, until it is empty and disconnected',async({page})=>{
+ let bucket:Record<string,unknown>|null={...connected,model_count:2};
+ await page.route('**/api/desktop-community-read',r=>r.fulfill({json:view(false,{bucket})}));
+ await page.route('**/api/desktop-community-bucket-disconnect',r=>{bucket=null;return r.fulfill({json:{...view(false),status:'disconnected'}});});
+ await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();
+ const panel=page.getByRole('region',{name:'Help keep models available'});
+ await expect(panel.getByText('Off',{exact:true})).toBeVisible();
+ await expect(panel.getByText('taking your models out of the bucket',{exact:false})).toBeVisible();
+ bucket={...connected,model_count:0};
+ await expect(panel.getByText('your models are out of the bucket',{exact:false})).toBeVisible({timeout:10000});
+ await expect(panel.getByRole('button',{name:'Set up cloud storage'})).toHaveCount(0);
+ await panel.getByRole('button',{name:'Disconnect',exact:true}).click();
+ await expect(panel.getByRole('button',{name:'Disconnect'})).toHaveCount(0);
+});

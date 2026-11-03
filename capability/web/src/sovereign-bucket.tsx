@@ -18,7 +18,7 @@ const fieldLabel:Record<Field,[string,string]>={
 const bucketError=(code:string)=>({bucket_details_incomplete:'Fill in every field for this provider.',bucket_account_id_invalid:'That account ID doesn’t look right. It’s 32 letters and numbers, shown on your Cloudflare dashboard.',bucket_credentials_invalid:'Paste the access key and secret exactly as the provider showed them.',bucket_details_invalid:'Check the bucket name and addresses. Bucket names use lowercase letters, numbers and dashes, and addresses start with https://.',bucket_keychain_unavailable:'This computer’s keychain couldn’t store the key. Unlock it and try again.'} as Record<string,string>)[code]??errorText(code);
 
 /** Keep a copy of shared models in the owner's own cloud bucket, reachable from anywhere. */
-export function CloudStorage<T extends {bucket:BucketSummary|null;bucket_providers:BucketProvider[]}>({state,behindRouter,onState}:{state:T;behindRouter:boolean;onState:(value:T)=>void}) {
+export function CloudStorage<T extends {bucket:BucketSummary|null;bucket_providers:BucketProvider[]}>({state,sharing,behindRouter,onState}:{state:T;sharing:boolean;behindRouter:boolean;onState:(value:T)=>void}) {
  const [open,setOpen]=useState(false),[provider,setProvider]=useState('r2'),[values,setValues]=useState<Record<string,string>>({});
  const [busy,setBusy]=useState(false),[error,setError]=useState(''),[result,setResult]=useState<'upload'|'public'|null>(null);
  const chosen=state.bucket_providers.find(item=>item.id===provider)??state.bucket_providers[0];
@@ -33,11 +33,14 @@ export function CloudStorage<T extends {bucket:BucketSummary|null;bucket_provide
   {bucket?<>
    <Row k="Keeping a copy in">{bucket.provider_name} · {bucket.bucket}</Row>
    <Row k="People download from"><code>{bucket.public_url}</code></Row>
-   <Row k="Models in the bucket">{bucket.model_count}{bucket.last_synced?` · checked ${new Date(bucket.last_synced*1000).toLocaleString()}`:' · uploading…'}</Row>
-   {bucket.last_error==='bucket_upload_limit_reached'
+   <Row k="Models in the bucket">{bucket.model_count}{bucket.last_synced?` · checked ${new Date(bucket.last_synced*1000).toLocaleString()}`:sharing?' · uploading…':''}</Row>
+   {!sharing&&(bucket.model_count>0
+    ?<Callout tone={bucket.last_error?'warn':'info'}>Sharing is off, so Sovereign is taking your models out of the bucket.{bucket.last_error?` The bucket refused the last attempt (${errorText(bucket.last_error)}); it keeps trying.`:''}</Callout>
+    :<Callout tone="ok">Sharing is off and your models are out of the bucket. You can disconnect it now.</Callout>)}
+   {sharing&&(bucket.last_error==='bucket_upload_limit_reached'
     ?<Callout>Your upload limit is used up for now, so the rest uploads when it renews. Cloud uploads count toward the same daily and monthly limits as sharing from this computer.</Callout>
-    :bucket.last_error&&<Callout tone="warn">The last upload didn’t finish ({errorText(bucket.last_error)}). It tries again on its own.</Callout>}
-   <p>Disconnecting forgets the keys on this computer. Whatever is already in the bucket stays there; turn sharing off first if you want Sovereign to withdraw the models.</p>
+    :bucket.last_error&&<Callout tone="warn">The last upload didn’t finish ({errorText(bucket.last_error)}). It tries again on its own.</Callout>)}
+   <p>Disconnecting forgets the keys on this computer. Whatever is already in the bucket stays there{sharing?'; turn sharing off first if you want Sovereign to withdraw the models':''}.</p>
    {error&&!open&&<Callout tone="bad" role="alert">{bucketError(error)}</Callout>}
    <div className="sk-actions"><button className="sk-btn sk-outline" disabled={busy} onClick={()=>void send('desktop-community-bucket-disconnect',{})}>Disconnect</button></div>
   </>:<>
