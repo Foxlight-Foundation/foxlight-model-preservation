@@ -140,6 +140,8 @@ class DesktopClient(CoreClient):
                 "community_license_unidentified",
                 "community_relay_invalid",
                 "community_nothing_to_share",
+                "community_address_invalid",
+                "community_address_required",
                 "bucket_details_incomplete",
                 "bucket_details_invalid",
                 "bucket_account_id_invalid",

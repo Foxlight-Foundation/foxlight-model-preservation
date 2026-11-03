@@ -696,3 +696,105 @@ def test_turning_sharing_off_stops_a_gossip_round_in_progress(
         assert stopped.wait(10)
     finally:
         owner.close()
+
+
+def test_status_says_whether_and_why_the_mirror_announces(tmp_path: Path) -> None:
+    from foxlight_model_preservation.mirror_rendezvous import rendezvous_available
+
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        state = owner.control("community-read", {})
+        assert state["dht_available"] is rendezvous_available()
+        assert state["dht_announcing"] is False
+        assert state["nostr_publishing"] is False
+        reasons = state["announce_reasons"]
+        # On by default, but nothing is announced before consent or a model.
+        assert {"not_sharing", "nothing_shared"} <= set(reasons["dht"])
+        assert {"not_sharing", "nothing_shared"} <= set(reasons["nostr"])
+        if owner.community.reachability()["status"] != "public_address":
+            assert "no_reachable_address" in reasons["dht"]
+        # The DHT records a plain port; an HTTPS address cannot be expressed.
+        state = owner.control(
+            "community-configure", {"public_url": "https://mirror.example.org"}
+        )
+        assert "address_not_plain_http" in state["announce_reasons"]["dht"]
+        assert "no_reachable_address" not in state["announce_reasons"]["nostr"]
+        state = owner.control(
+            "community-configure", {"announce_dht": False, "publish_nostr": False}
+        )
+        assert state["announce_reasons"] == {
+            "dht": ["turned_off"],
+            "nostr": ["turned_off"],
+        }
+    finally:
+        owner.close()
+
+
+def test_public_address_is_validated_and_required_for_a_check(
+    tmp_path: Path,
+) -> None:
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        for bad in ("ftp://mirror.example.org", "https://user:pw@example.org"):
+            with pytest.raises(PreservationError, match="community_address_invalid"):
+                owner.control("community-configure", {"public_url": bad})
+        with pytest.raises(PreservationError, match="community_address_required"):
+            owner.control("community-check-address", {})
+        with pytest.raises(PreservationError, match="sovereign_operation_unavailable"):
+            owner.control("community-check-address", {"url": "https://x.example"})
+    finally:
+        owner.close()
+
+
+def test_address_check_finds_this_mirror_card_and_refuses_private_routes(
+    tmp_path: Path, capture: Capture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dataclasses import replace
+
+    from foxlight_model_preservation.local_host import community
+
+    port = free_port()
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        saved(owner, tmp_path, capture)
+        owner.control(
+            "community-configure", {"public_url": f"http://127.0.0.1:{port}/"}
+        )
+        enable(owner, port)
+        wait_for(lambda: owner.control("community-read", {})["sharing_count"] == 1)
+        # Like any visitor, the check never follows a route to a private address.
+        assert owner.control("community-check-address", {}) == {
+            "address": f"http://127.0.0.1:{port}",
+            "outcome": "private_address",
+            "http_status": None,
+        }
+        monkeypatch.setattr(
+            community,
+            "ADDRESS_CHECK_POLICY",
+            replace(community.ADDRESS_CHECK_POLICY, allow_private=True),
+        )
+        owner.community.announce()
+        assert owner.control("community-check-address", {})["outcome"] == (
+            "this_mirror"
+        )
+        assert owner.community._peers_outcome(b"<html></html>") == "not_a_mirror"
+        other = community.issue_card(
+            community.Ed25519PrivateKey.generate(),
+            ("https://other.example.org",),
+            {"a" * 64},
+        )
+        assert (
+            owner.community._peers_outcome(community.build_peers(other, ()))
+            == "other_mirror"
+        )
+        assert (
+            owner.community._peers_outcome(community.build_peers(None, ())) == "no_card"
+        )
+        owner.control(
+            "community-configure", {"public_url": f"http://127.0.0.1:{free_port()}"}
+        )
+        assert owner.control("community-check-address", {})["outcome"] == (
+            "unreachable"
+        )
+    finally:
+        owner.close()

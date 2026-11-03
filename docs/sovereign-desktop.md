@@ -302,8 +302,27 @@ The mirror serves HTTP on a fixed port (8743 by default) on every network
 interface. Sovereign says plainly whether this computer has a public address or
 sits behind a router; it never configures the router (UPnP stays off) and asks
 no outside service. Mirrors behind a router are reachable from their own network
-only, until mirror discovery and peer transports reach the app. Direct HTTP is
-not anonymous or encrypted: recipients see this computer's address.
+only, unless you forward a port or run a proxy and enter that **public address**
+during setup, or keep a copy in Cloud storage. HTTPS is preferred; a plain
+`http://` address gets a warning because downloads are then unencrypted. Direct
+HTTP is not anonymous or encrypted: recipients see this computer's address.
+
+Setup also asks, before you consent, whether to **announce on the BitTorrent
+DHT** and **publish to Nostr relays**. Both are on by default and each says
+plainly what it reveals: this computer's address, published publicly as a
+Sovereign mirror, which is not anonymous. The consent line names the
+announcements that are on. While sharing, the status says in plain sentences
+whether each announcement is happening and, if not, why: it is turned off,
+nothing is shared yet, there is no reachable address, an `https://` address
+cannot be carried by the DHT, or this copy of Sovereign lacks the DHT
+component. The DHT announces only while something is actually shared.
+
+**Check address** fetches `/.well-known/sovereign/peers.json` from your public
+address, from this computer, and says whether this mirror answered there. It
+contacts no other service and, like any visitor, follows public routes only.
+It is a best-effort check: success from inside your own network cannot prove
+that people elsewhere can reach the address, and many routers cannot loop back
+to their own public address, so a failure is not proof either.
 
 ### Open a sharing file without Skulk
 

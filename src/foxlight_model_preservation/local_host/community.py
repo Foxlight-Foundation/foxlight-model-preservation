@@ -10,6 +10,7 @@ private. Withholding or disabling blocks serving without deleting anything.
 
 from __future__ import annotations
 
+import http.client
 import ipaddress
 import os
 import re
@@ -44,7 +45,15 @@ from ..bucket import (
 )
 from ..cards import identity_json
 from ..mirror import model_action, run_mirror
-from ..mirror_cards import base_url, build_peers, issue_card
+from ..mirror_cards import (
+    MAX_PEERS_BYTES,
+    PEERS_PATH,
+    PeersDocument,
+    base_url,
+    build_peers,
+    issue_card,
+    verify_card,
+)
 from ..mirror_directory import MirrorDirectory
 from ..mirror_intake import retain_local
 from ..mirror_models import MirrorObservation, SourceGrant, Terms
@@ -60,9 +69,9 @@ from ..models import (
 )
 from ..nostr import DEFAULT_RELAYS, find_cards, publish_card
 from ..operations import OperationControl, OperationError, failure_code
-from ..signing import create_key, digest, encode_record, load_key
+from ..signing import create_key, digest, encode_record, load_key, public_record
 from ..storage import atomic_bytes, directory, read_metadata
-from ..transfer import TransferPolicy
+from ..transfer import MirrorHTTPError, TransferPolicy, response
 from .presentation import card_summary
 from .sharing import MemberDecision, Sharing
 
@@ -96,6 +105,8 @@ UNIDENTIFIED = frozenset(
         "see-original-card",
     }
 )
+# The address check reaches public routes only, like any other visitor would.
+ADDRESS_CHECK_POLICY = TransferPolicy(allow_http=True, timeout=10, deadline_seconds=30)
 _CAPTURE_NOTICE = ".foxlight-capture-notice.txt"
 _LICENSE_NAMES = ("license", "licence", "copying")
 DEFAULT_PORT = 8743
@@ -165,7 +176,12 @@ class CommunityPolicy(Record):
     @classmethod
     def plain_url(cls, value: str | None) -> str | None:
         """Accept only a credential-free HTTP(S) base URL the owner says works."""
-        return None if value is None else base_url(value)
+        if value is None:
+            return None
+        try:
+            return base_url(value)
+        except PreservationError:
+            raise PreservationError("community_address_invalid") from None
 
     @field_validator("nostr_relays")
     @classmethod
@@ -990,7 +1006,8 @@ class CommunityMirror:
         relay_policy = TransferPolicy(timeout=10, deadline_seconds=600)
         seeds: tuple[str, ...] = ()
         port = self.dht_port()
-        if port is not None and rendezvous_available():
+        # Announcing an address with nothing to serve would only expose it.
+        if port is not None and self.held() and rendezvous_available():
             if self.rendezvous is None:
                 self.rendezvous = Rendezvous()
             self.rendezvous.announce(port, seconds=20, control=control)
@@ -1069,6 +1086,105 @@ class CommunityMirror:
             "mirror_url": f"http://{address}:{policy.port}" if address else None,
         }
 
+    def announcements(self) -> dict[str, JsonValue]:
+        """Say whether this mirror announces itself publicly, and if not, why.
+
+        Mirrors the rules the discovery round applies: the DHT needs a plain
+        HTTP port people can reach, something served and the optional binding;
+        Nostr needs any reachable address (a synced bucket counts) and
+        something served. Reasons are codes the app explains in sentences.
+        """
+        policy = self.policy()
+        consented = self.consented(policy)
+        available = rendezvous_available()
+        held = bool(self.held())
+        own = self.addresses()
+        bucket = self.bucket()
+        bucket_live = bucket is not None and bool(bucket.synced)
+        port = self.dht_port()
+        dht_reasons: list[JsonValue] = []
+        if not policy.announce_dht:
+            dht_reasons.append("turned_off")
+        else:
+            if not consented:
+                dht_reasons.append("not_sharing")
+            if not available:
+                dht_reasons.append("dht_unavailable")
+            if not held:
+                dht_reasons.append("nothing_shared")
+            if port is None:
+                dht_reasons.append(
+                    "address_not_plain_http"
+                    if policy.public_url is not None
+                    else "no_reachable_address"
+                )
+        nostr_reasons: list[JsonValue] = []
+        if not policy.publish_nostr:
+            nostr_reasons.append("turned_off")
+        elif not policy.nostr_relays:
+            nostr_reasons.append("no_relays")
+        else:
+            if not consented:
+                nostr_reasons.append("not_sharing")
+            if not held:
+                nostr_reasons.append("nothing_shared")
+            if not own and not bucket_live:
+                nostr_reasons.append("no_reachable_address")
+        return {
+            "dht_available": available,
+            "dht_announcing": not dht_reasons,
+            "nostr_publishing": not nostr_reasons,
+            "announce_reasons": {"dht": dht_reasons, "nostr": nostr_reasons},
+        }
+
+    def check_address(self) -> dict[str, JsonValue]:
+        """Best effort: fetch the declared public address's peers document.
+
+        The request goes from this computer to the owner's own address and to
+        no other service. Success shows the address answers from here; it
+        cannot prove people outside this network can reach it.
+        """
+        url = self.policy().public_url
+        if url is None:
+            raise PreservationError("community_address_required")
+        outcome: str
+        status: int | None = None
+        try:
+            with response(url, PEERS_PATH, ADDRESS_CHECK_POLICY) as received:
+                data = received.read(MAX_PEERS_BYTES + 1)
+        except MirrorHTTPError as error:
+            outcome, status = "http_error", error.status_code
+        except PreservationError as error:
+            # Every resolved address was private, so none was even tried.
+            private = (
+                "no permitted reachable address" in str(error)
+                and error.__cause__ is None
+            )
+            outcome = "private_address" if private else "unreachable"
+        except (OSError, http.client.HTTPException):
+            outcome = "unreachable"
+        else:
+            outcome = self._peers_outcome(data)
+        return {"address": url, "outcome": outcome, "http_status": status}
+
+    def _peers_outcome(self, data: bytes) -> str:
+        """Whether a fetched peers document carries this mirror's own card."""
+        if len(data) > MAX_PEERS_BYTES:
+            return "not_a_mirror"
+        try:
+            document = PeersDocument.model_validate_json(data)
+        except ValueError:
+            return "not_a_mirror"
+        if document.self_card is None:
+            return "no_card"
+        try:
+            card = verify_card(encode_record(document.self_card))
+        except (ValueError, PreservationError):
+            return "no_card"
+        if card.mirror_key != public_record(self._mirror_key()):
+            return "other_mirror"
+        return "this_mirror"
+
     def read(self, copies: Sequence[Holding]) -> dict[str, JsonValue]:
         """Summarize the switch, policy, every copy's standing and live serving."""
         policy = self.policy()
@@ -1097,6 +1213,7 @@ class CommunityMirror:
             "running": bool(observation and observation.running),
             "http_port": observation.http_port if observation else None,
             "reachability": self.reachability(),
+            **self.announcements(),
             "last_error": self.last_error,
             "bucket": self._bucket_summary(),
             "bucket_providers": [

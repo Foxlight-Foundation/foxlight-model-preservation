@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Help keep models available says how the mirror is found. Setup adds an
+  optional public address (HTTPS preferred, plain HTTP warned) and toggles for
+  announcing on the BitTorrent DHT and publishing to Nostr relays. Both stay on
+  by default, but each now says before consent that it publishes this
+  computer's address publicly as a Sovereign mirror and is not anonymous, and
+  the consent line names the announcements that are on. The status reports
+  `dht_available`, `dht_announcing`, `nostr_publishing` and the reasons when
+  either is not announcing. **Check address** fetches the public address's
+  peers document from this computer only, labelled as a best-effort check. The
+  DHT now announces only while something is shared.
 - Help keep models available can keep a copy in the owner's own cloud bucket.
   Connecting checks upload and anonymous public download before anything is
   saved; keys go only to the OS keychain. Shared models upload as soon as they

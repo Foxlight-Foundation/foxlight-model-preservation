@@ -66,6 +66,7 @@ CONTROL_TIMEOUTS: Final[dict[str, float]] = {
     "desktop-folder-choose": 610,
     "desktop-community-bucket-connect": 150,
     "desktop-community-bucket-disconnect": 60,
+    "desktop-community-check-address": 45,
 }
 
 
@@ -653,6 +654,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                         "api/desktop-community-choose",
                         "api/desktop-community-bucket-connect",
                         "api/desktop-community-bucket-disconnect",
+                        "api/desktop-community-check-address",
                         "api/desktop-source-follow",
                         "api/desktop-source-remove",
                         "api/desktop-source-reference",
