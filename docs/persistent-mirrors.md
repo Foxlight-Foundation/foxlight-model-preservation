@@ -165,8 +165,9 @@ because they publish the address beyond this mirror:
 
 `mirror config --clear-public-url` stops announcing and removes the peers
 document; an already published card lapses when it expires. The desktop
-community mirror announces the same way. Bucket mirrors are static: they publish
-no card of their own and do not gossip.
+community mirror announces the same way. [Bucket mirrors](bucket-mirrors.md) are
+static: they never crawl, spot-check or gossip, and their peers document changes
+only when a running host publishes it.
 
 ## Takedown: withdrawal versus expiry
 
