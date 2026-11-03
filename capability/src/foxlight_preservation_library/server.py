@@ -58,6 +58,15 @@ STATIC_ASSETS: Final[dict[str, str | None]] = {
 }
 #: Per-asset size bound; larger built files are refused rather than served.
 STATIC_ASSET_LIMIT: Final = 2 * 1024 * 1024
+# Seconds a control may take before the page is told the host is unavailable.
+# Choosing a folder waits on the person; a bucket check makes bounded network
+# requests (about 45 s) and keychain calls (30 s each), so the page waits for
+# the real outcome rather than reporting a failure while the check continues.
+CONTROL_TIMEOUTS: Final[dict[str, float]] = {
+    "desktop-folder-choose": 610,
+    "desktop-community-bucket-connect": 150,
+    "desktop-community-bucket-disconnect": 60,
+}
 
 
 class _Server(http.server.ThreadingHTTPServer):
@@ -1096,9 +1105,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     ) -> None:
         future = asyncio.run_coroutine_threadsafe(app.dispatch(action, body), app.loop)
         try:
-            result = future.result(
-                timeout=610 if action == "desktop-folder-choose" else 12
-            )
+            result = future.result(timeout=CONTROL_TIMEOUTS.get(action, 12))
             encoded = json.dumps(result, separators=(",", ":")).encode()
             if len(encoded) > 65536:
                 raise CoreRefused("host_response_too_large")

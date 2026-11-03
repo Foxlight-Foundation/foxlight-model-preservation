@@ -1483,7 +1483,7 @@ class LocalOwner:
         delay = self._withdraw_retry
         while not self._stopping.is_set() and not self.community.consented():
             state = self.community.bucket()
-            if state is None or not state.synced:
+            if state is None or not (state.synced or state.pending):
                 return
             control = OperationControl()
             with self._lock:
@@ -1498,7 +1498,7 @@ class LocalOwner:
                 with self._lock:
                     self._withdraw_control = None
             state = self.community.bucket()
-            if state is None or not state.synced:
+            if state is None or not (state.synced or state.pending):
                 return
             self._stopping.wait(delay)
             delay = min(delay * 2, 900.0)

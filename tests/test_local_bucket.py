@@ -403,3 +403,57 @@ def test_a_failing_upload_never_keeps_a_withdrawn_model_public(
             assert result.last_error == "bucket_request_failed"
     finally:
         owner.close()
+
+
+def test_an_upload_whose_outcome_was_lost_is_still_withdrawn(
+    tmp_path: Path,
+    keychain: dict[str, BucketCredentials],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    from foxlight_model_preservation.operations import OperationControl
+
+    wanted = "a" * 64
+    owner = LocalOwner(tmp_path / "owner")
+    owner.community.bucket_policy = LOCAL
+    try:
+        with bucket() as (server, client):
+            endpoint, public_url = addresses(client)
+            owner.control("community-bucket-connect", details(endpoint, public_url))
+
+            class Ledger:
+                def __init__(self, path: Path) -> None:
+                    pass
+
+                def read(self):
+                    grant = SimpleNamespace(trust=None)
+                    return SimpleNamespace(
+                        models={wanted: SimpleNamespace(grant=grant)}
+                    )
+
+                def reserve(self, count: int) -> bool:
+                    return True
+
+            def lost_reply(store, identity, trust, target, **kwargs):
+                # The bucket stored the manifest, but its reply never arrived.
+                server.objects[manifest_path(identity)] = b"{}"
+                raise ConnectionResetError("reply lost")
+
+            sharing = {"on": True}
+            monkeypatch.setattr(module, "MirrorLedger", Ledger)
+            monkeypatch.setattr(module, "publish_to_bucket", lost_reply)
+            monkeypatch.setattr(owner.community, "held", lambda: frozenset({wanted}))
+            monkeypatch.setattr(
+                owner.community, "consented", lambda policy=None: sharing["on"]
+            )
+            failed = owner.community.sync_bucket(OperationControl())
+            assert failed is not None
+            assert failed.synced == () and failed.pending == (wanted,)
+            # Turning sharing off withdraws it although it never counted as synced.
+            sharing["on"] = False
+            withdrawn = owner.community.sync_bucket(OperationControl())
+            assert withdrawn is not None and withdrawn.pending == ()
+            assert manifest_path(wanted) not in server.objects
+    finally:
+        owner.close()

@@ -19,6 +19,7 @@ import socket
 import threading
 import time
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from pathlib import Path, PurePosixPath
 from typing import Literal, Protocol, cast
 from urllib.parse import urlsplit
@@ -227,6 +228,9 @@ class BucketState(Record):
     )
     target: BucketTarget
     synced: tuple[Digest, ...] = Field(default=(), max_length=1000)
+    # Uploads that started but were not confirmed. Their manifest may be
+    # public (a lost reply, a crash), so they are withdrawn like synced ones.
+    pending: tuple[Digest, ...] = Field(default=(), max_length=1000)
     last_error: str | None = Field(default=None, max_length=200)
     last_synced: int | None = None
 
@@ -775,9 +779,9 @@ class CommunityMirror:
             raise PreservationError(
                 code if code.startswith("bucket_") else "bucket_details_invalid"
             ) from None
-        result = check_bucket(
-            BucketClient(target, credentials, self.bucket_policy), self.bucket_policy
-        )
+        # The owner is waiting on this check, so it is bounded tightly.
+        check = replace(self.bucket_policy, timeout=15, deadline_seconds=45)
+        result = check_bucket(BucketClient(target, credentials, check), check)
         if result["status"] != "ready":
             return {"status": result["status"]}
         save_credentials(target.key_name, credentials)
@@ -820,12 +824,17 @@ class CommunityMirror:
             return None
         state: BucketState = found
         synced = list(state.synced)
+        pending = [item for item in state.pending if item not in synced]
         failure: str | None = None
 
         def save() -> bool:
             nonlocal state
             state = state.model_copy(
-                update={"synced": tuple(synced), "last_error": failure}
+                update={
+                    "synced": tuple(synced),
+                    "pending": tuple(pending),
+                    "last_error": failure,
+                }
             )
             return self._save_bucket(state)
 
@@ -842,16 +851,24 @@ class CommunityMirror:
                 # Never shared yet: there is nothing to upload, only to withdraw.
                 ledger, models = None, {}
             held = self.held() if self.consented() else frozenset[str]()
-            for identity in [item for item in synced if item not in held]:
+            for identity in [item for item in synced + pending if item not in held]:
                 control.checkpoint()
                 remove_from_bucket(client, identity)
-                synced.remove(identity)
+                for listed in (synced, pending):
+                    if identity in listed:
+                        listed.remove(identity)
                 if not save():
                     return self.bucket()
             for identity in sorted(held - set(synced)):
                 if ledger is None or identity not in models:
                     continue
                 control.checkpoint()
+                if identity not in pending:
+                    # Recorded before anything is sent, so an opt-out withdraws
+                    # it even if this upload's outcome is never learned.
+                    pending.append(identity)
+                    if not save():
+                        return self.bucket()
                 try:
                     publish_to_bucket(
                         self.path / "mirror/store",
@@ -869,6 +886,7 @@ class CommunityMirror:
                         break  # The allowance renews; try again then.
                     continue  # Other models may still upload.
                 synced.append(identity)
+                pending.remove(identity)
                 if not save():
                     return self.bucket()
         except OperationError:
