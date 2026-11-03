@@ -1562,7 +1562,12 @@ class LocalOwner:
             try:
                 before = self.community.held()
                 self.community.sync(copies, control)
-                self._bucket_selection_changed(before, self.community.held())
+                after = self.community.held()
+                self._bucket_selection_changed(before, after)
+                if after and not before:
+                    # The DHT announces only while something is served: the
+                    # first served model starts a discovery round at once.
+                    self._gossip_wake.set()
                 if not self._community_wake.is_set():
                     self.community.last_error = None
                     try:
