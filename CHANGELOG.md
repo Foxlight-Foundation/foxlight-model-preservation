@@ -18,6 +18,35 @@
   for large files and publish the signed manifest last. Private archives are
   refused. Requests use AWS Signature Version 4 from the standard library.
 
+- Make a headless public mirror a one-command job. `mirror quickstart` reads one
+  strict, versioned collection file (`sovereign.mirror-collection.v1`: source,
+  expected bootstrap ID, model trust and terms), prints a single review and,
+  after typed or `--yes-i-consent-to-public-serving` consent, runs init, follow
+  and grant-resume. `--plan-only` changes nothing.
+- Add `deploy/mirror/`: a multi-arch (amd64/arm64) image with hash-locked
+  dependencies and the `bittorrent` extra, and a compose file with Caddy
+  automatic TLS (access log off) in front of a loopback mirror. Without the
+  consent variable the container is plan-only and serves nothing. A CI workflow
+  builds the image without pushing; publishing and signing are not set up yet.
+  The systemd unit is now a user unit whose paths match the installer.
+- Mirror sizes accept binary units (`500G`, `2T`); `--name` defaults to the host
+  name; `grant-resume --for 365d` keeps the 366-day cap; `--bind` also accepts
+  `::` and `::1`. The per-model limit now defaults to the disk budget less
+  headroom instead of 20 GiB.
+- Add `mirror config` for name, budgets, bind, port, serving window, refresh and
+  announcement. Any effective change clears the restart grant.
+- Ingress and disk budget refusals are now deferred and retried automatically
+  in a later cycle, without new contact until the budget could admit them and
+  without refunding or double-charging reservations. Other failures still need
+  `mirror retry`, which can now `--adopt-source-grant` after a re-follow.
+- A selection withdrawn from every current followed catalog stops being served
+  automatically (bytes are retained); this is the takedown path. An expired or
+  unreachable catalog is availability, not withdrawal, and keeps serving.
+- With `--public-url`, a CLI mirror signs a mirror card with its own key, serves
+  `/.well-known/sovereign/peers.json` and gossips like the desktop community
+  mirror. Nostr publishing and DHT announcing are separate opt-ins that require
+  acknowledging that they publish the address. Serving is not anonymous.
+
 ## 0.27.0
 
 - Add Nostr relays as a discovery channel (`nostr`). Mirrors publish their

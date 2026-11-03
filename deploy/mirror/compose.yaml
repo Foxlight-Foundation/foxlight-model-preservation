@@ -1,0 +1,57 @@
+# Headless Sovereign mirror: Caddy terminates TLS and proxies to the mirror,
+# which listens on loopback inside the same network namespace.
+#
+#   cp deploy/mirror/mirror.env.example deploy/mirror/mirror.env   # then edit
+#   docker compose --env-file deploy/mirror/mirror.env \
+#     -f deploy/mirror/compose.yaml up -d --build
+#
+# Without SOVEREIGN_MIRROR_CONSENT=yes-i-consent-to-public-serving the mirror
+# runs plan-only: it prints its review to the logs and serves nothing.
+
+services:
+  caddy:
+    image: caddy:2.10.2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      SOVEREIGN_MIRROR_DOMAIN: ${SOVEREIGN_MIRROR_DOMAIN:?set SOVEREIGN_MIRROR_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+  mirror:
+    build:
+      context: ../..
+      dockerfile: deploy/mirror/Dockerfile
+    image: sovereign-mirror:local
+    restart: unless-stopped
+    # Share Caddy's network namespace: the mirror's 127.0.0.1:8080 listener is
+    # reachable by Caddy and by nothing else.
+    network_mode: service:caddy
+    depends_on:
+      - caddy
+    environment:
+      SOVEREIGN_MIRROR_DOMAIN: ${SOVEREIGN_MIRROR_DOMAIN:?set SOVEREIGN_MIRROR_DOMAIN}
+      SOVEREIGN_MIRROR_CONTACT: ${SOVEREIGN_MIRROR_CONTACT:-}
+      SOVEREIGN_MIRROR_BUDGET: ${SOVEREIGN_MIRROR_BUDGET:-100G}
+      SOVEREIGN_MIRROR_INGRESS_DAILY: ${SOVEREIGN_MIRROR_INGRESS_DAILY:-50G}
+      SOVEREIGN_MIRROR_EGRESS_DAILY: ${SOVEREIGN_MIRROR_EGRESS_DAILY:-50G}
+      SOVEREIGN_MIRROR_EGRESS_MONTHLY: ${SOVEREIGN_MIRROR_EGRESS_MONTHLY:-1T}
+      SOVEREIGN_MIRROR_GRANT: ${SOVEREIGN_MIRROR_GRANT:-90d}
+      SOVEREIGN_MIRROR_COLLECTION: /config/collection.json
+      SOVEREIGN_MIRROR_CONSENT: ${SOVEREIGN_MIRROR_CONSENT:-}
+    volumes:
+      # A directory holding collection.json and any source file it names.
+      - ${SOVEREIGN_MIRROR_COLLECTION_DIR:-./collection}:/config:ro
+      - mirror-data:/data
+    # Stopping drains in-flight work and keeps every retained byte.
+    stop_grace_period: 2m
+
+volumes:
+  caddy-data:
+  caddy-config:
+  mirror-data:

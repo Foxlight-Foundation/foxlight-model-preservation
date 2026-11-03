@@ -1,0 +1,6 @@
+# Automatic HTTPS for the mirror's public name. Caddy writes no access log
+# unless a `log` directive is added; keep it that way so client addresses and
+# requested models are not recorded.
+{$SOVEREIGN_MIRROR_DOMAIN} {
+	reverse_proxy 127.0.0.1:8080
+}
