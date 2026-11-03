@@ -11,6 +11,10 @@ tagged `library-v*`; versions without a tag are source previews installed from
   and connect. A failed check explains whether the upload or the public
   download failed. Once connected the panel shows where people download from
   and how many models the bucket holds.
+- Downloading a model from a followed source or a handoff now falls back to
+  other mirrors that the approved mirrors vouch for, under the same HTTP and
+  private-address choices, and remembers which mirrors delivered. Accepted keys
+  are unchanged. No DHT or relay is asked.
 
 - Prepare Mac build 9 from the authenticated public core 0.27 / Library 0.23
   installation archive, which adds Help keep models available. Native signing,

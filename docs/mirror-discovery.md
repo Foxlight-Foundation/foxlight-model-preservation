@@ -166,11 +166,16 @@ only with `--allow-http`.
 
 ### The app
 
-The app's source and handoff receive still reads only the approved mirrors'
-peers documents into its directory and fetches from the approved mirrors; it
-does not yet add discovered mirrors or record outcomes. Registry receive
-downloads from the original upstream files and has no manifest to look up
-beforehand.
+The app's source and handoff receives use the same path, with the app's own
+directory and the shipped seed list. They read only the approved mirrors' peers
+documents, try discovered mirrors after the approved ones under the same
+HTTP and private-address choices the user made for that receive, and record each
+mirror's outcome. The approved mirrors are still checked against the reviewed
+plan; discovered mirrors are never part of it and never change the accepted
+keys. An app receive never contacts the DHT or Nostr relays; only the
+explicitly enabled community mirror does. Registry receive downloads from the
+original upstream files and has no manifest to look up beforehand, so it does
+not use mirrors.
 
 ## The app's community mirror
 
