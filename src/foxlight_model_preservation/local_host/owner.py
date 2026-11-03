@@ -143,6 +143,8 @@ class LocalOwner:
             self._gossip_thread: threading.Thread | None = None
             self._gossip_control: OperationControl | None = None
             self._gossip_wake = threading.Event()
+            self._withdraw_thread: threading.Thread | None = None
+            self._withdraw_control: OperationControl | None = None
             self._stopping = threading.Event()
             self._lock = threading.RLock()
             self._idle = threading.Condition(self._lock)
@@ -199,6 +201,9 @@ class LocalOwner:
             # The owner's single standing consent resumes serving after restart.
             if self.community.consented():
                 self._community_refresh()
+            else:
+                # A withdrawal that failed before the last shutdown resumes.
+                self._bucket_withdrawal()
         except BaseException:
             self._stack.close()
             raise
@@ -229,10 +234,13 @@ class LocalOwner:
                 control.cancel()
             community = self._community_thread
             gossip = self._gossip_thread
+            withdraw = self._withdraw_thread
             self._stopping.set()
             self._gossip_wake.set()
             if self._gossip_control is not None:
                 self._gossip_control.cancel()
+            if self._withdraw_control is not None:
+                self._withdraw_control.cancel()
             self._community_wake.set()
             if self._community_control is not None:
                 self._community_control.cancel()
@@ -240,6 +248,8 @@ class LocalOwner:
             community.join()
         if gossip is not None:
             gossip.join()
+        if withdraw is not None:
+            withdraw.join()
         self._executor.shutdown(wait=True)
         self._sharing_executor.shutdown(wait=True)
         with self._idle:
@@ -516,6 +526,27 @@ class LocalOwner:
                 raise PreservationError("invalid_control")
             with self._backup_call():
                 return self.backups.setup(str(body["review_id"]))
+        if action in {"community-bucket-connect", "community-bucket-disconnect"}:
+            # Checking a bucket uploads and downloads over the network; do not
+            # hold the owner lock meanwhile.
+            with self._lock:
+                self._check()
+                if self._closing:
+                    raise PreservationError("sovereign_owner_closing")
+            if action == "community-bucket-connect":
+                result = self.community.connect_bucket(body)
+            elif not body:
+                self.community.disconnect_bucket()
+                result = {"status": "disconnected"}
+            else:
+                raise PreservationError("invalid_control")
+            with self._lock:
+                # The next discovery round uploads to the new bucket and
+                # announces its address.
+                if self._gossip_control is not None:
+                    self._gossip_control.cancel()
+                self._gossip_wake.set()
+                return {**result, **self.community.read(self._journal.copies)}
         with self._lock:
             self._check()
             if self._closing:
@@ -545,6 +576,7 @@ class LocalOwner:
                     # Turning sharing off always stops the running mirror, even
                     # if saving or revoking failed part-way.
                     if not self.community.consented():
+                        self._bucket_withdrawal()
                         if self._community_control is not None:
                             self._community_control.cancel()
                         # Opting out also stops discovery traffic in progress.
@@ -1423,6 +1455,74 @@ class LocalOwner:
                 self._gossip_wake.clear()
         finally:
             self.community.close_rendezvous()
+            # Sharing was turned off: withdraw models from a connected bucket
+            # too, so it stops offering them.
+            self._bucket_withdrawal()
+
+    def _bucket_selection_changed(
+        self, before: frozenset[str], after: frozenset[str]
+    ) -> None:
+        """Bring a connected bucket up to date with what is served now.
+
+        New models upload now rather than at the next discovery round, and a
+        failed upload is retried once the mirror has applied changed settings
+        such as upload limits. When a model stops being served, an upload in
+        progress is cancelled so the withdrawal happens first, not after hours
+        of uploading, and that model's upload is never finished.
+        """
+        bucket = self.community.bucket()
+        if bucket is None:
+            return
+        if before - after:
+            with self._lock:
+                if self._gossip_control is not None:
+                    self._gossip_control.cancel()
+        if before != after or bucket.last_error is not None:
+            self._gossip_wake.set()
+
+    # Seconds before retrying a withdrawal the bucket refused; doubles.
+    _withdraw_retry = 30.0
+
+    def _bucket_withdrawal(self) -> None:
+        """Start withdrawing from the bucket while sharing is off, if needed."""
+        with self._lock:
+            if self._closing or self.community.consented():
+                return
+            if self._withdraw_thread is not None and self._withdraw_thread.is_alive():
+                return
+            self._withdraw_thread = threading.Thread(
+                target=self._withdraw_loop, name="sovereign-withdraw", daemon=True
+            )
+            self._withdraw_thread.start()
+
+    def _withdraw_loop(self) -> None:
+        """Retry until the bucket offers nothing, sharing resumes, or shutdown.
+
+        Opting out must stop the bucket offering models even if it was briefly
+        unreachable, and even across restarts, without renewed consent.
+        """
+        delay = self._withdraw_retry
+        while not self._stopping.is_set() and not self.community.consented():
+            state = self.community.bucket()
+            if state is None or not (state.synced or state.pending):
+                return
+            control = OperationControl()
+            with self._lock:
+                if self._stopping.is_set():
+                    return
+                self._withdraw_control = control
+            try:
+                self.community.sync_bucket(control)
+            except (ValueError, OSError):
+                pass  # Recorded on the bucket state; retried below.
+            finally:
+                with self._lock:
+                    self._withdraw_control = None
+            state = self.community.bucket()
+            if state is None or not (state.synced or state.pending):
+                return
+            self._stopping.wait(delay)
+            delay = min(delay * 2, 900.0)
 
     def _community_loop(self) -> None:
         while True:
@@ -1452,7 +1552,9 @@ class LocalOwner:
                     self._community_thread = None
                 return
             try:
+                before = self.community.held()
                 self.community.sync(copies, control)
+                self._bucket_selection_changed(before, self.community.held())
                 if not self._community_wake.is_set():
                     self.community.last_error = None
                     try:

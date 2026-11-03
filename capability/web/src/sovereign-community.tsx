@@ -1,13 +1,14 @@
 import {useCallback,useEffect,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
 import {api,bytes,errorText} from './client';
+import {CloudStorage,type BucketProvider,type BucketSummary} from './sovereign-bucket';
 import {Callout,Consent,Details,Pill,Row,Sheet,Step,type Tone} from './ui';
 
 type Status='sharing'|'eligible'|'failed'|'withheld'|'not_chosen'|'license_not_selected'|'no_license'|'unsupported';
 interface CommunityCopy {copy_id:string;name:string;size_bytes:number;status:Status;licenses:string[];public_manifest_id:string|null;error_code?:string|null}
 interface Policy {enabled:boolean;share:'eligible'|'chosen';licenses:string[];chosen:string[];withheld:string[];daily_upload_bytes:number;monthly_upload_bytes:number;port:number;consent_expires:number|null}
 interface Reachability {status:'public_address'|'private_network'|'offline';local_address:string|null;port:number;mirror_url:string|null}
-export interface Community {policy:Policy;consented:boolean;default_licenses:string[];copies:CommunityCopy[];sharing_count:number;running:boolean;http_port:number|null;reachability:Reachability;last_error:string|null;uploaded_today_bytes?:number;uploaded_this_month_bytes?:number}
+export interface Community {policy:Policy;consented:boolean;default_licenses:string[];copies:CommunityCopy[];sharing_count:number;running:boolean;http_port:number|null;reachability:Reachability;last_error:string|null;bucket:BucketSummary|null;bucket_providers:BucketProvider[];uploaded_today_bytes?:number;uploaded_this_month_bytes?:number}
 
 const label:Record<Status,[string,Tone]>={sharing:['Sharing','live'],eligible:['Joining…','info'],failed:['Couldn’t join · will retry','bad'],withheld:['Kept back','muted'],not_chosen:['Not chosen','muted'],license_not_selected:['Licence not in your list','muted'],no_license:['No licence found · stays private','muted'],unsupported:['Can’t be shared yet','muted']};
 const communityError=(code:string)=>({community_consent_required:'Confirm that you want this computer to keep serving before turning this on.',community_license_unidentified:'That doesn’t name a licence. Use its identifier, for example Apache-2.0 or MIT.',community_nothing_to_share:'Nothing to share yet. Models join here as soon as one of your backups has a licence on your list.',insufficient_space:'There isn’t enough free space to prepare a public copy. Your private backups are untouched.'} as Record<string,string>)[code]??errorText(code);
@@ -38,7 +39,7 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
  const reach=reachability.status==='public_address'
   ?<Callout tone="ok">This computer has a public address. People can download from <code>{reachability.mirror_url}</code> if your firewall allows connections on port {reachability.port}.</Callout>
   :reachability.status==='private_network'
-  ?<Callout tone="warn">This computer is behind a router, so people outside your network can’t reach it directly yet. People on your network can use <code>{reachability.mirror_url}</code>. Sovereign never changes your router settings.</Callout>
+  ?<Callout tone="warn">This computer is behind a router, so people outside your network can’t reach it directly yet. People on your network can use <code>{reachability.mirror_url}</code>. Sovereign never changes your router settings. Cloud storage below lets people anywhere download.</Callout>
   :<Callout tone="warn">This computer isn’t connected to a network right now. Sharing resumes when it is.</Callout>;
  return <section className="sk-card sk-community" aria-label="Help keep models available">
   <div className="sk-page-head"><div><h2>Help keep models available</h2><p>Let this computer serve verified copies of your backups to anyone who needs them. Every copy is checked byte for byte by whoever downloads it, so nobody has to trust this computer.</p></div>
@@ -60,10 +61,13 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
     </li>;})}</ul>
     <p>Keeping a backup back, or turning sharing off, only stops serving it. Nothing is deleted.</p>
    </Details>
+   <CloudStorage state={state} sharing behindRouter={reachability.status!=='public_address'} onState={value=>{if(live.current)setState(value);}}/>
    <div className="sk-actions"><button className="sk-btn sk-outline" disabled={busy} onClick={open}>Change what’s shared</button><button className="sk-btn sk-outline" disabled={busy} onClick={()=>void act('desktop-community-configure',{enabled:false})}>Turn off</button></div>
   </>:<>
    <p>{eligible>0?`${eligible} ${eligible===1?'backup':'backups'} can be shared under your licence list.`:'Your backups join as soon as one has a licence on your list.'} Sharing uses almost no extra disk space: the mirror reuses your backup’s files.</p>
    <div className="sk-actions"><button className="sk-btn sk-solid" disabled={busy} onClick={open}>Turn on</button></div>
+   {/* A connected bucket stays visible while off: its withdrawal and Disconnect. */}
+   {state.bucket&&<CloudStorage state={state} sharing={false} behindRouter={false} onState={value=>{if(live.current)setState(value);}}/>}
   </>}
   {setup&&createPortal(<Sheet kicker="Help keep models available" title="Share your backups with everyone" back="Close sharing setup" onClose={()=>setSetup(false)} footer={<button className="sk-btn sk-solid" disabled={busy||!agreed||licenses.length===0} onClick={()=>void (on?act('desktop-community-configure',{share,licenses}).then(ok=>ok&&setSetup(false)):turnOn())}>{busy?'Saving…':on?'Save changes':'Start sharing'}</button>}>
    {alert}

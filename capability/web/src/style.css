@@ -642,6 +642,8 @@ main[inert] .sk-scrim {opacity:0;}
 .sk-community {margin:0 0 28px;}
 .sk-community .sk-page-head {align-items:flex-start;}
 .sk-community-list {list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px;}
+.sk-community-bucket {margin:18px 0 0;padding:16px 0 0;border-top:1px solid var(--line-hair);}
+.sk-community-bucket h3 {margin:0 0 8px;font-size:15px;}
 .sk-community-list li {display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line-control);overflow-wrap:anywhere;}
 .sk-community-list li > span:first-child {flex:1 1 240px;min-width:0;}
 .sk-community-licences {list-style:none;margin:0 0 12px;padding:0;display:flex;flex-wrap:wrap;gap:8px;}
