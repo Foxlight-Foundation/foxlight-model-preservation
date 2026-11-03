@@ -98,12 +98,25 @@ wheelhouse on the target architecture:
 
 ```sh
 python -m pip download --only-binary=:all: --require-hashes \
+  --platform macosx_14_0_arm64 --python-version 3.13 \
+  --implementation cp --abi cp313 \
   --find-links software --dest wheelhouse \
   -r software/requirements-desktop.lock
 python scripts/build_macos.py --library-archive /absolute/library.zip \
   --python-archive /absolute/python.tar.gz --wheelhouse /absolute/wheelhouse \
   --directory /absolute/new-candidate
 ```
+
+Library releases built from the current source include the BitTorrent DHT
+binding (libtorrent 2.0.14) in `requirements-desktop.lock`; build 9 pins Library
+0.23, which does not, so a later build picks it up. PyPI publishes its
+Apple silicon wheels for macOS 14.0 and 15.0 only, so the `--platform` flags
+above select the macOS 14.0 build: a macOS 15 host would otherwise download the
+15.0 build. The builder refuses any bundled native code that needs a newer macOS
+than 14.0. The wheel brings its own `libssl` and `libcrypto` dylibs; the release
+signer signs every Mach-O file in the app individually with the hardened runtime,
+so these need no special handling for notarization. The app still declares macOS
+13, where the DHT binding is not supported; the rest of the app is unaffected.
 
 The build verifies the archive pins before creating its output. It extracts
 confined runtime files, installs the hash-locked public dependencies without an

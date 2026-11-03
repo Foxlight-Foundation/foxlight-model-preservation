@@ -22,6 +22,67 @@ from pathlib import Path, PurePosixPath
 
 PROJECT = Path(__file__).resolve().parents[1]
 INPUTS = PROJECT / "desktop/macos/inputs.json"
+# libtorrent 2.0.14 publishes Apple silicon wheels for macOS 14.0 and 15.0 only.
+# Bundle the 14.0 build so the DHT binding loads on 14 and 15; a wheelhouse
+# prepared on a macOS 15 host without --platform would otherwise pick 15.0.
+NATIVE_MACOS_CEILING = (14, 0)
+LC_VERSION_MIN_MACOSX = 0x24
+LC_BUILD_VERSION = 0x32
+
+
+def _thin_minimum(data: bytes) -> tuple[int, int] | None:
+    """Read one 64-bit little-endian Mach-O slice's minimum macOS version."""
+    if data[:4] != b"\xcf\xfa\xed\xfe":
+        return None
+    count = int.from_bytes(data[16:20], "little")
+    offset = 32
+    for _ in range(count):
+        command = int.from_bytes(data[offset : offset + 4], "little")
+        size = int.from_bytes(data[offset + 4 : offset + 8], "little")
+        if size < 8 or offset + size > len(data):
+            raise ValueError("malformed Mach-O load command")
+        if command == LC_BUILD_VERSION:
+            encoded = int.from_bytes(data[offset + 12 : offset + 16], "little")
+        elif command == LC_VERSION_MIN_MACOSX:
+            encoded = int.from_bytes(data[offset + 8 : offset + 12], "little")
+        else:
+            offset += size
+            continue
+        return encoded >> 16, (encoded >> 8) & 0xFF
+    return None
+
+
+def macho_minimum(path: Path) -> tuple[int, int] | None:
+    """Return the newest minimum macOS of a (possibly universal) Mach-O file."""
+    data = path.read_bytes()
+    if data[:4] != b"\xca\xfe\xba\xbe":
+        return _thin_minimum(data)
+    versions: list[tuple[int, int]] = []
+    for index in range(int.from_bytes(data[4:8], "big")):
+        entry = 8 + 20 * index
+        start = int.from_bytes(data[entry + 8 : entry + 12], "big")
+        length = int.from_bytes(data[entry + 12 : entry + 16], "big")
+        version = _thin_minimum(data[start : start + length])
+        if version is not None:
+            versions.append(version)
+    return max(versions) if versions else None
+
+
+def check_native_floor(site: Path) -> None:
+    """Refuse bundled native code that needs a newer macOS than the ceiling."""
+    for path in sorted(site.rglob("*")):
+        if path.is_symlink() or not path.is_file():
+            continue
+        with path.open("rb") as stream:
+            head = stream.read(4)
+        if head not in {b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe"}:
+            continue
+        minimum = macho_minimum(path)
+        if minimum is not None and minimum > NATIVE_MACOS_CEILING:
+            raise ValueError(
+                f"{path.relative_to(site)} needs macOS {minimum[0]}.{minimum[1]}; "
+                "prepare the wheelhouse with --platform macosx_14_0_arm64"
+            )
 
 
 def digest(path: Path) -> str:
@@ -175,6 +236,7 @@ def main() -> None:
         check=True,
         env={**os.environ, "UV_PYTHON_DOWNLOADS": "never"},
     )
+    check_native_floor(site)
     app = output / "Sovereign.app"
     subprocess.run(  # noqa: S603
         [

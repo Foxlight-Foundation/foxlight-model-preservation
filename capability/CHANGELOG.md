@@ -6,6 +6,16 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Bundle the BitTorrent DHT binding in the desktop profile. The Library's
+  `desktop` extra is now `foxlight-model-preservation[bittorrent]==<core>`, so
+  `requirements-desktop.lock` and the Mac and Linux apps built from it include
+  libtorrent 2.0.14 and the community mirror's DHT rendezvous can run. Turning
+  on Help keep models available then also announces a reachable mirror on the
+  public BitTorrent DHT, which reveals this computer's public IP address and
+  mirror port as a Sovereign mirror to anyone who looks; it is not anonymous.
+  The Mac wheelhouse now selects libtorrent's macOS 14.0 build and the Mac
+  builder refuses bundled native code that needs a newer macOS; the DHT binding
+  is not supported on macOS 13. Linux needs no new apt dependency.
 - Prepare Mac build 9 from the authenticated public core 0.27 / Library 0.23
   installation archive, which adds Help keep models available. Native signing,
   notarization and publication remain separate gates.
