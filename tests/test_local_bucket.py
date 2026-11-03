@@ -457,6 +457,9 @@ def test_an_upload_whose_outcome_was_lost_is_still_withdrawn(
             failed = owner.community.sync_bucket(OperationControl())
             assert failed is not None
             assert failed.synced == () and failed.pending == (wanted,)
+            # The panel counts it as still to withdraw, though never confirmed.
+            summary = owner.community._bucket_summary()
+            assert isinstance(summary, dict) and summary["withdraw_count"] == 1
             # Turning sharing off withdraws it although it never counted as synced.
             sharing["on"] = False
             withdrawn = owner.community.sync_bucket(OperationControl())

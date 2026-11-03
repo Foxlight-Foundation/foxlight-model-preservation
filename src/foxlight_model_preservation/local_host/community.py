@@ -328,6 +328,7 @@ class CommunityMirror:
         self._bucket_lock = threading.Lock()
         # One reconciliation at a time: discovery rounds and withdrawal retries.
         self._bucket_sync_lock = threading.Lock()
+        self._key_lock = threading.Lock()
         # Gossip rounds (and the rendezvous they own) never overlap.
         self._gossip_lock = threading.Lock()
 
@@ -684,12 +685,15 @@ class CommunityMirror:
     # Discovery ---------------------------------------------------------------
 
     def _mirror_key(self) -> Ed25519PrivateKey:
-        path = self.path / "mirror-key.pem"
-        if not path.exists():
-            with directory(self.path, create=True):
-                pass
-            create_key(path, None)
-        return load_key(path, None)
+        # Serving and discovery announce from different threads; without the
+        # lock one could read the key while the other is still writing it.
+        with self._key_lock:
+            path = self.path / "mirror-key.pem"
+            if not path.exists():
+                with directory(self.path, create=True):
+                    pass
+                create_key(path, None)
+            return load_key(path, None)
 
     def addresses(self) -> tuple[str, ...]:
         """Addresses this computer itself can be reached at, if any.
@@ -1118,6 +1122,9 @@ class CommunityMirror:
             "bucket": state.target.bucket,
             "public_url": state.target.public_url,
             "model_count": len(state.synced),
+            # Includes uploads whose outcome was never confirmed: they may be
+            # public, so the bucket is only empty when this reaches zero.
+            "withdraw_count": len(set(state.synced) | set(state.pending)),
             "last_synced": state.last_synced,
             "last_error": state.last_error,
         }

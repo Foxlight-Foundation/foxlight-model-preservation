@@ -5,7 +5,7 @@ import {Callout,Row,Sheet,Step} from './ui';
 
 type Field='account_id'|'region'|'bucket'|'endpoint'|'public_url';
 export interface BucketProvider {id:string;name:string;asks:Field[];note:string}
-export interface BucketSummary {provider:string;provider_name:string;bucket:string;public_url:string;model_count:number;last_synced:number|null;last_error:string|null}
+export interface BucketSummary {provider:string;provider_name:string;bucket:string;public_url:string;model_count:number;withdraw_count?:number;last_synced:number|null;last_error:string|null}
 type Connected<T>=T&{status:'ready'|'upload'|'public'|'disconnected'};
 
 const fieldLabel:Record<Field,[string,string]>={
@@ -34,7 +34,7 @@ export function CloudStorage<T extends {bucket:BucketSummary|null;bucket_provide
    <Row k="Keeping a copy in">{bucket.provider_name} · {bucket.bucket}</Row>
    <Row k="People download from"><code>{bucket.public_url}</code></Row>
    <Row k="Models in the bucket">{bucket.model_count}{bucket.last_synced?` · checked ${new Date(bucket.last_synced*1000).toLocaleString()}`:sharing?' · uploading…':''}</Row>
-   {!sharing&&(bucket.model_count>0
+   {!sharing&&((bucket.withdraw_count??bucket.model_count)>0
     ?<Callout tone={bucket.last_error?'warn':'info'}>Sharing is off, so Sovereign is taking your models out of the bucket.{bucket.last_error?` The bucket refused the last attempt (${errorText(bucket.last_error)}); it keeps trying.`:''}</Callout>
     :<Callout tone="ok">Sharing is off and your models are out of the bucket. You can disconnect it now.</Callout>)}
    {sharing&&(bucket.last_error==='bucket_upload_limit_reached'

@@ -172,7 +172,11 @@ test('a connected bucket stays visible after sharing is turned off, until it is 
  const panel=page.getByRole('region',{name:'Help keep models available'});
  await expect(panel.getByText('Off',{exact:true})).toBeVisible();
  await expect(panel.getByText('taking your models out of the bucket',{exact:false})).toBeVisible();
- bucket={...connected,model_count:0};
+ // An upload whose outcome was never confirmed may still be public.
+ bucket={...connected,model_count:0,withdraw_count:1,last_error:'bucket_request_failed'};
+ await expect(panel.getByText('The bucket refused the last attempt',{exact:false})).toBeVisible({timeout:10000});
+ await expect(panel.getByText('your models are out of the bucket',{exact:false})).toHaveCount(0);
+ bucket={...connected,model_count:0,withdraw_count:0};
  await expect(panel.getByText('your models are out of the bucket',{exact:false})).toBeVisible({timeout:10000});
  await expect(panel.getByRole('button',{name:'Set up cloud storage'})).toHaveCount(0);
  await panel.getByRole('button',{name:'Disconnect',exact:true}).click();
