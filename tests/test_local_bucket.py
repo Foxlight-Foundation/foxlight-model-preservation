@@ -162,9 +162,20 @@ def test_a_home_mirror_behind_a_router_is_found_through_its_bucket(
                 )
             )
             assert manifest_path(identity) in server.objects
-            wait_for(lambda: ".well-known/sovereign/peers.json" in server.objects)
-            cards = read_peers(server.objects[".well-known/sovereign/peers.json"])
-            card = verify_card(cards[0])
+            card = verify_card(
+                wait_for(
+                    lambda: next(
+                        iter(
+                            read_peers(
+                                server.objects.get(
+                                    ".well-known/sovereign/peers.json", b"{}"
+                                )
+                            )
+                        ),
+                        None,
+                    )
+                )
+            )
             # Only the bucket can be reached, so the card points only there.
             assert card.addresses == (public_url,)
             assert card.covers(identity)
@@ -455,5 +466,34 @@ def test_an_upload_whose_outcome_was_lost_is_still_withdrawn(
             withdrawn = owner.community.sync_bucket(OperationControl())
             assert withdrawn is not None and withdrawn.pending == ()
             assert manifest_path(wanted) not in server.objects
+    finally:
+        owner.close()
+
+
+def test_withholding_a_model_cancels_a_bucket_upload_in_progress(
+    tmp_path: Path, keychain: dict[str, BucketCredentials]
+) -> None:
+    from foxlight_model_preservation.operations import OperationControl
+
+    owner = LocalOwner(tmp_path / "owner")
+    owner.community.bucket_policy = LOCAL
+    try:
+        with bucket() as (_, client):
+            endpoint, public_url = addresses(client)
+            owner.control("community-bucket-connect", details(endpoint, public_url))
+            a, b = "a" * 64, "b" * 64
+            for before, after, cancelled in (
+                # A model joining never restarts a long upload.
+                (frozenset({a}), frozenset({a, b}), False),
+                # A model leaving cancels it, so the withdrawal goes first.
+                (frozenset({a, b}), frozenset({a}), True),
+            ):
+                control = OperationControl()
+                owner._gossip_control = control
+                owner._gossip_wake.clear()
+                owner._bucket_selection_changed(before, after)
+                assert control._cancelled.is_set() is cancelled
+                assert owner._gossip_wake.is_set()
+            owner._gossip_control = None
     finally:
         owner.close()

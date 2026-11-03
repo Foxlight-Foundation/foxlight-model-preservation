@@ -937,7 +937,9 @@ class CommunityMirror:
                 atomic_bytes(root, "peers.json", document)
         except FileNotFoundError:
             pass  # No mirror yet; the next sync creates it and announces.
-        if bucket is not None and bucket.synced:
+        # Only a document carrying this mirror's card is worth replacing the
+        # bucket's copy with; a transient empty one would hide the bucket.
+        if bucket is not None and bucket.synced and card is not None:
             try:
                 publish_peers(
                     BucketClient(

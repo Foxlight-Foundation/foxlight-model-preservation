@@ -1459,6 +1459,27 @@ class LocalOwner:
             # too, so it stops offering them.
             self._bucket_withdrawal()
 
+    def _bucket_selection_changed(
+        self, before: frozenset[str], after: frozenset[str]
+    ) -> None:
+        """Bring a connected bucket up to date with what is served now.
+
+        New models upload now rather than at the next discovery round, and a
+        failed upload is retried once the mirror has applied changed settings
+        such as upload limits. When a model stops being served, an upload in
+        progress is cancelled so the withdrawal happens first, not after hours
+        of uploading, and that model's upload is never finished.
+        """
+        bucket = self.community.bucket()
+        if bucket is None:
+            return
+        if before - after:
+            with self._lock:
+                if self._gossip_control is not None:
+                    self._gossip_control.cancel()
+        if before != after or bucket.last_error is not None:
+            self._gossip_wake.set()
+
     # Seconds before retrying a withdrawal the bucket refused; doubles.
     _withdraw_retry = 30.0
 
@@ -1533,14 +1554,7 @@ class LocalOwner:
             try:
                 before = self.community.held()
                 self.community.sync(copies, control)
-                bucket = self.community.bucket()
-                if bucket is not None and (
-                    self.community.held() != before or bucket.last_error is not None
-                ):
-                    # Upload newly shared models now rather than at the next
-                    # discovery round, and retry a failed upload once the
-                    # mirror has applied changed settings such as upload limits.
-                    self._gossip_wake.set()
+                self._bucket_selection_changed(before, self.community.held())
                 if not self._community_wake.is_set():
                     self.community.last_error = None
                     try:
