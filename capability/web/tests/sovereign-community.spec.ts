@@ -279,3 +279,17 @@ test('a consent given before the disclosure announces nothing until the owner ch
  await expect(findable).toContainText('Published to 2 Nostr relays.');
  expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
 });
+
+test('an unusable saved address and a slow address are explained, not fatal',async({page})=>{
+ await page.route('**/api/desktop-community-read',r=>r.fulfill({json:view(true,{address_invalid:true,announce_reasons:{dht:['address_invalid'],nostr:['address_invalid','no_reachable_address']}})}));
+ await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();
+ const panel=page.getByRole('region',{name:'Help keep models available'});
+ await expect(panel.getByRole('list',{name:'How people find this mirror'})).toContainText('Not announced on the BitTorrent DHT: the public address saved earlier has a port that can’t be used, so it was set aside; set it again.');
+ await page.unroute('**/api/desktop-community-read');
+ await page.route('**/api/desktop-community-read',r=>r.fulfill({json:view(true,{policy:{...policy,enabled:true,consent_expires:2000000000,public_url:'https://models.example.org'}})}));
+ await page.route('**/api/desktop-community-check-address',r=>r.fulfill({json:{address:'https://models.example.org',outcome:'too_slow',http_status:null}}));
+ await page.reload();await page.getByRole('button',{name:'Sharing',exact:true}).click();
+ await panel.getByRole('button',{name:'Check address',exact:true}).click();
+ await expect(panel.getByRole('status')).toContainText('answered too slowly, so the check stopped');
+ await expect(panel.getByRole('status')).toContainText('best-effort check');
+});

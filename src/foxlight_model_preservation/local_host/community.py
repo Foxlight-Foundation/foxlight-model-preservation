@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import http.client
 import ipaddress
+import json
 import os
 import re
 import secrets
@@ -179,9 +180,12 @@ class CommunityPolicy(Record):
         if value is None:
             return None
         try:
-            return base_url(value)
+            value = base_url(value)
         except PreservationError:
             raise PreservationError("community_address_invalid") from None
+        if _url_port(value) is None:
+            raise PreservationError("community_address_port_invalid")
+        return value
 
     @field_validator("nostr_relays")
     @classmethod
@@ -208,6 +212,18 @@ class CommunityPolicy(Record):
         if any(value in UNIDENTIFIED or len(value) > 200 for value in result):
             raise PreservationError("community_license_unidentified")
         return result
+
+
+def _url_port(value: str) -> int | None:
+    """The address's TCP port, or None when it names no usable port."""
+    parsed = urlsplit(value)
+    try:
+        port = parsed.port
+    except ValueError:
+        return None
+    if port is None:
+        return 443 if parsed.scheme == "https" else 80
+    return port if 1 <= port <= 65535 else None
 
 
 def _bucket_failure(error: BaseException) -> str:
@@ -372,13 +388,30 @@ class CommunityMirror:
 
     def policy(self) -> CommunityPolicy:
         """Read the standing choice; a missing file means the switch is off."""
+        return self._load_policy()[0]
+
+    def _load_policy(self) -> tuple[CommunityPolicy, bool]:
+        """Read the policy, and whether its stored public address is unusable.
+
+        Earlier versions accepted a public address whose port cannot be used
+        (such as ``:abc`` or ``:99999``). Such an address is set aside rather
+        than breaking every read: the mirror keeps its other choices and the
+        status says the address needs setting again.
+        """
         try:
             with directory(self.path) as root:
-                return CommunityPolicy.model_validate_json(
-                    read_metadata(root, "policy.json")
-                )
+                data = read_metadata(root, "policy.json")
         except FileNotFoundError:
-            return CommunityPolicy()
+            return CommunityPolicy(), False
+        try:
+            return CommunityPolicy.model_validate_json(data), False
+        except ValidationError:
+            stored: JsonValue = json.loads(data)
+            if not isinstance(stored, dict) or stored.get("public_url") is None:
+                raise
+            without = {**stored, "public_url": None}
+            # Anything else wrong with the policy still refuses as before.
+            return CommunityPolicy.model_validate_json(identity_json(without)), True
 
     def _save(self, policy: CommunityPolicy) -> None:
         with directory(self.path, create=True) as root:
@@ -1117,7 +1150,7 @@ class CommunityMirror:
             parsed = urlsplit(policy.public_url)
             if parsed.scheme != "http" or parsed.path not in {"", "/"}:
                 return None
-            return parsed.port or 80
+            return _url_port(policy.public_url)
         return policy.port if self.addresses() else None
 
     def close_rendezvous(self) -> None:
@@ -1168,7 +1201,7 @@ class CommunityMirror:
         Nostr needs any reachable address (a synced bucket counts) and
         something served. Reasons are codes the app explains in sentences.
         """
-        policy = self.policy()
+        policy, address_invalid = self._load_policy()
         consented = self.consented(policy)
         available = rendezvous_available()
         held = bool(self.held())
@@ -1189,7 +1222,9 @@ class CommunityMirror:
                 dht_reasons.append("dht_unavailable")
             if not held:
                 dht_reasons.append("nothing_shared")
-            if port is None:
+            if address_invalid:
+                dht_reasons.append("address_invalid")
+            elif port is None:
                 dht_reasons.append(
                     "address_not_plain_http"
                     if policy.public_url is not None
@@ -1207,6 +1242,8 @@ class CommunityMirror:
                 nostr_reasons.append("not_sharing")
             if not held:
                 nostr_reasons.append("nothing_shared")
+            if address_invalid:
+                nostr_reasons.append("address_invalid")
             if not own and not bucket_live:
                 nostr_reasons.append("no_reachable_address")
         return {
@@ -1215,6 +1252,7 @@ class CommunityMirror:
             "nostr_publishing": not nostr_reasons,
             "announce_reasons": {"dht": dht_reasons, "nostr": nostr_reasons},
             "announce_review_required": review,
+            "address_invalid": address_invalid,
         }
 
     def check_address(self) -> dict[str, JsonValue]:
@@ -1229,9 +1267,22 @@ class CommunityMirror:
             raise PreservationError("community_address_required")
         outcome: str
         status: int | None = None
+        policy = ADDRESS_CHECK_POLICY
+        deadline = time.monotonic() + policy.deadline_seconds
         try:
-            with response(url, PEERS_PATH, ADDRESS_CHECK_POLICY) as received:
-                data = received.read(MAX_PEERS_BYTES + 1)
+            with response(url, PEERS_PATH, policy) as received:
+                data = b""
+                # A slow sender cannot stretch the check: every read is bounded
+                # by the socket timeout, and the whole check by the deadline.
+                while len(data) <= MAX_PEERS_BYTES:
+                    if time.monotonic() > deadline:
+                        raise TimeoutError("address check deadline exceeded")
+                    chunk = received.read1(min(65536, MAX_PEERS_BYTES + 1 - len(data)))
+                    if not chunk:
+                        break
+                    data += chunk
+        except TimeoutError:
+            outcome = "too_slow"
         except MirrorHTTPError as error:
             outcome, status = "http_error", error.status_code
         except PreservationError as error:

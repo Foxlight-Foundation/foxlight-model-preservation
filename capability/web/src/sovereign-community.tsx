@@ -8,16 +8,17 @@ type Status='sharing'|'eligible'|'failed'|'withheld'|'not_chosen'|'license_not_s
 interface CommunityCopy {copy_id:string;name:string;size_bytes:number;status:Status;licenses:string[];public_manifest_id:string|null;error_code?:string|null}
 interface Policy {enabled:boolean;share:'eligible'|'chosen';licenses:string[];chosen:string[];withheld:string[];daily_upload_bytes:number;monthly_upload_bytes:number;port:number;consent_expires:number|null;public_url?:string|null;announce_dht?:boolean;publish_nostr?:boolean;nostr_relays?:string[]}
 interface Reachability {status:'public_address'|'private_network'|'offline';local_address:string|null;port:number;mirror_url:string|null}
-type Reason='awaiting_review'|'turned_off'|'not_sharing'|'dht_unavailable'|'nothing_shared'|'no_reachable_address'|'address_not_plain_http'|'no_relays';
-export interface Community {policy:Policy;consented:boolean;default_licenses:string[];copies:CommunityCopy[];sharing_count:number;running:boolean;http_port:number|null;reachability:Reachability;last_error:string|null;bucket:BucketSummary|null;bucket_providers:BucketProvider[];uploaded_today_bytes?:number;uploaded_this_month_bytes?:number;dht_available?:boolean;dht_announcing?:boolean;nostr_publishing?:boolean;announce_reasons?:{dht:Reason[];nostr:Reason[]};announce_review_required?:boolean}
-type CheckOutcome='this_mirror'|'other_mirror'|'no_card'|'not_a_mirror'|'http_error'|'private_address'|'unreachable';
+type Reason='awaiting_review'|'address_invalid'|'turned_off'|'not_sharing'|'dht_unavailable'|'nothing_shared'|'no_reachable_address'|'address_not_plain_http'|'no_relays';
+export interface Community {policy:Policy;consented:boolean;default_licenses:string[];copies:CommunityCopy[];sharing_count:number;running:boolean;http_port:number|null;reachability:Reachability;last_error:string|null;bucket:BucketSummary|null;bucket_providers:BucketProvider[];uploaded_today_bytes?:number;uploaded_this_month_bytes?:number;dht_available?:boolean;dht_announcing?:boolean;nostr_publishing?:boolean;announce_reasons?:{dht:Reason[];nostr:Reason[]};announce_review_required?:boolean;address_invalid?:boolean}
+type CheckOutcome='too_slow'|'this_mirror'|'other_mirror'|'no_card'|'not_a_mirror'|'http_error'|'private_address'|'unreachable';
 interface AddressCheck {address:string;outcome:CheckOutcome;http_status:number|null}
 
 const label:Record<Status,[string,Tone]>={sharing:['Sharing','live'],eligible:['Joining…','info'],failed:['Couldn’t join · will retry','bad'],withheld:['Kept back','muted'],not_chosen:['Not chosen','muted'],license_not_selected:['Licence not in your list','muted'],no_license:['No licence found · stays private','muted'],unsupported:['Can’t be shared yet','muted']};
-const communityError=(code:string)=>({community_address_invalid:'That public address doesn’t look right. Use a plain address such as https://models.example.org, with no user name or password.',community_address_required:'Add a public address first.',community_consent_required:'Confirm that you want this computer to keep serving before turning this on.',community_license_unidentified:'That doesn’t name a licence. Use its identifier, for example Apache-2.0 or MIT.',community_nothing_to_share:'Nothing to share yet. Models join here as soon as one of your backups has a licence on your list.',insufficient_space:'There isn’t enough free space to prepare a public copy. Your private backups are untouched.'} as Record<string,string>)[code]??errorText(code);
+const communityError=(code:string)=>({community_address_port_invalid:'That public address has a port that can’t be used. Use a number from 1 to 65535, or leave the port out.',community_address_invalid:'That public address doesn’t look right. Use a plain address such as https://models.example.org, with no user name or password.',community_address_required:'Add a public address first.',community_consent_required:'Confirm that you want this computer to keep serving before turning this on.',community_license_unidentified:'That doesn’t name a licence. Use its identifier, for example Apache-2.0 or MIT.',community_nothing_to_share:'Nothing to share yet. Models join here as soon as one of your backups has a licence on your list.',insufficient_space:'There isn’t enough free space to prepare a public copy. Your private backups are untouched.'} as Record<string,string>)[code]??errorText(code);
 
 const dhtWhy:Record<Reason,string>={
  awaiting_review:'waiting for your review',
+ address_invalid:'the public address saved earlier has a port that can’t be used, so it was set aside; set it again',
  turned_off:'you turned it off',
  not_sharing:'sharing is off',
  dht_unavailable:'this copy of Sovereign doesn’t include the BitTorrent component',
@@ -38,6 +39,7 @@ function checkResult(result:AddressCheck,port:number):[string,'ok'|'warn'|'bad']
   not_a_mirror:[`${at} answered, but not as a Sovereign mirror. Check that it forwards to port ${port} on this computer.`,'warn'],
   http_error:[`${at} answered with an error (HTTP ${result.http_status??'?'}). Check that it forwards to port ${port} on this computer.`,'warn'],
   private_address:[`${at} leads to a private network address, so people outside your network can’t use it. The check only follows public routes, as anyone else would.`,'warn'],
+  too_slow:[`${at} answered too slowly, so the check stopped. People downloading from it would likely find it slow too.`,'warn'],
   unreachable:[`This computer couldn’t reach ${at}. Many routers can’t loop back to their own public address, so this doesn’t prove other people can’t reach it either.`,'bad'],
  } as Record<CheckOutcome,[string,'ok'|'warn'|'bad']>)[result.outcome];
 }

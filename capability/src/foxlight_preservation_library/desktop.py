@@ -141,6 +141,7 @@ class DesktopClient(CoreClient):
                 "community_relay_invalid",
                 "community_nothing_to_share",
                 "community_address_invalid",
+                "community_address_port_invalid",
                 "community_address_required",
                 "bucket_details_incomplete",
                 "bucket_details_invalid",

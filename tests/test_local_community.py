@@ -739,12 +739,114 @@ def test_public_address_is_validated_and_required_for_a_check(
         for bad in ("ftp://mirror.example.org", "https://user:pw@example.org"):
             with pytest.raises(PreservationError, match="community_address_invalid"):
                 owner.control("community-configure", {"public_url": bad})
+        for bad in (
+            "http://mirror.example.org:abc",
+            "http://mirror.example.org:99999",
+            "https://mirror.example.org:0",
+        ):
+            with pytest.raises(
+                PreservationError, match="community_address_port_invalid"
+            ):
+                owner.control("community-configure", {"public_url": bad})
         with pytest.raises(PreservationError, match="community_address_required"):
             owner.control("community-check-address", {})
         with pytest.raises(PreservationError, match="sovereign_operation_unavailable"):
             owner.control("community-check-address", {"url": "https://x.example"})
     finally:
         owner.close()
+
+
+def test_an_unusable_stored_address_is_set_aside_not_fatal(tmp_path: Path) -> None:
+    import json
+
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        owner.control(
+            "community-configure",
+            {"public_url": "http://mirror.example.org:8080", "port": 18743},
+        )
+        # What an earlier version could store: a port that cannot be used.
+        path = owner.home / "sharing/community/policy.json"
+        stored = json.loads(path.read_bytes())
+        path.write_text(
+            json.dumps({**stored, "public_url": "http://mirror.example.org:99999"})
+        )
+        state = owner.control("community-read", {})
+        assert state["address_invalid"] is True
+        assert state["policy"]["public_url"] is None
+        assert state["policy"]["port"] == 18743  # Other choices are kept.
+        assert "address_invalid" in state["announce_reasons"]["dht"]
+        assert "address_invalid" in state["announce_reasons"]["nostr"]
+        assert owner.community.dht_port() is None
+        with pytest.raises(PreservationError, match="community_address_required"):
+            owner.control("community-check-address", {})
+        # Setting a good address again clears it.
+        state = owner.control(
+            "community-configure", {"public_url": "https://mirror.example.org"}
+        )
+        assert state["address_invalid"] is False
+        # Any other damage to the policy still refuses as before.
+        path.write_text(json.dumps({**stored, "port": "not-a-port"}))
+        with pytest.raises(ValueError):
+            owner.control("community-read", {})
+    finally:
+        owner.close()
+
+
+def test_a_slow_streaming_address_cannot_stretch_the_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import http.server
+    from dataclasses import replace
+
+    from foxlight_model_preservation.local_host import community
+
+    stop = threading.Event()
+
+    class Trickle(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            self.send_response(200)
+            self.send_header("Content-Length", str(1024 * 1024))
+            self.end_headers()
+            # One byte at a time, each well inside the socket timeout.
+            while not stop.is_set():
+                try:
+                    self.wfile.write(b" ")
+                    self.wfile.flush()
+                except OSError:
+                    return
+                time.sleep(0.05)
+
+        def log_message(self, *args: object) -> None: ...
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Trickle)
+    server.daemon_threads = True
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    monkeypatch.setattr(
+        community,
+        "ADDRESS_CHECK_POLICY",
+        replace(
+            community.ADDRESS_CHECK_POLICY,
+            allow_private=True,
+            timeout=2,
+            deadline_seconds=1,
+        ),
+    )
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        owner.control(
+            "community-configure",
+            {"public_url": f"http://127.0.0.1:{server.server_address[1]}"},
+        )
+        started = time.monotonic()
+        result = owner.control("community-check-address", {})
+        assert result["outcome"] == "too_slow"
+        assert time.monotonic() - started < 4
+    finally:
+        stop.set()
+        owner.close()
+        server.shutdown()
+        server.server_close()
 
 
 def test_address_check_finds_this_mirror_card_and_refuses_private_routes(
@@ -775,8 +877,12 @@ def test_address_check_finds_this_mirror_card_and_refuses_private_routes(
             replace(community.ADDRESS_CHECK_POLICY, allow_private=True),
         )
         owner.community.announce()
-        assert owner.control("community-check-address", {})["outcome"] == (
-            "this_mirror"
+        # A copy counts as sharing once joined, slightly before the listener
+        # binds; until then the address honestly reports unreachable.
+        wait_for(
+            lambda: (
+                owner.control("community-check-address", {})["outcome"] == "this_mirror"
+            )
         )
         assert owner.community._peers_outcome(b"<html></html>") == "not_a_mirror"
         other = community.issue_card(
