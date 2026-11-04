@@ -842,6 +842,46 @@ def test_dht_only_expresses_plain_http_roots():
     assert dht_port(AnnouncePolicy(public_url="http://m.example")) is None
 
 
+@pytest.mark.parametrize("withdrawn", [False, True])
+def test_card_renews_when_reconcile_is_budget_blocked(tmp_path, capture, withdrawn):
+    ledger, publisher = mirror(tmp_path, capture)
+    cycle(ledger)
+    if withdrawn:
+        publisher.publish(version=2, manifest="b" * 64)
+        cycle(ledger)
+        assert ledger.read().models[capture.identity].withdrawn
+    configure_mirror(
+        ledger, {"announce": AnnouncePolicy(public_url="https://m.example")}
+    )
+    # Below the 32 MiB refresh reservation: every reconcile raises on budget.
+    configure_mirror(ledger, {"ingress_daily": 1024**2})
+    ready: queue.Queue[int] = queue.Queue()
+    thread = threading.Thread(
+        target=lambda: run_mirror(ledger, public=True, seconds=60, ready=ready.put)
+    )
+    thread.start()
+    try:
+        ready.get(timeout=10)
+        end = time.monotonic() + 20
+        while not (ledger.path / "peers.json").exists() or not ledger.read().last_error:
+            assert time.monotonic() < end
+            time.sleep(0.1)
+        cards = read_peers((ledger.path / "peers.json").read_bytes())
+        if withdrawn:
+            # A taken-down model never appears in the card: no card at all.
+            assert cards == []
+            assert not public(ledger.path, capture.identity).exists()
+        else:
+            (card,) = cards
+            assert verify_card(card).covers(capture.identity)
+        assert ledger.read().last_cycle is not None  # From the earlier cycles.
+        assert "invalid_or_unsafe" in (ledger.read().last_error or "")
+    finally:
+        ledger.update(lambda s: s.model_copy(update={"paused": True}))
+        thread.join(30)
+    assert not thread.is_alive()
+
+
 def test_running_mirror_serves_its_peers_document_over_ipv6(tmp_path, capture):
     ledger, _ = mirror(tmp_path, capture)
     cycle(ledger)

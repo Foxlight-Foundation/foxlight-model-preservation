@@ -154,7 +154,8 @@ they serve bytes they claim, and republishes. Gossip is charged 64 MiB of ingres
 per round and skipped when the daily budget cannot cover it. Every read in a
 round is capped to fit that reservation: at most 8 peers documents, 2
 spot-checked mirrors and 18 MiB of relay frames. HTTP headers and DHT datagrams
-are outside it. See
+are outside it. Serving, withdrawals and the card are renewed every cycle from
+verified retained copies, even when source refresh or intake fails on budget. See
 [mirror discovery](mirror-discovery.md) for how clients use cards.
 
 HTTPS is preferred; an `http://` URL is accepted with a warning. Two further

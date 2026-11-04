@@ -1224,7 +1224,16 @@ def run_mirror(
                         server.allowed, server.owners = public_selection(
                             ledger, active.fork()
                         )
-                    reconcile(ledger, active.fork())
+                    # A budget or source failure must not skip the steps below:
+                    # withdrawals already recorded must leave the serving set,
+                    # and the card must be renewed from verified retained copies.
+                    failed: BaseException | None = None
+                    try:
+                        reconcile(ledger, active.fork())
+                    except OperationCancelled:
+                        raise
+                    except (ValueError, OSError) as failure:
+                        failed = failure
                     if server is not None:
                         server.allowed, server.owners = public_selection(
                             ledger, active.fork()
@@ -1241,6 +1250,9 @@ def run_mirror(
                                 error.append(failure)
                                 return
                         announce(serving)
+                    if failed is not None:
+                        # Status records the reconcile failure, not the announce.
+                        raise failed
                 except OperationCancelled:
                     return
                 except (ValueError, OSError) as failure:
