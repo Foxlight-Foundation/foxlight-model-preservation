@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Bundle the BitTorrent DHT binding in the desktop profile. The Library's
+  `desktop` extra is now `foxlight-model-preservation[bittorrent]==<core>`, so
+  `requirements-desktop.lock` and the Mac and Linux apps built from it include
+  libtorrent 2.0.14 and the community mirror's DHT rendezvous can run. Turning
+  on Help keep models available then also announces a reachable mirror on the
+  public BitTorrent DHT, which reveals this computer's public IP address and
+  mirror port as a Sovereign mirror to anyone who looks; it is not anonymous.
+  The Mac wheelhouse now selects libtorrent's macOS 14.0 build and the Mac
+  builder refuses bundled native code that needs a newer macOS; the DHT binding
+  is not supported on macOS 13. Linux needs no new apt dependency. Both
+  builds ship libtorrent's upstream BSD-3-Clause notice (v2.0.14 `LICENSE`).
 - Help keep models available can keep a copy in the owner's own cloud bucket.
   Connecting checks upload and anonymous public download before anything is
   saved; keys go only to the OS keychain. Shared models upload as soon as they

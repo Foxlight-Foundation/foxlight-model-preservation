@@ -212,12 +212,15 @@ def test_generated_zip_has_a_complete_checked_installation_closure(
     install_release.validate_assets(extracted, "requirements-mirror.lock")
 
 
-def library_assets(tmp_path, monkeypatch):
+DESKTOP = "foxlight-model-preservation[bittorrent]==0.21.0"
+
+
+def library_assets(tmp_path, monkeypatch, desktop=DESKTOP):
     project = tmp_path / "library"
     project.mkdir()
     (project / "pyproject.toml").write_text(
         '[project]\nname="foxlight-preservation-library"\nversion="0.16.0"\n'
-        '[project.optional-dependencies]\ndesktop=["foxlight-model-preservation==0.21.0"]\n'
+        "[project.optional-dependencies]\ndesktop=" + json.dumps([desktop]) + "\n"
     )
     output = tmp_path / "release"
     output.mkdir()
@@ -284,6 +287,35 @@ def test_desktop_bundle_binds_both_wheels_and_keeps_default_core_free(
     ).is_file()
     default = install_release.install(extracted, tmp_path / "default")
     assert default["components_installed"] == []
+
+
+def test_committed_desktop_profile_bundles_the_dht_binding():
+    import tomllib
+
+    root = Path(__file__).parents[1]
+    core = tomllib.loads((root / "pyproject.toml").read_text())["project"]
+    library = tomllib.loads((root / "capability/pyproject.toml").read_text())
+    desktop = library["project"]["optional-dependencies"]["desktop"]
+    assert desktop == ["foxlight-model-preservation[bittorrent]==" + core["version"]]
+    assert "libtorrent==2.0.14" in core["optional-dependencies"]["bittorrent"]
+
+
+@pytest.mark.parametrize(
+    "desktop",
+    [
+        # The desktop apps need the DHT binding; a bare core pin no longer passes.
+        "foxlight-model-preservation==0.21.0",
+        "foxlight-model-preservation[peer]==0.21.0",
+        "foxlight-model-preservation[bittorrent,peer]==0.21.0",
+        "foxlight-model-preservation[bittorrent]>=0.21.0",
+        "foxlight-model-preservation[bittorrent]",
+    ],
+)
+def test_desktop_profile_requires_exact_core_with_bittorrent(
+    tmp_path, monkeypatch, desktop
+):
+    with pytest.raises(ValueError, match="bittorrent extra"):
+        library_assets(tmp_path, monkeypatch, desktop)
 
 
 @pytest.mark.parametrize(

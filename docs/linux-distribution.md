@@ -264,7 +264,10 @@ Input pins, native package provenance and signed APT metadata remain separate tr
 
 `desktop/linux/inputs.json` pins the public Library archive and separate native
 Python archives for both architectures. The original notices and build inventory
-come from each architecture's matching full upstream Python archive. A builder
+come from each architecture's matching full upstream Python archive. The builder
+adds the digest-checked notices in [`desktop/notices/`](../desktop/notices/) to
+the same `runtime-notices` directory, such as libtorrent's upstream BSD-3-Clause
+`LICENSE` at tag v2.0.14, because that wheel ships no licence file. A builder
 checks every input digest before staging and records exact software and source
 identities, including whether the recipe checkout was dirty.
 
@@ -294,6 +297,24 @@ independent model owner and `model-preserve` / `foxlight-sovereign` commands use
 the bundled Python with isolated imports and no bytecode writes. `sovereign`
 opens the native window. The Library and all model verification remain the same
 public implementation.
+
+Library releases built from the current source include the BitTorrent DHT
+binding (libtorrent 2.0.14) in `requirements-desktop.lock`, so the community
+mirror's DHT rendezvous can run. Revision 3 (Library 0.22) and the revision 4
+recipe (Library 0.23) do not include it; a later revision picks it up when its
+inputs move to such a Library release. PyPI publishes
+`manylinux_2_17` wheels for both amd64 and arm64. Each is one self-contained
+extension module with OpenSSL linked in statically; it needs only glibc,
+`libstdc++6` and `libgcc-s1`, which the package already depends on, so there is
+no new apt dependency. The AppArmor profile stays unconfined apart from its
+user-namespace grant, so DHT traffic over UDP is not restricted by it.
+
+Turning on **Help keep models available** also announces a reachable mirror on
+the public BitTorrent DHT. That publishes this computer's public IP address and
+mirror port, and the fact that it runs a Sovereign mirror, to DHT nodes and to
+anyone who looks up Sovereign's rendezvous key. It is not anonymous. See
+[Sovereign desktop](sovereign-desktop.md#help-keep-models-available) for when
+it announces and how to turn it off.
 
 The native window keeps an ephemeral browser session, accepts navigation and
 downloads only within its owner's exact loopback ticket, and keeps WebKit's
