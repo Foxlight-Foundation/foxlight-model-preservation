@@ -298,3 +298,16 @@ async def test_linux_folder_selection_keeps_unicode_and_trailing_spaces(
         assert reply["path"] == "/controlled/備份  /Sovereign Backups"
     finally:
         await client.close()
+
+
+def test_bucket_checks_get_time_for_their_real_outcome() -> None:
+    """The page waits out the core's bounded bucket check and keychain calls.
+
+    Reporting a timeout while the check carries on would let a bucket connect
+    after the owner was told it failed.
+    """
+    from foxlight_preservation_library.server import CONTROL_TIMEOUTS
+
+    # Three requests of at most 15 s each, then up to two 30 s keychain calls.
+    assert CONTROL_TIMEOUTS["desktop-community-bucket-connect"] > 3 * 15 + 2 * 30
+    assert CONTROL_TIMEOUTS["desktop-community-bucket-disconnect"] > 30

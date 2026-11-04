@@ -277,6 +277,35 @@ def _keychain_arg(path: Path) -> str:
     return text
 
 
+def delete_credentials(key_name: str, *, keychain: Path | None = None) -> None:
+    """Remove a stored key pair; a missing entry is already removed."""
+    if not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", key_name):
+        raise PreservationError("bucket_key_name_invalid")
+    if os.uname().sysname == "Darwin":
+        command = [
+            "/usr/bin/security",
+            "delete-generic-password",
+            "-s",
+            KEYCHAIN_SERVICE,
+            "-a",
+            key_name,
+            *([str(keychain)] if keychain else []),
+        ]
+    else:
+        command = [
+            "secret-tool",
+            "clear",
+            "service",
+            KEYCHAIN_SERVICE,
+            "account",
+            key_name,
+        ]
+    try:
+        _run(command, None)
+    except PreservationError:
+        pass  # Already absent, or the keychain is unavailable; nothing to leak.
+
+
 def _run(command: list[str], stdin: str | None) -> str:
     try:
         completed = subprocess.run(  # noqa: S603 - fixed system keychain tools
@@ -641,13 +670,22 @@ def publish_to_bucket(
     client: BucketClient,
     *,
     control: OperationControl | None = None,
+    reserve: Callable[[int], bool] | None = None,
 ) -> int:
     """Upload one complete public archive; return the number of objects sent.
 
     Every object is verified locally first. Objects the bucket already holds at
     the right size are skipped. The signed manifest goes last, so recipients
     never see a manifest whose bytes are missing. Nothing is deleted.
+
+    ``reserve`` is asked before each upload, with the bytes about to be sent;
+    when it declines, the upload stops before sending them.
     """
+
+    def charge(count: int) -> None:
+        if reserve is not None and not reserve(count):
+            raise PreservationError("bucket_upload_limit_reached")
+
     active = control or OperationControl()
     with active.operation("bucket_publish"):
         # These exact envelope bytes are verified now and published last; the
@@ -669,11 +707,13 @@ def publish_to_bucket(
                 key = object_path(file.sha256)
                 if client.head(key) == (file.size, file.sha256):
                     continue  # Uploaded and verified earlier by Sovereign.
+                charge(file.size)
                 client.put_file(key, root, key, file.size, file.sha256, active)
                 if client.head(key) != (file.size, file.sha256):
                     raise PreservationError("bucket_object_incomplete")
                 sent += 1
         active.phase("publishing")
+        charge(len(envelope))
         client.put_bytes(manifest_path(manifest_id), envelope, "application/json")
         active.mark_committed()
         return sent
