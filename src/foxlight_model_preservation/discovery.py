@@ -57,6 +57,7 @@ from .discovery_models import (
     SourceStatus,
 )
 from .i2p_http import I2PHTTPProxy, i2p_http_endpoint
+from .mirror_directory import MirrorDirectory, fetch_with_mirrors
 from .models import (
     MAX_METADATA_BYTES,
     Catalog,
@@ -74,7 +75,6 @@ from .transfer import (
     MirrorHTTPError,
     MirrorProtocolError,
     TransferPolicy,
-    fetch,
     response,
 )
 
@@ -1120,27 +1120,33 @@ def fetch_selection(
     allow_local: bool = False,
     control: OperationControl | None = None,
     operation_id: str | None = None,
+    mirrors: MirrorDirectory | None = None,
+    seeds: tuple[str, ...] = (),
 ) -> ArchiveManifest:
     """Fetch one exact selection with independent bundle trust and receive policy.
 
     Local-file hints need their own opt-in; following a local metadata source
     does not grant access to model files. Candidate keys in descriptions are
-    never substituted for this explicitly supplied trust profile.
+    never substituted for this explicitly supplied trust profile. With a
+    private mirror directory, discovered mirrors that pass the same policy are
+    tried after the catalog's hints and scored afterwards.
     """
     entry = select_entry(cache, source_id, entry_id, expected_manifest)
-    mirrors = tuple(
+    hints = tuple(
         mirror
         for mirror in entry.mirrors
         if "://" in mirror or (allow_local and Path(mirror).is_absolute())
     )
-    if not mirrors:
+    if not hints:
         raise PreservationError("local file mirrors need separate explicit permission")
-    return fetch(
+    return fetch_with_mirrors(
         entry.manifest,
         bundle_trust,
-        mirrors,
+        hints,
         store,
         policy,
+        mirrors=mirrors,
+        seeds=seeds,
         control=control,
         operation_id=operation_id,
     )

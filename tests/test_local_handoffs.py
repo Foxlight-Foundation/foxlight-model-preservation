@@ -4,12 +4,15 @@ import json
 import shutil
 
 import pytest
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from test_discovery import mirror
 from test_local_owner import finish, submit
+from test_receive_discovery import PEERS, forbid_lookups, holding, peers_only, scores
 
 from foxlight_model_preservation.handoffs import Handoff
 from foxlight_model_preservation.invitations import create_invitation
 from foxlight_model_preservation.local_host.owner import LocalOwner
+from foxlight_model_preservation.mirror_cards import build_peers, issue_card
 from foxlight_model_preservation.models import PreservationError
 from foxlight_model_preservation.signing import encode_record
 
@@ -110,5 +113,71 @@ def test_changed_handoff_cannot_replace_reviewed_transport(tmp_path, capture):
         assert refused["state"] == "failed"
         assert refused["error_code"] == "source_model_reference_changed"
         assert owner.read()["copies"] == []
+    finally:
+        owner.close()
+
+
+def _handoff_receive(owner, capture, hints):
+    invitation = create_invitation(
+        capture.store, capture.identity, capture.trust, hints
+    )
+    selected = review(owner, encode_record(Handoff(reference=invitation)))
+    plan = owner.control(
+        "plan",
+        {
+            "kind": "source_receive",
+            "reference_job_id": selected["reference_job_id"],
+            "keys": selected["keys"],
+            "allow_http": True,
+            "allow_private": True,
+            "max_bytes": selected["size_bytes"] * 2,
+        },
+    )
+    return finish(owner, submit(owner, plan))
+
+
+def test_library_receive_falls_back_to_a_discovered_mirror_and_scores_it(
+    tmp_path, capture, monkeypatch
+):
+    """The approved mirror holds nothing but vouches for one that does."""
+    forbid_lookups(monkeypatch)
+    document = tmp_path / "peers.json"
+    owner = LocalOwner(tmp_path / "recipient")
+    try:
+        with (
+            holding(capture.store, capture) as vouched,
+            peers_only(document) as (approved, requests),
+        ):
+            card = issue_card(
+                Ed25519PrivateKey.generate(), (vouched,), {capture.identity}
+            )
+            document.write_bytes(build_peers(None, (card,)))
+            received = _handoff_receive(owner, capture, (approved,))
+        assert received["state"] == "succeeded", received
+        assert len(owner.read()["copies"]) == 1
+        # Only the approved mirror's peers document was read, then the mirror
+        # it vouched for delivered every object and was scored for it.
+        assert requests.count(PEERS) == 1
+        assert scores(owner.community.directory) == {vouched: (1, 0)}
+    finally:
+        owner.close()
+
+
+def test_library_receive_never_contacts_the_dht_or_relays(
+    tmp_path, capture, monkeypatch
+):
+    forbid_lookups(monkeypatch)
+    from foxlight_model_preservation.local_host import community
+
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("a Library receive contacted the DHT or a Nostr relay")
+
+    for name in ("Rendezvous", "find_cards", "publish_card", "rendezvous_available"):
+        monkeypatch.setattr(community, name, forbidden)
+    owner = LocalOwner(tmp_path / "recipient")
+    try:
+        with holding(capture.store, capture) as endpoint:
+            received = _handoff_receive(owner, capture, (endpoint,))
+        assert received["state"] == "succeeded", received
     finally:
         owner.close()

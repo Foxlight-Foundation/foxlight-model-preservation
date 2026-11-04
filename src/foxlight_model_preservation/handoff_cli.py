@@ -26,6 +26,11 @@ from .invitations import (
     authenticate_invitation,
     fetch_invitation,
 )
+from .mirror_directory_cli import (
+    DirectoryArguments,
+    add_receive_options,
+    receive_discovery,
+)
 from .models import MAX_METADATA_BYTES, PreservationError, TrustProfile
 from .operations import DeadlineExceeded, OperationControl
 from .peer import (
@@ -56,7 +61,7 @@ COMMANDS = (
 )
 
 
-class HandoffArguments(argparse.Namespace):
+class HandoffArguments(DirectoryArguments):
     """Caller-owned paths and permissions; handoffs cannot provide these values."""
 
     command: str
@@ -151,6 +156,7 @@ def register_handoff_commands(
                 parser.add_argument(
                     "--allow-private", dest="handoff_http_private", action="store_true"
                 )
+                add_receive_options(parser)
         if command in {"handoff-follow", "handoff-refresh"}:
             parser.add_argument(
                 "--cache",
@@ -269,18 +275,22 @@ def run_handoff_command(
                 raise PreservationError(
                     "HTTP receiving cannot grant peer participation"
                 )
+            policy = TransferPolicy(
+                max_bytes=args.handoff_max_bytes,
+                allow_http=args.handoff_http,
+                allow_private=args.handoff_http_private,
+                deadline_seconds=args.handoff_seconds,
+            )
+            mirrors, seeds = receive_discovery(args, policy, control)
             manifest = fetch_invitation(
                 reference,
                 trust,
                 args.handoff_store,
-                TransferPolicy(
-                    max_bytes=args.handoff_max_bytes,
-                    allow_http=args.handoff_http,
-                    allow_private=args.handoff_http_private,
-                    deadline_seconds=args.handoff_seconds,
-                ),
+                policy,
                 operation_id=args.handoff_operation,
                 control=control,
+                mirrors=mirrors,
+                seeds=seeds,
             )
             return {
                 "manifest": reference.manifest_id,

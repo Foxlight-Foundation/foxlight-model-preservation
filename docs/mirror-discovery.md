@@ -43,7 +43,8 @@ their HTTP port on the public BitTorrent mainline DHT under one well-known key,
 the SHA-1 of `sovereign.mirror-rendezvous.v1`. That DHT is run by millions of
 independent nodes. DHT nodes record the address they see, so a mirror never has
 to know its own public address. A client looks the key up, asks each address for
-its peers document, and keeps only cards that verify. The DHT carries addresses
+its peers document, and keeps only cards that verify. A client does this only
+when asked (`--look-further`, below). The DHT carries addresses
 and nothing else: a squatter or non-mirror at an announced address costs one
 failed request.
 
@@ -74,21 +75,117 @@ nothing but public announcements.
 ## A client's own directory
 
 Each client keeps an owner-private directory of the mirrors it has seen,
-together with its own record of which ones delivered correct bytes. The
-directory is filled from any bootstrap, and none is required:
+together with its own record of which ones delivered correct bytes. The command
+line keeps it at `~/.local/state/foxlight-preservation/mirror-directory` (or
+`$SOVEREIGN_MIRROR_DIRECTORY`, or `--mirror-directory`); the app keeps its own
+under its data folder. It is never shared as-is. It is filled from:
 
-- mirrors named in a handoff, invitation or source the user already approved
-  (Sovereign reads only those mirrors' peers documents when it downloads);
-- peers documents reached outward from known mirrors;
-- the BitTorrent DHT rendezvous and Nostr relays (above);
-- optional seed lists, with Foxlight's as one among several (deferred).
+- the peers documents of mirrors a receive already uses: the explicit
+  `--mirror` hints, a handoff's or invitation's signed hints, or a followed
+  source's catalog hints. A handoff therefore seeds a new client's directory
+  with every mirror its hints vouch for;
+- not-yet-scored entries of a seed list (below);
+- `model-preserve mirrors import`, from a peers document another device
+  exported;
+- `model-preserve mirrors crawl`, which follows peers documents outward from
+  known mirrors within the crawl bounds (32 documents by default);
+- only on explicit request, the DHT rendezvous and Nostr relays
+  (`--look-further`, below).
 
-To choose mirrors, a client takes those whose cards claim the model and samples
-them at random within score bands. It confirms each one serves the
-authenticated manifest before any weights move, and lets the ones that do share
-the download. A mirror that fails is scored down and dropped after three
-failures more than successes. A flood of fake cards can waste bounded attempts,
-but it cannot corrupt anything.
+### How a receive uses it
+
+`fetch`, `fetch-invitation`, `source-fetch` and `handoff-fetch` use discovered
+mirrors by default (`mirror_directory.fetch_with_mirrors`). Before the receive,
+the client reads the peers documents of its remote hints and of the seeds it is
+about to offer, without following them further, for at most 20 seconds. It then
+builds its source list:
+
+1. the explicit or signed hints, exactly as given and always first;
+2. up to eight more sources: mirrors whose card's Bloom filter claims this
+   manifest, then seeds that no card speaks for yet and that have never been
+   scored (at most four). Hints plus extras never exceed the receive's
+   `max_sources` (16 by default).
+
+Every extra must pass the receiver's own policy: HTTPS only unless
+`--allow-http`, and no loopback, private, link-local or `.local` address unless
+`--allow-private`. Many app mirrors advertise `http://` addresses, so they are
+used only with `--allow-http`. Each card contributes at most two addresses.
+
+Mirrors are sampled at random within score bands. A mirror's band is
+`floor(log2((successes + 1) / (failures + 1)))`, so a new mirror sits in band 0,
+one good delivery lifts it to band 1 and one failure lowers it to band -1.
+Better bands come first; order inside a band is random each time, so neither
+list order nor a flood of fake cards decides which mirrors a client tries.
+
+Sources are tried in order for each object, so discovered mirrors are fallbacks
+when the hints fail. After the receive, success or failure, each remote source
+is scored: one failed object marks it failed for that receive, and only clean
+delivery counts as a success. A discovered mirror or seed that was asked for the
+signed manifest and could not supply an authentic one is also scored as failed;
+sources never asked are not scored. A mirror is dropped once it has three failures and
+more failures than successes. A scored seed is no longer offered as new; once a
+seed publishes a card, the card speaks for it. With `--operation-id`, the
+discovered sources chosen the first time are kept beside the operation's
+transfer receipt in the destination store
+(`.operations/<operation-id>.sources.json`) and reused on resume, so the
+operation's transfer allowance still binds the same request for as long as the
+receipt exists. The plan is created once (written, synced, then linked into
+place so it is never partial or replaced) before the receipt. Reusing the
+operation ID with other hints or another manifest is refused before anything
+is written, even if an earlier attempt stopped before its receipt was created.
+If the private directory is damaged, the receive proceeds with the hints alone
+and binds that plan.
+
+`--no-discovered-mirrors` restores the previous behavior: only the given
+mirrors are contacted, no peers document is read and nothing is recorded.
+
+Discovery never touches trust. The manifest and every object are verified
+against the trust the user chose independently, and a discovered mirror can
+only waste a bounded number of attempts. Receiving never announces, listens,
+seeds or publishes.
+
+### Seed lists
+
+The package ships an untrusted seed list,
+`resources/seed-mirrors.json` (`sovereign.seed-mirrors.v1`, a list of HTTP(S)
+base URLs). It is empty for now. A user can add their own file with
+`--seed-mirrors` or `$SOVEREIGN_SEED_MIRRORS`; its entries are added after the
+shipped ones. A seed grants nothing: it is only a place to ask first.
+
+### Looking further: an explicit privacy choice
+
+By default a receive never contacts the BitTorrent DHT or a Nostr relay, because
+those lookups show this computer's IP address to strangers and would let anyone
+watching a public rendezvous map who is looking for mirrors. `--look-further`
+(on the receive commands and on `mirrors crawl`) opts in for that one run. It
+briefly joins the DHT (opening a UDP port and routing a little DHT traffic for
+others, with the optional `bittorrent` extra), looks up the rendezvous key,
+asks the default relays for cards, then closes the DHT session. Nothing is
+announced or published. DHT addresses are plain `http://`, so they are used
+only with `--allow-http`.
+
+### The private directory commands
+
+- `model-preserve mirrors list` shows each known mirror, its addresses, whether
+  its card is live, and this client's own score. No network.
+- `model-preserve mirrors import PEERS_JSON` adds the cards that verify.
+- `model-preserve mirrors export --output FILE` writes live, undropped cards as a
+  peers document, without any scores.
+- `model-preserve mirrors crawl [--seed URL] [--no-expand] [--look-further]`
+  follows peers documents from known mirrors and seeds.
+
+### The app
+
+The app's source and handoff receives use the same path, with the app's own
+directory and the shipped seed list. They read only the approved mirrors' peers
+documents, try discovered mirrors after the approved ones under the same
+HTTP and private-address choices the user made for that receive, and record each
+mirror's outcome. The approved mirrors are still checked against the reviewed
+plan; discovered mirrors are never part of it and never change the accepted
+keys. An app receive never contacts the DHT or Nostr relays; only the
+explicitly enabled community mirror does. Registry receive downloads from the
+original upstream files and has no manifest to look up beforehand, so it does
+not use mirrors.
 
 ## The app's community mirror
 
@@ -111,9 +208,16 @@ explicit mirror role.
 - `mirror_cards.issue_card`, `verify_card`, `build_peers` and `read_peers` cover
   the card and document formats.
 - `mirror_directory.MirrorDirectory` provides `crawl`, `ingest`, `candidates`,
-  `record`, `spot_check` and `gossip`.
+  `record`, `record_many`, `spot_check`, `gossip`, `listing` and
+  `export_cards`.
+- `mirror_directory.plan_sources` returns the hints plus bounded discovered
+  sources for one manifest, and `fetch_with_mirrors` receives with them and
+  records outcomes. `permitted` applies the receiver's policy to one address,
+  `load_seeds` reads the seed lists, and `look_further` is the explicit DHT and
+  relay lookup.
 - `mirror_directory.fetch_discovered(manifest_id, trust, destination, directory,
-  policy)` fetches an exact model from whichever discovered mirrors deliver it.
+  policy)` fetches only from discovered mirrors, probing each for the
+  authenticated manifest before weights move.
 - `mirror_rendezvous.Rendezvous` provides `announce` and `lookup` on the
   BitTorrent DHT, and `nostr.publish_card` / `nostr.find_cards` do the same
   through relays.
