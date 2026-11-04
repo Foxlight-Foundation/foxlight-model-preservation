@@ -497,7 +497,55 @@ def test_adoption_rewrites_pinned_authority_and_resumes_after_kill(
     adopted = ledger.read().models[capture.identity]
     assert adopted.grant == wider and adopted.state == "retained"
     assert adopted.envelope_sha256 == held.envelope_sha256
-    assert adopted.operation_id == held.operation_id
+    # The adopted trust is bound by the transfer receipt: a new operation.
+    assert adopted.operation_id != held.operation_id
+    # Its pinned closure fixes the allowance, recorded with the new authority.
+    assert adopted.transfer_bytes == held.transfer_bytes
+
+
+def test_adopting_changed_trust_with_equal_limit_starts_a_new_transfer(
+    tmp_path, capture
+):
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    from foxlight_model_preservation.signing import public_record
+
+    ledger, publisher = mirror(tmp_path, capture)
+    # Damage one supplied object: the download starts, writes its transfer
+    # receipt under the selection's operation, then fails on the hash.
+    damaged = next((capture.store / "objects/sha256").iterdir())
+    original = damaged.read_bytes()
+    damaged.write_bytes(b"x" * len(original))
+    cycle(ledger)
+    held = ledger.read().models[capture.identity]
+    assert held.error and held.transfer_bytes is not None
+    damaged.write_bytes(original)
+    # Re-follow with changed trust and the same byte limit.
+    wider = held.grant.model_copy(
+        update={
+            "trust": held.grant.trust.model_copy(
+                update={
+                    "keys": (
+                        *held.grant.trust.keys,
+                        public_record(Ed25519PrivateKey.generate()),
+                    )
+                }
+            )
+        }
+    )
+    assert wider.max_bytes == held.grant.max_bytes
+    _refollow(ledger, publisher, wider)
+    retry_selection(ledger, capture.identity, adopt_source_grant=True)
+    adopted = ledger.read().models[capture.identity]
+    assert adopted.operation_id != held.operation_id
+    assert adopted.grant == wider and adopted.error is None
+    # Repeating the adoption keeps the new operation (interruption-safe).
+    retry_selection(ledger, capture.identity, adopt_source_grant=True)
+    assert ledger.read().models[capture.identity].operation_id == (adopted.operation_id)
+    cycle(ledger)
+    held = ledger.read().models[capture.identity]
+    assert held.state == "retained" and held.error is None, held.error
+    verify_store(ledger.path / "store", capture.identity, capture.trust)
 
 
 def test_adoption_refuses_keys_that_do_not_sign_the_pinned_wrapper(tmp_path, capture):

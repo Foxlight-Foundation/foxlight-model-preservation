@@ -208,8 +208,9 @@ per-model limit) stays a recorded error until an explicit `mirror retry`.
 `mirror retry --adopt-source-grant` (with the controller stopped) replaces a
 selection's original keys, terms and limit with its source's current grant,
 after you re-followed that source with a changed policy. A pinned original
-wrapper must still authenticate under the adopted keys and terms. A changed limit
-starts a new, separately charged ingress operation.
+wrapper must still authenticate under the adopted keys and terms. If adoption
+changes anything the transfer receipt binds (keys, connection permissions or
+the limit), it starts a new, separately charged ingress operation.
 
 ## Set up manually
 

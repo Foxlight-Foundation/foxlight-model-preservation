@@ -55,7 +55,7 @@ from .storage import (
     verify_object,
     writer_lock,
 )
-from .transfer import TransferPolicy, fetch, inspect_envelope
+from .transfer import TransferPolicy, fetch, inspect_envelope, request_digest
 
 # Catalog states whose authenticated, unexpired listing is a current statement.
 # An expired ("stale") catalog says nothing about withdrawal: that is availability.
@@ -239,8 +239,9 @@ def retry_selection(
     replaces it with the source's current grant after an operator re-follow. A
     pinned original wrapper must still authenticate under the adopted keys and
     terms; its private authority receipt is rewritten after the ledger commit
-    and rewritten again by repeating this command after an interruption. A
-    changed byte limit starts a new, separately charged ingress operation.
+    and rewritten again by repeating this command after an interruption. Any
+    change to an input the transfer receipt binds (trust, connection policy or
+    byte limit) starts a new, separately charged ingress operation.
     """
     if not adopt_source_grant:
         return model_action(ledger, manifest_id, "retry")
@@ -262,23 +263,29 @@ def retry_selection(
             # public selection, so it need not wait for a fresh catalog.
             "state": "retained" if held.state == "retained" else "pending",
         }
-        if grant.max_bytes != held.grant.max_bytes and held.transfer_bytes is not None:
-            update["transfer_bytes"] = None
+        pinned = (
+            selection_manifest(
+                _pinned_envelope(ledger, manifest_id, held),
+                manifest_id,
+                held.model_copy(update={"grant": grant}),
+            )
+            if held.envelope_sha256 is not None
+            else None
+        )
+        before = _transfer_inputs(ledger, manifest_id, held, held.grant)
+        after = _transfer_inputs(ledger, manifest_id, held, grant)
+        if after != before:
+            # Any input bound by the transfer receipt changed: the old operation
+            # can never resume, so start a new, separately charged one. A pinned
+            # wrapper already fixes the closure, so its allowance is recorded
+            # now and stays part of the rewritten authority receipt.
+            update["transfer_bytes"] = (
+                None if pinned is None else transfer_allowance(grant, pinned)
+            )
             update["operation_id"] = (
-                "m"
-                + digest(
-                    (
-                        state.salt
-                        + manifest_id
-                        + digest(canonical_bytes(grant.model_dump(mode="json")))
-                    ).encode()
-                )[:63]
+                "m" + digest((state.salt + manifest_id + after).encode())[:63]
             )
         adopted = HeldModel.model_validate(held.model_copy(update=update).model_dump())
-        if held.envelope_sha256 is not None:
-            selection_manifest(
-                _pinned_envelope(ledger, manifest_id, held), manifest_id, adopted
-            )
 
         def adopt(current: MirrorState) -> MirrorState:
             if current.models.get(manifest_id) != held:
@@ -304,6 +311,38 @@ def retry_selection(
                     encode_record(_source_intake(manifest_id, adopted)),
                 )
         return state
+
+
+def transfer_allowance(grant: SourceGrant, manifest: ArchiveManifest) -> int:
+    """Fixed object retry allowance: three complete copies plus 16 MiB, capped."""
+    return min(
+        grant.max_bytes,
+        3 * sum(f.size for f in archive_objects(manifest)) + 16 * 1024**2,
+    )
+
+
+def _transfer_inputs(
+    ledger: MirrorLedger, identity: str, held: HeldModel, grant: SourceGrant
+) -> str:
+    """Digest every input a selection's transfer receipt binds under ``grant``.
+
+    This is the exact request digest the transfer ledger checks (trust, source
+    order, destination and policy) plus the limit its allowance derives from.
+    """
+    return digest(
+        canonical_bytes(
+            {
+                "request": request_digest(
+                    identity,
+                    grant.trust,
+                    held.mirrors,
+                    ledger.path / "store",
+                    _policy(grant, held.transfer_bytes),
+                ),
+                "max_bytes": grant.max_bytes,
+            }
+        )
+    )
 
 
 def _pinned_envelope(ledger: MirrorLedger, identity: str, held: HeldModel) -> bytes:
@@ -803,11 +842,7 @@ def reconcile(ledger: MirrorLedger, control: OperationControl) -> None:
                 manifest = selection_manifest(envelope, identity, held)
                 allowance = held.transfer_bytes
                 if allowance is None:
-                    allowance = min(
-                        held.grant.max_bytes,
-                        3 * sum(f.size for f in archive_objects(manifest))
-                        + 16 * 1024**2,
-                    )
+                    allowance = transfer_allowance(held.grant, manifest)
                     held = record_model(
                         ledger, identity, {"transfer_bytes": allowance}
                     ).models[identity]
