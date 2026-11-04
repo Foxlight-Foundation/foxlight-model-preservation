@@ -18,7 +18,13 @@ import subprocess
 import tarfile
 from pathlib import Path, PurePosixPath
 
-from build_macos import check_input, digest, extract_library, extract_python
+from build_macos import (
+    check_input,
+    copy_bundled_notices,
+    digest,
+    extract_library,
+    extract_python,
+)
 
 PROJECT = Path(__file__).resolve().parents[1]
 
@@ -77,7 +83,7 @@ def runtime_notices(archive: Path, target: Path) -> dict[str, str]:
             raise ValueError("runtime notice archive could not be decoded")
     if "LICENSE.cpython.txt" not in found or "PYTHON.json" not in found:
         raise ValueError("original Python runtime notices required")
-    return found
+    return {**found, **copy_bundled_notices(target)}
 
 
 def main() -> None:

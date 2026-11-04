@@ -84,10 +84,15 @@ def generate(
     components: list[dict[str, str]] = []
     desktop = metadata.get("optional-dependencies", {}).get("desktop")
     if name == "foxlight-preservation-library" and desktop:
+        # The desktop apps bundle the optional BitTorrent DHT binding so the
+        # community mirror's rendezvous can run; the core stays exactly pinned.
         if len(desktop) != 1 or not re.fullmatch(
-            r"foxlight-model-preservation==[0-9][0-9A-Za-z.+!_-]*", desktop[0]
+            r"foxlight-model-preservation\[bittorrent\]==[0-9][0-9A-Za-z.+!_-]*",
+            desktop[0],
         ):
-            raise ValueError("desktop must pin one exact public core")
+            raise ValueError(
+                "desktop must pin one exact public core with its bittorrent extra"
+            )
         if desktop_core_wheel is None:
             raise ValueError("matching desktop core wheel required")
         core_version = desktop[0].split("==")[1]

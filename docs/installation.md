@@ -136,6 +136,14 @@ then install its desktop profile into a new environment:
 )
 ```
 
+Library releases after 0.23 also include the BitTorrent DHT binding
+(libtorrent 2.0.14) in this profile, for the community mirror's DHT rendezvous.
+libtorrent publishes only binary wheels, so the desktop profile then installs
+only where one exists: Linux (glibc 2.17+ or musl) on x86_64 and aarch64,
+Windows, Apple silicon on macOS 14 or newer, and Intel Macs on macOS 15 or newer.
+Elsewhere installing the desktop profile fails because no libtorrent wheel
+matches; the default `requirements.lock` profile is unaffected.
+
 This opens the independent Library without installing Skulk or the managed SDK.
 First launch offers **Browse public models**, **Choose a recovery kit** and
 **Choose a sharing file**, with reusable **Getting started** help. Each

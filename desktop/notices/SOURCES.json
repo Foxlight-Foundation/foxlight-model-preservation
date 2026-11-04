@@ -1,0 +1,12 @@
+{
+  "members": {
+    "LICENSE.libtorrent.txt": "34c359bb2297512ec3de21952ac668f1d981514fd63361ffdcca85294127ef6b"
+  },
+  "sources": {
+    "LICENSE.libtorrent.txt": {
+      "component": "libtorrent 2.0.14 (bundled DHT binding wheel)",
+      "license": "BSD-3-Clause, with the bundled-component notices it lists",
+      "url": "https://raw.githubusercontent.com/arvidn/libtorrent/v2.0.14/LICENSE"
+    }
+  }
+}
