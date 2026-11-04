@@ -129,7 +129,12 @@ discovered sources chosen the first time are kept beside the operation's
 transfer receipt in the destination store
 (`.operations/<operation-id>.sources.json`) and reused on resume, so the
 operation's transfer allowance still binds the same request for as long as the
-receipt exists.
+receipt exists. The plan is created once (written, synced, then linked into
+place so it is never partial or replaced) before the receipt. Reusing the
+operation ID with other hints or another manifest is refused before anything
+is written, even if an earlier attempt stopped before its receipt was created.
+If the private directory is damaged, the receive proceeds with the hints alone
+and binds that plan.
 
 `--no-discovered-mirrors` restores the previous behavior: only the given
 mirrors are contacted, no peers document is read and nothing is recorded.

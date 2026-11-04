@@ -25,6 +25,7 @@ import os
 import random
 import threading
 import time
+import uuid
 from collections.abc import Callable, Generator, Iterable
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
@@ -53,7 +54,12 @@ from .models import (
     Record,
     TrustProfile,
 )
-from .operations import DeadlineExceeded, OperationControl, OperationError
+from .operations import (
+    DeadlineExceeded,
+    OperationControl,
+    OperationError,
+    RequestChanged,
+)
 from .signing import (
     Envelope,
     canonical_bytes,
@@ -62,7 +68,14 @@ from .signing import (
     encode_record,
     strict_json,
 )
-from .storage import atomic_bytes, directory, manifest_path, open_file, read_metadata
+from .storage import (
+    atomic_bytes,
+    directory,
+    manifest_path,
+    open_file,
+    parent_directory,
+    read_metadata,
+)
 from .transfer import (
     DEFAULT_POLICY,
     I2PTransferPolicy,
@@ -872,28 +885,60 @@ def _sources_path(operation_id: str) -> str:
     return receipt_path(operation_id).removesuffix(".json") + ".sources.json"
 
 
-def _stored_sources(
-    destination: Path, operation_id: str, key: str
-) -> tuple[str, ...] | None:
+def _read_plan(destination: Path, operation_id: str) -> RememberedSources | None:
     try:
         with directory(destination) as root:
-            stored = RememberedSources.model_validate_json(
+            return RememberedSources.model_validate_json(
                 read_metadata(root, _sources_path(operation_id))
             )
     except FileNotFoundError:
         return None
-    return stored.sources if stored.key == key else None
 
 
-def _store_sources(
+def _bound(stored: RememberedSources, key: str) -> tuple[str, ...]:
+    if stored.key != key:
+        raise RequestChanged("operation ID belongs to different transfer inputs")
+    return stored.sources
+
+
+def _claim_plan(
     destination: Path, operation_id: str, key: str, sources: tuple[str, ...]
-) -> None:
+) -> tuple[str, ...]:
+    """Durably create the plan only if none exists; return whichever plan won.
+
+    The plan is written to a private temporary file, fsynced and then hard
+    linked into place, which fails rather than replaces when another attempt
+    got there first. A plan is therefore never overwritten, never partial, and
+    two concurrent first attempts end up using the same one.
+    """
+    data = encode_record(RememberedSources(key=key, sources=sources))
+    path = _sources_path(operation_id)
     with directory(destination, create=True) as root:
-        atomic_bytes(
-            root,
-            _sources_path(operation_id),
-            encode_record(RememberedSources(key=key, sources=sources)),
-        )
+        with parent_directory(root, path, create=True) as (parent, name):
+            temporary = ".pending-" + uuid.uuid4().hex
+            descriptor = os.open(
+                temporary,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=parent,
+            )
+            try:
+                with os.fdopen(descriptor, "wb") as stream:
+                    stream.write(data)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                try:
+                    os.link(temporary, name, src_dir_fd=parent, dst_dir_fd=parent)
+                except FileExistsError:
+                    pass
+                os.fsync(parent)
+            finally:
+                try:
+                    os.unlink(temporary, dir_fd=parent)
+                except FileNotFoundError:
+                    pass
+        stored = RememberedSources.model_validate_json(read_metadata(root, path))
+    return _bound(stored, key)
 
 
 def _plain(value: str) -> bool:
@@ -930,39 +975,87 @@ def plan_sources(
     those already-used hosts vouch for can be offered. Nothing else is
     contacted: no DHT, no relay, no announcement. A resumed ``operation_id``
     reuses the sources chosen the first time, so its allowance still binds.
-    With a ``destination``, that choice is kept beside the operation's
-    transfer receipt in the destination store, so it lasts exactly as long as
-    the receipt; otherwise a bounded recent history in the directory keeps it.
+    With a ``destination``, that choice is created once, durably, beside the
+    operation's transfer receipt and never replaced, so it lasts exactly as
+    long as the receipt; reusing the operation ID with other hints or another
+    manifest raises :class:`RequestChanged` before anything is written.
+    Without one, a bounded recent history in the directory keeps it.
     Discovered sources never affect which keys are trusted.
     """
     hints = tuple(dict.fromkeys(hints))
-    room = min(limit, policy.max_sources - len(hints))
-    if room <= 0:
-        return SourcePlan(hints)
+    room = max(0, min(limit, policy.max_sources - len(hints)))
+    seed_set = frozenset(seeds)
+
+    def result(extras: tuple[str, ...]) -> SourcePlan:
+        extras = tuple(item for item in extras if item not in hints)[:room]
+        return SourcePlan(
+            hints + extras, extras, tuple(item for item in extras if item in seed_set)
+        )
+
     key = (
         _operation_key(operation_id, manifest_id, hints)
         if operation_id is not None
         else None
     )
-    seed_set = frozenset(seeds)
     if key is not None and operation_id is not None:
-        earlier = (
-            _stored_sources(destination, operation_id, key)
-            if destination is not None
-            else mirrors.remembered(key)
+        if destination is not None:
+            # A plan beside the receipt is authoritative and never replaced:
+            # other inputs under the same operation ID are refused at once.
+            stored = _read_plan(destination, operation_id)
+            if stored is not None:
+                return result(_bound(stored, key))
+        else:
+            try:
+                earlier = mirrors.remembered(key)
+            except (OSError, ValueError):
+                earlier = None
+            if earlier is not None:
+                return result(earlier)
+    extras = (
+        _choose_extras(
+            manifest_id,
+            hints,
+            mirrors,
+            policy,
+            offered_seeds=seeds,
+            room=room,
+            learn=learn,
+            control=control,
         )
-        if earlier is not None:
-            extras = tuple(item for item in earlier if item not in hints)[:room]
-            return SourcePlan(
-                hints + extras,
-                extras,
-                tuple(item for item in extras if item in seed_set),
-            )
-    offered = [
-        seed
-        for seed in mirrors.unscored_seeds(seeds)
-        if seed not in hints and permitted(seed, policy)
-    ]
+        if room > 0
+        else ()
+    )
+    if key is not None and operation_id is not None:
+        if destination is not None:
+            extras = _claim_plan(destination, operation_id, key, extras)
+        else:
+            try:
+                mirrors.remember(key, extras)
+            except (OSError, ValueError):
+                pass
+    return result(extras)
+
+
+def _choose_extras(
+    manifest_id: str,
+    hints: tuple[str, ...],
+    mirrors: MirrorDirectory,
+    policy: TransferPolicy,
+    *,
+    offered_seeds: tuple[str, ...],
+    room: int,
+    learn: bool,
+    control: OperationControl | None,
+) -> tuple[str, ...]:
+    """Sample discovered sources; a damaged directory yields none, not an error."""
+    try:
+        offered = [
+            seed
+            for seed in mirrors.unscored_seeds(offered_seeds)
+            if seed not in hints and permitted(seed, policy)
+        ]
+    except (OSError, ValueError):
+        return ()
     mirrors.shuffle(offered)
     offered = offered[:SEED_TRIES]
     if learn and not isinstance(policy, I2PTransferPolicy):
@@ -989,28 +1082,23 @@ def plan_sources(
                 raise
             except (OSError, ValueError, http.client.HTTPException):
                 pass  # Learning is optional; the receive proceeds with hints.
-    # Ask for enough that hints already in the directory cannot crowd out
-    # usable fallbacks, then drop them before taking ``room``.
-    found = tuple(
-        item
-        for item in mirrors.candidates(
-            manifest_id, limit=room + len(hints), policy=policy
+    try:
+        # Ask for enough that hints already in the directory cannot crowd out
+        # usable fallbacks, then drop them before taking ``room``.
+        found = tuple(
+            item
+            for item in mirrors.candidates(
+                manifest_id, limit=room + len(hints), policy=policy
+            )
+            if item not in hints
         )
-        if item not in hints
-    )
-    carded = mirrors.card_addresses()
+        carded = mirrors.card_addresses()
+    except (OSError, ValueError):
+        return ()
     fresh = tuple(seed for seed in offered if seed not in carded)
-    extras = tuple(
-        item for item in dict.fromkeys((*found, *fresh)) if item not in hints
-    )[:room]
-    if key is not None and operation_id is not None:
-        if destination is not None:
-            _store_sources(destination, operation_id, key, extras)
-        else:
-            mirrors.remember(key, extras)
-    return SourcePlan(
-        hints + extras, extras, tuple(item for item in extras if item in seed_set)
-    )
+    return tuple(item for item in dict.fromkeys((*found, *fresh)) if item not in hints)[
+        :room
+    ]
 
 
 def fetch_with_mirrors(
@@ -1045,21 +1133,19 @@ def fetch_with_mirrors(
             operation_id=operation_id,
             envelope=envelope,
         )
-    try:
-        plan = plan_sources(
-            manifest_id,
-            hints,
-            mirrors,
-            policy,
-            seeds=seeds,
-            operation_id=operation_id,
-            destination=destination,
-            control=control,
-        )
-    except OperationError:
-        raise
-    except (OSError, ValueError):
-        plan = SourcePlan(hints)  # A damaged directory never blocks a receive.
+    # A damaged directory yields no discovered sources rather than an error;
+    # a plan that cannot be read or kept beside the receipt fails the receive,
+    # as the receipt itself would.
+    plan = plan_sources(
+        manifest_id,
+        hints,
+        mirrors,
+        policy,
+        seeds=seeds,
+        operation_id=operation_id,
+        destination=destination,
+        control=control,
+    )
     delivered: dict[str, bool] = {}
 
     def observe(source: str, ok: bool) -> None:

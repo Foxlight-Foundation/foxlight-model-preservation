@@ -554,3 +554,126 @@ def test_a_resumable_receive_keeps_its_sources_beside_its_receipt(
         )
     assert again == verify_store(store, capture.identity, capture.trust)
     assert (store / ".operations/resumable.sources.json").is_file()
+
+
+def _card_for(identity: str, address: str) -> bytes:
+    return issue_card(Ed25519PrivateKey.generate(), (address,), {identity})
+
+
+def test_other_inputs_under_a_planned_operation_are_refused_not_overwritten(
+    tmp_path: Path, capture: Capture
+) -> None:
+    from foxlight_model_preservation.operations import RequestChanged
+
+    directory = MirrorDirectory(tmp_path / "d")
+    directory.ingest((_card_for(capture.identity, "https://first.example"),))
+    store = tmp_path / "received"
+    plan_file = store / ".operations/resumable.sources.json"
+    with (
+        holding(capture.store, capture) as hint,
+        holding(capture.store, capture) as other,
+    ):
+        fetch_with_mirrors(
+            capture.identity,
+            capture.trust,
+            (hint,),
+            store,
+            LAB,
+            mirrors=directory,
+            operation_id="resumable",
+        )
+        original = plan_file.read_bytes()
+        for hints, identity in (((other,), capture.identity), ((hint,), "e" * 64)):
+            with pytest.raises(RequestChanged):
+                fetch_with_mirrors(
+                    identity,
+                    capture.trust,
+                    hints,
+                    store,
+                    LAB,
+                    mirrors=directory,
+                    operation_id="resumable",
+                )
+            assert plan_file.read_bytes() == original
+        # The original inputs still resume.
+        directory.ingest((_card_for(capture.identity, "https://second.example"),))
+        fetch_with_mirrors(
+            capture.identity,
+            capture.trust,
+            (hint,),
+            store,
+            LAB,
+            mirrors=directory,
+            operation_id="resumable",
+        )
+    assert plan_file.read_bytes() == original
+
+
+def test_a_plan_written_before_a_crash_binds_the_retry(tmp_path: Path) -> None:
+    """A crash after the plan but before the receipt keeps the same request."""
+    from foxlight_model_preservation.operations import RequestChanged
+
+    identity = "f" * 64
+    directory = MirrorDirectory(tmp_path / "d")
+    directory.ingest((_card_for(identity, "https://first.example"),))
+    store = tmp_path / "store"
+    hints = ("https://hint.example",)
+    first = plan_sources(
+        identity, hints, directory, learn=False, operation_id="op", destination=store
+    )
+    assert not (store / ".operations/op.json").exists()  # No receipt yet.
+    directory.ingest((_card_for(identity, "https://second.example"),))
+    again = plan_sources(
+        identity, hints, directory, learn=False, operation_id="op", destination=store
+    )
+    assert again == first and again.discovered == ("https://first.example",)
+    with pytest.raises(RequestChanged):
+        plan_sources(
+            identity,
+            ("https://elsewhere.example",),
+            directory,
+            learn=False,
+            operation_id="op",
+            destination=store,
+        )
+    # No temporary files are left behind.
+    assert sorted(path.name for path in (store / ".operations").iterdir()) == [
+        "op.sources.json"
+    ]
+
+
+def test_concurrent_first_attempts_share_one_plan(tmp_path: Path) -> None:
+    """Creation never replaces: the first plan wins and later ones adopt it."""
+    from foxlight_model_preservation import mirror_directory as module
+    from foxlight_model_preservation.operations import RequestChanged
+
+    store = tmp_path / "store"
+    key = "1" * 64
+    won = module._claim_plan(store, "op", key, ("https://a.example",))  # pyright: ignore[reportPrivateUsage]
+    lost = module._claim_plan(store, "op", key, ("https://b.example",))  # pyright: ignore[reportPrivateUsage]
+    assert won == lost == ("https://a.example",)
+    with pytest.raises(RequestChanged):
+        module._claim_plan(store, "op", "2" * 64, ())  # pyright: ignore[reportPrivateUsage]
+    assert module._claim_plan(store, "op", key, ()) == ("https://a.example",)  # pyright: ignore[reportPrivateUsage]
+
+
+def test_a_damaged_directory_still_receives_and_binds_a_hints_only_plan(
+    tmp_path: Path, capture: Capture
+) -> None:
+    home = tmp_path / "d"
+    home.mkdir()
+    (home / "directory.json").write_text("not json")
+    store = tmp_path / "received"
+    with holding(capture.store, capture) as hint:
+        for _ in range(2):
+            fetch_with_mirrors(
+                capture.identity,
+                capture.trust,
+                (hint,),
+                store,
+                LAB,
+                mirrors=MirrorDirectory(home),
+                operation_id="damaged",
+            )
+    assert verify_store(store, capture.identity, capture.trust)
+    assert b'"sources":[]' in (store / ".operations/damaged.sources.json").read_bytes()
