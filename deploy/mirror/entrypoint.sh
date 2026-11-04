@@ -34,20 +34,34 @@ if [ -n "${SOVEREIGN_MIRROR_CONTACT:-}" ]; then
   set -- "$@" --contact "$SOVEREIGN_MIRROR_CONTACT"
 fi
 
+idle() {
+  # Stay up so the message remains in the container logs and an operator can
+  # `docker compose exec mirror model-preserve mirror ...`; restarting the
+  # container retries. PID 1 ignores default signals: stop promptly.
+  seconds="${SOVEREIGN_MIRROR_IDLE:-infinity}"
+  if [ "$seconds" != "0" ]; then
+    trap 'exit 0' TERM INT
+    sleep "$seconds" &
+    wait $!
+  fi
+  exit 0
+}
+
 if [ "$consent" != "yes-i-consent-to-public-serving" ]; then
   echo "No serving consent (SOVEREIGN_MIRROR_CONSENT): plan-only, nothing is served." >&2
   if ! model-preserve "$@" --plan-only; then
     echo "The review failed: check the collection file and settings." >&2
   fi
-  # Stay up so the review remains visible in the container logs.
-  idle="${SOVEREIGN_MIRROR_IDLE:-infinity}"
-  if [ "$idle" != "0" ]; then
-    # PID 1 ignores default signals: stop promptly on docker stop.
-    trap 'exit 0' TERM INT
-    sleep "$idle" &
-    wait $!
-  fi
-  exit 0
+  idle
 fi
 
-exec model-preserve "$@" --yes-i-consent-to-public-serving --run
+# Setup refusals (invalid collection, a paused or departed mirror, an
+# interrupted init) do not fix themselves: report and idle instead of looping.
+if ! model-preserve "$@" --yes-i-consent-to-public-serving; then
+  echo "Setup refused (see above); nothing is served. Fix it, then restart." >&2
+  idle
+fi
+
+# Serve under the grant just recorded. A clean stop (grant expiry) exits 0 and
+# the restart policy renews the grant through the setup above.
+exec model-preserve mirror run --dir "$dir" --resume

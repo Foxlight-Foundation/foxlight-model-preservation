@@ -33,7 +33,10 @@ set `SOVEREIGN_MIRROR_CONSENT=yes-i-consent-to-public-serving` in `mirror.env`
 and run the same `up` command again. Each start re-applies the collection and
 settings and renews the restart grant (`SOVEREIGN_MIRROR_GRANT`, default 90d).
 Remove the consent value and restart to stop serving; retained models stay in
-the `mirror-data` volume.
+the `mirror-data` volume. If setup is refused (for example the mirror was
+paused), the reason is logged and the container idles; run
+`docker compose exec mirror model-preserve mirror resume --dir /data/mirror`
+or fix the collection, then restart.
 
 The collection directory must hold `collection.json` and any source file it
 names with `"file"`; alternatively embed the source with `"inline"`.

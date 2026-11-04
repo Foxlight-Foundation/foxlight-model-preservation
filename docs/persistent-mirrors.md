@@ -73,9 +73,13 @@ then asks you to type `serve`. For non-interactive use, read the review with
 After consent it runs `init` (or `config` on an existing mirror), `follow` and
 `grant-resume` in one step, still offline. Add `--run` to start serving
 immediately under the new grant, or start the [service](#run-as-a-service).
-Re-running quickstart applies a changed policy, which clears the old grant, and
-records a fresh one. The default grant lasts 90 days (`--resume-for`, at most
-366 days).
+Re-running quickstart is safe and records a fresh grant each time. A changed
+setting clears the old grant; unchanged settings change nothing else. A source
+already followed under the same bootstrap keeps the roots and catalog its later
+refreshes accepted: quickstart applies the reviewed grant without reimporting
+the collection's possibly older snapshot. Quickstart refuses to resume a
+paused mirror or rejoin one that left. The default grant lasts 90 days
+(`--resume-for`, at most 366 days).
 
 Sizes everywhere accept bytes or binary units: `K`, `M`, `G`, `T` and `P` are
 powers of 1024 (`100G` is 100 × 1024³ bytes; `GiB`/`GB` spellings are the same).
@@ -102,7 +106,11 @@ docker compose --env-file deploy/mirror/mirror.env \
 the collection directory and `SOVEREIGN_MIRROR_CONSENT` configure it. Until
 `SOVEREIGN_MIRROR_CONSENT=yes-i-consent-to-public-serving` is set, the container
 runs plan-only: it prints the review and serves nothing. With consent, every
-start re-applies the collection and policy, renews the grant and serves.
+start re-applies the collection and policy, renews the grant and serves. A
+setup refusal (an invalid collection, a paused or departed mirror, an
+interrupted init) is printed and the container idles instead of looping; use
+`docker compose exec mirror model-preserve mirror ...` to inspect or
+`mirror resume`, then restart it.
 
 ## Run as a service
 

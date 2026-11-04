@@ -1170,6 +1170,186 @@ def test_interactive_consent_prompt(tmp_path, capture, monkeypatch):
     assert restart_allowed(MirrorLedger(tmp_path / "mirror").read())
 
 
+# Restart idempotency (the container re-runs quickstart on every start) --------
+
+
+def _bundle_collection(
+    tmp_path: Path, capture: Capture
+) -> tuple[Path, Publisher, Path]:
+    """A collection holding a discovery-cache snapshot taken at catalog v1."""
+    from foxlight_model_preservation.discovery import (
+        export_source,
+        follow_source,
+        refresh_source,
+    )
+
+    publisher = Publisher(tmp_path / "publisher", capture)
+    bootstrap = publisher.bootstrap()
+    client = tmp_path / "client"
+    status = follow_source(
+        client,
+        encode_record(bootstrap),
+        bootstrap_identity(bootstrap),
+        allow_local=True,
+    )
+    refresh_source(client, status.source_id)
+    folder = tmp_path / "collection"
+    folder.mkdir()
+    (folder / "source.json").write_bytes(export_source(client, status.source_id))
+    path = folder / "collection.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": "sovereign.mirror-collection.v1",
+                "title": "Snapshot collection",
+                "source": {"file": "source.json"},
+                "expected_bootstrap_id": bootstrap_identity(bootstrap),
+                "trust": capture.trust.model_dump(mode="json"),
+                "terms": [item.model_dump() for item in TERMS],
+            }
+        )
+    )
+    return path, publisher, client
+
+
+def _restart(target: Path, path: Path, **changes: object) -> dict[str, object]:
+    loaded, document = load_collection(path)
+    _ledger, receipt = apply_quickstart(
+        target, loaded, document, settings(**changes), consented=True
+    )
+    return receipt
+
+
+def test_restart_after_refresh_does_not_reimport_an_older_snapshot(tmp_path, capture):
+    from foxlight_model_preservation.discovery import (
+        export_source,
+        list_sources,
+        refresh_source,
+    )
+
+    path, publisher, client = _bundle_collection(tmp_path, capture)
+    target = tmp_path / "mirror"
+    first = _restart(target, path)
+    assert first["initialized"] and first["source_reimported"]
+    # A later refresh advances the mirror's cached evidence past the snapshot.
+    publisher.publish(version=2)
+    refresh_source(client, str(first["source_id"]))
+    loaded, _ = load_collection(path)
+    ledger = MirrorLedger(target)
+    follow(
+        ledger,
+        export_source(client, str(first["source_id"])),
+        loaded.expected_bootstrap_id,
+        ledger.read().sources[str(first["source_id"])],
+    )
+    # Reimporting the original snapshot would be refused as a rollback...
+    with pytest.raises(PreservationError, match="roll back"):
+        follow(
+            ledger,
+            (path.parent / "source.json").read_bytes(),
+            loaded.expected_bootstrap_id,
+            ledger.read().sources[str(first["source_id"])],
+        )
+    before = list_sources(target / "discovery")
+    # ...so a restart applies the reviewed grant without reimporting it.
+    again = _restart(target, path)
+    assert not again["source_reimported"] and not again["policy_changed"]
+    assert list_sources(target / "discovery") == before
+    assert restart_allowed(MirrorLedger(target).read())
+
+
+def test_restart_keeps_policy_and_renews_the_grant(tmp_path, capture):
+    path = collection(tmp_path, capture)
+    target = tmp_path / "mirror"
+    _restart(target, path)
+    ledger = MirrorLedger(target)
+    grant_restart(ledger, int(time.time()) + 365 * 86400)
+    policy = policy_id(ledger.read())
+    sources = ledger.read().sources
+    receipt = _restart(target, path)
+    state = ledger.read()
+    assert not receipt["policy_changed"] and not receipt["source_reimported"]
+    assert policy_id(state) == policy and state.sources == sources
+    assert restart_allowed(state)
+    # The collection's settings define the standing grant on every start.
+    assert abs(state.restart.expires - (time.time() + 90 * 86400)) < 120
+
+
+def test_restart_with_changed_environment_applies_it(tmp_path, capture):
+    path = collection(tmp_path, capture)
+    target = tmp_path / "mirror"
+    _restart(target, path)
+    policy = policy_id(MirrorLedger(target).read())
+    receipt = _restart(target, path, disk_bytes=3 * 1024**3, name="Renamed")
+    state = MirrorLedger(target).read()
+    assert receipt["policy_changed"] and policy_id(state) != policy
+    assert state.disk_bytes == 3 * 1024**3 and state.name == "Renamed"
+    # The derived per-model limit followed the new disk budget.
+    (grant,) = state.sources.values()
+    assert grant.max_bytes == derived_model_limit(3 * 1024**3)
+    assert restart_allowed(state)
+
+
+@pytest.mark.parametrize("action", ["pause", "leave"])
+def test_restart_of_a_paused_or_departed_mirror_refuses_clearly(
+    tmp_path, capture, action
+):
+    path = collection(tmp_path, capture)
+    target = tmp_path / "mirror"
+    _restart(target, path)
+    assert cli("mirror", action, "--dir", str(target)).returncode == 0
+    before = (target / "mirror.json").read_bytes()
+    with pytest.raises(PreservationError, match="paused|left"):
+        _restart(target, path)
+    assert (target / "mirror.json").read_bytes() == before
+    refused = cli("mirror", "run", "--dir", str(target), "--resume")
+    assert refused.returncode == 1 and "paused/left" in refused.stderr
+    if action == "pause":
+        assert cli("mirror", "resume", "--dir", str(target)).returncode == 0
+        _restart(target, path)
+        assert restart_allowed(MirrorLedger(target).read())
+
+
+def test_restart_with_an_expired_grant_renews_it(tmp_path, capture):
+    from foxlight_model_preservation.mirror_models import RestartGrant
+
+    path = collection(tmp_path, capture)
+    target = tmp_path / "mirror"
+    _restart(target, path)
+    ledger = MirrorLedger(target)
+    ledger.update(
+        lambda s: s.model_copy(
+            update={
+                "restart": RestartGrant(
+                    policy_id=s.restart.policy_id, expires=int(time.time()) - 1
+                )
+            }
+        )
+    )
+    refused = cli("mirror", "run", "--dir", str(target), "--resume")
+    assert refused.returncode == 1 and "restart authority" in refused.stderr
+    _restart(target, path)
+    assert restart_allowed(ledger.read())
+
+
+def test_restart_with_a_full_disk_still_starts(tmp_path, capture, monkeypatch):
+    path = collection(tmp_path, capture)
+    target = tmp_path / "mirror"
+    _restart(target, path)
+    monkeypatch.setattr(MirrorLedger, "usage", lambda self: self.read().disk_bytes)
+    receipt = _restart(target, path)
+    assert not receipt["source_reimported"]
+    assert restart_allowed(MirrorLedger(target).read())
+
+
+def test_restart_after_an_interrupted_init_refuses_clearly(tmp_path, capture):
+    path = collection(tmp_path, capture)
+    target = tmp_path / "mirror"
+    target.mkdir()
+    with pytest.raises(PreservationError, match="without mirror.json"):
+        _restart(target, path)
+
+
 # Packaging ------------------------------------------------------------------------
 
 
@@ -1216,9 +1396,23 @@ def test_container_without_consent_is_plan_only(tmp_path):
         ["/bin/sh", str(script)], env=environment, capture_output=True, timeout=30
     )
     assert served.returncode == 0, served.stderr
-    (call,) = log.read_text().splitlines()
-    assert "--yes-i-consent-to-public-serving" in call and "--run" in call
-    assert "--bind 127.0.0.1" in call
+    setup, run = log.read_text().splitlines()
+    assert "--yes-i-consent-to-public-serving" in setup and "--run" not in setup
+    assert "--bind 127.0.0.1" in setup
+    assert run.split() == ["mirror", "run", "--dir", str(tmp_path / "data"), "--resume"]
+    # A refused setup is reported and idles: it never starts serving or loops.
+    log.unlink()
+    stub.write_text(f'#!/bin/sh\necho "$@" >> "{log}"\nexit 1\n')
+    refused = subprocess.run(  # noqa: S603 - repository script, fixed arguments
+        ["/bin/sh", str(script)],
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert refused.returncode == 0 and "Setup refused" in refused.stderr
+    (only,) = log.read_text().splitlines()
+    assert "mirror quickstart" in only
 
 
 def test_deploy_files_match_the_installer_and_proxy_model():

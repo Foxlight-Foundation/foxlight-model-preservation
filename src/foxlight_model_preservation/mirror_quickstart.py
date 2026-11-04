@@ -18,11 +18,16 @@ from typing import Literal
 
 from pydantic import Field, JsonValue
 
-from .discovery import inspect_source
-from .mirror import configure_mirror, derived_model_limit, follow
+from .discovery import inspect_source, list_sources
+from .mirror import (
+    apply_source_grant,
+    configure_mirror,
+    derived_model_limit,
+    follow,
+)
 from .mirror_announce import DISCLOSURE, dht_port
 from .mirror_models import AnnouncePolicy, SourceGrant, Terms
-from .mirror_state import MirrorLedger, grant_restart
+from .mirror_state import MirrorLedger, grant_restart, policy_id
 from .models import Digest, PreservationError, Record, TrustProfile
 from .signing import canonical_bytes, load_trust, strict_json
 
@@ -290,10 +295,14 @@ def apply_quickstart(
 ) -> tuple[MirrorLedger, dict[str, JsonValue]]:
     """Initialize or update, follow and grant restart after explicit consent.
 
-    Re-running against an existing mirror updates its policy (clearing the old
-    grant when it changes), re-follows the source and records a fresh grant.
-    Without consent nothing is written. No network is used; ``mirror run``
-    starts serving separately.
+    Safe to repeat on every start (the container does). On an existing mirror
+    it applies changed settings, which clears the old grant only when the
+    policy actually changes. A source already followed under the same reviewed
+    bootstrap keeps its cached roots and catalog: its grant is applied without
+    reimporting the collection's possibly older snapshot, so a later refresh
+    never turns into a rollback refusal. A paused or departed mirror refuses:
+    quickstart never resumes or rejoins it. Without consent nothing is written.
+    No network is used; ``mirror run`` starts serving separately.
     """
     if not consented:
         raise PreservationError(
@@ -309,29 +318,59 @@ def apply_quickstart(
         "port": settings.port,
         "announce": settings.announce,
     }
+    grant = SourceGrant(
+        trust=collection.trust,
+        terms=collection.terms,
+        allow_http=collection.allow_http,
+        max_bytes=model_limit(collection, settings),
+    )
+    source = inspect_source(document)
+    source_id = str(source["source_id"])
     if (directory / "mirror.json").exists():
         ledger = MirrorLedger(directory)
+        state = ledger.read()
+        if state.left:
+            raise PreservationError(
+                "this mirror has left; quickstart does not rejoin it. Use a new "
+                "mirror directory to serve again"
+            )
+        if state.paused:
+            raise PreservationError(
+                "this mirror is paused; run `mirror resume` first if you want it "
+                "to serve again"
+            )
+        before = policy_id(state)
         configure_mirror(ledger, config)
         created = False
+    elif directory.exists():
+        raise PreservationError(
+            "mirror directory exists without mirror.json (an interrupted init?); "
+            "inspect it and remove it before running quickstart again"
+        )
     else:
         ledger = MirrorLedger.initialize(directory, **config)
+        before = None
         created = True
-    source = follow(
-        ledger,
-        document,
-        collection.expected_bootstrap_id,
-        SourceGrant(
-            trust=collection.trust,
-            terms=collection.terms,
-            allow_http=collection.allow_http,
-            max_bytes=model_limit(collection, settings),
-        ),
+    followed = {
+        status.source_id: status.bootstrap_id
+        for status in list_sources(ledger.path / "discovery")
+    }
+    reimported = not (
+        source_id in ledger.read().sources
+        and followed.get(source_id) == collection.expected_bootstrap_id
     )
+    if reimported:
+        follow(ledger, document, collection.expected_bootstrap_id, grant)
+    else:
+        apply_source_grant(ledger, source_id, grant)
+    changed = before is None or policy_id(ledger.read()) != before
     expires = int(time.time()) + settings.resume_seconds
     grant_restart(ledger, expires)
     return ledger, {
         "initialized": created,
-        "source_id": source,
+        "source_id": source_id,
+        "source_reimported": reimported,
+        "policy_changed": changed,
         "restart_expires": expires,
         "network_started": False,
     }

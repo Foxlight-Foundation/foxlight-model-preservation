@@ -106,6 +106,34 @@ def follow(
         return status.source_id
 
 
+def apply_source_grant(
+    ledger: MirrorLedger, source_id: str, grant: SourceGrant
+) -> bool:
+    """Set an already-followed source's reviewed grant without re-enrolling it.
+
+    The source's cached roots, catalog and update floors stay exactly as the
+    last accepted refresh left them, so no older evidence is reimported. A
+    changed grant is new policy and clears the restart grant; an unchanged one
+    changes nothing. Returns whether the grant changed.
+    """
+    with ledger.service_lock():
+        state = ledger.read()
+        if source_id not in state.sources:
+            raise PreservationError("source is not followed by this mirror")
+        if state.sources[source_id] == grant:
+            return False
+        ledger.update(
+            lambda current: current.model_copy(
+                update={
+                    "sources": dict(current.sources, **{source_id: grant}),
+                    "schema_version": "foxlight.mirror-state.v5",
+                    "restart": None,
+                }
+            )
+        )
+        return True
+
+
 def plan(ledger: MirrorLedger) -> dict[str, JsonValue]:
     """Explain bounded locally cached candidates and retained policy without network."""
     state = ledger.read()
