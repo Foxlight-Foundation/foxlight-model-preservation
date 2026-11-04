@@ -91,7 +91,9 @@ jobs:
           with zipfile.ZipFile('/tmp/library.archive') as archive:
               archive.extractall('/tmp/sovereign-software')
           PY
-          python -m pip download --only-binary=:all: --require-hashes --find-links /tmp/sovereign-software --dest /tmp/sovereign-wheelhouse -r /tmp/sovereign-software/requirements-desktop.lock
+          # macosx_14_0: the oldest libtorrent Apple silicon wheel; a macOS 15 host
+          # would otherwise pick its macosx_15_0 build.
+          python -m pip download --only-binary=:all: --require-hashes --platform macosx_14_0_arm64 --python-version 3.13 --implementation cp --abi cp313 --find-links /tmp/sovereign-software --dest /tmp/sovereign-wheelhouse -r /tmp/sovereign-software/requirements-desktop.lock
       - name: Build the complete offline candidate
         run: |
           python scripts/build_macos.py --library-archive /tmp/library.archive --python-archive /tmp/python.archive --wheelhouse /tmp/sovereign-wheelhouse --directory /tmp/sovereign-native

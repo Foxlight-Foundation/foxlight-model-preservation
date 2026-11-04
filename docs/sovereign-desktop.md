@@ -305,6 +305,21 @@ no outside service. Mirrors behind a router are reachable from their own network
 only, until mirror discovery and peer transports reach the app. Direct HTTP is
 not anonymous or encrypted: recipients see this computer's address.
 
+**Turning the switch on also announces this mirror on the public BitTorrent
+DHT.** Mac and Linux apps built from Library releases after 0.23 bundle the DHT
+binding (libtorrent 2.0; not supported on macOS 13). When the mirror is
+reachable (this computer has a public address, or you declared a plain
+`http://` public URL) and the `announce_dht` mirror setting is on (the default),
+it joins the public BitTorrent mainline DHT every 15 minutes, announces its HTTP
+port under Sovereign's one well-known rendezvous key and looks up other mirrors
+there. That publishes this computer's public IP address and mirror port, and
+the fact that it runs a Sovereign mirror, to DHT nodes and to anyone who looks
+the key up. Joining also relays a small amount of DHT traffic for others. The
+DHT carries only addresses; every card and byte is still verified. Nothing
+about this is anonymous or hidden. A mirror behind a router with no declared
+public URL does not join the DHT. Turn `announce_dht` off, or turn the switch
+off, to leave it. See [mirror discovery](mirror-discovery.md) for the protocol.
+
 ### Open a sharing file without Skulk
 
 In **Find → Independent sources → Open sharing file**, select a `.foxhandoff`
