@@ -36,6 +36,7 @@ from urllib.parse import urlsplit
 from pydantic import Field, JsonValue, field_validator
 
 from .archives import ArchiveManifest
+from .ledger import receipt_path
 from .mirror_cards import (
     MAX_PEERS,
     MAX_PEERS_BYTES,
@@ -866,6 +867,35 @@ def _operation_key(operation_id: str, manifest_id: str, hints: tuple[str, ...]) 
     )
 
 
+def _sources_path(operation_id: str) -> str:
+    """Keep a receive's chosen sources next to its transfer receipt."""
+    return receipt_path(operation_id).removesuffix(".json") + ".sources.json"
+
+
+def _stored_sources(
+    destination: Path, operation_id: str, key: str
+) -> tuple[str, ...] | None:
+    try:
+        with directory(destination) as root:
+            stored = RememberedSources.model_validate_json(
+                read_metadata(root, _sources_path(operation_id))
+            )
+    except FileNotFoundError:
+        return None
+    return stored.sources if stored.key == key else None
+
+
+def _store_sources(
+    destination: Path, operation_id: str, key: str, sources: tuple[str, ...]
+) -> None:
+    with directory(destination, create=True) as root:
+        atomic_bytes(
+            root,
+            _sources_path(operation_id),
+            encode_record(RememberedSources(key=key, sources=sources)),
+        )
+
+
 def _plain(value: str) -> bool:
     try:
         base_url(value)
@@ -884,6 +914,7 @@ def plan_sources(
     limit: int = DISCOVERED_LIMIT,
     learn: bool = True,
     operation_id: str | None = None,
+    destination: Path | None = None,
     control: OperationControl | None = None,
 ) -> SourcePlan:
     """Return the hints followed by bounded extra sources for one manifest.
@@ -899,6 +930,9 @@ def plan_sources(
     those already-used hosts vouch for can be offered. Nothing else is
     contacted: no DHT, no relay, no announcement. A resumed ``operation_id``
     reuses the sources chosen the first time, so its allowance still binds.
+    With a ``destination``, that choice is kept beside the operation's
+    transfer receipt in the destination store, so it lasts exactly as long as
+    the receipt; otherwise a bounded recent history in the directory keeps it.
     Discovered sources never affect which keys are trusted.
     """
     hints = tuple(dict.fromkeys(hints))
@@ -911,8 +945,12 @@ def plan_sources(
         else None
     )
     seed_set = frozenset(seeds)
-    if key is not None:
-        earlier = mirrors.remembered(key)
+    if key is not None and operation_id is not None:
+        earlier = (
+            _stored_sources(destination, operation_id, key)
+            if destination is not None
+            else mirrors.remembered(key)
+        )
         if earlier is not None:
             extras = tuple(item for item in earlier if item not in hints)[:room]
             return SourcePlan(
@@ -965,8 +1003,11 @@ def plan_sources(
     extras = tuple(
         item for item in dict.fromkeys((*found, *fresh)) if item not in hints
     )[:room]
-    if key is not None:
-        mirrors.remember(key, extras)
+    if key is not None and operation_id is not None:
+        if destination is not None:
+            _store_sources(destination, operation_id, key, extras)
+        else:
+            mirrors.remember(key, extras)
     return SourcePlan(
         hints + extras, extras, tuple(item for item in extras if item in seed_set)
     )
@@ -1012,6 +1053,7 @@ def fetch_with_mirrors(
             policy,
             seeds=seeds,
             operation_id=operation_id,
+            destination=destination,
             control=control,
         )
     except OperationError:

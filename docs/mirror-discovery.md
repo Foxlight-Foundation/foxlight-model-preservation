@@ -125,8 +125,11 @@ signed manifest and could not supply an authentic one is also scored as failed;
 sources never asked are not scored. A mirror is dropped once it has three failures and
 more failures than successes. A scored seed is no longer offered as new; once a
 seed publishes a card, the card speaks for it. With `--operation-id`, the
-discovered sources chosen the first time are remembered and reused on resume, so
-the operation's transfer allowance still binds the same request.
+discovered sources chosen the first time are kept beside the operation's
+transfer receipt in the destination store
+(`.operations/<operation-id>.sources.json`) and reused on resume, so the
+operation's transfer allowance still binds the same request for as long as the
+receipt exists.
 
 `--no-discovered-mirrors` restores the previous behavior: only the given
 mirrors are contacted, no peers document is read and nothing is recorded.

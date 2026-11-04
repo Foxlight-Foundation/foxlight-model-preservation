@@ -493,3 +493,64 @@ def test_hints_in_the_directory_cannot_crowd_out_a_fallback(tmp_path: Path) -> N
         identity, (hint,), directory, TransferPolicy(max_sources=2), learn=False
     )
     assert found.sources == (hint, backup)
+
+
+def test_a_resumable_receive_keeps_its_sources_beside_its_receipt(
+    tmp_path: Path, capture: Capture
+) -> None:
+    """Hundreds of later receives cannot make an operation re-sample its sources."""
+    from foxlight_model_preservation.mirror_directory import MAX_OPERATIONS
+
+    directory = MirrorDirectory(tmp_path / "d")
+    store = tmp_path / "received"
+    with holding(capture.store, capture) as hint:
+        directory.ingest(
+            (
+                issue_card(
+                    Ed25519PrivateKey.generate(),
+                    ("https://first.example",),
+                    {capture.identity},
+                ),
+            )
+        )
+        fetch_with_mirrors(
+            capture.identity,
+            capture.trust,
+            (hint,),
+            store,
+            LAB,
+            mirrors=directory,
+            operation_id="resumable",
+        )
+        # Many other receives fill the directory's bounded history, and a new
+        # mirror appears that a fresh sample would include.
+        for index in range(MAX_OPERATIONS + 10):
+            plan_sources(
+                capture.identity,
+                (hint,),
+                directory,
+                LAB,
+                learn=False,
+                operation_id=f"other-{index}",
+            )
+        directory.ingest(
+            (
+                issue_card(
+                    Ed25519PrivateKey.generate(),
+                    ("https://second.example",),
+                    {capture.identity},
+                ),
+            )
+        )
+        # The same operation resumes under its original, bound request.
+        again = fetch_with_mirrors(
+            capture.identity,
+            capture.trust,
+            (hint,),
+            store,
+            LAB,
+            mirrors=directory,
+            operation_id="resumable",
+        )
+    assert again == verify_store(store, capture.identity, capture.trust)
+    assert (store / ".operations/resumable.sources.json").is_file()
