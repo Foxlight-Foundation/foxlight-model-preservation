@@ -141,6 +141,9 @@ def model_action(ledger: MirrorLedger, manifest_id: str, action: str) -> MirrorS
         "block": {"blocked": True},
         "unblock": {"blocked": False},
         "retry": {"error": None, "deferred": None, "state": "pending"},
+        # Resume serving a withdrawn selection. A current catalog that still
+        # omits it withdraws it again on the next cycle.
+        "unwithdraw": {"withdrawn": False},
     }
     if action not in changes:
         raise PreservationError("unsupported mirror model action")
@@ -561,13 +564,16 @@ def _budget_may_admit(
 
 
 def withdrawn_selections(ledger: MirrorLedger) -> dict[str, bool]:
-    """Decide, offline, which source selections every current catalog withdrew.
+    """Decide, offline, which source selections current catalogs withdrew.
 
-    A selection is withdrawn only on positive evidence: its own source has an
-    authenticated, unexpired catalog that no longer lists it, and no other
-    followed source's current catalog lists it either. A catalog that merely
-    expires (or cannot refresh) is an availability problem, not a withdrawal,
-    so retained copies keep serving. Local selections are never withdrawn.
+    Only current evidence decides. A selection is withdrawn when its own source
+    has an authenticated, unexpired catalog that no longer lists it and no other
+    followed source's current catalog lists it. It is listed (not withdrawn)
+    when any current followed catalog lists it. Otherwise there is no decision
+    and the caller keeps the existing receipt: a catalog that merely expires (or
+    cannot refresh) is availability, neither withdrawal nor relisting, so it
+    never withdraws a served copy and never resumes a withdrawn one. Local
+    selections are never withdrawn.
     """
     state = ledger.read()
     cache = ledger.path / "discovery"
@@ -584,19 +590,25 @@ def withdrawn_selections(ledger: MirrorLedger) -> dict[str, bool]:
         for location in result.locations
         if location.source_id in current
     }
-    return {
-        identity: held.source_id in current and identity not in listed
-        for identity, held in state.models.items()
-        if held.origin == "source" and held.state != "removed"
-    }
+    decisions: dict[str, bool] = {}
+    for identity, held in state.models.items():
+        if held.origin != "source" or held.state == "removed":
+            continue
+        if identity in listed:
+            decisions[identity] = False
+        elif held.source_id in current:
+            decisions[identity] = True
+    return decisions
 
 
 def mark_withdrawn(ledger: MirrorLedger) -> MirrorState:
     """Record catalog withdrawal receipts; bytes stay retained per retention rules.
 
-    A withdrawn selection stops being served on the next public selection. A
-    selection listed again by a current followed catalog is served again. This
-    is the takedown path: a source withdraws an entry from its signed catalog.
+    A withdrawn selection stops being served on the next public selection and
+    stays withdrawn, even if the withdrawing catalog later expires or vanishes,
+    until a current followed catalog lists it again or the operator runs
+    ``mirror unwithdraw``. This is the takedown path: a source withdraws an
+    entry from its signed catalog.
     """
     decisions = withdrawn_selections(ledger)
 
@@ -634,24 +646,30 @@ def reconcile(ledger: MirrorLedger, control: OperationControl) -> None:
     recover_completed(ledger, control)
     state = ledger.read()
     refresh_error = None
-    for source in state.sources:
-        control.checkpoint()
-        if ledger.usage() + HEADROOM > state.disk_bytes:
-            raise PreservationError("mirror disk admission budget exhausted")
-        if not ledger.reserve(32 * 1024**2, ingress=True):
-            raise PreservationError("mirror ingress budget unavailable")
-        try:
-            refresh_source(
-                ledger.path / "discovery",
-                source,
-                control=control.fork(),
-                stage_parent=ledger.path / "scratch",
-                expected_directory=ledger.read().identity["discovery"],
-            )
-        except OperationCancelled:
-            raise
-        except (ValueError, OSError) as failure:
-            refresh_error = failure_code(failure) + ": " + str(failure)[:400]
+    try:
+        for source in state.sources:
+            control.checkpoint()
+            if ledger.usage() + HEADROOM > state.disk_bytes:
+                raise PreservationError("mirror disk admission budget exhausted")
+            if not ledger.reserve(32 * 1024**2, ingress=True):
+                raise PreservationError("mirror ingress budget unavailable")
+            try:
+                refresh_source(
+                    ledger.path / "discovery",
+                    source,
+                    control=control.fork(),
+                    stage_parent=ledger.path / "scratch",
+                    expected_directory=ledger.read().identity["discovery"],
+                )
+            except OperationCancelled:
+                raise
+            except (ValueError, OSError) as failure:
+                refresh_error = failure_code(failure) + ": " + str(failure)[:400]
+    finally:
+        # Record every authenticated withdrawal already accepted, even when a
+        # later source's budget or cancellation stops this cycle: one source's
+        # failure must not delay another source's takedown.
+        mark_withdrawn(ledger)
     state = ledger.read()
     catalogs = {
         source.source_id: source.catalog_id
@@ -716,7 +734,6 @@ def reconcile(ledger: MirrorLedger, control: OperationControl) -> None:
         for x in r.locations
         if x.freshness == "fresh"
     }
-    mark_withdrawn(ledger)
     measured: list[int] = []
 
     def measured_usage() -> int:

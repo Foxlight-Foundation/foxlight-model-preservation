@@ -19,12 +19,12 @@ from urllib.parse import urlsplit
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from .discovery import list_sources, search_sources
-from .mirror_cards import base_url, build_peers, issue_card
+from .mirror_cards import MAX_PEERS_BYTES, base_url, build_peers, issue_card
 from .mirror_directory import MirrorDirectory
 from .mirror_models import AnnouncePolicy
 from .mirror_rendezvous import Rendezvous, rendezvous_available
 from .mirror_state import MirrorLedger
-from .models import PreservationError
+from .models import MAX_METADATA_BYTES, PreservationError
 from .nostr import DEFAULT_RELAYS, find_cards, publish_card
 from .operations import OperationControl
 from .signing import create_key, load_key, public_record
@@ -34,6 +34,19 @@ from .transfer import TransferPolicy
 # Conservative per-round ingress charge for peers documents, relay replies and
 # spot-check manifests. Gossip is skipped when the daily budget cannot cover it.
 GOSSIP_RESERVATION = 64 * 1024**2
+# Every read in a round is capped so their bodies fit that reservation:
+# peers documents, spot-check manifests (two addresses each) and relay frames.
+# The remainder covers HTTP response headers; DHT datagrams are not counted.
+CRAWL_DOCUMENTS = 8
+SPOT_CHECKS = 2
+RELAY_FIND_BYTES = 12 * 1024**2
+RELAY_PUBLISH_BYTES = 6 * 1024**2
+ROUND_BODY_BYTES = (
+    CRAWL_DOCUMENTS * (MAX_PEERS_BYTES + 1)
+    + SPOT_CHECKS * 2 * (MAX_METADATA_BYTES + 1)
+    + RELAY_FIND_BYTES
+    + RELAY_PUBLISH_BYTES
+)
 MAX_SEEDS = 32
 KEY_FILE = "mirror-key.pem"
 NOSTR_FILE = "nostr-key"
@@ -174,12 +187,30 @@ class Announcer:
             self.close()
         relays = DEFAULT_RELAYS if policy.nostr else ()
         if relays:
-            self.directory.ingest(find_cards(relays, relay_policy, control=control))
-        self.directory.crawl(seeds, crawl_policy, max_documents=16, control=control)
-        self.directory.spot_check(serving, crawl_policy, control=control)
+            self.directory.ingest(
+                find_cards(
+                    relays,
+                    relay_policy,
+                    control=control,
+                    max_bytes=RELAY_FIND_BYTES,
+                )
+            )
+        self.directory.crawl(
+            seeds, crawl_policy, max_documents=CRAWL_DOCUMENTS, control=control
+        )
+        self.directory.spot_check(
+            serving, crawl_policy, control=control, max_checks=SPOT_CHECKS
+        )
         card = self.publish(serving)
         if card is not None and relays:
-            publish_card(card, self._nostr_key(), relays, relay_policy, control=control)
+            publish_card(
+                card,
+                self._nostr_key(),
+                relays,
+                relay_policy,
+                control=control,
+                max_bytes=RELAY_PUBLISH_BYTES,
+            )
         return True
 
     def close(self) -> None:

@@ -59,8 +59,13 @@
   without refunding or double-charging reservations. Other failures still need
   `mirror retry`, which can now `--adopt-source-grant` after a re-follow.
 - A selection withdrawn from every current followed catalog stops being served
-  automatically (bytes are retained); this is the takedown path. An expired or
-  unreachable catalog is availability, not withdrawal, and keeps serving.
+  automatically (bytes are retained); this is the takedown path. Withdrawal
+  persists until a current catalog relists the model or `mirror unwithdraw`,
+  even if the withdrawing catalog later expires. An expired or unreachable
+  catalog is availability, not withdrawal.
+- `MirrorDirectory.spot_check(max_checks=...)` and `nostr.find_cards` /
+  `publish_card(max_bytes=...)` add optional bounds (defaults unchanged), so a
+  gossip round's reads stay within its ingress reservation.
 - With `--public-url`, a CLI mirror signs a mirror card with its own key, serves
   `/.well-known/sovereign/peers.json` and gossips like the desktop community
   mirror. Nostr publishing and DHT announcing are separate opt-ins that require

@@ -66,6 +66,7 @@ from foxlight_model_preservation.models import PreservationError
 from foxlight_model_preservation.operations import OperationControl
 from foxlight_model_preservation.signing import encode_record
 from foxlight_model_preservation.storage import manifest_path, verify_store
+from foxlight_model_preservation.transfer import TransferPolicy
 
 ROOT = Path(__file__).resolve().parents[1]
 TERMS = (Terms(license_id="test-only", terms_reference="LICENSE"),)
@@ -608,6 +609,201 @@ def test_publisher_loss_is_not_withdrawal(tmp_path, capture):
     shutil.rmtree(publisher.path)
     cycle(ledger)
     assert not ledger.read().models[capture.identity].withdrawn
+
+
+def _served(ledger: MirrorLedger, identity: str) -> bool:
+    with ledger.service_lock():
+        allowed, _ = public_selection(ledger, OperationControl())
+    return "/" + manifest_path(identity) in allowed
+
+
+def test_withdrawal_persists_when_the_withdrawing_catalog_expires(tmp_path, capture):
+    ledger, publisher = mirror(tmp_path, capture)
+    cycle(ledger)
+    assert _served(ledger, capture.identity)
+    expiry = datetime.now(UTC) + timedelta(seconds=4)
+    publisher.publish(version=2, manifest="b" * 64, expires=expiry)
+    cycle(ledger)
+    assert ledger.read().models[capture.identity].withdrawn
+    time.sleep(max(0.0, (expiry - datetime.now(UTC)).total_seconds()) + 0.5)
+    # The withdrawing catalog is now stale: that is no reason to serve again.
+    cycle(ledger)
+    from foxlight_model_preservation.discovery import list_sources
+
+    (status,) = list_sources(ledger.path / "discovery")
+    assert status.freshness == "stale"
+    restarted = MirrorLedger(ledger.path)
+    cycle(restarted)
+    assert restarted.read().models[capture.identity].withdrawn
+    assert not _served(restarted, capture.identity)
+    assert not public(ledger.path, capture.identity).exists()
+    # A current catalog listing it again resumes serving.
+    publisher.publish(version=3)
+    cycle(restarted)
+    assert not restarted.read().models[capture.identity].withdrawn
+    assert _served(restarted, capture.identity)
+
+
+def test_operator_unwithdraw_resumes_serving_without_current_evidence(
+    tmp_path, capture
+):
+    ledger, publisher = mirror(tmp_path, capture)
+    cycle(ledger)
+    publisher.publish(version=2, manifest="b" * 64)
+    cycle(ledger)
+    assert ledger.read().models[capture.identity].withdrawn
+    shutil.rmtree(publisher.path)
+    result = cli(
+        "mirror",
+        "unwithdraw",
+        "--dir",
+        str(ledger.path),
+        "--manifest",
+        capture.identity,
+    )
+    assert result.returncode == 0, result.stderr
+    assert not ledger.read().models[capture.identity].withdrawn
+    assert _served(ledger, capture.identity)
+
+
+def test_one_source_budget_failure_does_not_delay_another_takedown(tmp_path, capture):
+    from foxlight_model_preservation.discovery import source_identity
+
+    ledger, publisher = mirror(tmp_path, capture)
+    (first,) = ledger.read().sources
+    # Sources refresh in identity order: make the withdrawing source go first.
+    for attempt in range(64):
+        second = Publisher(tmp_path / f"second{attempt}", capture, name="Second")
+        bootstrap = second.bootstrap()
+        if source_identity(bootstrap) > first:
+            break
+    second.publish(manifest="c" * 64)
+    follow(
+        ledger,
+        encode_record(bootstrap),
+        bootstrap_identity(bootstrap),
+        next(iter(ledger.read().sources.values())),
+    )
+    cycle(ledger)
+    assert _served(ledger, capture.identity)
+    publisher.publish(version=2, manifest="b" * 64)
+    # Only the first source's refresh fits today's remaining budget.
+    ledger.update(
+        lambda s: s.model_copy(update={"ingress_used": s.ingress_daily - 40 * 1024**2})
+    )
+    with pytest.raises(PreservationError, match="ingress"):
+        cycle(ledger)
+    assert ledger.read().models[capture.identity].withdrawn
+    assert not _served(ledger, capture.identity)
+
+
+def test_gossip_round_reads_stay_within_its_reservation(tmp_path, capture, monkeypatch):
+    from foxlight_model_preservation import mirror_announce, nostr
+    from foxlight_model_preservation.mirror_cards import MAX_PEERS_BYTES, issue_card
+    from foxlight_model_preservation.mirror_directory import MirrorDirectory
+    from foxlight_model_preservation.models import MAX_METADATA_BYTES
+
+    assert mirror_announce.ROUND_BODY_BYTES <= mirror_announce.GOSSIP_RESERVATION
+
+    # spot_check contacts at most max_checks mirrors (two addresses each).
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    directory = MirrorDirectory(tmp_path / "directory")
+    directory.ingest(
+        issue_card(
+            Ed25519PrivateKey.generate(),
+            (f"https://m{index}.example", f"https://n{index}.example"),
+            {capture.identity},
+        )
+        for index in range(10)
+    )
+    reads: list[int] = []
+
+    def bounded(_base, _relative, _policy, maximum, _deadline, _control):
+        reads.append(maximum)
+        raise OSError("unreachable")
+
+    monkeypatch.setattr(
+        "foxlight_model_preservation.mirror_directory._bounded_read", bounded
+    )
+    directory.spot_check({capture.identity}, max_checks=2)
+    assert len(reads) <= 4 and sum(reads) <= 4 * MAX_METADATA_BYTES
+    reads.clear()
+    directory.spot_check({capture.identity})
+    assert len(reads) > 4  # The default keeps today's unbounded behavior.
+
+    # Relay reads stop before another message could exceed max_bytes.
+    class Hostile:
+        def __init__(self, *_args, **_kwargs):
+            self.received = 0
+
+        def send(self, _message):
+            return None
+
+        def receive(self, _deadline, _control=None):
+            self.received += nostr.MAX_MESSAGE_BYTES
+            return ["EVENT", "x", {}]
+
+        def close(self):
+            return None
+
+    relays = tuple(f"wss://r{index}.example" for index in range(6))
+    limit = 5 * 1024**2
+    monkeypatch.setattr(nostr, "Relay", Hostile)
+    totals: list[int] = []
+    real = Hostile.close
+
+    def close(self):
+        totals.append(self.received)
+        real(self)
+
+    monkeypatch.setattr(Hostile, "close", close)
+    nostr.find_cards(relays, TransferPolicy(timeout=5), max_bytes=limit)
+    assert 0 < sum(totals) <= limit
+    totals.clear()
+    card = issue_card(
+        Ed25519PrivateKey.generate(), ("https://m.example",), {capture.identity}
+    )
+    nostr.publish_card(
+        card, b"\x01" * 32, relays, TransferPolicy(timeout=5), max_bytes=limit
+    )
+    assert 0 < sum(totals) <= limit
+
+    # The round passes every bound to the shared discovery functions.
+    ledger, _ = mirror(tmp_path / "round", capture)
+    configure_mirror(
+        ledger,
+        {"announce": AnnouncePolicy(public_url="https://m.example", nostr=True)},
+    )
+    seen: dict[str, object] = {}
+    monkeypatch.setattr(
+        mirror_announce,
+        "find_cards",
+        lambda *a, **kw: seen.setdefault("find", kw["max_bytes"]) and [],
+    )
+    monkeypatch.setattr(
+        MirrorDirectory,
+        "crawl",
+        lambda self, *a, **kw: seen.setdefault("crawl", kw["max_documents"]) and 0,
+    )
+    monkeypatch.setattr(
+        MirrorDirectory,
+        "spot_check",
+        lambda self, *a, **kw: seen.setdefault("check", kw["max_checks"]) and 0,
+    )
+    assert Announcer(ledger).round(frozenset(), OperationControl())
+    assert seen == {
+        "find": mirror_announce.RELAY_FIND_BYTES,
+        "crawl": mirror_announce.CRAWL_DOCUMENTS,
+        "check": mirror_announce.SPOT_CHECKS,
+    }
+    assert (
+        mirror_announce.CRAWL_DOCUMENTS * (MAX_PEERS_BYTES + 1)
+        + mirror_announce.SPOT_CHECKS * 2 * (MAX_METADATA_BYTES + 1)
+        + mirror_announce.RELAY_FIND_BYTES
+        + mirror_announce.RELAY_PUBLISH_BYTES
+        == mirror_announce.ROUND_BODY_BYTES
+    )
 
 
 # Announcement -------------------------------------------------------------------

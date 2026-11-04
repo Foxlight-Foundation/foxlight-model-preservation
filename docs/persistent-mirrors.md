@@ -151,7 +151,10 @@ IDs and a filter of the verified selections it serves. It is published, with
 peers this mirror has spot-checked, at `/.well-known/sovereign/peers.json`. Each
 cycle the mirror learns peers from followed catalogs' mirror hints, checks that
 they serve bytes they claim, and republishes. Gossip is charged 64 MiB of ingress
-per round and skipped when the daily budget cannot cover it. See
+per round and skipped when the daily budget cannot cover it. Every read in a
+round is capped to fit that reservation: at most 8 peers documents, 2
+spot-checked mirrors and 18 MiB of relay frames. HTTP headers and DHT datagrams
+are outside it. See
 [mirror discovery](mirror-discovery.md) for how clients use cards.
 
 HTTPS is preferred; an `http://` URL is accepted with a warning. Two further
@@ -176,13 +179,20 @@ the selection's own source has a current (authenticated, unexpired) catalog that
 no longer lists it, and no other followed source's current catalog lists it,
 the mirror records the selection as `withdrawn` and stops serving it on the next
 cycle: its public links are removed and requests are refused. Retained bytes
-stay under the ordinary retention rules (pin, block and explicit prune). If a
-current catalog lists it again, it is served again.
+stay under the ordinary retention rules (pin, block and explicit prune). Each
+source's withdrawals are recorded as soon as its refresh is accepted, even if a
+later source's refresh fails on budget in the same cycle.
+
+A withdrawal persists until a current followed catalog lists the model again,
+or until you run `mirror unwithdraw --manifest ...`. If the withdrawing catalog
+later expires or disappears, the model stays withdrawn. While a current catalog
+still omits it, the next cycle withdraws it again.
 
 Expiry is different. A catalog that merely expires, a source that cannot be
 reached, or a refresh that fails says nothing about withdrawal: that is an
-availability problem, and retained verified copies keep serving. To stop serving
-one model yourself, use `mirror block`.
+availability problem. Retained verified copies that were never withdrawn keep
+serving, and withdrawn ones stay withdrawn. To stop serving one model yourself,
+use `mirror block`.
 
 ## Budgets that defer, failures that wait
 

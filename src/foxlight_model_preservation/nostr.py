@@ -33,6 +33,9 @@ from .transfer import PinnedConnection, TransferPolicy
 EVENT_KIND = 30471  # Parameterized replaceable: one current card per mirror key.
 TOPIC = "sovereign-mirror-v1"
 MAX_MESSAGE_BYTES = 1024 * 1024
+HANDSHAKE_BYTES = 16 * 1024 + 2  # Upgrade headers read before refusing.
+# One message plus its frame headers and any interleaved control frames.
+MESSAGE_ALLOWANCE = MAX_MESSAGE_BYTES + 64 * 1024
 MAX_EVENTS = 500
 DEFAULT_RELAYS = (
     "wss://relay.damus.io",
@@ -267,6 +270,8 @@ class Relay:
         connection.connect()
         assert connection.sock is not None  # noqa: S101
         self._socket: socket.socket = connection.sock
+        # Bytes read from the relay, for callers that bound their ingress.
+        self.received = 0
         self._socket.settimeout(policy.timeout)
         key = base64.b64encode(os.urandom(16)).decode()
         host = parsed.hostname + (f":{parsed.port}" if parsed.port else "")
@@ -287,9 +292,10 @@ class Relay:
                 raise PreservationError("relay handshake deadline exceeded")
             self._socket.settimeout(remaining)
             chunk = self._socket.recv(1)
-            if not chunk or len(header) > 16384:
+            if not chunk or len(header) > HANDSHAKE_BYTES - 2:
                 raise PreservationError("relay handshake failed")
             header += chunk
+            self.received += len(chunk)
         expected = base64.b64encode(
             hashlib.sha1(  # noqa: S324 - fixed by the websocket protocol
                 (key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()
@@ -329,6 +335,7 @@ class Relay:
             if not chunk:
                 raise PreservationError("relay closed the connection")
             data += chunk
+            self.received += len(chunk)
         return data
 
     def receive(
@@ -341,6 +348,7 @@ class Relay:
         """
         active = control or OperationControl()
         message = b""
+        start = self.received
         while True:
             first, second = self._exact(2, deadline, active)
             length = second & 0x7F
@@ -348,7 +356,10 @@ class Relay:
                 length = int.from_bytes(self._exact(2, deadline, active), "big")
             elif length == 127:
                 length = int.from_bytes(self._exact(8, deadline, active), "big")
-            if length + len(message) > MAX_MESSAGE_BYTES:
+            if length + len(message) > MAX_MESSAGE_BYTES or (
+                # Interleaved pings and fragments share one bounded allowance.
+                self.received - start + length + 4 > MESSAGE_ALLOWANCE
+            ):
                 raise PreservationError("relay message exceeds size limit")
             mask = self._exact(4, deadline, active) if second & 0x80 else b""
             payload = self._exact(length, deadline, active)
@@ -388,6 +399,12 @@ class Relay:
         self._socket.close()
 
 
+def _spent(total: int, relay: Relay | None, max_bytes: int | None) -> bool:
+    """Whether one more message could exceed the caller's byte bound."""
+    used = total + (relay.received if relay is not None else 0)
+    return max_bytes is not None and used + MESSAGE_ALLOWANCE > max_bytes
+
+
 def publish_card(
     card: bytes,
     secret: bytes,
@@ -395,21 +412,31 @@ def publish_card(
     policy: TransferPolicy,
     *,
     control: OperationControl | None = None,
+    max_bytes: int | None = None,
 ) -> int:
-    """Publish a mirror card to each relay; return how many accepted it."""
+    """Publish a mirror card to each relay; return how many accepted it.
+
+    ``max_bytes`` optionally bounds everything read from all relays together
+    (handshakes included); relays are skipped once another reply might not fit.
+    """
     active = control or OperationControl()
     event = card_event(card, secret)
     accepted = 0
+    total = 0
     for url in relays:
         active.checkpoint()
+        if _spent(total, None, max_bytes):
+            break
         try:
             deadline = time.monotonic() + policy.timeout
             relay = Relay(url, policy, deadline=deadline, control=active)
         except (OSError, ValueError):
+            # A failed handshake reads at most its bounded upgrade headers.
+            total += HANDSHAKE_BYTES
             continue
         try:
             relay.send(["EVENT", event])
-            while time.monotonic() < deadline:
+            while time.monotonic() < deadline and not _spent(total, relay, max_bytes):
                 reply = relay.receive(deadline, active)
                 if len(reply) >= 3 and reply[0] == "OK" and reply[1] == event["id"]:
                     accepted += reply[2] is True
@@ -418,6 +445,7 @@ def publish_card(
             pass
         finally:
             relay.close()
+            total += relay.received
     return accepted
 
 
@@ -426,16 +454,26 @@ def find_cards(
     policy: TransferPolicy,
     *,
     control: OperationControl | None = None,
+    max_bytes: int | None = None,
 ) -> list[bytes]:
-    """Ask relays for current mirror cards; return every one that verifies."""
+    """Ask relays for current mirror cards; return every one that verifies.
+
+    ``max_bytes`` optionally bounds everything read from all relays together
+    (handshakes included); reading stops once another message might not fit.
+    """
     active = control or OperationControl()
     cards: dict[bytes, None] = {}
+    total = 0
     for url in relays:
         active.checkpoint()
+        if _spent(total, None, max_bytes):
+            break
         try:
             deadline = time.monotonic() + policy.timeout
             relay = Relay(url, policy, deadline=deadline, control=active)
         except (OSError, ValueError):
+            # A failed handshake reads at most its bounded upgrade headers.
+            total += HANDSHAKE_BYTES
             continue
         subscription = secrets.token_hex(8)
         try:
@@ -447,7 +485,11 @@ def find_cards(
                 ]
             )
             received = 0
-            while time.monotonic() < deadline and received < MAX_EVENTS:
+            while (
+                time.monotonic() < deadline
+                and received < MAX_EVENTS
+                and not _spent(total, relay, max_bytes)
+            ):
                 message = relay.receive(deadline, active)
                 if not message:
                     continue
@@ -463,4 +505,5 @@ def find_cards(
             pass
         finally:
             relay.close()
+            total += relay.received
     return list(cards)

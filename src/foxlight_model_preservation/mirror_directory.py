@@ -351,6 +351,7 @@ class MirrorDirectory:
         policy: TransferPolicy = DEFAULT_POLICY,
         *,
         control: OperationControl | None = None,
+        max_checks: int | None = None,
     ) -> int:
         """Confirm mirrors really serve bytes they claim before vouching for them.
 
@@ -359,6 +360,8 @@ class MirrorDirectory:
         No trust is needed for this; it proves only that the bytes are there.
         Results are merged into the current directory, and only for the exact
         card that was checked. Returns the number of mirrors confirmed.
+        ``max_checks`` optionally bounds how many mirrors one call contacts, so
+        a caller can bound its ingress (each check reads at most two manifests).
         """
         active = control or OperationControl()
         deadline = time.monotonic() + policy.deadline_seconds
@@ -370,6 +373,8 @@ class MirrorDirectory:
         self._rng.shuffle(entries)
         for key, seen in entries:
             active.checkpoint()
+            if max_checks is not None and len(results) >= max_checks:
+                break
             if seen.checked or _dropped(seen) or time.monotonic() > deadline:
                 continue
             card = _live(seen, int(time.time()))
