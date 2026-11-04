@@ -629,6 +629,7 @@ def test_reachable_mirror_publishes_its_card_to_the_chosen_relays(
                 "public_url": f"http://127.0.0.1:{port}",
                 "publish_nostr": True,
                 "nostr_relays": relays,
+                "announce_disclosure": 1,
             },
         )
         published.clear()
@@ -694,5 +695,303 @@ def test_turning_sharing_off_stops_a_gossip_round_in_progress(
         assert started.wait(30)
         owner.control("community-configure", {"enabled": False})
         assert stopped.wait(10)
+    finally:
+        owner.close()
+
+
+def test_status_says_whether_and_why_the_mirror_announces(tmp_path: Path) -> None:
+    from foxlight_model_preservation.mirror_rendezvous import rendezvous_available
+
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        state = owner.control("community-read", {})
+        assert state["dht_available"] is rendezvous_available()
+        assert state["dht_announcing"] is False
+        assert state["nostr_publishing"] is False
+        reasons = state["announce_reasons"]
+        # On by default, but nothing is announced before consent or a model.
+        assert {"not_sharing", "nothing_shared"} <= set(reasons["dht"])
+        assert {"not_sharing", "nothing_shared"} <= set(reasons["nostr"])
+        if owner.community.reachability()["status"] != "public_address":
+            assert "no_reachable_address" in reasons["dht"]
+        # The DHT records a plain port; an HTTPS address cannot be expressed.
+        state = owner.control(
+            "community-configure", {"public_url": "https://mirror.example.org"}
+        )
+        assert "address_not_plain_http" in state["announce_reasons"]["dht"]
+        assert "no_reachable_address" not in state["announce_reasons"]["nostr"]
+        state = owner.control(
+            "community-configure", {"announce_dht": False, "publish_nostr": False}
+        )
+        assert state["announce_reasons"] == {
+            "dht": ["turned_off"],
+            "nostr": ["turned_off"],
+        }
+    finally:
+        owner.close()
+
+
+def test_public_address_is_validated_and_required_for_a_check(
+    tmp_path: Path,
+) -> None:
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        for bad in ("ftp://mirror.example.org", "https://user:pw@example.org"):
+            with pytest.raises(PreservationError, match="community_address_invalid"):
+                owner.control("community-configure", {"public_url": bad})
+        for bad in (
+            "http://mirror.example.org:abc",
+            "http://mirror.example.org:99999",
+            "https://mirror.example.org:0",
+        ):
+            with pytest.raises(
+                PreservationError, match="community_address_port_invalid"
+            ):
+                owner.control("community-configure", {"public_url": bad})
+        with pytest.raises(PreservationError, match="community_address_required"):
+            owner.control("community-check-address", {})
+        with pytest.raises(PreservationError, match="sovereign_operation_unavailable"):
+            owner.control("community-check-address", {"url": "https://x.example"})
+    finally:
+        owner.close()
+
+
+def test_an_unusable_stored_address_is_set_aside_not_fatal(tmp_path: Path) -> None:
+    import json
+
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        owner.control(
+            "community-configure",
+            {"public_url": "http://mirror.example.org:8080", "port": 18743},
+        )
+        # What an earlier version could store: a port that cannot be used.
+        path = owner.home / "sharing/community/policy.json"
+        stored = json.loads(path.read_bytes())
+        path.write_text(
+            json.dumps({**stored, "public_url": "http://mirror.example.org:99999"})
+        )
+        state = owner.control("community-read", {})
+        assert state["address_invalid"] is True
+        assert state["policy"]["public_url"] is None
+        assert state["policy"]["port"] == 18743  # Other choices are kept.
+        assert "address_invalid" in state["announce_reasons"]["dht"]
+        assert "address_invalid" in state["announce_reasons"]["nostr"]
+        assert owner.community.dht_port() is None
+        with pytest.raises(PreservationError, match="community_address_required"):
+            owner.control("community-check-address", {})
+        # Setting a good address again clears it.
+        state = owner.control(
+            "community-configure", {"public_url": "https://mirror.example.org"}
+        )
+        assert state["address_invalid"] is False
+        # Any other damage to the policy still refuses as before.
+        path.write_text(json.dumps({**stored, "port": "not-a-port"}))
+        with pytest.raises(ValueError):
+            owner.control("community-read", {})
+    finally:
+        owner.close()
+
+
+def test_a_slow_streaming_address_cannot_stretch_the_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import http.server
+    from dataclasses import replace
+
+    from foxlight_model_preservation.local_host import community
+
+    stop = threading.Event()
+
+    class Trickle(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            self.send_response(200)
+            self.send_header("Content-Length", str(1024 * 1024))
+            self.end_headers()
+            # One byte at a time, each well inside the socket timeout.
+            while not stop.is_set():
+                try:
+                    self.wfile.write(b" ")
+                    self.wfile.flush()
+                except OSError:
+                    return
+                time.sleep(0.05)
+
+        def log_message(self, *args: object) -> None: ...
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Trickle)
+    server.daemon_threads = True
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    monkeypatch.setattr(
+        community,
+        "ADDRESS_CHECK_POLICY",
+        replace(
+            community.ADDRESS_CHECK_POLICY,
+            allow_private=True,
+            timeout=2,
+            deadline_seconds=1,
+        ),
+    )
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        owner.control(
+            "community-configure",
+            {"public_url": f"http://127.0.0.1:{server.server_address[1]}"},
+        )
+        started = time.monotonic()
+        result = owner.control("community-check-address", {})
+        assert result["outcome"] == "too_slow"
+        assert time.monotonic() - started < 4
+    finally:
+        stop.set()
+        owner.close()
+        server.shutdown()
+        server.server_close()
+
+
+def test_address_check_finds_this_mirror_card_and_refuses_private_routes(
+    tmp_path: Path, capture: Capture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dataclasses import replace
+
+    from foxlight_model_preservation.local_host import community
+
+    port = free_port()
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        saved(owner, tmp_path, capture)
+        owner.control(
+            "community-configure", {"public_url": f"http://127.0.0.1:{port}/"}
+        )
+        enable(owner, port)
+        wait_for(lambda: owner.control("community-read", {})["sharing_count"] == 1)
+        # Like any visitor, the check never follows a route to a private address.
+        assert owner.control("community-check-address", {}) == {
+            "address": f"http://127.0.0.1:{port}",
+            "outcome": "private_address",
+            "http_status": None,
+        }
+        monkeypatch.setattr(
+            community,
+            "ADDRESS_CHECK_POLICY",
+            replace(community.ADDRESS_CHECK_POLICY, allow_private=True),
+        )
+        owner.community.announce()
+        # A copy counts as sharing once joined, slightly before the listener
+        # binds; until then the address honestly reports unreachable.
+        wait_for(
+            lambda: (
+                owner.control("community-check-address", {})["outcome"] == "this_mirror"
+            )
+        )
+        assert owner.community._peers_outcome(b"<html></html>") == "not_a_mirror"
+        other = community.issue_card(
+            community.Ed25519PrivateKey.generate(),
+            ("https://other.example.org",),
+            {"a" * 64},
+        )
+        assert (
+            owner.community._peers_outcome(community.build_peers(other, ()))
+            == "other_mirror"
+        )
+        assert (
+            owner.community._peers_outcome(community.build_peers(None, ())) == "no_card"
+        )
+        owner.control(
+            "community-configure", {"public_url": f"http://127.0.0.1:{free_port()}"}
+        )
+        assert owner.control("community-check-address", {})["outcome"] == (
+            "unreachable"
+        )
+    finally:
+        owner.close()
+
+
+def test_a_consent_given_before_the_disclosure_announces_nothing_until_reviewed(
+    tmp_path: Path, capture: Capture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from foxlight_model_preservation.local_host import community as module
+    from foxlight_model_preservation.operations import OperationControl
+
+    published: list[tuple[str, ...]] = []
+    queried: list[tuple[str, ...]] = []
+    joined: list[int] = []
+    monkeypatch.setattr(
+        module,
+        "publish_card",
+        lambda card, key, relays, policy, control=None: published.append(tuple(relays)),
+    )
+    monkeypatch.setattr(
+        module,
+        "find_cards",
+        lambda relays, policy, control=None: queried.append(tuple(relays)) or [],
+    )
+    monkeypatch.setattr(module, "rendezvous_available", lambda: True)
+
+    class Lab:
+        def __init__(self) -> None:
+            joined.append(1)
+
+        def announce(self, *args: object, **kwargs: object) -> None: ...
+
+        def lookup(self, *args: object, **kwargs: object) -> tuple[str, ...]:
+            return ()
+
+        def close(self) -> None: ...
+
+    monkeypatch.setattr(module, "Rendezvous", Lab)
+    port = free_port()
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        saved(owner, tmp_path, capture)
+        # What an earlier app stored: consent with both announcements on by
+        # default, and no record of having shown what they reveal.
+        owner.control(
+            "community-configure",
+            {
+                "enabled": True,
+                "consent": True,
+                "port": port,
+                "public_url": f"http://127.0.0.1:{port}",
+                "licenses": [*DEFAULT_LICENSES, "test-only"],
+            },
+        )
+        wait_for(lambda: owner.control("community-read", {})["sharing_count"] == 1)
+        stored = (owner.home / "sharing/community/policy.json").read_bytes()
+        # The policy format is unchanged, so older apps still read it.
+        assert b"disclosure" not in stored
+        state = owner.control("community-read", {})
+        assert state["announce_review_required"] is True
+        assert state["announce_reasons"] == {
+            "dht": ["awaiting_review"],
+            "nostr": ["awaiting_review"],
+        }
+        assert state["dht_announcing"] is False
+        assert state["nostr_publishing"] is False
+        expires = state["policy"]["consent_expires"]
+        published.clear()
+        queried.clear()
+        joined.clear()
+        owner.community.gossip(OperationControl())
+        assert (published, queried, joined) == ([], [], [])
+        assert owner.community.dht_port() is None
+        # Serving itself is untouched.
+        assert owner.control("community-read", {})["sharing_count"] == 1
+        # Reviewing turns on exactly what was chosen, without a new consent.
+        state = owner.control(
+            "community-configure",
+            {"announce_dht": False, "publish_nostr": True, "announce_disclosure": 1},
+        )
+        assert state["announce_review_required"] is False
+        assert state["policy"]["consent_expires"] == expires
+        assert state["announce_reasons"]["dht"] == ["turned_off"]
+        owner.community.gossip(OperationControl())
+        assert published and queried and joined == []
+        with pytest.raises(PreservationError, match="invalid_control"):
+            owner.control("community-configure", {"announce_disclosure": 2})
+        # A consent given again without the disclosure needs a new review.
+        owner.control("community-configure", {"enabled": False})
+        state = owner.control("community-configure", {"enabled": True, "consent": True})
+        assert state["announce_review_required"] is True
     finally:
         owner.close()

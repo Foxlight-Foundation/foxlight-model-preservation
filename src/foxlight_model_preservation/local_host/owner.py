@@ -526,6 +526,14 @@ class LocalOwner:
                 raise PreservationError("invalid_control")
             with self._backup_call():
                 return self.backups.setup(str(body["review_id"]))
+        if action == "community-check-address" and not body:
+            # A best-effort request to the owner's own address; never hold the
+            # owner lock across the network.
+            with self._lock:
+                self._check()
+                if self._closing:
+                    raise PreservationError("sovereign_owner_closing")
+            return self.community.check_address()
         if action in {"community-bucket-connect", "community-bucket-disconnect"}:
             # Checking a bucket uploads and downloads over the network; do not
             # hold the owner lock meanwhile.
@@ -1569,7 +1577,12 @@ class LocalOwner:
             try:
                 before = self.community.held()
                 self.community.sync(copies, control)
-                self._bucket_selection_changed(before, self.community.held())
+                after = self.community.held()
+                self._bucket_selection_changed(before, after)
+                if after and not before:
+                    # The DHT announces only while something is served: the
+                    # first served model starts a discovery round at once.
+                    self._gossip_wake.set()
                 if not self._community_wake.is_set():
                     self.community.last_error = None
                     try:

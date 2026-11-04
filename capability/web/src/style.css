@@ -641,6 +641,7 @@ main[inert] .sk-scrim {opacity:0;}
 /* Help keep models available */
 .sk-community {margin:0 0 28px;}
 .sk-community .sk-page-head {align-items:flex-start;}
+.sk-community-announce {margin:12px 0;padding:0 0 0 18px;display:grid;gap:6px;color:var(--text-2);font-size:14px;line-height:1.5;overflow-wrap:anywhere;}
 .sk-community-list {list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px;}
 .sk-community-bucket {margin:18px 0 0;padding:16px 0 0;border-top:1px solid var(--line-hair);}
 .sk-community-bucket h3 {margin:0 0 8px;font-size:15px;}
