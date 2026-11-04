@@ -446,3 +446,50 @@ def test_private_directory_commands_round_trip(
         )
     assert crawled["added"] == 1 and crawled["looked_further"] is False
     assert requests == [PEERS]
+
+
+def test_manifest_failures_score_discovered_sources_but_not_hints(
+    tmp_path: Path, capture: Capture
+) -> None:
+    """When no source can supply the manifest, the discovered ones still count."""
+    directory = MirrorDirectory(tmp_path / "d")
+    dead = "http://127.0.0.1:9"
+    seed = "http://127.0.0.1:1"
+    with peers_only(tmp_path / "absent.json") as (hint, _requests):
+        directory.ingest(
+            issue_card(Ed25519PrivateKey.generate(), (address,), {capture.identity})
+            for address in (hint, dead)
+        )
+        with pytest.raises(PreservationError, match="manifest"):
+            fetch_with_mirrors(
+                capture.identity,
+                capture.trust,
+                (hint,),
+                tmp_path / "never",
+                TransferPolicy(allow_http=True, allow_private=True, timeout=2),
+                mirrors=directory,
+                seeds=(seed,),
+            )
+    recorded = scores(directory)
+    assert recorded[dead] == (0, 1)
+    assert recorded[hint] == (0, 0)  # Hints keep object-only scoring.
+    assert directory.read_seeds().seeds[seed].failures == 1
+    assert directory.unscored_seeds((seed,)) == ()
+
+
+def test_hints_in_the_directory_cannot_crowd_out_a_fallback(tmp_path: Path) -> None:
+    identity = "d" * 64
+    hint = "https://hint.example"
+    backup = "https://backup.example"
+    directory = MirrorDirectory(tmp_path / "d")
+    directory.ingest(
+        issue_card(Ed25519PrivateKey.generate(), (address,), {identity})
+        for address in (hint, backup)
+    )
+    for _ in range(4):
+        directory.record(hint, delivered=True)  # The hint ranks first.
+    assert directory.candidates(identity, limit=1) == (hint,)
+    found = plan_sources(
+        identity, (hint,), directory, TransferPolicy(max_sources=2), learn=False
+    )
+    assert found.sources == (hint, backup)

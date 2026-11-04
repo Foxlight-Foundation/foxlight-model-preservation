@@ -120,7 +120,9 @@ list order nor a flood of fake cards decides which mirrors a client tries.
 Sources are tried in order for each object, so discovered mirrors are fallbacks
 when the hints fail. After the receive, success or failure, each remote source
 is scored: one failed object marks it failed for that receive, and only clean
-delivery counts as a success. A mirror is dropped once it has three failures and
+delivery counts as a success. A discovered mirror or seed that was asked for the
+signed manifest and could not supply an authentic one is also scored as failed;
+sources never asked are not scored. A mirror is dropped once it has three failures and
 more failures than successes. A scored seed is no longer offered as new; once a
 seed publishes a card, the card speaks for it. With `--operation-id`, the
 discovered sources chosen the first time are remembered and reused on resume, so

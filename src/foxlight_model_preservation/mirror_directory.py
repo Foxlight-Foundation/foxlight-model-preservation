@@ -951,7 +951,15 @@ def plan_sources(
                 raise
             except (OSError, ValueError, http.client.HTTPException):
                 pass  # Learning is optional; the receive proceeds with hints.
-    found = mirrors.candidates(manifest_id, limit=room, policy=policy)
+    # Ask for enough that hints already in the directory cannot crowd out
+    # usable fallbacks, then drop them before taking ``room``.
+    found = tuple(
+        item
+        for item in mirrors.candidates(
+            manifest_id, limit=room + len(hints), policy=policy
+        )
+        if item not in hints
+    )
     carded = mirrors.card_addresses()
     fresh = tuple(seed for seed in offered if seed not in carded)
     extras = tuple(
@@ -1017,6 +1025,15 @@ def fetch_with_mirrors(
         if "://" in source:
             delivered[source] = delivered.get(source, True) and ok
 
+    discovered = frozenset(plan.discovered)
+
+    def refused(source: str) -> None:
+        # A discovered mirror or seed that was asked for the manifest and could
+        # not supply an authentic one failed. Hints keep today's object-only
+        # scoring, and sources never asked are not penalized.
+        if source in discovered:
+            observe(source, False)
+
     try:
         return fetch(
             manifest_id,
@@ -1028,6 +1045,7 @@ def fetch_with_mirrors(
             operation_id=operation_id,
             envelope=envelope,
             source_outcome=observe,
+            manifest_failure=refused,
         )
     finally:
         try:
