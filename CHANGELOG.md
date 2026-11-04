@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Threads of one app now take turns on a mirror's ledger instead of refusing
+  each other. Bucket uploads charging the upload limits could otherwise make
+  the mirror record a spurious failure and briefly stop serving a healthy
+  model, which also withdrew it from a connected bucket. Separate processes
+  are still fenced by the file lock.
+
 - Bundle the BitTorrent DHT binding in the desktop profile. The Library's
   `desktop` extra is now `foxlight-model-preservation[bittorrent]==<core>`, so
   `requirements-desktop.lock` and the Mac and Linux apps built from it include
