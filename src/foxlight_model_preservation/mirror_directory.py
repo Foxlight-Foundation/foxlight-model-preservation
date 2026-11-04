@@ -1,39 +1,65 @@
 """A client's own record of mirrors: the network is the list.
 
 The directory is filled from any bootstrap (a handoff's mirrors, a mirror's
-peers document, a rendezvous, an optional seed list) and survives anything
-that happens to any one organization. Choosing from untrusted lists is safe
-because each mirror is sampled at random, every byte is verified, and a local
-score remembers which mirrors actually delivered correct bytes. A fake or dead
-mirror is dropped after a few failures; a flood of them costs bounded attempts.
+peers document, an optional untrusted seed list, and only on explicit request a
+DHT or Nostr lookup) and survives anything that happens to any one
+organization. Choosing from untrusted lists is safe because each mirror is
+sampled at random, every byte is verified, and a local score remembers which
+mirrors actually delivered correct bytes. A fake or dead mirror is dropped after
+a few failures; a flood of them costs bounded attempts.
+
+Receiving uses the directory through :func:`plan_sources` and
+:func:`fetch_with_mirrors`: discovered mirrors are appended after the explicit
+or signed hints, filtered by the receiver's own policy, and scored afterwards.
+Receiving never announces, listens, seeds or publishes, and by default never
+contacts the DHT or Nostr relays.
 """
 
 from __future__ import annotations
 
 import fcntl
 import http.client
+import ipaddress
+import math
+import os
 import random
 import threading
 import time
+import uuid
 from collections.abc import Callable, Generator, Iterable
 from contextlib import contextmanager
-from dataclasses import replace
+from dataclasses import dataclass, replace
+from importlib.resources import files
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
-from pydantic import Field
+from pydantic import Field, JsonValue, field_validator
 
 from .archives import ArchiveManifest
+from .ledger import receipt_path
 from .mirror_cards import (
     MAX_PEERS,
     MAX_PEERS_BYTES,
     PEERS_PATH,
     MirrorCard,
+    base_url,
     read_peers,
 )
 from .mirror_cards import verify_card as _verify_card
-from .models import MAX_METADATA_BYTES, PreservationError, Record, TrustProfile
-from .operations import DeadlineExceeded, OperationControl, OperationError
+from .models import (
+    MAX_METADATA_BYTES,
+    Digest,
+    PreservationError,
+    Record,
+    TrustProfile,
+)
+from .operations import (
+    DeadlineExceeded,
+    OperationControl,
+    OperationError,
+    RequestChanged,
+)
 from .signing import (
     Envelope,
     canonical_bytes,
@@ -42,9 +68,17 @@ from .signing import (
     encode_record,
     strict_json,
 )
-from .storage import atomic_bytes, directory, manifest_path, open_file, read_metadata
+from .storage import (
+    atomic_bytes,
+    directory,
+    manifest_path,
+    open_file,
+    parent_directory,
+    read_metadata,
+)
 from .transfer import (
     DEFAULT_POLICY,
+    I2PTransferPolicy,
     TransferPolicy,
     fetch,
     inspect_envelope,
@@ -57,6 +91,19 @@ MAX_CARD_BYTES = 64 * 1024
 # Comfortably below the 8 MiB metadata reader limit, so a full directory can
 # always be read back.
 MAX_DIRECTORY_BYTES = 6 * 1024 * 1024
+# A receive adds at most this many discovered sources after its hints.
+DISCOVERED_LIMIT = 8
+# At most this many not-yet-scored seeds are offered to one receive.
+SEED_TRIES = 4
+MAX_SEEDS = 256
+MAX_SEED_SCORES = 1024
+MAX_OPERATIONS = 256
+# Learning from hint and seed mirrors before a receive is short and bounded.
+RECEIVE_CRAWL_SECONDS = 20.0
+RECEIVE_CRAWL_TIMEOUT = 5.0
+DIRECTORY_ENV = "SOVEREIGN_MIRROR_DIRECTORY"
+SEEDS_ENV = "SOVEREIGN_SEED_MIRRORS"
+SEED_RESOURCE = "resources/seed-mirrors.json"
 
 _LOCKS: dict[Path, threading.Lock] = {}
 _LOCKS_GUARD = threading.Lock()
@@ -79,6 +126,133 @@ class DirectoryState(Record):
         "sovereign.mirror-directory.v1"
     )
     mirrors: dict[str, SeenMirror] = Field(default_factory=dict, max_length=MAX_MIRRORS)
+
+
+class SeedList(Record):
+    """An untrusted bootstrap list of mirror base URLs; it grants nothing.
+
+    A seed is only a place to ask first. Its bytes are verified like any other
+    mirror's, and once it publishes a card the card speaks for it.
+    """
+
+    schema_version: Literal["sovereign.seed-mirrors.v1"] = "sovereign.seed-mirrors.v1"
+    mirrors: tuple[str, ...] = Field(default=(), max_length=MAX_SEEDS)
+
+    @field_validator("mirrors")
+    @classmethod
+    def plain_mirrors(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        """Accept only credential-free HTTP(S) base URLs, once each."""
+        return tuple(dict.fromkeys(base_url(value) for value in values))
+
+
+class SeedScore(Record):
+    """What one seed address delivered to this client, before any card exists."""
+
+    successes: int = Field(default=0, ge=0)
+    failures: int = Field(default=0, ge=0)
+
+
+class SeedState(Record):
+    """Owner-private outcomes for seed addresses; a scored seed is no longer new."""
+
+    schema_version: Literal["sovereign.seed-scores.v1"] = "sovereign.seed-scores.v1"
+    seeds: dict[str, SeedScore] = Field(
+        default_factory=dict, max_length=MAX_SEED_SCORES
+    )
+
+
+class RememberedSources(Record):
+    """The discovered sources chosen for one resumable receive."""
+
+    key: Digest
+    sources: tuple[str, ...] = Field(max_length=64)
+
+
+class OperationState(Record):
+    """Keeps a resumed operation's source list, so its allowance still binds."""
+
+    schema_version: Literal["sovereign.mirror-operations.v1"] = (
+        "sovereign.mirror-operations.v1"
+    )
+    entries: tuple[RememberedSources, ...] = Field(
+        default=(), max_length=MAX_OPERATIONS
+    )
+
+
+def default_directory() -> Path:
+    """Return the CLI's private directory path (``SOVEREIGN_MIRROR_DIRECTORY``)."""
+    configured = os.environ.get(DIRECTORY_ENV)
+    if configured:
+        return Path(configured)
+    return Path.home() / ".local/state/foxlight-preservation/mirror-directory"
+
+
+def read_seed_list(data: bytes) -> tuple[str, ...]:
+    """Parse a bounded ``sovereign.seed-mirrors.v1`` document."""
+    if len(data) > MAX_METADATA_BYTES:
+        raise PreservationError("seed list exceeds size limit")
+    return SeedList.model_validate_json(canonical_bytes(strict_json(data))).mirrors
+
+
+def load_seeds(path: Path | None = None, *, packaged: bool = True) -> tuple[str, ...]:
+    """Return the shipped seed list plus an optional user-supplied one.
+
+    Both are untrusted. A user file replaces nothing: its entries are added
+    after the packaged ones. ``SOVEREIGN_SEED_MIRRORS`` names a default file.
+    """
+    seeds: list[str] = []
+    if packaged:
+        seeds.extend(
+            read_seed_list(
+                files("foxlight_model_preservation")
+                .joinpath(SEED_RESOURCE)
+                .read_bytes()
+            )
+        )
+    selected = path
+    if selected is None and os.environ.get(SEEDS_ENV):
+        selected = Path(os.environ[SEEDS_ENV])
+    if selected is not None:
+        with selected.open("rb") as stream:
+            seeds.extend(read_seed_list(stream.read(MAX_METADATA_BYTES + 1)))
+    return tuple(dict.fromkeys(seeds))[:MAX_SEEDS]
+
+
+_LOCAL_SUFFIXES = (".localhost", ".local", ".internal", ".lan", ".home.arpa")
+
+
+def permitted(address: str, policy: TransferPolicy) -> bool:
+    """Report whether a discovered address is allowed by the receiver's policy.
+
+    HTTPS only unless the policy allows HTTP; no loopback, private or
+    link-local literal or local-only name unless it allows private routes;
+    never a private-network name. A DNS name is pinned again at connect time,
+    where a private resolution is refused under the same policy.
+    """
+    if isinstance(policy, I2PTransferPolicy):
+        return False  # Discovered direct routes never ride an I2P grant.
+    try:
+        parsed = urlsplit(base_url(address))
+    except PreservationError:
+        return False
+    host = (parsed.hostname or "").rstrip(".").lower()
+    if not host or host.endswith((".i2p", ".i2p.alt", ".onion")):
+        return False
+    if parsed.scheme != "https" and not policy.allow_http:
+        return False
+    if policy.allow_private:
+        return True
+    if host == "localhost" or host.endswith(_LOCAL_SUFFIXES):
+        return False
+    try:
+        return ipaddress.ip_address(host).is_global
+    except ValueError:
+        return True
+
+
+def _band(seen: SeenMirror) -> int:
+    """Coarse reliability: equal within a band, so order inside it is random."""
+    return math.floor(math.log2((seen.successes + 1) / (seen.failures + 1)))
 
 
 def _card(envelope: Envelope) -> MirrorCard | None:
@@ -298,34 +472,154 @@ class MirrorDirectory:
         ]
 
     def candidates(
-        self, manifest_id: str, *, limit: int = 8, now: int | None = None
+        self,
+        manifest_id: str,
+        *,
+        limit: int = 8,
+        now: int | None = None,
+        policy: TransferPolicy | None = None,
     ) -> tuple[str, ...]:
-        """Sample live mirrors that probably hold a manifest, best first.
+        """Sample live mirrors whose cards claim a manifest, best band first.
 
-        Sampling is random within score bands, so no single list order and no
-        flood of fake cards can decide which mirrors a client tries.
+        Mirrors are grouped into coarse score bands (successes against
+        failures) and ordered at random inside each band, so no single list
+        order and no flood of fake cards can decide which mirrors a client
+        tries. With a policy, only addresses it permits are offered; each card
+        contributes at most two addresses.
         """
         instant = int(time.time()) if now is None else now
-        scored: list[tuple[float, str]] = []
+        ranked: list[tuple[int, float, str]] = []
         for seen in self.read().mirrors.values():
             if _dropped(seen):
                 continue
             card = _live(seen, instant)
             if card is None or not card.covers(manifest_id):
                 continue
-            score = (seen.successes + 1) / (seen.failures + 1) + self._rng.random()
-            scored.extend((score, address) for address in card.addresses[:2])
-        scored.sort(reverse=True)
-        return tuple(dict.fromkeys(address for _score, address in scored))[:limit]
+            addresses = [
+                address
+                for address in card.addresses
+                if policy is None or permitted(address, policy)
+            ][:2]
+            band = _band(seen)
+            order = self._rng.random()
+            ranked.extend((band, order, address) for address in addresses)
+        ranked.sort(reverse=True)
+        return tuple(dict.fromkeys(address for _band, _order, address in ranked))[
+            :limit
+        ]
+
+    def listing(self, *, now: int | None = None) -> list[dict[str, JsonValue]]:
+        """Describe every remembered mirror and this client's score, privately."""
+        instant = int(time.time()) if now is None else now
+        result: list[dict[str, JsonValue]] = []
+        for key, seen in sorted(self.read().mirrors.items()):
+            card = _card(seen.card)
+            result.append(
+                {
+                    "mirror_key": key,
+                    "addresses": list(card.addresses) if card else [],
+                    "holds_about": card.coverage_count if card else 0,
+                    "expires_at": card.expires_at if card else 0,
+                    "live": _live(seen, instant) is not None,
+                    "successes": seen.successes,
+                    "failures": seen.failures,
+                    "spot_checked": seen.checked,
+                    "dropped": _dropped(seen),
+                }
+            )
+        return result
+
+    def export_cards(
+        self, *, limit: int = MAX_PEERS, now: int | None = None
+    ) -> tuple[bytes, ...]:
+        """Return live, undropped cards, most reliable first, without scores.
+
+        Unlike :meth:`gossip`, unchecked cards are included: this is the owner
+        moving their own directory, not a mirror vouching for others.
+        """
+        instant = int(time.time()) if now is None else now
+        ranked = sorted(
+            (
+                (seen.successes - seen.failures, encode_record(seen.card))
+                for seen in self.read().mirrors.values()
+                if not _dropped(seen) and _live(seen, instant) is not None
+            ),
+            key=lambda item: item[0],
+            reverse=True,
+        )
+        return tuple(raw for _score, raw in ranked[:limit])
+
+    def shuffle(self, items: list[str]) -> None:
+        """Shuffle in place with this directory's sampler."""
+        self._rng.shuffle(items)
+
+    def card_addresses(self, *, now: int | None = None) -> frozenset[str]:
+        """Every address a live card in this directory names."""
+        instant = int(time.time()) if now is None else now
+        return frozenset(
+            address
+            for seen in self.read().mirrors.values()
+            for address in (_live(seen, instant) or _NO_CARD).addresses
+        )
+
+    def read_seeds(self) -> SeedState:
+        """Read this client's outcomes for seed addresses."""
+        try:
+            with directory(self.path) as root:
+                return SeedState.model_validate_json(read_metadata(root, "seeds.json"))
+        except FileNotFoundError:
+            return SeedState()
+
+    def unscored_seeds(self, seeds: Iterable[str]) -> tuple[str, ...]:
+        """Seeds this client has never received anything from, in given order."""
+        scored = self.read_seeds().seeds
+        return tuple(seed for seed in dict.fromkeys(seeds) if seed not in scored)
+
+    def remembered(self, key: str) -> tuple[str, ...] | None:
+        """Return the sources chosen earlier for one resumable receive."""
+        try:
+            with directory(self.path) as root:
+                state = OperationState.model_validate_json(
+                    read_metadata(root, "operations.json")
+                )
+        except FileNotFoundError:
+            return None
+        for entry in state.entries:
+            if entry.key == key:
+                return entry.sources
+        return None
+
+    def remember(self, key: str, sources: tuple[str, ...]) -> None:
+        """Keep one receive's chosen sources so a resume binds the same request."""
+        with self._exclusive() as root:
+            try:
+                state = OperationState.model_validate_json(
+                    read_metadata(root, "operations.json")
+                )
+            except FileNotFoundError:
+                state = OperationState()
+            entries = [entry for entry in state.entries if entry.key != key]
+            entries.append(RememberedSources(key=key, sources=sources))
+            state = OperationState(entries=tuple(entries[-MAX_OPERATIONS:]))
+            atomic_bytes(root, "operations.json", encode_record(state))
 
     def record(self, address: str, *, delivered: bool) -> None:
         """Remember whether a mirror delivered correct bytes."""
         self.record_many({address: delivered})
 
-    def record_many(self, outcomes: dict[str, bool]) -> None:
-        """Remember several delivery outcomes in one locked update."""
+    def record_many(
+        self, outcomes: dict[str, bool], *, seeds: Iterable[str] = ()
+    ) -> None:
+        """Remember several delivery outcomes in one locked update.
+
+        Outcomes score every card naming the address. Addresses listed in
+        ``seeds`` are also scored as seeds, so they are no longer offered as new.
+        """
         if not outcomes:
             return
+        seed_outcomes = {
+            address: outcomes[address] for address in seeds if address in outcomes
+        }
 
         def change(mirrors: dict[str, SeenMirror]) -> None:
             for key, seen in list(mirrors.items()):
@@ -344,6 +638,19 @@ class MirrorDirectory:
                 mirrors[key] = seen
 
         self._update(change, now=int(time.time()))
+        if seed_outcomes:
+            with self._exclusive() as root:
+                scores = dict(self.read_seeds().seeds)
+                for address, ok in seed_outcomes.items():
+                    previous = scores.get(address)
+                    if previous is None and len(scores) >= MAX_SEED_SCORES:
+                        continue
+                    previous = previous or SeedScore()
+                    scores[address] = SeedScore(
+                        successes=previous.successes + ok,
+                        failures=previous.failures + (not ok),
+                    )
+                atomic_bytes(root, "seeds.json", encode_record(SeedState(seeds=scores)))
 
     def spot_check(
         self,
@@ -494,7 +801,12 @@ def fetch_discovered(
     active = control or OperationControl()
     candidates = tuple(
         dict.fromkeys(
-            (*extra_sources, *mirrors.candidates(manifest_id, limit=policy.max_sources))
+            (
+                *extra_sources,
+                *mirrors.candidates(
+                    manifest_id, limit=policy.max_sources, policy=policy
+                ),
+            )
         )
     )[: policy.max_sources]
     if not candidates:
@@ -545,3 +857,381 @@ def fetch_discovered(
         )
     finally:
         mirrors.record_many({**outcomes, **delivered})
+
+
+@dataclass(frozen=True)
+class SourcePlan:
+    """Hints first, then bounded discovered sources; none of them is trusted.
+
+    ``discovered`` lists what was appended after the hints, and ``seeds`` the
+    subset of those that came from a seed list rather than a mirror card.
+    """
+
+    sources: tuple[str, ...]
+    discovered: tuple[str, ...] = ()
+    seeds: tuple[str, ...] = ()
+
+
+def _operation_key(operation_id: str, manifest_id: str, hints: tuple[str, ...]) -> str:
+    return digest(
+        canonical_bytes(
+            {"operation": operation_id, "manifest": manifest_id, "hints": list(hints)}
+        )
+    )
+
+
+def _sources_path(operation_id: str) -> str:
+    """Keep a receive's chosen sources next to its transfer receipt."""
+    return receipt_path(operation_id).removesuffix(".json") + ".sources.json"
+
+
+def _read_plan(destination: Path, operation_id: str) -> RememberedSources | None:
+    try:
+        with directory(destination) as root:
+            return RememberedSources.model_validate_json(
+                read_metadata(root, _sources_path(operation_id))
+            )
+    except FileNotFoundError:
+        return None
+
+
+def _bound(stored: RememberedSources, key: str) -> tuple[str, ...]:
+    if stored.key != key:
+        raise RequestChanged("operation ID belongs to different transfer inputs")
+    return stored.sources
+
+
+def _claim_plan(
+    destination: Path, operation_id: str, key: str, sources: tuple[str, ...]
+) -> tuple[str, ...]:
+    """Durably create the plan only if none exists; return whichever plan won.
+
+    The plan is written to a private temporary file, fsynced and then hard
+    linked into place, which fails rather than replaces when another attempt
+    got there first. A plan is therefore never overwritten, never partial, and
+    two concurrent first attempts end up using the same one.
+    """
+    data = encode_record(RememberedSources(key=key, sources=sources))
+    path = _sources_path(operation_id)
+    with directory(destination, create=True) as root:
+        with parent_directory(root, path, create=True) as (parent, name):
+            temporary = ".pending-" + uuid.uuid4().hex
+            descriptor = os.open(
+                temporary,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=parent,
+            )
+            try:
+                with os.fdopen(descriptor, "wb") as stream:
+                    stream.write(data)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                try:
+                    os.link(temporary, name, src_dir_fd=parent, dst_dir_fd=parent)
+                except FileExistsError:
+                    pass
+                os.fsync(parent)
+            finally:
+                try:
+                    os.unlink(temporary, dir_fd=parent)
+                except FileNotFoundError:
+                    pass
+        stored = RememberedSources.model_validate_json(read_metadata(root, path))
+    return _bound(stored, key)
+
+
+def _plain(value: str) -> bool:
+    try:
+        base_url(value)
+    except PreservationError:
+        return False
+    return True
+
+
+def plan_sources(
+    manifest_id: str,
+    hints: tuple[str, ...],
+    mirrors: MirrorDirectory,
+    policy: TransferPolicy = DEFAULT_POLICY,
+    *,
+    seeds: tuple[str, ...] = (),
+    limit: int = DISCOVERED_LIMIT,
+    learn: bool = True,
+    operation_id: str | None = None,
+    destination: Path | None = None,
+    control: OperationControl | None = None,
+) -> SourcePlan:
+    """Return the hints followed by bounded extra sources for one manifest.
+
+    The extras are, in order: mirrors whose card Bloom filter claims the
+    manifest (random within score bands), then not-yet-scored seeds that no
+    card speaks for yet. Every extra must pass the receiver's own policy
+    (:func:`permitted`), and hints plus extras never exceed
+    ``policy.max_sources``. Hints are kept exactly as given, in front.
+
+    With ``learn``, the peers documents of the remote hints and the offered
+    seeds are read first (no outward expansion, short deadline), so mirrors
+    those already-used hosts vouch for can be offered. Nothing else is
+    contacted: no DHT, no relay, no announcement. A resumed ``operation_id``
+    reuses the sources chosen the first time, so its allowance still binds.
+    With a ``destination``, that choice is created once, durably, beside the
+    operation's transfer receipt and never replaced, so it lasts exactly as
+    long as the receipt; reusing the operation ID with other hints or another
+    manifest raises :class:`RequestChanged` before anything is written.
+    Without one, a bounded recent history in the directory keeps it.
+    Discovered sources never affect which keys are trusted.
+    """
+    hints = tuple(dict.fromkeys(hints))
+    room = max(0, min(limit, policy.max_sources - len(hints)))
+    seed_set = frozenset(seeds)
+
+    def result(extras: tuple[str, ...]) -> SourcePlan:
+        extras = tuple(item for item in extras if item not in hints)[:room]
+        return SourcePlan(
+            hints + extras, extras, tuple(item for item in extras if item in seed_set)
+        )
+
+    key = (
+        _operation_key(operation_id, manifest_id, hints)
+        if operation_id is not None
+        else None
+    )
+    if key is not None and operation_id is not None:
+        if destination is not None:
+            # A plan beside the receipt is authoritative and never replaced:
+            # other inputs under the same operation ID are refused at once.
+            stored = _read_plan(destination, operation_id)
+            if stored is not None:
+                return result(_bound(stored, key))
+        else:
+            try:
+                earlier = mirrors.remembered(key)
+            except (OSError, ValueError):
+                earlier = None
+            if earlier is not None:
+                return result(earlier)
+    extras = (
+        _choose_extras(
+            manifest_id,
+            hints,
+            mirrors,
+            policy,
+            offered_seeds=seeds,
+            room=room,
+            learn=learn,
+            control=control,
+        )
+        if room > 0
+        else ()
+    )
+    if key is not None and operation_id is not None:
+        if destination is not None:
+            extras = _claim_plan(destination, operation_id, key, extras)
+        else:
+            try:
+                mirrors.remember(key, extras)
+            except (OSError, ValueError):
+                pass
+    return result(extras)
+
+
+def _choose_extras(
+    manifest_id: str,
+    hints: tuple[str, ...],
+    mirrors: MirrorDirectory,
+    policy: TransferPolicy,
+    *,
+    offered_seeds: tuple[str, ...],
+    room: int,
+    learn: bool,
+    control: OperationControl | None,
+) -> tuple[str, ...]:
+    """Sample discovered sources; a damaged directory yields none, not an error."""
+    try:
+        offered = [
+            seed
+            for seed in mirrors.unscored_seeds(offered_seeds)
+            if seed not in hints and permitted(seed, policy)
+        ]
+    except (OSError, ValueError):
+        return ()
+    mirrors.shuffle(offered)
+    offered = offered[:SEED_TRIES]
+    if learn and not isinstance(policy, I2PTransferPolicy):
+        targets = tuple(
+            dict.fromkeys(
+                [hint for hint in hints if "://" in hint and _plain(hint)] + offered
+            )
+        )
+        if targets:
+            bounded = replace(
+                policy,
+                timeout=min(policy.timeout, RECEIVE_CRAWL_TIMEOUT),
+                deadline_seconds=min(policy.deadline_seconds, RECEIVE_CRAWL_SECONDS),
+            )
+            try:
+                mirrors.crawl(
+                    targets,
+                    bounded,
+                    max_documents=len(targets),
+                    expand=False,
+                    control=control,
+                )
+            except OperationError:
+                raise
+            except (OSError, ValueError, http.client.HTTPException):
+                pass  # Learning is optional; the receive proceeds with hints.
+    try:
+        # Ask for enough that hints already in the directory cannot crowd out
+        # usable fallbacks, then drop them before taking ``room``.
+        found = tuple(
+            item
+            for item in mirrors.candidates(
+                manifest_id, limit=room + len(hints), policy=policy
+            )
+            if item not in hints
+        )
+        carded = mirrors.card_addresses()
+    except (OSError, ValueError):
+        return ()
+    fresh = tuple(seed for seed in offered if seed not in carded)
+    return tuple(item for item in dict.fromkeys((*found, *fresh)) if item not in hints)[
+        :room
+    ]
+
+
+def fetch_with_mirrors(
+    manifest_id: str,
+    trust: TrustProfile,
+    hints: tuple[str, ...],
+    destination: Path,
+    policy: TransferPolicy = DEFAULT_POLICY,
+    *,
+    mirrors: MirrorDirectory | None = None,
+    seeds: tuple[str, ...] = (),
+    control: OperationControl | None = None,
+    operation_id: str | None = None,
+    envelope: bytes | None = None,
+) -> ArchiveManifest:
+    """Fetch exact trusted content from hints, then discovered mirrors.
+
+    Without a directory this is exactly :func:`transfer.fetch`. With one, the
+    sources come from :func:`plan_sources` and each remote source's outcome is
+    recorded afterwards, success or failure, even when the fetch fails. The
+    manifest and every object are still verified against ``trust``, which the
+    caller chose independently; no discovered mirror can change it.
+    """
+    if mirrors is None:
+        return fetch(
+            manifest_id,
+            trust,
+            hints,
+            destination,
+            policy,
+            control=control,
+            operation_id=operation_id,
+            envelope=envelope,
+        )
+    # A damaged directory yields no discovered sources rather than an error;
+    # a plan that cannot be read or kept beside the receipt fails the receive,
+    # as the receipt itself would.
+    plan = plan_sources(
+        manifest_id,
+        hints,
+        mirrors,
+        policy,
+        seeds=seeds,
+        operation_id=operation_id,
+        destination=destination,
+        control=control,
+    )
+    delivered: dict[str, bool] = {}
+
+    def observe(source: str, ok: bool) -> None:
+        # Any failed object marks the source down; only clean delivery counts.
+        if "://" in source:
+            delivered[source] = delivered.get(source, True) and ok
+
+    discovered = frozenset(plan.discovered)
+
+    def refused(source: str) -> None:
+        # A discovered mirror or seed that was asked for the manifest and could
+        # not supply an authentic one failed. Hints keep today's object-only
+        # scoring, and sources never asked are not penalized.
+        if source in discovered:
+            observe(source, False)
+
+    try:
+        return fetch(
+            manifest_id,
+            trust,
+            plan.sources,
+            destination,
+            policy,
+            control=control,
+            operation_id=operation_id,
+            envelope=envelope,
+            source_outcome=observe,
+            manifest_failure=refused,
+        )
+    finally:
+        try:
+            mirrors.record_many(delivered, seeds=plan.seeds)
+        except (OSError, ValueError):
+            pass  # Scoring is advisory; it never changes the receive's result.
+
+
+def look_further(
+    mirrors: MirrorDirectory,
+    policy: TransferPolicy = DEFAULT_POLICY,
+    *,
+    relays: tuple[str, ...] | None = None,
+    dht_seconds: float = 20.0,
+    control: OperationControl | None = None,
+) -> dict[str, int | bool]:
+    """Explicitly ask the BitTorrent DHT and Nostr relays for more mirrors.
+
+    Privacy: this shows this computer's network address to DHT nodes and to
+    each relay, which are strangers, and joining the DHT briefly opens a UDP
+    port and routes a little DHT traffic for others. Nothing is announced or
+    published. Callers must only run this on an explicit user request; no
+    receive does it by default. Found cards are verified and grant nothing.
+    """
+    from . import mirror_rendezvous, nostr
+
+    active = control or OperationControl()
+    dht_addresses: tuple[str, ...] = ()
+    dht_used = mirror_rendezvous.rendezvous_available()
+    if dht_used:
+        node = mirror_rendezvous.Rendezvous()
+        try:
+            dht_addresses = node.lookup(seconds=dht_seconds, control=active)
+        finally:
+            node.close()
+    cards = nostr.find_cards(
+        nostr.DEFAULT_RELAYS if relays is None else relays,
+        TransferPolicy(timeout=10, deadline_seconds=120),
+        control=active,
+    )
+    added = mirrors.ingest(cards)
+    reachable = tuple(item for item in dht_addresses if permitted(item, policy))
+    if reachable:
+        added += mirrors.crawl(
+            reachable,
+            replace(
+                policy,
+                timeout=min(policy.timeout, 10.0),
+                deadline_seconds=min(policy.deadline_seconds, 120.0),
+            ),
+            max_documents=min(len(reachable), 32),
+            expand=False,
+            control=active,
+        )
+    return {
+        "dht_used": dht_used,
+        "dht_addresses": len(dht_addresses),
+        "dht_permitted": len(reachable),
+        "relay_cards": len(cards),
+        "added": added,
+    }

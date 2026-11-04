@@ -183,6 +183,13 @@ changes the cap). Each invocation stops after one hour by default
 (`--deadline-seconds`, up to 24 hours); running the same command again resumes.
 Fetching never starts sharing or advertises possession.
 
+After the given mirrors, fetch also tries a few mirrors those mirrors vouch for
+in their signed peers documents. These are kept in a private local directory and
+scored by what they deliver. They pass the same HTTPS/private-address policy and
+never affect trust. `--no-discovered-mirrors` turns this off. The public DHT and
+Nostr relays are asked only with `--look-further`, which shows your IP address
+to strangers. See [mirror discovery](docs/mirror-discovery.md).
+
 A local folder or mounted NAS can replace either mirror URL. Restore writes a new
 `members/<member-id>/` layout with the exact selected files; it refuses an existing
 output directory. It does not install engines or execute model code.

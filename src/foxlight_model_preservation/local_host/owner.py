@@ -22,15 +22,15 @@ from typing import BinaryIO, Literal, cast
 
 from pydantic import Field, JsonValue
 
-from ..archives import verify_archive
+from ..archives import ArchiveManifest, verify_archive
 from ..cards import identity_json
 from ..kits import export_kit, import_kit, inspect_kit, read_kit_envelope
+from ..mirror_directory import fetch_with_mirrors, load_seeds
 from ..mirror_models import MirrorObservation
 from ..models import Manifest, PreservationError, Record, TrustProfile
 from ..operations import (
     OperationCancelled,
     OperationControl,
-    OperationError,
     Progress,
     failure_code,
 )
@@ -45,7 +45,7 @@ from ..signing import (
     strict_json,
 )
 from ..storage import atomic_bytes, directory, pack, read_metadata, writer_lock
-from ..transfer import TransferPolicy, fetch
+from ..transfer import TransferPolicy
 from .backups import Backups
 from .catalog import RegistryCatalog
 from .community import CommunityMirror
@@ -1243,32 +1243,18 @@ class LocalOwner:
             < cast(int, plan["size_bytes"]) * 4 + 32 * 1024**2
         ):
             raise PreservationError("insufficient_space")
+        # The approved hints are bound above; discovered mirrors are only ever
+        # appended after them, under the same receive policy, and never change
+        # which keys are trusted. Learning reads only the approved mirrors' own
+        # peers documents: no DHT, relay or announcement.
         approved = tuple(cast(list[str], plan["mirrors"]))
-        try:
-            # Learn from the mirrors this download already contacts, and only
-            # those: their signed peer cards seed this computer's own directory.
-            self.community.directory.crawl(
-                approved,
-                TransferPolicy(
-                    allow_http=plan["allow_http"] is True,
-                    allow_private=plan["allow_private"] is True,
-                    timeout=10,
-                    deadline_seconds=60,
-                ),
-                max_documents=len(approved),
-                expand=False,
-                control=control.fork(),
-            )
-        except OperationError:
-            raise
-        except (ValueError, OSError):
-            pass  # Discovery is optional; the approved download proceeds.
         policy = TransferPolicy(
             max_bytes=cast(int, plan["max_bytes"]),
             deadline_seconds=86400,
             allow_http=plan["allow_http"] is True,
             allow_private=plan["allow_private"] is True,
         )
+        operation_id = "receive_" + job.job_id[:56]
         if isinstance(selected, PMFManifest):
             # A public PMF is kept exactly as published, under the publisher
             # keys this user accepted. Its identity is shared by every mirror
@@ -1276,15 +1262,15 @@ class LocalOwner:
             destination = self.home / "copies" / job.job_id
             with directory(destination.parent, create=True):
                 pass
-            manifest = fetch(
+            manifest = self._fetch_with_mirrors(
                 record.manifest_id,
                 trust,
-                tuple(cast(list[str], plan["mirrors"])),
+                approved,
                 destination,
                 policy,
-                control=control.fork(),
-                operation_id="receive_" + job.job_id[:56],
-                envelope=envelope,
+                control.fork(),
+                operation_id,
+                envelope,
             )
             self._record_copy(
                 job,
@@ -1299,15 +1285,15 @@ class LocalOwner:
             )
             return
         original = self.home / "work" / job.job_id / "original"
-        fetch(
+        self._fetch_with_mirrors(
             record.manifest_id,
             trust,
-            tuple(cast(list[str], plan["mirrors"])),
+            approved,
             original,
             policy,
-            control=control.fork(),
-            operation_id="receive_" + job.job_id[:56],
-            envelope=envelope,
+            control.fork(),
+            operation_id,
+            envelope,
         )
         owner_trust = self._capture_trust()
         destination = self.home / "copies" / job.job_id
@@ -1335,6 +1321,35 @@ class LocalOwner:
                 member_count=len(manifest.members),
                 trust=owner_trust,
             ),
+        )
+
+    def _fetch_with_mirrors(
+        self,
+        manifest_id: str,
+        trust: TrustProfile,
+        approved: tuple[str, ...],
+        destination: Path,
+        policy: TransferPolicy,
+        control: OperationControl,
+        operation_id: str,
+        envelope: bytes,
+    ) -> ArchiveManifest:
+        """Receive from the approved hints, then discovered mirrors, and score them."""
+        try:
+            seeds = load_seeds()
+        except (OSError, ValueError):
+            seeds = ()  # An unreadable seed list never blocks an approved receive.
+        return fetch_with_mirrors(
+            manifest_id,
+            trust,
+            approved,
+            destination,
+            policy,
+            mirrors=self.community.directory,
+            seeds=seeds,
+            control=control,
+            operation_id=operation_id,
+            envelope=envelope,
         )
 
     def _receive(
