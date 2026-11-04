@@ -10,7 +10,9 @@ private. Withholding or disabling blocks serving without deleting anything.
 
 from __future__ import annotations
 
+import http.client
 import ipaddress
+import json
 import os
 import re
 import secrets
@@ -44,7 +46,15 @@ from ..bucket import (
 )
 from ..cards import identity_json
 from ..mirror import model_action, run_mirror
-from ..mirror_cards import base_url, build_peers, issue_card
+from ..mirror_cards import (
+    MAX_PEERS_BYTES,
+    PEERS_PATH,
+    PeersDocument,
+    base_url,
+    build_peers,
+    issue_card,
+    verify_card,
+)
 from ..mirror_directory import MirrorDirectory
 from ..mirror_intake import retain_local
 from ..mirror_models import MirrorObservation, SourceGrant, Terms
@@ -60,9 +70,9 @@ from ..models import (
 )
 from ..nostr import DEFAULT_RELAYS, find_cards, publish_card
 from ..operations import OperationControl, OperationError, failure_code
-from ..signing import create_key, digest, encode_record, load_key
+from ..signing import create_key, digest, encode_record, load_key, public_record
 from ..storage import atomic_bytes, directory, read_metadata
-from ..transfer import TransferPolicy
+from ..transfer import MirrorHTTPError, TransferPolicy, response
 from .presentation import card_summary
 from .sharing import MemberDecision, Sharing
 
@@ -96,6 +106,8 @@ UNIDENTIFIED = frozenset(
         "see-original-card",
     }
 )
+# The address check reaches public routes only, like any other visitor would.
+ADDRESS_CHECK_POLICY = TransferPolicy(allow_http=True, timeout=10, deadline_seconds=30)
 _CAPTURE_NOTICE = ".foxlight-capture-notice.txt"
 _LICENSE_NAMES = ("license", "licence", "copying")
 DEFAULT_PORT = 8743
@@ -165,7 +177,15 @@ class CommunityPolicy(Record):
     @classmethod
     def plain_url(cls, value: str | None) -> str | None:
         """Accept only a credential-free HTTP(S) base URL the owner says works."""
-        return None if value is None else base_url(value)
+        if value is None:
+            return None
+        try:
+            value = base_url(value)
+        except PreservationError:
+            raise PreservationError("community_address_invalid") from None
+        if _url_port(value) is None:
+            raise PreservationError("community_address_port_invalid")
+        return value
 
     @field_validator("nostr_relays")
     @classmethod
@@ -192,6 +212,18 @@ class CommunityPolicy(Record):
         if any(value in UNIDENTIFIED or len(value) > 200 for value in result):
             raise PreservationError("community_license_unidentified")
         return result
+
+
+def _url_port(value: str) -> int | None:
+    """The address's TCP port, or None when it names no usable port."""
+    parsed = urlsplit(value)
+    try:
+        port = parsed.port
+    except ValueError:
+        return None
+    if port is None:
+        return 443 if parsed.scheme == "https" else 80
+    return port if 1 <= port <= 65535 else None
 
 
 def _bucket_failure(error: BaseException) -> str:
@@ -233,6 +265,26 @@ class BucketState(Record):
     pending: tuple[Digest, ...] = Field(default=(), max_length=1000)
     last_error: str | None = Field(default=None, max_length=200)
     last_synced: int | None = None
+
+
+# The version of the announcement disclosure (DHT and Nostr) the app shows before
+# consent. A consent recorded without it announces nothing until reviewed.
+ANNOUNCE_DISCLOSURE = 1
+
+
+class AnnounceReview(Record):
+    """Which announcement disclosure one standing consent was given under.
+
+    Kept beside the policy rather than in it, so a policy written by this
+    version still reads in older apps. A review covers exactly one consent:
+    a new consent, or one renewed elsewhere, needs a new review.
+    """
+
+    schema_version: Literal["sovereign.community-announce-review.v1"] = (
+        "sovereign.community-announce-review.v1"
+    )
+    disclosure: int = Field(ge=1)
+    consent_expires: int = Field(ge=0)
 
 
 class Joined(Record):
@@ -336,13 +388,30 @@ class CommunityMirror:
 
     def policy(self) -> CommunityPolicy:
         """Read the standing choice; a missing file means the switch is off."""
+        return self._load_policy()[0]
+
+    def _load_policy(self) -> tuple[CommunityPolicy, bool]:
+        """Read the policy, and whether its stored public address is unusable.
+
+        Earlier versions accepted a public address whose port cannot be used
+        (such as ``:abc`` or ``:99999``). Such an address is set aside rather
+        than breaking every read: the mirror keeps its other choices and the
+        status says the address needs setting again.
+        """
         try:
             with directory(self.path) as root:
-                return CommunityPolicy.model_validate_json(
-                    read_metadata(root, "policy.json")
-                )
+                data = read_metadata(root, "policy.json")
         except FileNotFoundError:
-            return CommunityPolicy()
+            return CommunityPolicy(), False
+        try:
+            return CommunityPolicy.model_validate_json(data), False
+        except ValidationError:
+            stored: JsonValue = json.loads(data)
+            if not isinstance(stored, dict) or stored.get("public_url") is None:
+                raise
+            without = {**stored, "public_url": None}
+            # Anything else wrong with the policy still refuses as before.
+            return CommunityPolicy.model_validate_json(identity_json(without)), True
 
     def _save(self, policy: CommunityPolicy) -> None:
         with directory(self.path, create=True) as root:
@@ -378,6 +447,28 @@ class CommunityMirror:
             and selected.consent_expires > int(time.time())
         )
 
+    def announce_reviewed(self, policy: CommunityPolicy | None = None) -> bool:
+        """Whether the current consent was given with the announcement disclosure."""
+        selected = policy or self.policy()
+        try:
+            with directory(self.path) as root:
+                review = AnnounceReview.model_validate_json(
+                    read_metadata(root, "announce-review.json")
+                )
+        except (FileNotFoundError, ValueError):
+            return False
+        return (
+            review.disclosure >= ANNOUNCE_DISCLOSURE
+            and review.consent_expires == selected.consent_expires
+        )
+
+    def announcing(self) -> tuple[bool, bool]:
+        """The DHT and Nostr choices in force: both off until reviewed."""
+        policy = self.policy()
+        if not self.announce_reviewed(policy):
+            return False, False
+        return policy.announce_dht, policy.publish_nostr
+
     def configure(self, body: dict[str, JsonValue]) -> CommunityPolicy:
         """Apply a bounded change to the standing choice.
 
@@ -398,11 +489,19 @@ class CommunityMirror:
             "publish_nostr",
             "nostr_relays",
             "rarest_first",
+            "announce_disclosure",
         }
         if not body or not set(body) <= allowed:
             raise PreservationError("invalid_control")
+        disclosed = "announce_disclosure" in body
+        if disclosed and body["announce_disclosure"] != ANNOUNCE_DISCLOSURE:
+            raise PreservationError("invalid_control")
         policy = self.policy()
-        changes = {key: value for key, value in body.items() if key != "consent"}
+        changes = {
+            key: value
+            for key, value in body.items()
+            if key not in {"consent", "announce_disclosure"}
+        }
         if body.get("enabled") is True:
             if body.get("consent") is not True:
                 raise PreservationError("community_consent_required")
@@ -422,7 +521,28 @@ class CommunityMirror:
                 if isinstance(cause, PreservationError):
                     raise PreservationError(str(cause)) from None
             raise PreservationError("invalid_control") from None
+        if "enabled" in body and not disclosed:
+            # A consent recorded or revoked without the disclosure leaves no
+            # earlier review behind, even within the same second.
+            try:
+                with directory(self.path) as root:
+                    os.unlink("announce-review.json", dir_fd=root)
+            except FileNotFoundError:
+                pass
         self._save(updated)
+        # Saved after the policy: if this write fails, announcing stays off.
+        if disclosed and self.consented(updated) and updated.consent_expires:
+            with directory(self.path, create=True) as root:
+                atomic_bytes(
+                    root,
+                    "announce-review.json",
+                    encode_record(
+                        AnnounceReview(
+                            disclosure=ANNOUNCE_DISCLOSURE,
+                            consent_expires=updated.consent_expires,
+                        )
+                    ),
+                )
         if not updated.enabled:
             # The saved opt-out already stops new serving; the owner cancels the
             # running controller regardless. A grant that cannot be cleared now
@@ -990,7 +1110,8 @@ class CommunityMirror:
         relay_policy = TransferPolicy(timeout=10, deadline_seconds=600)
         seeds: tuple[str, ...] = ()
         port = self.dht_port()
-        if port is not None and rendezvous_available():
+        # Announcing an address with nothing to serve would only expose it.
+        if port is not None and self.held() and rendezvous_available():
             if self.rendezvous is None:
                 self.rendezvous = Rendezvous()
             self.rendezvous.announce(port, seconds=20, control=control)
@@ -998,7 +1119,7 @@ class CommunityMirror:
         else:
             self._close_rendezvous()
         current = self.policy()
-        relays = current.nostr_relays if current.publish_nostr else ()
+        relays = current.nostr_relays if self.announcing()[1] else ()
         if relays:
             # Cards found on relays are verified like any other; relays only
             # see this mirror's address, which its card publishes anyway.
@@ -1019,14 +1140,17 @@ class CommunityMirror:
         computer has a public address. An HTTPS endpoint cannot be expressed
         that way, so it relies on cards, gossip and relays instead.
         """
-        policy = self.policy()
-        if not policy.announce_dht:
+        if not self.announcing()[0]:
             return None
+        return self._reachable_port(self.policy())
+
+    def _reachable_port(self, policy: CommunityPolicy) -> int | None:
+        """The plain HTTP port people reach, whatever the announcement choice."""
         if policy.public_url is not None:
             parsed = urlsplit(policy.public_url)
             if parsed.scheme != "http" or parsed.path not in {"", "/"}:
                 return None
-            return parsed.port or 80
+            return _url_port(policy.public_url)
         return policy.port if self.addresses() else None
 
     def close_rendezvous(self) -> None:
@@ -1069,6 +1193,129 @@ class CommunityMirror:
             "mirror_url": f"http://{address}:{policy.port}" if address else None,
         }
 
+    def announcements(self) -> dict[str, JsonValue]:
+        """Say whether this mirror announces itself publicly, and if not, why.
+
+        Mirrors the rules the discovery round applies: the DHT needs a plain
+        HTTP port people can reach, something served and the optional binding;
+        Nostr needs any reachable address (a synced bucket counts) and
+        something served. Reasons are codes the app explains in sentences.
+        """
+        policy, address_invalid = self._load_policy()
+        consented = self.consented(policy)
+        available = rendezvous_available()
+        held = bool(self.held())
+        own = self.addresses()
+        bucket = self.bucket()
+        bucket_live = bucket is not None and bool(bucket.synced)
+        port = self._reachable_port(policy)
+        review = consented and not self.announce_reviewed(policy)
+        dht_reasons: list[JsonValue] = []
+        if review:
+            dht_reasons.append("awaiting_review")
+        elif not policy.announce_dht:
+            dht_reasons.append("turned_off")
+        else:
+            if not consented:
+                dht_reasons.append("not_sharing")
+            if not available:
+                dht_reasons.append("dht_unavailable")
+            if not held:
+                dht_reasons.append("nothing_shared")
+            if address_invalid:
+                dht_reasons.append("address_invalid")
+            elif port is None:
+                dht_reasons.append(
+                    "address_not_plain_http"
+                    if policy.public_url is not None
+                    else "no_reachable_address"
+                )
+        nostr_reasons: list[JsonValue] = []
+        if review:
+            nostr_reasons.append("awaiting_review")
+        elif not policy.publish_nostr:
+            nostr_reasons.append("turned_off")
+        elif not policy.nostr_relays:
+            nostr_reasons.append("no_relays")
+        else:
+            if not consented:
+                nostr_reasons.append("not_sharing")
+            if not held:
+                nostr_reasons.append("nothing_shared")
+            if address_invalid:
+                nostr_reasons.append("address_invalid")
+            if not own and not bucket_live:
+                nostr_reasons.append("no_reachable_address")
+        return {
+            "dht_available": available,
+            "dht_announcing": not dht_reasons,
+            "nostr_publishing": not nostr_reasons,
+            "announce_reasons": {"dht": dht_reasons, "nostr": nostr_reasons},
+            "announce_review_required": review,
+            "address_invalid": address_invalid,
+        }
+
+    def check_address(self) -> dict[str, JsonValue]:
+        """Best effort: fetch the declared public address's peers document.
+
+        The request goes from this computer to the owner's own address and to
+        no other service. Success shows the address answers from here; it
+        cannot prove people outside this network can reach it.
+        """
+        url = self.policy().public_url
+        if url is None:
+            raise PreservationError("community_address_required")
+        outcome: str
+        status: int | None = None
+        policy = ADDRESS_CHECK_POLICY
+        deadline = time.monotonic() + policy.deadline_seconds
+        try:
+            with response(url, PEERS_PATH, policy) as received:
+                data = b""
+                # A slow sender cannot stretch the check: every read is bounded
+                # by the socket timeout, and the whole check by the deadline.
+                while len(data) <= MAX_PEERS_BYTES:
+                    if time.monotonic() > deadline:
+                        raise TimeoutError("address check deadline exceeded")
+                    chunk = received.read1(min(65536, MAX_PEERS_BYTES + 1 - len(data)))
+                    if not chunk:
+                        break
+                    data += chunk
+        except TimeoutError:
+            outcome = "too_slow"
+        except MirrorHTTPError as error:
+            outcome, status = "http_error", error.status_code
+        except PreservationError as error:
+            # Every resolved address was private, so none was even tried.
+            private = (
+                "no permitted reachable address" in str(error)
+                and error.__cause__ is None
+            )
+            outcome = "private_address" if private else "unreachable"
+        except (OSError, http.client.HTTPException):
+            outcome = "unreachable"
+        else:
+            outcome = self._peers_outcome(data)
+        return {"address": url, "outcome": outcome, "http_status": status}
+
+    def _peers_outcome(self, data: bytes) -> str:
+        """Whether a fetched peers document carries this mirror's own card."""
+        if len(data) > MAX_PEERS_BYTES:
+            return "not_a_mirror"
+        try:
+            document = PeersDocument.model_validate_json(data)
+        except ValueError:
+            return "not_a_mirror"
+        if document.self_card is None:
+            return "no_card"
+        try:
+            card = verify_card(encode_record(document.self_card))
+        except (ValueError, PreservationError):
+            return "no_card"
+        if card.mirror_key != public_record(self._mirror_key()):
+            return "other_mirror"
+        return "this_mirror"
+
     def read(self, copies: Sequence[Holding]) -> dict[str, JsonValue]:
         """Summarize the switch, policy, every copy's standing and live serving."""
         policy = self.policy()
@@ -1097,6 +1344,7 @@ class CommunityMirror:
             "running": bool(observation and observation.running),
             "http_port": observation.http_port if observation else None,
             "reachability": self.reachability(),
+            **self.announcements(),
             "last_error": self.last_error,
             "bucket": self._bucket_summary(),
             "bucket_providers": [
