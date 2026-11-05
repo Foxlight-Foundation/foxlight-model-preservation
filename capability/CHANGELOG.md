@@ -6,6 +6,10 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Publish Sovereign Mac build 10 (core 0.28 / Library 0.24): Developer ID
+  signed and Apple notarized (app 088a3489…, DMG 995d3735…), DMG d02c319a… and
+  ZIP c116c0f5…. Download pages now point at build 10.
+
 - Guided setup 0.1.3 and graphical setup 0.1.5 install Linux revision 5
   (core 0.28 / Library 0.24), now served by the signed apt channel; their
   package pins are amd64 7af93ed5… and arm64 16738ce7…, and the documented
