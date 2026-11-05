@@ -25,7 +25,7 @@ No Skulk, hosted account, GPU or manual Python setup is required by the native a
 New here? Follow [your first model with Sovereign](docs/getting-started.md):
 install, find, preserve, send a kit and recover on another computer.
 
-- **Mac (Apple silicon):** [download Sovereign 0.1.0 build 9](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/sovereign-macos-v0.1.0-build9),
+- **Mac (Apple silicon):** [download Sovereign 0.1.0 build 10](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/sovereign-macos-v0.1.0-build10),
   open the DMG and drag **Sovereign** to **Applications**.
   [Verification and installation](docs/macos-distribution.md).
 - **Linux / APT (amd64 or arm64):** [graphical setup](docs/linux-distribution.md#graphical-setup-recommended) detects your processor and configures signed app updates. Guided terminal setup, manual apt and verified Debian packages are also available.
