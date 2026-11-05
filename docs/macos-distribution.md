@@ -13,8 +13,11 @@ rebuilding or signing them. Developer ID signing, Apple notarization and an
 installed-app journey remain separate checks. A locally passing Gatekeeper
 check does not establish clean-host acceptance, model compatibility or anonymity.
 
-The build9 recipe pairs the authenticated public core 0.27 / Library 0.23 cohort,
-which adds **Help keep models available**: an opt-in, long-lived mirror of every
+The build10 recipe pairs the authenticated public core 0.28 / Library 0.24 cohort,
+which makes mirrors easy to host and find: cloud bucket mirrors, a public
+address and DHT/Nostr choices in setup, downloads that use discovered mirrors,
+and the bundled BitTorrent DHT binding. Build 9 paired core 0.27 / Library 0.23,
+which added **Help keep models available**: an opt-in, long-lived mirror of every
 backup whose licence allows it, with native PMF transport and decentralized mirror
 discovery. Build 8 paired core 0.26 / Library 0.22 with first-launch choices,
 Getting started help, complete working-space reviews, separate kit/public-mirror
@@ -109,8 +112,8 @@ python scripts/build_macos.py --library-archive /absolute/library.zip \
 ```
 
 Library releases built from the current source include the BitTorrent DHT
-binding (libtorrent 2.0.14) in `requirements-desktop.lock`; build 9 pins Library
-0.23, which does not, so a later build picks it up. PyPI publishes its
+binding (libtorrent 2.0.14) in `requirements-desktop.lock`; build 10 pins Library
+0.24, the first that does (build 9 pins Library 0.23, which does not). PyPI publishes its
 Apple silicon wheels for macOS 14.0 and 15.0 only, so the `--platform` flags
 above select the macOS 14.0 build: a macOS 15 host would otherwise download the
 15.0 build. The builder refuses any bundled native code that needs a newer macOS
