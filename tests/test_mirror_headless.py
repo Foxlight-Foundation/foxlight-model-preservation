@@ -717,14 +717,26 @@ def test_operator_unwithdraw_resumes_serving_without_current_evidence(
 def test_one_source_budget_failure_does_not_delay_another_takedown(tmp_path, capture):
     from foxlight_model_preservation.discovery import source_identity
 
-    ledger, publisher = mirror(tmp_path, capture)
-    (first,) = ledger.read().sources
-    # Sources refresh in identity order: make the withdrawing source go first.
+    # Sources refresh in identity order, so the withdrawing source must sort
+    # first. Identities are random: pick a first source in the lower half, then
+    # a second above it. Each draw succeeds at least half the time; searching
+    # only for the second fails whenever the first lands near the top.
+    for attempt in range(64):
+        root = tmp_path / f"fixture{attempt}"
+        root.mkdir()
+        ledger, publisher = mirror(root, capture)
+        (first,) = ledger.read().sources
+        if first < "8":
+            break
+    else:
+        pytest.fail("no low first source identity drawn")
     for attempt in range(64):
         second = Publisher(tmp_path / f"second{attempt}", capture, name="Second")
         bootstrap = second.bootstrap()
         if source_identity(bootstrap) > first:
             break
+    else:
+        pytest.fail("no higher second source identity drawn")
     second.publish(manifest="c" * 64)
     follow(
         ledger,
