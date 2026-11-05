@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Guided setup 0.1.3 and graphical setup 0.1.5 install Linux revision 5
+  (core 0.28 / Library 0.24), now served by the signed apt channel; their
+  package pins are amd64 7af93ed5… and arm64 16738ce7…, and the documented
+  bootstrap hash is 29a601e8….
+
 - Prepare Mac build 10 and Linux revision 5 from the authenticated core 0.28 /
   Library 0.24 installation archive (sha256 49c28e28…, source b3e5511a), which
   adds cloud bucket mirrors, a public address and DHT/Nostr choices in setup,
