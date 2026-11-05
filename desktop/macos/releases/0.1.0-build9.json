@@ -1,0 +1,38 @@
+{
+  "source_revision": "31ebc05cacdd80f4089afdfbb21b45afa12d31b8",
+  "team": "ZP9J3449GF",
+  "certificate_sha1": "A148825F0E5B1F0F29C7A314129AB6D090EF9FF5",
+  "app_codedirectory_sha256": "b5de62c449aed5dbaf6c00e24c9caca38c83b65588cad6747f10af19dbafc989",
+  "inputs": {
+    "schema_version": "sovereign.macos-inputs.v1",
+    "version": "0.1.0",
+    "build_number": "9",
+    "architecture": "arm64",
+    "minimum_macos": "13.0",
+    "library": {
+      "url": "https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.23.0/foxlight-preservation-library-0.23.0-install.zip",
+      "sha256": "7f0605ff46f460e9a4b19bb2fe6cc5de831e6d6687adca8195191123f4a59ff9",
+      "source_revision": "14db0a57fa54f5456a46162d2209873d8a43fb5a"
+    },
+    "python": {
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.13.13%2B20260408-aarch64-apple-darwin-install_only_stripped.tar.gz",
+      "sha256": "0a1956c23fcc2a800fc5ffe61632dbade3d8e1b4ab94aeb0cc47e028892cac97"
+    }
+  },
+  "artifacts": {
+    "Sovereign-0.1.0-macos-arm64.dmg": "de4dd642812ed3c6751aded246a99f6389fe7252cc04e7157801c2cd8db421c2",
+    "Sovereign-0.1.0-macos-arm64.zip": "589ad87e9c5ca6581c1ea568c596e553bf09c1ce0293c098f6083264c7c2d53a"
+  },
+  "app_notarization": "93b9ea09-91ff-44ed-9811-a110dc83581d",
+  "dmg_notarization": "b044bc3b-7796-4a63-b0ce-6ec5f07f0171",
+  "schema_version": "sovereign.macos-publication.v1",
+  "tag": "sovereign-macos-v0.1.0-build9",
+  "predicate_type": "https://foxlight.ai/attestations/macos-verification/v1",
+  "qualification_limits": [
+    "Apple silicon; exact accepted build 9 app qualified on macOS 26.6.2 through its own bundled runtime.",
+    "Help keep models available: a signed synthetic Apache-2.0 two-member kit imported, was eligible under the default licence list, served only after standing consent, stopped when the Library closed, resumed after restart and stayed off across restart once turned off; DHT/Nostr announcement and reachability from other networks were not exercised.",
+    "Real-model offline recovery, restart and upgrade retention were last qualified on build 8 (core 0.26 / Library 0.22) with the same native shell.",
+    "Declared minimum macOS 13 is not full OS-range or clean-host GUI qualification.",
+    "Public container verification separately checks bundled offline CLI recovery/tamper refusal; no real-model inference, broad hardware or public-network privacy qualification."
+  ]
+}

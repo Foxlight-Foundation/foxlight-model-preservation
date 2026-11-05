@@ -15,7 +15,7 @@ called native build provenance or a GitHub-built Python release.
 
 [`macos-release.yml`](.github/workflows/macos-release.yml) accepts only the final
 DMG/ZIP named and SHA-256 pinned in
-[`0.1.0-build8.json`](desktop/macos/releases/0.1.0-build8.json). That reviewed
+[`0.1.0-build9.json`](desktop/macos/releases/0.1.0-build9.json). That reviewed
 record separates binary source, published public Python inputs, Developer ID
 certificate, complete app CodeDirectory and Apple submission identities. No
 signing key, Keychain prompt or Apple credential enters this workflow. Changing
@@ -23,8 +23,9 @@ the files requires a new reviewed manifest and distinct release identity.
 
 After this lane is reviewed and merged:
 
-1. Retain the record's native tag at `506ac001c2eeead28f0fe00ead59c25f4ea6e21e`.
-   Create `sovereign-macos-publisher-v0.1.0-build8-v2` at the reviewed publisher
+1. Create the record's native tag `sovereign-macos-v0.1.0-build9` at the binary recipe
+   `31ebc05cacdd80f4089afdfbb21b45afa12d31b8`.
+   Create `sovereign-macos-publisher-v0.1.0-build9` at the reviewed publisher
    commit on `main`. Never replace either tag. The separate publisher tag allows
    repairing publication tooling without changing the native release identity
    or its exact container hashes. The binary source remains the manifest's
@@ -37,7 +38,7 @@ After this lane is reviewed and merged:
    untrusted staging for verification, never a manual public release. Do not
    upload local raw logs, private producer details, credentials or inventories.
 3. Dispatch `macos-release.yml` **at the publisher tag**, `mode=rehearse`, confirmation
-   `verify Sovereign 0.1.0 build 8`. Intake checks a closed two-file inventory and
+   `verify Sovereign 0.1.0 build 9`. Intake checks a closed two-file inventory and
    reviewed hashes. A fresh Apple silicon runner validates both containers,
    Apple Developer ID certificate, complete app CodeDirectory, stapled tickets,
    Gatekeeper and signed build receipts before running actual offline CLI PMF
@@ -57,7 +58,7 @@ After this lane is reviewed and merged:
 6. Download anonymously and verify the public files and retained attestation
    bundle again. Check actual installation separately from workflow acceptance.
 
-The build8-v2 publisher adds only a runner-scoped workaround for
+Since build8-v2 the publisher adds only a runner-scoped workaround for
 [GitHub's Apple CloudKit HTTP/3 issue](https://github.com/actions/runner-images/issues/14924).
 During the Mac verification command, a unique PF service anchor blocks outgoing
 UDP443 so Apple uses normal TCP HTTPS. TLS, certificate, ticket and Gatekeeper
