@@ -115,4 +115,4 @@ jobs:
           Both native architectures pass fresh setup, cancellation, repeated installation, actual window launch, standalone PMF recovery/tamper checks and purge retaining exact user data. This is a guided terminal installer; other distributions, model inference and unassisted user research remain separate qualification.
           MD
           gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \
-            --verify-tag --prerelease --title 'Sovereign guided Linux setup 0.1.2' --notes-file notes.md
+            --verify-tag --prerelease --title 'Sovereign guided Linux setup 0.1.3' --notes-file notes.md
