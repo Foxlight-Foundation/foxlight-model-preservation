@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Prepare Mac build 10 and Linux revision 5 from the authenticated core 0.28 /
+  Library 0.24 installation archive (sha256 49c28e28…, source b3e5511a), which
+  adds cloud bucket mirrors, a public address and DHT/Nostr choices in setup,
+  downloads that use discovered mirrors and the bundled BitTorrent DHT binding.
+  Native signing, notarization, apt publication and qualification remain
+  separate gates.
+
 ## 0.28.0
 
 - Threads of one app now take turns on a mirror's ledger instead of refusing

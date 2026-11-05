@@ -251,8 +251,12 @@ Skulk, capability SDK, model runtime, GPU or hosted account. Sharing is opt-in.
 To remove the software, use `sudo apt remove foxlight-sovereign`. The Library,
 models, provenance and saved recovery files remain under your control.
 
-The current recipe is **0.1.0 revision 4**, paired with the authenticated public
-core 0.27 / Library 0.23 cohort. It includes the opt-in Help keep models available mirror, the Horizon interface, complete
+The current recipe is **0.1.0 revision 5**, paired with the authenticated public
+core 0.28 / Library 0.24 cohort, which adds cloud bucket mirrors, a public address
+and DHT/Nostr choices in setup, downloads that use discovered mirrors and the
+BitTorrent DHT binding. Its packages, signed apt indexes and qualification are
+published separately; until then the channel and guided setup remain revision 4.
+It includes the opt-in Help keep models available mirror, the Horizon interface, complete
 companion recovery, verified backup destinations, explicit finite sharing,
 recipient handoff and reviewed alternate routes for an exact model capture.
 Input pins, native package provenance and signed APT metadata remain separate trust surfaces.
@@ -297,9 +301,8 @@ public implementation.
 
 Library releases built from the current source include the BitTorrent DHT
 binding (libtorrent 2.0.14) in `requirements-desktop.lock`, so the community
-mirror's DHT rendezvous can run. Revision 3 (Library 0.22) and the revision 4
-recipe (Library 0.23) do not include it; a later revision picks it up when its
-inputs move to such a Library release. PyPI publishes
+mirror's DHT rendezvous can run. The revision 5 recipe (Library 0.24) is the first
+to include it; revision 3 (Library 0.22) and revision 4 (Library 0.23) do not. PyPI publishes
 `manylinux_2_17` wheels for both amd64 and arm64. Each is one self-contained
 extension module with OpenSSL linked in statically; it needs only glibc,
 `libstdc++6` and `libgcc-s1`, which the package already depends on, so there is

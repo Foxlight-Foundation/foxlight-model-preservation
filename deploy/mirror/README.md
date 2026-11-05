@@ -50,7 +50,7 @@ Install the authenticated release as in [installation](../../docs/installation.m
 then link it and set up the mirror:
 
 ```sh
-ln -sfn "$HOME/sovereign-0.27.0" "$HOME/sovereign"
+ln -sfn "$HOME/sovereign-0.28.0" "$HOME/sovereign"
 mkdir -m 0700 "$HOME/sovereign-mirrors"
 ~/sovereign/bin/model-preserve mirror quickstart \
   --dir ~/sovereign-mirrors/example --collection collection.json \
