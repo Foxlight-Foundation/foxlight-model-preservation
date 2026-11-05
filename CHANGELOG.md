@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.28.0
+
 - Threads of one app now take turns on a mirror's ledger instead of refusing
   each other. Bucket uploads charging the upload limits could otherwise make
   the mirror record a spurious failure and briefly stop serving a healthy
