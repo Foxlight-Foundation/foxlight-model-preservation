@@ -21,8 +21,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-SETUP_VERSION = "0.1.1"
-VERSION = "0.1.0-3"
+SETUP_VERSION = "0.1.2"
+VERSION = "0.1.0-4"
 REPOSITORY = "https://apt.foxlight.ai"
 RELEASE = (
     "https://github.com/Foxlight-Foundation/foxlight-model-preservation/"
@@ -30,8 +30,8 @@ RELEASE = (
 )
 KEY_SHA256 = "f9a76cf4131603e3b7d905868efcf53f7ebea98ccdbfaf0d47ae0ac825cfd338"
 PACKAGES = {
-    "amd64": "455dc39253e24a8fd3f74c659a865c96fd7ba4e33a85845e02462493cdd8e599",
-    "arm64": "f52f61121d56dd0ff181dda664318c546399b42ca32a2e284f11d4159faeef08",
+    "amd64": "a1911540dba45d2d129958cc99518ae69324c8ed40fbc232dddd0fe91f5cb64a",
+    "arm64": "fd779e3b8af1cb8dc91f2057ff286c61ea16ed8400dddf74984cc79e4839b2be",
 }
 KEY_PATH = Path("/usr/share/keyrings/sovereign-archive-keyring.gpg")
 SOURCE_PATH = Path("/etc/apt/sources.list.d/sovereign.list")

@@ -8,21 +8,18 @@ It requires no Skulk Core, capability SDK, account or GPU.
 
 The native recipe produces reproducible Debian packages. Public packages are
 published by the reviewed `linux-release.yml` workflow at
-`sovereign-linux-v0.1.0-3`, with exact source/input receipts, qualification evidence,
+`sovereign-linux-v0.1.0-4`, with exact source/input receipts, qualification evidence,
 checksums and detached GitHub build provenance. The signed APT repository is a
 separate publication step; CI artifacts alone are not that channel.
 
-The current published package and signed apt channel are **0.1.0-3**, pairing
-core 0.26 / Library 0.22 with first-launch choices, Getting started help,
+The current published package and signed apt channel are **0.1.0-4**, pairing
+core 0.27 / Library 0.23. It adds the opt-in **Help keep models available** mirror
+on the Sharing screen to revision 3's first-launch choices, Getting started help,
 working-space reviews, separate kit/public-mirror sharing and recovery instructions.
-[Fresh public apt qualification](https://github.com/Foxlight-Foundation/foxlight-model-preservation/actions/runs/40722090639)
+Revision 3's [fresh public apt qualification](https://github.com/Foxlight-Foundation/foxlight-model-preservation/actions/runs/40722090639)
 passed on native Ubuntu 24.04 amd64 and arm64, including offline GUI recovery and
-restart. These installed-app checks are separate from package build provenance.
-
-The current source recipe targets **0.1.0-4**, pairing core 0.27 / Library 0.23,
-which adds the opt-in **Help keep models available** mirror on the Sharing screen.
-Its packages, signed apt indexes and qualification are published separately; until
-then the channel, guided setup and evidence on this page remain revision 3.
+restart; `apt-install.yml` repeats it against revision 4. These installed-app checks
+are separate from package build provenance.
 
 ## Requirements and tested systems
 
@@ -50,7 +47,7 @@ support.
 ## Graphical setup (recommended)
 
 On a compatible **Linux desktop using APT**, download the small
-[**Install Sovereign (.deb)**](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/sovereign-graphical-setup-v0.1.3/foxlight-sovereign-setup_0.1.3-1_all.deb).
+[**Install Sovereign (.deb)**](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/sovereign-graphical-setup-v0.1.4/foxlight-sovereign-setup_0.1.4-1_all.deb).
 The same file supports 64-bit Intel/AMD and ARM computers. No terminal commands,
 Skulk, account or GPU are required.
 
@@ -89,7 +86,7 @@ App updates arrive through the system’s normal signed software updates. The se
 setup utility may be removed through your package installer after installation; this retains
 Sovereign, its update source, your Library, keys, models and recovery files.
 Installing the setup package alone makes no source/key changes and runs no setup
-or app automatically. The app remains the existing **0.1.0-3** package.
+or app automatically. It installs the **0.1.0-4** app package.
 
 **Initial download trust:** a downloaded `.deb` can install software as administrator.
 App Center's prompt does **not** independently authenticate Foxlight as publisher.
@@ -99,11 +96,11 @@ the package and use GitHub CLI:
 
 ```sh
 sha256sum --ignore-missing --check SHA256SUMS
-gh attestation verify foxlight-sovereign-setup_0.1.3-1_all.deb \
+gh attestation verify foxlight-sovereign-setup_0.1.4-1_all.deb \
   --repo Foxlight-Foundation/foxlight-model-preservation \
   --bundle linux-graphical-setup.sigstore.json \
   --signer-workflow Foxlight-Foundation/foxlight-model-preservation/.github/workflows/linux-graphical-setup-release.yml \
-  --source-ref refs/tags/sovereign-graphical-setup-v0.1.3 --deny-self-hosted-runners
+  --source-ref refs/tags/sovereign-graphical-setup-v0.1.4 --deny-self-hosted-runners
 ```
 
 That optional advanced verification uses a terminal; the graphical installation
@@ -134,8 +131,8 @@ or edit software-source files.
 ```sh
 python3 -I -c '
 import hashlib, subprocess, sys, urllib.request
-url = "https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/sovereign-setup-v0.1.1/Install-Sovereign.py"
-expected = "f54b28621781e1ae04b632bcf37ec814d7deff89e56024b8918326596beb0eff"
+url = "https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/sovereign-setup-v0.1.2/Install-Sovereign.py"
+expected = "a8d264d8b938bdfa024ec88bea8b19a2c4ea7620ef122317fa7733de368b4190"
 with urllib.request.urlopen(url, timeout=60) as response:
     data = response.read(131073)
 if len(data) > 131072 or hashlib.sha256(data).hexdigest() != expected:
@@ -155,13 +152,13 @@ raise SystemExit(subprocess.call([sys.executable, "-I", "-c", data.decode("utf-8
 
 Setup detects amd64/arm64 and checks the actual installer requirements. It adds only the scoped
 Foxlight software source, retains apt signature and expiry checks, and installs
-the pinned 0.1.0-3 package plus any required desktop libraries. Future
+the pinned 0.1.0-4 package plus any required desktop libraries. Future
 Sovereign releases arrive through normal software updates. It grants no model
 trust and starts no service, sharing or model download. Cancellation happens
 before downloads or system changes. Existing custom key/source files are
 preserved; setup stops and directs those operators to the manual route below.
 
-The [setup release](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/sovereign-setup-v0.1.1)
+The [setup release](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/sovereign-setup-v0.1.2)
 also contains the standalone installer, instructions, checksums and detached
 GitHub provenance. The command above independently pins the installer bytes;
 the installer in turn pins the reviewed software key and both app packages.
@@ -225,7 +222,7 @@ loss of the original machine.
 ## Verify and install the public package
 
 On a compatible Linux APT desktop, choose the `.deb` matching `dpkg --print-architecture` (`amd64`
-or `arm64`) from the [Linux release](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/sovereign-linux-v0.1.0-3).
+or `arm64`) from the [Linux release](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/sovereign-linux-v0.1.0-4).
 Download `SHA256SUMS` and `linux-release.sigstore.json` alongside it. With GitHub CLI
 installed, verify the downloaded package before installing:
 
@@ -233,13 +230,13 @@ installed, verify the downloaded package before installing:
 (
   set -e
   architecture=$(dpkg --print-architecture)
-  package="foxlight-sovereign_0.1.0-3_${architecture}.deb"
+  package="foxlight-sovereign_0.1.0-4_${architecture}.deb"
   sha256sum --ignore-missing --check SHA256SUMS
   gh attestation verify "$package" \
     --repo Foxlight-Foundation/foxlight-model-preservation \
     --bundle linux-release.sigstore.json \
     --signer-workflow Foxlight-Foundation/foxlight-model-preservation/.github/workflows/linux-release.yml \
-    --source-ref refs/tags/sovereign-linux-v0.1.0-3 --deny-self-hosted-runners
+    --source-ref refs/tags/sovereign-linux-v0.1.0-4 --deny-self-hosted-runners
   sudo apt install "./$package"
   sovereign
 )
@@ -254,8 +251,8 @@ Skulk, capability SDK, model runtime, GPU or hosted account. Sharing is opt-in.
 To remove the software, use `sudo apt remove foxlight-sovereign`. The Library,
 models, provenance and saved recovery files remain under your control.
 
-The current recipe is **0.1.0 revision 3**, paired with the authenticated public
-core 0.26 / Library 0.22 cohort. It includes the Horizon interface, complete
+The current recipe is **0.1.0 revision 4**, paired with the authenticated public
+core 0.27 / Library 0.23 cohort. It includes the opt-in Help keep models available mirror, the Horizon interface, complete
 companion recovery, verified backup destinations, explicit finite sharing,
 recipient handoff and reviewed alternate routes for an exact model capture.
 Input pins, native package provenance and signed APT metadata remain separate trust surfaces.
@@ -362,7 +359,7 @@ ambient Python. A final package purge must retain exact user file hashes and
 leave the system-wide user-namespace restriction unchanged.
 
 The public `apt-install.yml` workflow additionally qualifies the full native GUI
-recovery journey against the published `foxlight-sovereign=0.1.0-3` package on
+recovery journey against the published `foxlight-sovereign=0.1.0-4` package on
 both native architectures. `scripts/qualify_linux_recovery.py` uses AT-SPI and
 GTK's actual Open/Save dialogs to import the public two-member PMF vector,
 require explicit acceptance of independently pinned capture keys, restart after
@@ -379,7 +376,7 @@ script injection, backend operation calls or sandbox exceptions substitute for
 that journey. The exact installed package/source/component receipts and native
 screenshots are retained as workflow artifacts. The
 [first complete amd64/arm64 public apt run](https://github.com/Foxlight-Foundation/foxlight-model-preservation/actions/runs/40595374618)
-used core 0.25.0 / Library 0.21.0; the current revision 3 run linked above uses
+used core 0.25.0 / Library 0.21.0; the revision 3 run linked above used
 core 0.26.0 / Library 0.22.0. These are small synthetic conformance inputs;
 real-model recovery must retain its own exact-input evidence.
 

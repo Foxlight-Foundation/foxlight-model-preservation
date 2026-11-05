@@ -59,9 +59,8 @@
 - Prepare Mac build 9 from the authenticated public core 0.27 / Library 0.23
   installation archive, which adds Help keep models available. Native signing,
   notarization and publication remain separate gates.
-- Prepare Linux revision 4 from the same core 0.27 / Library 0.23 archive. The
-  guided setup keeps pinning the published revision 3 packages until the
-  revision 4 packages and signed apt indexes are public.
+- Publish Linux revision 4 from the same core 0.27 / Library 0.23 archive and
+  pin guided setup 0.1.2 and graphical setup 0.1.4 to its attested packages.
 
 - Add bucket mirrors (`bucket`). A public-read bucket at Cloudflare R2, Backblaze
   B2, Amazon S3, Wasabi or any S3-compatible service becomes a complete mirror
