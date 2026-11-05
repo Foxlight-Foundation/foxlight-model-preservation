@@ -8,6 +8,22 @@
   model, which also withdrew it from a connected bucket. Separate processes
   are still fenced by the file lock.
 
+- Help keep models available says how the mirror is found. Setup adds an
+  optional public address (HTTPS preferred, plain HTTP warned) and toggles for
+  announcing on the BitTorrent DHT and publishing to Nostr relays. Both stay on
+  by default, but each now says before consent that it publishes this
+  computer's address publicly as a Sovereign mirror and is not anonymous, and
+  the consent line names the announcements that are on. The status reports
+  `dht_available`, `dht_announcing`, `nostr_publishing` and the reasons when
+  either is not announcing. **Check address** fetches the public address's
+  peers document from this computer only, labelled as a best-effort check. The
+  DHT now announces only while something is shared. A consent given before
+  this disclosure keeps sharing but announces nothing on the DHT or Nostr
+  until the owner reviews **Choose how people find this computer**; the
+  review is recorded beside the policy, which keeps its format.
+  A public address with an unusable port is refused; one stored earlier is
+  set aside and reported rather than breaking the status, and the address
+  check stops at its deadline however slowly the endpoint answers.
 - Bundle the BitTorrent DHT binding in the desktop profile. The Library's
   `desktop` extra is now `foxlight-model-preservation[bittorrent]==<core>`, so
   `requirements-desktop.lock` and the Mac and Linux apps built from it include
@@ -26,7 +42,20 @@
   The mirror's signed card then points at the bucket, so a computer behind a
   router is still discoverable. Disconnecting forgets the keys and leaves the
   bucket's contents alone.
-
+- Receives now use discovered mirrors. `fetch`, `fetch-invitation`,
+  `source-fetch` and `handoff-fetch` read the peers documents of the mirrors they
+  already use, then add up to eight mirrors whose cards claim the model (sampled
+  at random within score bands) and not-yet-scored seeds, after the explicit or
+  signed hints. Discovered sources pass the receiver's policy (HTTPS only unless
+  `--allow-http`, no private routes unless `--allow-private`, bounded
+  `max_sources`), never affect trust, and are scored by what they delivered.
+  `--no-discovered-mirrors` opts out. A resumed `--operation-id` keeps its
+  sources. Receiving still never contacts the DHT or Nostr relays unless
+  `--look-further` is given, which discloses the computer's IP address to
+  strangers. Add `model-preserve mirrors list|import|export|crawl` for the
+  private directory and an untrusted, currently empty seed list
+  (`resources/seed-mirrors.json`, extendable with `--seed-mirrors`). The app's
+  source and handoff receives use the same path and score what they used.
 - Prepare Mac build 9 from the authenticated public core 0.27 / Library 0.23
   installation archive, which adds Help keep models available. Native signing,
   notarization and publication remain separate gates.
@@ -66,7 +95,7 @@
   candidates at random, and fetch from whichever deliver verified bytes
   (`mirror_directory.fetch_discovered`). The app's community mirror announces
   itself when reachable (a declared `public_url` or a public address), gossips
-  every half hour over public routes only, and learns from the mirrors a user
+  every 15 minutes over public routes only, and learns from the mirrors a user
   already approved when downloading. No mirror list is required.
 - Add **Help keep models available** to the desktop owner: one long-lived
   mirror of every backup whose licence is in one permissive, widenable policy

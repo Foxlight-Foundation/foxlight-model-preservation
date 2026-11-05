@@ -21,6 +21,17 @@ class Capture:
     identity: str
 
 
+@pytest.fixture(autouse=True)
+def private_mirror_directory(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> Path:
+    """Keep every receive's private mirror directory out of the real home."""
+    path = tmp_path_factory.mktemp("mirror-directory")
+    monkeypatch.setenv("SOVEREIGN_MIRROR_DIRECTORY", str(path))
+    monkeypatch.delenv("SOVEREIGN_SEED_MIRRORS", raising=False)
+    return path
+
+
 @pytest.fixture
 def capture(tmp_path: Path) -> Capture:
     sources = {}

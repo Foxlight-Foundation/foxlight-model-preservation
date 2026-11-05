@@ -417,6 +417,7 @@ def _load_manifest(
     policy: TransferPolicy,
     deadline: float,
     control: OperationControl,
+    failure: Callable[[str], None] | None = None,
 ) -> tuple[ArchiveManifest, bytes]:
     policy.validate()
     if not sources or len(sources) > policy.max_sources:
@@ -438,6 +439,8 @@ def _load_manifest(
             raise
         except (OSError, ValueError, http.client.HTTPException) as error:
             failures.append(f"source {index + 1}: {type(error).__name__}")
+            if failure is not None:
+                failure(source)
     raise PreservationError(
         "no authenticated manifest available; " + "; ".join(failures)
     )
@@ -500,6 +503,7 @@ def fetch(
     expected_directory: tuple[int, int] | None = None,
     envelope: bytes | None = None,
     source_outcome: Callable[[str, bool], None] | None = None,
+    manifest_failure: Callable[[str], None] | None = None,
 ) -> ArchiveManifest:
     """Receive exact trusted content with optional control and persistent allowance.
 
@@ -513,7 +517,9 @@ def fetch(
     Draft PMF archives travel natively: the same store layout and object rules
     apply, and every PMF member file and source document is fetched and hashed.
     An optional source_outcome callback learns, per object attempt, whether each
-    source delivered verified bytes, so callers can score mirrors honestly.
+    source delivered verified bytes, so callers can score mirrors honestly. An
+    optional manifest_failure callback learns each source that was asked for the
+    signed manifest and could not supply an authentic one.
     """
     with (control or OperationControl()).operation("fetch") as active:
         policy.validate()
@@ -523,7 +529,7 @@ def fetch(
         active.limit_deadline(deadline)
         if envelope is None:
             manifest, envelope = _load_manifest(
-                manifest_id, trust, sources, policy, deadline, active
+                manifest_id, trust, sources, policy, deadline, active, manifest_failure
             )
             original_wrapper = False
         else:

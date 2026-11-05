@@ -6,6 +6,22 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Help keep models available says how the mirror is found. Setup adds an
+  optional public address (HTTPS preferred, plain HTTP warned) and toggles for
+  announcing on the BitTorrent DHT and publishing to Nostr relays. Both stay on
+  by default, but each now says before consent that it publishes this
+  computer's address publicly as a Sovereign mirror and is not anonymous, and
+  the consent line names the announcements that are on. The status reports
+  `dht_available`, `dht_announcing`, `nostr_publishing` and the reasons when
+  either is not announcing. **Check address** fetches the public address's
+  peers document from this computer only, labelled as a best-effort check. The
+  DHT now announces only while something is shared. A consent given before
+  this disclosure keeps sharing but announces nothing on the DHT or Nostr
+  until the owner reviews **Choose how people find this computer**; the
+  review is recorded beside the policy, which keeps its format.
+  A public address with an unusable port is refused; one stored earlier is
+  set aside and reported rather than breaking the status, and the address
+  check stops at its deadline however slowly the endpoint answers.
 - Bundle the BitTorrent DHT binding in the desktop profile. The Library's
   `desktop` extra is now `foxlight-model-preservation[bittorrent]==<core>`, so
   `requirements-desktop.lock` and the Mac and Linux apps built from it include
@@ -22,6 +38,10 @@ tagged `library-v*`; versions without a tag are source previews installed from
   and connect. A failed check explains whether the upload or the public
   download failed. Once connected the panel shows where people download from
   and how many models the bucket holds.
+- Downloading a model from a followed source or a handoff now falls back to
+  other mirrors that the approved mirrors vouch for, under the same HTTP and
+  private-address choices, and remembers which mirrors delivered. Accepted keys
+  are unchanged. No DHT or relay is asked.
 
 - Prepare Mac build 9 from the authenticated public core 0.27 / Library 0.23
   installation archive, which adds Help keep models available. Native signing,
