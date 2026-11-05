@@ -209,7 +209,9 @@ router, inference or sharing.
 
 The binary keyring SHA-256 above binds the bootstrap to the reviewed Foxlight
 Foundation APT Archive Signing key, fingerprint
-`1C0564D3E46950C30CB1665E61975FEE192BAB20`. `Signed-By` scopes it to this repository.
+`1C0564D3E46950C30CB1665E61975FEE192BAB20`. Its signing subkey
+`BA5D6DD7EF03779440C3910EBB4105342050B11E` signs the suite's `InRelease`, so
+tools that show the signing key report that fingerprint. `Signed-By` scopes it to this repository.
 This software key grants no trust to models or capture keys. The separate
 `sovereign` suite contains authenticated amd64/arm64 indexes with by-hash fetches,
 immutable package bytes and a signed 30-day `Valid-Until`. The release retains

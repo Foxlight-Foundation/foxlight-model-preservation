@@ -1,11 +1,13 @@
 # Independent Sovereign Library
 
 For the everyday install/find/preserve/share/recover journey, start with
-[Getting started](getting-started.md). Library 0.22 adds guided entry choices,
-a reusable journey guide, separate kit/public-mirror sharing choices, copyable
-recipient verification instructions and download working-space review. These
-new controls require core 0.26 / Library 0.22; installed native build 7 does
-not update merely because this document or the source changed.
+[Getting started](getting-started.md). This page describes core 0.28 /
+Library 0.24, which Mac build 10 and Linux revision 5 carry. It includes guided
+entry choices, separate kit/public-mirror sharing, copyable recipient
+verification instructions, backup folders and **Help keep models available**
+with cloud storage, a public address, DHT/Nostr choices and receiving through
+discovered mirrors. An installed app does not gain new controls merely because
+this document or the source changed; install the matching release.
 
 Sovereign can browse the public model catalog, privately preserve a supported
 exact model selection, save a portable recovery kit and restore its files without
@@ -159,11 +161,13 @@ Once independently accepted metadata is retained, stopping a source does not
 revoke a saved model, delete its files or change its signing policy. Neither this
 flow nor following/searching a source starts sharing, seeding or model execution.
 
-## Backup folders and public sharing in current source
+## Backup folders and public sharing
 
-These controls are implemented in the current source checkout. Previously
-published native apps and Python archives do not acquire them automatically;
-use the matching next release after its independent publication checks.
+These controls ship in core 0.28 / Library 0.24, Mac build 10 and Linux
+revision 5. **Help keep models available** first appeared in Library 0.23;
+cloud storage, the public address, the DHT/Nostr choices and the bundled DHT
+binding arrived in Library 0.24. Earlier native apps and Python archives do not
+acquire them automatically.
 
 ### Keep a complete backup on another drive
 
