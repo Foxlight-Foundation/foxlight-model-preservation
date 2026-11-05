@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 
 PROJECT = Path(__file__).resolve().parents[1]
-MANIFEST = PROJECT / "desktop/macos/releases/0.1.0-build9.json"
+MANIFEST = PROJECT / "desktop/macos/releases/0.1.0-build10.json"
 
 
 def digest(path: Path) -> str:
