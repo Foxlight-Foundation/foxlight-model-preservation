@@ -58,12 +58,21 @@ def encode_state(state: MirrorState) -> bytes:
     return canonical_bytes(value)
 
 
+# One in-process lock per ledger directory, shared by every MirrorLedger made
+# for it. The file lock below refuses a second writer at once, which is right
+# across processes, but threads of one app (the mirror runner, serving, bucket
+# uploads) must take turns rather than record a spurious failure.
+_LEDGER_LOCKS: dict[Path, threading.RLock] = {}
+_LEDGER_LOCKS_GUARD = threading.Lock()
+
+
 class MirrorLedger:
     """Bound a controller to enrolled directory identities and an atomic ledger."""
 
     def __init__(self, path: Path):
         self.path = path.absolute()
-        self._mutex = threading.RLock()
+        with _LEDGER_LOCKS_GUARD:
+            self._mutex = _LEDGER_LOCKS.setdefault(self.path, threading.RLock())
         self._content_mutex = threading.RLock()
         self._identity = self.read().identity
 

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Threads of one app now take turns on a mirror's ledger instead of refusing
+  each other. Bucket uploads charging the upload limits could otherwise make
+  the mirror record a spurious failure and briefly stop serving a healthy
+  model, which also withdrew it from a connected bucket. Separate processes
+  are still fenced by the file lock.
+
 - Help keep models available says how the mirror is found. Setup adds an
   optional public address (HTTPS preferred, plain HTTP warned) and toggles for
   announcing on the BitTorrent DHT and publishing to Nostr relays. Both stay on

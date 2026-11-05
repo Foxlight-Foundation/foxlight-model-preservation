@@ -685,3 +685,46 @@ def test_pause_interrupts_slow_incomplete_headers_before_handler_join(
         client.close()
         if thread.is_alive():
             thread.join(35)
+
+
+def test_threads_of_one_app_take_turns_on_the_ledger(tmp_path: Path) -> None:
+    """Two ledger objects for one mirror wait for each other within a process.
+
+    The file lock refuses a second writer at once. Without a shared in-process
+    lock, an app thread charging uploads could make the mirror runner record a
+    spurious failure, taking a healthy model offline.
+    """
+    first = MirrorLedger.initialize(
+        tmp_path / "mirror",
+        name="Fixture mirror",
+        disk_bytes=1024**3,
+        ingress_daily=1024**3,
+        egress_daily=1024**3,
+        egress_monthly=1024**3,
+        port=0,
+    )
+    second = MirrorLedger(tmp_path / "mirror")
+    inside, release = threading.Event(), threading.Event()
+
+    def slow(state):
+        inside.set()
+        release.wait(5)
+        return state
+
+    worker = threading.Thread(target=first.update, args=(slow,))
+    worker.start()
+    try:
+        assert inside.wait(5)
+        result: list[bool] = []
+        charger = threading.Thread(target=lambda: result.append(second.reserve(1)))
+        charger.start()
+        time.sleep(0.2)
+        # Still waiting for its turn rather than refused.
+        assert charger.is_alive()
+        release.set()
+        charger.join(5)
+        assert result == [True]
+    finally:
+        release.set()
+        worker.join(5)
+    assert second.read().egress_day_used == 1
