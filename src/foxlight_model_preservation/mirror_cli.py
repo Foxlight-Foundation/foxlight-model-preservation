@@ -4,17 +4,40 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 
 from pydantic import JsonValue, TypeAdapter
 
-from .mirror import configure_http, follow, model_action, plan, run_mirror
+from .mirror import (
+    configure_http,
+    configure_mirror,
+    derived_model_limit,
+    follow,
+    model_action,
+    plan,
+    retry_selection,
+    run_mirror,
+)
+from .mirror_announce import DISCLOSURE, mirror_key_id
+from .mirror_cards import base_url
 from .mirror_intake import retain_local
-from .mirror_models import MirrorObservation, SourceGrant, Terms
+from .mirror_models import AnnouncePolicy, MirrorObservation, SourceGrant, Terms
 from .mirror_native import configure, export_reference, write_reference
 from .mirror_prune import prune
+from .mirror_quickstart import (
+    CONSENT_FLAG,
+    QuickstartSettings,
+    apply_quickstart,
+    default_name,
+    load_collection,
+    parse_duration,
+    parse_size,
+    review,
+)
 from .mirror_recovery import (
     export_selection_kit,
     inspect_selection,
@@ -32,16 +55,28 @@ class MirrorArguments(argparse.Namespace):
 
     mirror_action: str
     mirror_dir: Path
-    name: str
-    disk_bytes: int
-    ingress_daily: int
-    egress_daily: int
-    egress_monthly: int
-    bind: str
-    port: int
-    serve_start: int
-    serve_end: int
-    refresh_seconds: int
+    mirror_name: str | None
+    disk_bytes: int | None
+    ingress_daily: int | None
+    egress_daily: int | None
+    egress_monthly: int | None
+    mirror_bind: str | None
+    mirror_port: int | None
+    serve_start: int | None
+    serve_end: int | None
+    refresh_seconds: int | None
+    public_url: str | None
+    clear_public_url: bool
+    contact: str | None
+    announce_nostr: bool | None
+    announce_dht: bool | None
+    confirm_public_announcement: bool
+    collection: Path
+    resume_for: int | None
+    plan_only: bool
+    consent_public_serving: bool
+    run_after: bool
+    adopt_source_grant: bool
     source_file: Path
     local_store: Path
     expected_bootstrap_id: str
@@ -54,13 +89,13 @@ class MirrorArguments(argparse.Namespace):
     allow_http: bool
     allow_private: bool
     allow_local: bool
-    max_bytes: int
+    model_max_bytes: int | None
     public: bool
     resume: bool
     seconds: int
     mirror_manifest: str
     confirm_manifest: str
-    resume_expires: int
+    resume_expires: int | None
     confirm_resume: bool
     ipfs_binary: str | None
     ipfs_sha256: str | None
@@ -75,6 +110,92 @@ class MirrorArguments(argparse.Namespace):
     export_output: Path
 
 
+def _size(text: str) -> int:
+    try:
+        return parse_size(text)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(str(error)) from error
+
+
+def _duration(text: str) -> int:
+    try:
+        return parse_duration(text)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(str(error)) from error
+
+
+SIZE_HELP = "bytes, or a binary size such as 500G or 2T (1G = 1024^3 bytes)"
+BUDGETS = (
+    ("disk-bytes", 100 * 1024**3, "total retained-byte budget"),
+    ("ingress-daily", 50 * 1024**3, "download reservation per UTC day"),
+    ("egress-daily", 50 * 1024**3, "upload reservation per UTC day"),
+    ("egress-monthly", 1024**4, "upload reservation per UTC month"),
+)
+BINDS = ["127.0.0.1", "::1", "0.0.0.0", "::"]  # noqa: S104 - explicit choices
+
+
+def _policy_arguments(command: argparse.ArgumentParser, *, config: bool) -> None:
+    """Shared listener, budget and announcement flags; config defaults to keep."""
+    command.add_argument(
+        "--name",
+        dest="mirror_name",
+        default=None,
+        help="mirror label (default: this host's name)",
+    )
+    for flag, default, purpose in BUDGETS:
+        command.add_argument(
+            "--" + flag,
+            type=_size,
+            default=None if config else default,
+            help=f"{purpose}; {SIZE_HELP}",
+        )
+    command.add_argument(
+        "--bind",
+        dest="mirror_bind",
+        choices=BINDS,
+        default=None if config else "127.0.0.1",
+        help="listener address; loopback behind a TLS reverse proxy is intended",
+    )
+    command.add_argument(
+        "--port", dest="mirror_port", type=int, default=None if config else 8080
+    )
+    command.add_argument(
+        "--public-url", help="announced HTTPS base URL of this mirror (http:// warns)"
+    )
+    command.add_argument("--contact", help="optional contact in the mirror card")
+    nostr = command.add_mutually_exclusive_group()
+    nostr.add_argument(
+        "--announce-nostr",
+        dest="announce_nostr",
+        action="store_true",
+        default=None,
+        help="also publish the mirror card to public Nostr relays",
+    )
+    dht = command.add_mutually_exclusive_group()
+    dht.add_argument(
+        "--announce-dht",
+        dest="announce_dht",
+        action="store_true",
+        default=None,
+        help="also announce a plain-HTTP public URL on the BitTorrent DHT",
+    )
+    if config:
+        nostr.add_argument(
+            "--no-announce-nostr", dest="announce_nostr", action="store_false"
+        )
+        dht.add_argument("--no-announce-dht", dest="announce_dht", action="store_false")
+        command.add_argument(
+            "--clear-public-url",
+            action="store_true",
+            help="stop announcing and remove this mirror's peers document",
+        )
+    command.add_argument(
+        "--confirm-public-announcement",
+        action="store_true",
+        help="acknowledge that Nostr/DHT announcing publishes this address",
+    )
+
+
 def register_mirror_commands(
     add_parser: Callable[..., argparse.ArgumentParser],
 ) -> None:
@@ -83,6 +204,8 @@ def register_mirror_commands(
     actions = mirror.add_subparsers(dest="mirror_action", required=True)
     for name in (
         "init",
+        "config",
+        "quickstart",
         "follow",
         "retain",
         "http",
@@ -99,6 +222,7 @@ def register_mirror_commands(
         "block",
         "unblock",
         "retry",
+        "unwithdraw",
         "prune",
         "transports",
         "export",
@@ -139,31 +263,63 @@ def register_mirror_commands(
             command.add_argument(
                 "--confirm-public-transports", action="store_true", required=True
             )
-        if name == "init":
-            command.add_argument("--name", required=True)
-            for flag, default in (
-                ("disk-bytes", 100 * 1024**3),
-                ("ingress-daily", 50 * 1024**3),
-                ("egress-daily", 50 * 1024**3),
-                ("egress-monthly", 1024**4),
-            ):
-                command.add_argument("--" + flag, type=int, default=default)
+        if name in ("init", "config", "quickstart"):
+            _policy_arguments(command, config=name == "config")
+        if name in ("init", "config"):
             command.add_argument(
-                "--bind",
-                choices=["127.0.0.1", "0.0.0.0"],  # noqa: S104 - explicit public choice
-                default="127.0.0.1",
-            )
-            command.add_argument("--port", type=int, default=8080)
-            command.add_argument(
-                "--serve-start", type=int, default=0, help="UTC hour inclusive"
+                "--serve-start",
+                type=int,
+                default=None if name == "config" else 0,
+                help="UTC hour inclusive",
             )
             command.add_argument(
                 "--serve-end",
                 type=int,
-                default=0,
+                default=None if name == "config" else 0,
                 help="UTC hour exclusive; equal means all day",
             )
-            command.add_argument("--refresh-seconds", type=int, default=21600)
+            command.add_argument(
+                "--refresh-seconds",
+                type=int,
+                default=None if name == "config" else 21600,
+            )
+        if name == "quickstart":
+            command.add_argument(
+                "--collection",
+                type=Path,
+                required=True,
+                help="reviewable collection file (sovereign.mirror-collection.v1)",
+            )
+            command.add_argument(
+                "--resume-for",
+                type=_duration,
+                default=90 * 86400,
+                help="standing restart grant, at most 366d (default 90d)",
+            )
+            command.add_argument(
+                "--max-bytes",
+                dest="model_max_bytes",
+                type=_size,
+                default=None,
+                help="per-model limit (default: the collection's, else disk budget)",
+            )
+            command.add_argument(
+                "--plan-only",
+                action="store_true",
+                help="print the review and change nothing",
+            )
+            command.add_argument(
+                CONSENT_FLAG,
+                dest="consent_public_serving",
+                action="store_true",
+                help="consent non-interactively to the printed review",
+            )
+            command.add_argument(
+                "--run",
+                dest="run_after",
+                action="store_true",
+                help="then serve under the new restart grant until stopped",
+            )
         if name in ("follow", "retain"):
             command.add_argument(
                 "--bundle-trust", dest="mirror_trust", type=Path, required=True
@@ -172,7 +328,14 @@ def register_mirror_commands(
             command.add_argument(
                 "--confirm-redistribution", action="store_true", required=True
             )
-            command.add_argument("--max-bytes", type=int, default=20 * 1024**3)
+            command.add_argument(
+                "--max-bytes",
+                dest="model_max_bytes",
+                type=_size,
+                default=None,
+                help="per-model limit (default: disk budget less headroom); "
+                + SIZE_HELP,
+            )
         if name == "follow":
             command.add_argument("--source-file", type=Path, required=True)
             command.add_argument("--expected-bootstrap-id", required=True)
@@ -212,6 +375,7 @@ def register_mirror_commands(
             "block",
             "unblock",
             "retry",
+            "unwithdraw",
             "prune",
             "export",
             "retain",
@@ -223,13 +387,26 @@ def register_mirror_commands(
             command.add_argument("--manifest", dest="mirror_manifest", required=True)
         if name == "prune":
             command.add_argument("--confirm-manifest", required=True)
-        if name == "grant-resume":
+        if name == "retry":
             command.add_argument(
+                "--adopt-source-grant",
+                action="store_true",
+                help="replace this selection's keys/terms with its source's current "
+                "grant (after re-following); stop the controller first",
+            )
+        if name == "grant-resume":
+            expiry = command.add_mutually_exclusive_group(required=True)
+            expiry.add_argument(
                 "--expires",
                 dest="resume_expires",
                 type=int,
-                required=True,
                 help="UTC Unix seconds, within 366 days",
+            )
+            expiry.add_argument(
+                "--for",
+                dest="resume_for",
+                type=_duration,
+                help="duration such as 365d, at most 366d",
             )
             command.add_argument("--confirm-resume", action="store_true", required=True)
 
@@ -258,27 +435,170 @@ def _prepared(port: int | None) -> None:
     print(json.dumps(receipt), flush=True)
 
 
+def _announce(
+    arguments: MirrorArguments, current: AnnouncePolicy | None
+) -> AnnouncePolicy | None:
+    """Combine announcement flags with the current policy; opt-ins need a URL."""
+    if getattr(arguments, "clear_public_url", False):
+        if (
+            arguments.public_url
+            or arguments.contact
+            or arguments.announce_nostr
+            or arguments.announce_dht
+        ):
+            raise PreservationError("clearing the public URL takes no other announce")
+        return None
+    url = base_url(arguments.public_url) if arguments.public_url else None
+    if current is None and url is None:
+        if arguments.contact or arguments.announce_nostr or arguments.announce_dht:
+            raise PreservationError("announcement options need --public-url")
+        return None
+    previous = current or AnnouncePolicy(public_url=url or "")
+    nostr = (
+        previous.nostr if arguments.announce_nostr is None else arguments.announce_nostr
+    )
+    dht = previous.dht if arguments.announce_dht is None else arguments.announce_dht
+    newly_public = (nostr and not previous.nostr) or (dht and not previous.dht)
+    if current is None:
+        newly_public = nostr or dht
+    if newly_public and not arguments.confirm_public_announcement:
+        raise PreservationError(
+            DISCLOSURE + " Add --confirm-public-announcement to proceed."
+        )
+    return AnnouncePolicy(
+        public_url=url or previous.public_url,
+        contact=arguments.contact if arguments.contact else previous.contact,
+        nostr=nostr,
+        dht=dht,
+    )
+
+
+def _warnings(announce: AnnouncePolicy | None) -> list[JsonValue]:
+    if announce is not None and announce.public_url.startswith("http://"):
+        return ["public URL uses plain http://; prefer https:// behind a TLS proxy"]
+    return []
+
+
+def _model_limit(arguments: MirrorArguments, ledger: MirrorLedger) -> int:
+    """An explicit per-model limit, else what the disk budget could ever admit."""
+    if arguments.model_max_bytes is not None:
+        return arguments.model_max_bytes
+    return derived_model_limit(ledger.read().disk_bytes)
+
+
+def _quickstart(
+    arguments: MirrorArguments, control: OperationControl
+) -> dict[str, JsonValue]:
+    """Review one collection, require explicit consent, then set up and grant."""
+    collection, document = load_collection(arguments.collection)
+    # Quickstart states the whole policy: no public URL means no announcement.
+    announce = _announce(arguments, None)
+    settings = QuickstartSettings(
+        name=arguments.mirror_name or default_name(),
+        disk_bytes=arguments.disk_bytes or BUDGETS[0][1],
+        ingress_daily=arguments.ingress_daily or BUDGETS[1][1],
+        egress_daily=arguments.egress_daily or BUDGETS[2][1],
+        egress_monthly=arguments.egress_monthly or BUDGETS[3][1],
+        bind=arguments.mirror_bind or "127.0.0.1",
+        port=8080 if arguments.mirror_port is None else arguments.mirror_port,
+        announce=announce,
+        resume_seconds=arguments.resume_for or 90 * 86400,
+        max_bytes=arguments.model_max_bytes,
+    )
+    text, summary = review(collection, document, settings)
+    print(text, file=sys.stderr, flush=True)
+    if arguments.plan_only:
+        return {
+            "review": summary,
+            "consented": False,
+            "changed": False,
+            "network_started": False,
+        }
+    consented = arguments.consent_public_serving
+    if not consented and sys.stdin.isatty():
+        print(
+            "\nType 'serve' to consent to public serving as reviewed: ",
+            end="",
+            file=sys.stderr,
+            flush=True,
+        )
+        consented = sys.stdin.readline().strip() == "serve"
+    ledger, receipt = apply_quickstart(
+        arguments.mirror_dir, collection, document, settings, consented=consented
+    )
+    result: dict[str, JsonValue] = {
+        "review": summary,
+        "consented": True,
+        **receipt,
+        "mirror_key": mirror_key_id(ledger) if announce else None,
+    }
+    if arguments.run_after:
+        result["run"] = run_mirror(
+            ledger, resume=True, control=control, prepared=_prepared
+        )
+    return result
+
+
 def run_mirror_command(
     arguments: MirrorArguments, control: OperationControl
 ) -> dict[str, JsonValue]:
     """Execute exactly one local mirror action; init/follow/plan never connect."""
     action = arguments.mirror_action
     if action == "init":
+        announce = _announce(arguments, None)
         ledger = MirrorLedger.initialize(
             arguments.mirror_dir,
-            name=arguments.name,
+            name=arguments.mirror_name or default_name(),
             disk_bytes=arguments.disk_bytes,
             ingress_daily=arguments.ingress_daily,
             egress_daily=arguments.egress_daily,
             egress_monthly=arguments.egress_monthly,
-            bind=arguments.bind,
-            port=arguments.port,
+            bind=arguments.mirror_bind,
+            port=arguments.mirror_port,
             serve_start=arguments.serve_start,
             serve_end=arguments.serve_end,
             refresh_seconds=arguments.refresh_seconds,
+            announce=announce,
         )
-        return {"initialized": True, "network_started": False, "policy": plan(ledger)}
+        return {
+            "initialized": True,
+            "network_started": False,
+            "warnings": _warnings(announce),
+            "policy": plan(ledger),
+        }
+    if action == "quickstart":
+        return _quickstart(arguments, control)
     ledger = MirrorLedger(arguments.mirror_dir)
+    if action == "config":
+        before = ledger.read()
+        announce = _announce(arguments, before.announce)
+        changes: dict[str, object] = {
+            key: value
+            for key, value in {
+                "name": arguments.mirror_name,
+                "disk_bytes": arguments.disk_bytes,
+                "ingress_daily": arguments.ingress_daily,
+                "egress_daily": arguments.egress_daily,
+                "egress_monthly": arguments.egress_monthly,
+                "bind": arguments.mirror_bind,
+                "port": arguments.mirror_port,
+                "serve_start": arguments.serve_start,
+                "serve_end": arguments.serve_end,
+                "refresh_seconds": arguments.refresh_seconds,
+            }.items()
+            if value is not None
+        }
+        if announce != before.announce:
+            changes["announce"] = announce
+        after = configure_mirror(ledger, changes)
+        return {
+            "configured": [cast(JsonValue, key) for key in sorted(changes)],
+            "network_started": False,
+            "restart_grant_invalidated": before.restart is not None
+            and after.restart is None,
+            "warnings": _warnings(after.announce),
+            "policy": plan(ledger),
+        }
     if action in ("plan", "status"):
         return plan(ledger)
     if action == "selection":
@@ -342,7 +662,7 @@ def run_mirror_command(
                 terms=TypeAdapter(tuple[Terms, ...]).validate_json(
                     _input(arguments.terms_file)
                 ),
-                max_bytes=arguments.max_bytes,
+                max_bytes=_model_limit(arguments, ledger),
             ),
             control=control,
             confirm_reintake=arguments.confirm_reintake,
@@ -365,7 +685,7 @@ def run_mirror_command(
             SourceGrant(
                 trust=load_trust(_input(arguments.mirror_trust)),
                 terms=terms,
-                max_bytes=arguments.max_bytes,
+                max_bytes=_model_limit(arguments, ledger),
                 allow_http=arguments.allow_http,
                 allow_private=arguments.allow_private,
                 allow_local=arguments.allow_local,
@@ -411,7 +731,25 @@ def run_mirror_command(
         write_reference(arguments.export_output, data)
         return {"exported": True, "network_started": False, "grants_imported": False}
     if action == "grant-resume":
-        grant_restart(ledger, arguments.resume_expires)
+        expires = (
+            arguments.resume_expires
+            if arguments.resume_expires is not None
+            else int(time.time()) + (arguments.resume_for or 0)
+        )
+        state = grant_restart(ledger, expires)
+        return {
+            "action": action,
+            "restart_expires": expires,
+            "policy_id": state.restart.policy_id if state.restart else None,
+            "retained_bytes_deleted": False,
+            "recorded_at": int(time.time()),
+        }
+    if action == "retry":
+        retry_selection(
+            ledger,
+            arguments.mirror_manifest,
+            adopt_source_grant=arguments.adopt_source_grant,
+        )
     elif action == "revoke-resume":
         ledger.update(lambda s: s.model_copy(update={"restart": None}))
     elif action in ("pause", "resume", "leave"):

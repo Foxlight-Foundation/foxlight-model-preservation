@@ -1,0 +1,54 @@
+name: Mirror image
+# Proves the headless mirror image builds for both architectures. Nothing is
+# pushed. TODO(maintainers): decide on a registry, then add signed publication
+# (for example cosign keyless signing plus a build provenance attestation).
+on:
+  push:
+    paths:
+      - deploy/mirror/**
+      - src/**
+      - pyproject.toml
+      - uv.lock
+      - .github/workflows/mirror-image.yml
+  pull_request:
+    paths:
+      - deploy/mirror/**
+      - src/**
+      - pyproject.toml
+      - uv.lock
+      - .github/workflows/mirror-image.yml
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Build linux/amd64 and linux/arm64 (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/mirror/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: false
+      - name: Load the amd64 image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/mirror/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: sovereign-mirror:ci
+      - name: Smoke test the CLI and plan-only entrypoint
+        run: |
+          docker run --rm --entrypoint model-preserve sovereign-mirror:ci mirror quickstart --help
+          docker run --rm --entrypoint python sovereign-mirror:ci -c "import libtorrent"
+          # Without consent and without a collection, the entrypoint serves
+          # nothing and exits after the (failing) review when idling is off.
+          docker run --rm -e SOVEREIGN_MIRROR_IDLE=0 sovereign-mirror:ci
+      - name: Validate compose configuration
+        env:
+          SOVEREIGN_MIRROR_DOMAIN: mirror.example.org
+        run: docker compose -f deploy/mirror/compose.yaml config --quiet

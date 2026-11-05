@@ -28,6 +28,16 @@ DIRECTORIES = (".", "store", "public", "discovery", "scratch")
 def encode_state(state: MirrorState) -> bytes:
     """Preserve released legacy wire state while encoding explicit owner profiles."""
     value = state.model_dump(mode="json")
+    # Optional receipts/policy introduced after v5 are omitted at their default,
+    # so unchanged released ledgers keep identical bytes and policy identity.
+    # A release that predates them refuses (strict fields) rather than ignores.
+    for held in value["models"].values():
+        if held.get("deferred") is None:
+            held.pop("deferred", None)
+        if held.get("withdrawn") is False:
+            held.pop("withdrawn", None)
+    if state.announce is None:
+        value.pop("announce")
     if state.schema_version != "foxlight.mirror-state.v5":
         for held in value["models"].values():
             held.pop("catalog_id")
@@ -318,6 +328,8 @@ def policy_id(state: MirrorState) -> str:
                                 "state": "pending",
                                 "error": None,
                                 "verified_at": None,
+                                "deferred": None,
+                                "withdrawn": False,
                             }
                         )
                         for identity, held in state.models.items()

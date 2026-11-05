@@ -17,6 +17,8 @@ from pydantic import JsonValue
 
 from .archives import ArchiveManifest, archive_objects, verify_archive_manifest
 from .discovery import follow_source, list_sources, refresh_source, search_sources
+from .discovery_models import MAX_SOURCES
+from .mirror_announce import Announcer, remove_peers
 from .mirror_cards import PEERS_PATH
 from .mirror_models import (
     HeldModel,
@@ -53,7 +55,24 @@ from .storage import (
     verify_object,
     writer_lock,
 )
-from .transfer import TransferPolicy, fetch, inspect_envelope
+from .transfer import TransferPolicy, fetch, inspect_envelope, request_digest
+
+# Catalog states whose authenticated, unexpired listing is a current statement.
+# An expired ("stale") catalog says nothing about withdrawal: that is availability.
+CURRENT_CATALOGS = frozenset({"fresh", "retained", "imported"})
+
+
+class MirrorBudgetDeferred(PreservationError):
+    """A local ingress or disk budget refused intake for now; retried later.
+
+    Deferral is not a model failure. Reservations already made stay charged
+    (never refunded), and a later cycle retries once the budget can admit it.
+    """
+
+
+def derived_model_limit(disk_bytes: int) -> int:
+    """Default per-model byte limit: whatever the disk budget could ever admit."""
+    return max(1, disk_bytes - HEADROOM)
 
 
 def follow(
@@ -85,6 +104,34 @@ def follow(
             )
         )
         return status.source_id
+
+
+def apply_source_grant(
+    ledger: MirrorLedger, source_id: str, grant: SourceGrant
+) -> bool:
+    """Set an already-followed source's reviewed grant without re-enrolling it.
+
+    The source's cached roots, catalog and update floors stay exactly as the
+    last accepted refresh left them, so no older evidence is reimported. A
+    changed grant is new policy and clears the restart grant; an unchanged one
+    changes nothing. Returns whether the grant changed.
+    """
+    with ledger.service_lock():
+        state = ledger.read()
+        if source_id not in state.sources:
+            raise PreservationError("source is not followed by this mirror")
+        if state.sources[source_id] == grant:
+            return False
+        ledger.update(
+            lambda current: current.model_copy(
+                update={
+                    "sources": dict(current.sources, **{source_id: grant}),
+                    "schema_version": "foxlight.mirror-state.v5",
+                    "restart": None,
+                }
+            )
+        )
+        return True
 
 
 def plan(ledger: MirrorLedger) -> dict[str, JsonValue]:
@@ -121,7 +168,10 @@ def model_action(ledger: MirrorLedger, manifest_id: str, action: str) -> MirrorS
         "unpin": {"pinned": False},
         "block": {"blocked": True},
         "unblock": {"blocked": False},
-        "retry": {"error": None, "state": "pending"},
+        "retry": {"error": None, "deferred": None, "state": "pending"},
+        # Resume serving a withdrawn selection. A current catalog that still
+        # omits it withdraws it again on the next cycle.
+        "unwithdraw": {"withdrawn": False},
     }
     if action not in changes:
         raise PreservationError("unsupported mirror model action")
@@ -150,6 +200,192 @@ def configure_http(ledger: MirrorLedger, *, enabled: bool) -> MirrorState:
         )
 
 
+CONFIGURABLE = frozenset(
+    {
+        "name",
+        "disk_bytes",
+        "ingress_daily",
+        "egress_daily",
+        "egress_monthly",
+        "bind",
+        "port",
+        "serve_start",
+        "serve_end",
+        "refresh_seconds",
+        "announce",
+    }
+)
+
+
+def configure_mirror(ledger: MirrorLedger, changes: dict[str, object]) -> MirrorState:
+    """Change bind, port, budgets, name or announcement offline.
+
+    Any effective change alters the mirror's policy identity, so it also clears
+    the standing restart grant: unattended serving needs fresh consent for the
+    new policy. Retained bytes are never touched. An active controller must be
+    stopped first. Source limits that were derived from the old disk budget
+    (``disk_bytes`` minus headroom) follow the new one; explicit limits stay.
+    Clearing the announcement removes this mirror's published peers document.
+    """
+    if set(changes) - CONFIGURABLE:
+        raise PreservationError("unsupported mirror configuration change")
+    with ledger.service_lock():
+
+        def apply(state: MirrorState) -> MirrorState:
+            update: dict[str, object] = dict(changes)
+            disk = changes.get("disk_bytes")
+            if isinstance(disk, int) and disk != state.disk_bytes:
+                old_limit = derived_model_limit(state.disk_bytes)
+                update["sources"] = {
+                    source: grant.model_copy(
+                        update={"max_bytes": derived_model_limit(disk)}
+                    )
+                    if grant.max_bytes == old_limit
+                    else grant
+                    for source, grant in state.sources.items()
+                }
+            candidate = MirrorState.model_validate(
+                state.model_copy(update=update).model_dump()
+            )
+            if policy_id(candidate) == policy_id(state):
+                return state
+            return candidate.model_copy(update={"restart": None})
+
+        state = ledger.update(apply)
+        if "announce" in changes and state.announce is None:
+            remove_peers(ledger)
+        return state
+
+
+def retry_selection(
+    ledger: MirrorLedger, manifest_id: str, *, adopt_source_grant: bool = False
+) -> MirrorState:
+    """Clear a failure for retry, optionally adopting the source's current grant.
+
+    Re-following a source records new model keys/terms for future intake, but an
+    existing selection keeps its original authority. ``adopt_source_grant``
+    replaces it with the source's current grant after an operator re-follow. A
+    pinned original wrapper must still authenticate under the adopted keys and
+    terms; its private authority receipt is rewritten after the ledger commit
+    and rewritten again by repeating this command after an interruption. Any
+    change to an input the transfer receipt binds (trust, connection policy or
+    byte limit) starts a new, separately charged ingress operation.
+    """
+    if not adopt_source_grant:
+        return model_action(ledger, manifest_id, "retry")
+    with ledger.service_lock():
+        state = ledger.read()
+        held = state.models.get(manifest_id)
+        if held is None:
+            raise PreservationError("unknown retained mirror selection")
+        if held.origin != "source" or held.source_id is None:
+            raise PreservationError("only source selections adopt a source grant")
+        grant = state.sources.get(held.source_id)
+        if grant is None:
+            raise PreservationError("the selection's source is no longer followed")
+        update: dict[str, object] = {
+            "grant": grant,
+            "error": None,
+            "deferred": None,
+            # A complete copy is re-verified under the adopted grant by every
+            # public selection, so it need not wait for a fresh catalog.
+            "state": "retained" if held.state == "retained" else "pending",
+        }
+        pinned = (
+            selection_manifest(
+                _pinned_envelope(ledger, manifest_id, held),
+                manifest_id,
+                held.model_copy(update={"grant": grant}),
+            )
+            if held.envelope_sha256 is not None
+            else None
+        )
+        before = _transfer_inputs(ledger, manifest_id, held, held.grant)
+        after = _transfer_inputs(ledger, manifest_id, held, grant)
+        if after != before:
+            # Any input bound by the transfer receipt changed: the old operation
+            # can never resume, so start a new, separately charged one. A pinned
+            # wrapper already fixes the closure, so its allowance is recorded
+            # now and stays part of the rewritten authority receipt.
+            update["transfer_bytes"] = (
+                None if pinned is None else transfer_allowance(grant, pinned)
+            )
+            update["operation_id"] = (
+                "m" + digest((state.salt + manifest_id + after).encode())[:63]
+            )
+        adopted = HeldModel.model_validate(held.model_copy(update=update).model_dump())
+
+        def adopt(current: MirrorState) -> MirrorState:
+            if current.models.get(manifest_id) != held:
+                raise PreservationError("mirror selection changed during adoption")
+            native = dict(current.native_models)
+            if manifest_id in native:
+                native[manifest_id] = native[manifest_id].model_copy(
+                    update={"error": None}
+                )
+            return current.model_copy(
+                update={
+                    "models": dict(current.models, **{manifest_id: adopted}),
+                    "native_models": native,
+                }
+            )
+
+        state = ledger.update(adopt)
+        if adopted.envelope_sha256 is not None:
+            with ledger.child("scratch") as scratch:
+                atomic_bytes(
+                    scratch,
+                    "source-intake/" + manifest_id + ".authority.json",
+                    encode_record(_source_intake(manifest_id, adopted)),
+                )
+        return state
+
+
+def transfer_allowance(grant: SourceGrant, manifest: ArchiveManifest) -> int:
+    """Fixed object retry allowance: three complete copies plus 16 MiB, capped."""
+    return min(
+        grant.max_bytes,
+        3 * sum(f.size for f in archive_objects(manifest)) + 16 * 1024**2,
+    )
+
+
+def _transfer_inputs(
+    ledger: MirrorLedger, identity: str, held: HeldModel, grant: SourceGrant
+) -> str:
+    """Digest every input a selection's transfer receipt binds under ``grant``.
+
+    This is the exact request digest the transfer ledger checks (trust, source
+    order, destination and policy) plus the limit its allowance derives from.
+    """
+    return digest(
+        canonical_bytes(
+            {
+                "request": request_digest(
+                    identity,
+                    grant.trust,
+                    held.mirrors,
+                    ledger.path / "store",
+                    _policy(grant, held.transfer_bytes),
+                ),
+                "max_bytes": grant.max_bytes,
+            }
+        )
+    )
+
+
+def _pinned_envelope(ledger: MirrorLedger, identity: str, held: HeldModel) -> bytes:
+    """Read the exact pinned original wrapper, checked only by its digest."""
+    try:
+        with ledger.child("scratch") as scratch:
+            envelope = read_metadata(scratch, "source-intake/" + identity + ".json")
+    except FileNotFoundError:
+        with ledger.child("store") as store:
+            envelope = read_metadata(store, manifest_path(identity))
+    if digest(envelope) != held.envelope_sha256:
+        raise PreservationError("selection's original signed wrapper changed")
+    return envelope
+
+
 def record_model(
     ledger: MirrorLedger, manifest_id: str, changes: dict[str, object]
 ) -> MirrorState:
@@ -161,6 +397,8 @@ def record_model(
         "error",
         "verified_at",
         "transfer_bytes",
+        "deferred",
+        "withdrawn",
     }:
         raise PreservationError("selection authority cannot be changed by a receipt")
 
@@ -279,7 +517,15 @@ def _source_intake(identity: str, held: HeldModel) -> SourceIntake:
             canonical_bytes(
                 held.model_dump(
                     mode="json",
-                    exclude={"pinned", "blocked", "state", "error", "verified_at"},
+                    exclude={
+                        "pinned",
+                        "blocked",
+                        "state",
+                        "error",
+                        "verified_at",
+                        "deferred",
+                        "withdrawn",
+                    },
                 )
             )
         ),
@@ -357,8 +603,99 @@ def recover_completed(ledger: MirrorLedger, control: OperationControl) -> None:
         except (ValueError, OSError):
             continue
         record_model(
-            ledger, identity, {"state": "retained", "verified_at": int(time.time())}
+            ledger,
+            identity,
+            {"state": "retained", "verified_at": int(time.time()), "deferred": None},
         )
+
+
+def _budget_may_admit(
+    ledger: MirrorLedger, held: HeldModel, usage: Callable[[], int]
+) -> bool:
+    """Offline estimate whether a deferred selection could pass its budgets now.
+
+    This only gates an automatic retry, never admission itself: every budget is
+    still reserved durably before contact and checked again before bytes move.
+    """
+    state = ledger.read()
+    today = time.strftime("%Y-%m-%d", time.gmtime())
+    used = state.ingress_used if state.day == today else 0
+    needed = 0 if held.envelope_sha256 is not None else HEADROOM + 4096
+    if held.transfer_bytes is not None and (
+        held.operation_id not in state.reserved_operations
+    ):
+        needed += held.transfer_bytes
+    if used + needed > state.ingress_daily:
+        return False
+    return usage() + HEADROOM < state.disk_bytes
+
+
+def withdrawn_selections(ledger: MirrorLedger) -> dict[str, bool]:
+    """Decide, offline, which source selections current catalogs withdrew.
+
+    Only current evidence decides. A selection is withdrawn when its own source
+    has an authenticated, unexpired catalog that no longer lists it and no other
+    followed source's current catalog lists it. It is listed (not withdrawn)
+    when any current followed catalog lists it. Otherwise there is no decision
+    and the caller keeps the existing receipt: a catalog that merely expires (or
+    cannot refresh) is availability, neither withdrawal nor relisting, so it
+    never withdraws a served copy and never resumes a withdrawn one. Local
+    selections are never withdrawn.
+    """
+    state = ledger.read()
+    cache = ledger.path / "discovery"
+    current = {
+        status.source_id
+        for status in list_sources(cache)
+        if status.source_id in state.sources
+        and status.enabled
+        and status.freshness in CURRENT_CATALOGS
+    }
+    listed = {
+        result.manifest
+        for result in search_sources(cache, "", limit=MAX_SOURCES * 1000)
+        for location in result.locations
+        if location.source_id in current
+    }
+    decisions: dict[str, bool] = {}
+    for identity, held in state.models.items():
+        if held.origin != "source" or held.state == "removed":
+            continue
+        if identity in listed:
+            decisions[identity] = False
+        elif held.source_id in current:
+            decisions[identity] = True
+    return decisions
+
+
+def mark_withdrawn(ledger: MirrorLedger) -> MirrorState:
+    """Record catalog withdrawal receipts; bytes stay retained per retention rules.
+
+    A withdrawn selection stops being served on the next public selection and
+    stays withdrawn, even if the withdrawing catalog later expires or vanishes,
+    until a current followed catalog lists it again or the operator runs
+    ``mirror unwithdraw``. This is the takedown path: a source withdraws an
+    entry from its signed catalog.
+    """
+    decisions = withdrawn_selections(ledger)
+
+    def apply(state: MirrorState) -> MirrorState:
+        models = dict(state.models)
+        for identity, withdrawn in decisions.items():
+            held = models.get(identity)
+            if held is not None and held.withdrawn != withdrawn:
+                models[identity] = HeldModel.model_validate(
+                    held.model_copy(update={"withdrawn": withdrawn}).model_dump()
+                )
+        return state.model_copy(update={"models": models})
+
+    if all(
+        (held := ledger.read().models.get(identity)) is None
+        or held.withdrawn == withdrawn
+        for identity, withdrawn in decisions.items()
+    ):
+        return ledger.read()
+    return ledger.update(apply)
 
 
 def reconcile(ledger: MirrorLedger, control: OperationControl) -> None:
@@ -366,31 +703,40 @@ def reconcile(ledger: MirrorLedger, control: OperationControl) -> None:
 
     Caller owns the service lock. Each attempted selection retains one immutable
     operation and conservative ingress reservation. Failures require explicit
-    retry; source changes never delete bytes, pins or accepted model evidence.
+    retry. Ingress/disk budget refusals are deferred instead and retried in a
+    later cycle; reservations already made stay charged. Source changes never
+    delete bytes, pins or accepted model evidence; a selection withdrawn from
+    every current followed catalog is recorded and stops being served.
     """
     if (ledger.path / "prune.json").exists():
         raise PreservationError("finish the interrupted operator prune first")
     recover_completed(ledger, control)
     state = ledger.read()
     refresh_error = None
-    for source in state.sources:
-        control.checkpoint()
-        if ledger.usage() + HEADROOM > state.disk_bytes:
-            raise PreservationError("mirror disk admission budget exhausted")
-        if not ledger.reserve(32 * 1024**2, ingress=True):
-            raise PreservationError("mirror ingress budget unavailable")
-        try:
-            refresh_source(
-                ledger.path / "discovery",
-                source,
-                control=control.fork(),
-                stage_parent=ledger.path / "scratch",
-                expected_directory=ledger.read().identity["discovery"],
-            )
-        except OperationCancelled:
-            raise
-        except (ValueError, OSError) as failure:
-            refresh_error = failure_code(failure) + ": " + str(failure)[:400]
+    try:
+        for source in state.sources:
+            control.checkpoint()
+            if ledger.usage() + HEADROOM > state.disk_bytes:
+                raise PreservationError("mirror disk admission budget exhausted")
+            if not ledger.reserve(32 * 1024**2, ingress=True):
+                raise PreservationError("mirror ingress budget unavailable")
+            try:
+                refresh_source(
+                    ledger.path / "discovery",
+                    source,
+                    control=control.fork(),
+                    stage_parent=ledger.path / "scratch",
+                    expected_directory=ledger.read().identity["discovery"],
+                )
+            except OperationCancelled:
+                raise
+            except (ValueError, OSError) as failure:
+                refresh_error = failure_code(failure) + ": " + str(failure)[:400]
+    finally:
+        # Record every authenticated withdrawal already accepted, even when a
+        # later source's budget or cancellation stops this cycle: one source's
+        # failure must not delay another source's takedown.
+        mark_withdrawn(ledger)
     state = ledger.read()
     catalogs = {
         source.source_id: source.catalog_id
@@ -455,6 +801,15 @@ def reconcile(ledger: MirrorLedger, control: OperationControl) -> None:
         for x in r.locations
         if x.freshness == "fresh"
     }
+    measured: list[int] = []
+
+    def measured_usage() -> int:
+        # One inventory walk per cycle gates every deferred retry; admission
+        # itself always measures again before any bytes move.
+        if not measured:
+            measured.append(ledger.usage())
+        return measured[0]
+
     for identity, held in ledger.read().models.items():
         control.checkpoint()
         if held.blocked or held.state == "removed" or held.error:
@@ -467,15 +822,24 @@ def reconcile(ledger: MirrorLedger, control: OperationControl) -> None:
                     continue
                 if (identity, held.source_id) not in fresh:
                     continue
+                if held.deferred is not None and not _budget_may_admit(
+                    ledger, held, measured_usage
+                ):
+                    # Deferred intake waits offline: no contact, no new charge.
+                    continue
                 # Reserve bounded metadata before first contact. The authenticated
                 # original is reused by fetch, not downloaded a second time.
                 # Object credit is proportional to the authenticated closure.
+                # A deferred retry may need to authenticate the wrapper again, so
+                # it is charged afresh rather than reusing the first reservation.
                 if not ledger.reserve(
                     HEADROOM + 4096,
                     ingress=True,
-                    operation="meta-" + digest(held.operation_id.encode())[:59],
+                    operation=None
+                    if held.deferred is not None and held.envelope_sha256 is None
+                    else "meta-" + digest(held.operation_id.encode())[:59],
                 ):
-                    raise PreservationError("mirror ingress budget unavailable")
+                    raise MirrorBudgetDeferred("mirror ingress budget unavailable")
                 needs_record = held.envelope_sha256 is None
                 if needs_record:
                     envelope = inspect_envelope(
@@ -506,18 +870,14 @@ def reconcile(ledger: MirrorLedger, control: OperationControl) -> None:
                 manifest = selection_manifest(envelope, identity, held)
                 allowance = held.transfer_bytes
                 if allowance is None:
-                    allowance = min(
-                        held.grant.max_bytes,
-                        3 * sum(f.size for f in archive_objects(manifest))
-                        + 16 * 1024**2,
-                    )
+                    allowance = transfer_allowance(held.grant, manifest)
                     held = record_model(
                         ledger, identity, {"transfer_bytes": allowance}
                     ).models[identity]
                 if not ledger.reserve(
                     allowance, ingress=True, operation=held.operation_id
                 ):
-                    raise PreservationError("mirror ingress budget unavailable")
+                    raise MirrorBudgetDeferred("mirror ingress budget unavailable")
                 with ledger.child("store") as store:
                     missing, _reused, partial = observe_objects(
                         store,
@@ -535,7 +895,7 @@ def reconcile(ledger: MirrorLedger, control: OperationControl) -> None:
                 if usage + additional + HEADROOM > ledger.read().disk_bytes or (
                     shutil.disk_usage(ledger.path).free < additional + HEADROOM
                 ):
-                    raise PreservationError("mirror disk admission budget exhausted")
+                    raise MirrorBudgetDeferred("mirror disk admission budget exhausted")
                 if ledger.read().models.get(identity) != held:
                     raise PreservationError(
                         "mirror selection changed before source intake"
@@ -559,15 +919,26 @@ def reconcile(ledger: MirrorLedger, control: OperationControl) -> None:
             record_model(
                 ledger,
                 identity,
-                {"state": "retained", "verified_at": int(time.time()), "error": None},
+                {
+                    "state": "retained",
+                    "verified_at": int(time.time()),
+                    "error": None,
+                    "deferred": None,
+                },
             )
         except OperationCancelled:
             raise
+        except MirrorBudgetDeferred as deferral:
+            # Budget refusals are not sticky: the next cycle retries this model.
+            record_model(ledger, identity, {"deferred": str(deferral)[:400]})
         except (ValueError, OSError) as error:
             record_model(
                 ledger,
                 identity,
-                {"error": failure_code(error) + ": " + str(error)[:400]},
+                {
+                    "error": failure_code(error) + ": " + str(error)[:400],
+                    "deferred": None,
+                },
             )
     ledger.update(
         lambda current: current.model_copy(
@@ -629,7 +1000,7 @@ def public_selection(
         ledger.child("public") as target,
     ):
         for identity, held in state.models.items():
-            if held.blocked or held.error or held.state != "retained":
+            if held.blocked or held.error or held.withdrawn or held.state != "retained":
                 continue
             try:
                 manifest = verify_retained(
@@ -697,8 +1068,11 @@ class MirrorServer(SeedServer):
         self._connections: set[socket.socket] = set()
         self._connections_lock = threading.Lock()
         self._closing = False
+        # TLS terminates in a reverse proxy (see deploy/mirror); the mirror
+        # itself normally listens on loopback only.
         self.tls_context = None
         state = ledger.read()
+        self.address_family = socket.AF_INET6 if ":" in state.bind else socket.AF_INET
         http.server.ThreadingHTTPServer.__init__(
             self, (state.bind, state.port), SeedHandler
         )
@@ -757,6 +1131,7 @@ class MirrorServer(SeedServer):
             (held := state.models.get(identity)) is not None
             and not held.blocked
             and not held.error
+            and not held.withdrawn
             and held.state == "retained"
             for identity in self.owners.get(path, ())
         )
@@ -886,6 +1261,21 @@ def run_mirror(
             else None
         )
         error: list[BaseException] = []
+        announcer = Announcer(ledger)
+
+        def announce(serving: frozenset[str]) -> None:
+            # Announcement is best effort and never stops retained service.
+            if ledger.read().announce is None:
+                return
+            try:
+                announcer.round(serving, active.fork())
+            except OperationCancelled:
+                raise
+            except (ValueError, OSError) as failure:
+                code = "announce_" + failure_code(failure)
+                ledger.update(
+                    lambda current: current.model_copy(update={"last_error": code})
+                )
 
         def worker() -> None:
             while not stop.is_set():
@@ -897,27 +1287,35 @@ def run_mirror(
                         server.allowed, server.owners = public_selection(
                             ledger, active.fork()
                         )
-                    reconcile(ledger, active.fork())
+                    # A budget or source failure must not skip the steps below:
+                    # withdrawals already recorded must leave the serving set,
+                    # and the card must be renewed from verified retained copies.
+                    failed: BaseException | None = None
+                    try:
+                        reconcile(ledger, active.fork())
+                    except OperationCancelled:
+                        raise
+                    except (ValueError, OSError) as failure:
+                        failed = failure
                     if server is not None:
                         server.allowed, server.owners = public_selection(
                             ledger, active.fork()
                         )
+                        serving = frozenset(
+                            identity
+                            for identities in server.owners.values()
+                            for identity in identities
+                        )
                         if serving_selection is not None:
                             try:
-                                serving_selection(
-                                    tuple(
-                                        sorted(
-                                            {
-                                                identity
-                                                for identities in server.owners.values()
-                                                for identity in identities
-                                            }
-                                        )
-                                    )
-                                )
+                                serving_selection(tuple(sorted(serving)))
                             except Exception as failure:
                                 error.append(failure)
                                 return
+                        announce(serving)
+                    if failed is not None:
+                        # Status records the reconcile failure, not the announce.
+                        raise failed
                 except OperationCancelled:
                     return
                 except (ValueError, OSError) as failure:
@@ -973,6 +1371,7 @@ def run_mirror(
                 server.close_connections()
                 server.shutdown()
             background.join()
+            announcer.close()
             if server is not None:
                 server.server_close()
             if web is not None:

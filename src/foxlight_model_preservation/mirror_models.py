@@ -6,6 +6,7 @@ from typing import Annotated, Literal
 
 from pydantic import Field, model_validator
 
+from .mirror_cards import base_url
 from .models import Digest, Identifier, PreservationError, Record, TrustProfile
 from .torrent import TorrentExport
 
@@ -106,6 +107,16 @@ class HeldModel(Record):
     state: Literal["pending", "retained", "removed"] = "pending"
     error: str | None = None
     verified_at: int | None = None
+    deferred: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=500,
+        description="Budget refusal retried automatically; never a sticky error.",
+    )
+    withdrawn: bool = Field(
+        default=False,
+        description="No current followed catalog lists it: retained, not served.",
+    )
 
     @model_validator(mode="after")
     def selection_authority(self) -> HeldModel:
@@ -129,6 +140,28 @@ class HeldModel(Record):
             raise PreservationError(
                 "local selection needs an exact wrapper and no network authority"
             )
+        return self
+
+
+class AnnouncePolicy(Record):
+    """Explicit public announcement of this mirror's own reachable address.
+
+    A signed mirror card names ``public_url``; it is served in the mirror's own
+    peers document. Nostr publishing and DHT announcing are separate opt-ins
+    that copy the address to third-party relays or the public DHT. This is not
+    anonymous: the address, and the models it probably holds, are public.
+    """
+
+    public_url: str = Field(min_length=8, max_length=2048)
+    contact: str | None = Field(default=None, min_length=1, max_length=200)
+    nostr: bool = False
+    dht: bool = False
+
+    @model_validator(mode="after")
+    def plain_url(self) -> AnnouncePolicy:
+        """Accept only a credential-free HTTP(S) base URL without a trailing slash."""
+        if base_url(self.public_url) != self.public_url:
+            raise PreservationError("public URL must not end with a slash")
         return self
 
 
@@ -166,7 +199,7 @@ class MirrorState(Record):
     ingress_daily: int = Field(ge=1, le=2**53 - 1)
     egress_daily: int = Field(ge=1, le=2**53 - 1)
     egress_monthly: int = Field(ge=1, le=2**53 - 1)
-    bind: Literal["127.0.0.1", "0.0.0.0"] = "127.0.0.1"  # noqa: S104
+    bind: Literal["127.0.0.1", "0.0.0.0", "::1", "::"] = "127.0.0.1"  # noqa: S104
     port: int = Field(default=8080, ge=0, le=65535)
     http_enabled: bool = True
     serve_start: int = Field(default=0, ge=0, le=23)
@@ -190,6 +223,7 @@ class MirrorState(Record):
     native_models: dict[Digest, NativeModel] = Field(
         default_factory=dict, max_length=1000
     )
+    announce: AnnouncePolicy | None = None
 
     @model_validator(mode="after")
     def native_profile_version(self) -> MirrorState:

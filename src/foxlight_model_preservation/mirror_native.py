@@ -491,6 +491,7 @@ class NativeMirrors:
             and held.state == "retained"
             and not held.blocked
             and not held.error
+            and not held.withdrawn
             and not (native and native.error)
         )
 

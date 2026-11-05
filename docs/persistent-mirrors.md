@@ -6,36 +6,239 @@ and reviewed terms, retains their original signed data, and serves verified
 copies. It needs Python 3.11+ on Linux/macOS, ordinary POSIX filesystem semantics
 and the standalone package. Skulk, its SDK, GPUs and hosted accounts are optional.
 
-This implementation supplies a controller and a Linux service recipe.
-Standalone 0.13 and later include separately opted-in
-[persistent IPFS/BitTorrent sessions](persistent-peers.md). Mirrors carry both
-public preservation-v1 bundles and draft [PMF](portable-model-format.md)
-archives natively (see [PMF over the network](#pmf-over-the-network)). Mirrors
-find each other through signed cards and gossip; see
-[mirror discovery](mirror-discovery.md). Existing finite
-peer/BitTorrent tools remain usable. It makes no anonymity or censorship-resistance
+Installing the software is receive-only. Nothing is followed, served or
+announced until you review one policy and consent to public serving. Public
+serving is not anonymous: anyone can see and contact a public mirror, and the
+sources and peers it contacts see its address. It makes no censorship-resistance
 qualification.
 
-## Prepare offline
+Mirrors carry both public preservation-v1 bundles and draft
+[PMF](portable-model-format.md) archives natively (see
+[PMF over the network](#pmf-over-the-network)). Standalone 0.13 and later include
+separately opted-in [persistent IPFS/BitTorrent sessions](persistent-peers.md).
 
-Install the reviewed package as described in [release verification](releases.md).
-Use a disk whose rename, fsync and flock behavior is reliable. A missing/replaced
-enrolled directory is refused. Keep the owner-only state on durable storage;
-retaining only weights loses source floors, policy and accounting.
+## Quickstart: one reviewed collection file
+
+A **collection file** bundles everything an operator must independently review
+before following a source. Obtain it, and the source document it names, from
+someone you trust, and check them yourself:
+
+```json
+{
+  "schema_version": "sovereign.mirror-collection.v1",
+  "title": "Example public models",
+  "source": {"file": "example.foxsource"},
+  "expected_bootstrap_id": "BOOTSTRAP_SHA256",
+  "trust": {
+    "schema_version": "foxlight.model-preservation.trust.v1",
+    "keys": [{"key_id": "ed25519:KEY_SHA256", "public_key": "BASE64_KEY"}],
+    "threshold": 1,
+    "as_of": "2026-11-01"
+  },
+  "terms": [
+    {"license_id": "Apache-2.0", "terms_reference": "EXACT_SIGNED_REFERENCE"}
+  ]
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `schema_version` | Exactly `sovereign.mirror-collection.v1`. |
+| `title` | A label shown in the review (1-200 characters). |
+| `source` | Exactly one of `file` (a path beside the collection file; absolute paths and `..` are refused) or `inline` (the source document's JSON object). |
+| `expected_bootstrap_id` | The whole source document's independently authenticated bootstrap ID. |
+| `trust` | The model-signing trust profile. Key IDs must match their keys. |
+| `terms` | 1-100 exact license/reference pairs you reviewed for redistribution. |
+| `max_bytes` | Optional per-model byte limit (default: derived from the disk budget). |
+| `allow_http` | Optional; `true` permits plaintext source/model connections. |
+
+The parser is strict: duplicate keys, unknown fields and other versions refuse.
+A collection grants nothing by itself. A source's own candidate keys are never
+accepted; only the `trust` you reviewed is.
 
 ```sh
-model-preserve mirror init --dir /srv/sovereign/example --name 'My mirror' \
-  --disk-bytes 107374182400 --ingress-daily 53687091200 \
-  --egress-daily 53687091200 --egress-monthly 1099511627776
+mkdir -m 0700 ~/sovereign-mirrors
+model-preserve mirror quickstart --dir ~/sovereign-mirrors/example \
+  --collection collection.json --disk-bytes 500G \
+  --public-url https://mirror.example.org
+```
+
+Quickstart prints one review: source name and IDs, model key fingerprints and
+threshold, accepted terms, per-model limit, every budget, listener, public URL,
+announcement choices, how long the restart grant lasts, and what is exposed. It
+then asks you to type `serve`. For non-interactive use, read the review with
+`--plan-only` (which changes nothing) and consent with
+`--yes-i-consent-to-public-serving`. Without consent nothing is written.
+
+After consent it runs `init` (or `config` on an existing mirror), `follow` and
+`grant-resume` in one step, still offline. Add `--run` to start serving
+immediately under the new grant, or start the [service](#run-as-a-service).
+Re-running quickstart is safe and records a fresh grant each time. A changed
+setting clears the old grant; unchanged settings change nothing else. A source
+already followed under the same bootstrap keeps the roots and catalog its later
+refreshes accepted: quickstart applies the reviewed grant without reimporting
+the collection's possibly older snapshot. Quickstart refuses to resume a
+paused mirror or rejoin one that left. The default grant lasts 90 days
+(`--resume-for`, at most 366 days).
+
+Sizes everywhere accept bytes or binary units: `K`, `M`, `G`, `T` and `P` are
+powers of 1024 (`100G` is 100 × 1024³ bytes; `GiB`/`GB` spellings are the same).
+`--name` defaults to the host name.
+
+## Run in a container
+
+[`deploy/mirror/`](../deploy/mirror/README.md) packages a multi-arch image
+(amd64 and arm64) and a compose file with Caddy. Caddy obtains a certificate for
+your domain and reverse-proxies to the mirror, which listens on loopback inside
+the same network namespace. Caddy's access log stays off.
+
+```sh
+cp deploy/mirror/mirror.env.example deploy/mirror/mirror.env   # edit it
+mkdir deploy/mirror/collection
+cp collection.json example.foxsource deploy/mirror/collection/
+docker compose --env-file deploy/mirror/mirror.env \
+  -f deploy/mirror/compose.yaml up -d --build
+docker compose --env-file deploy/mirror/mirror.env \
+  -f deploy/mirror/compose.yaml logs mirror   # read the review
+```
+
+`SOVEREIGN_MIRROR_DOMAIN`, `SOVEREIGN_MIRROR_CONTACT`, `SOVEREIGN_MIRROR_BUDGET`,
+the collection directory and `SOVEREIGN_MIRROR_CONSENT` configure it. Until
+`SOVEREIGN_MIRROR_CONSENT=yes-i-consent-to-public-serving` is set, the container
+runs plan-only: it prints the review and serves nothing. With consent, every
+start re-applies the collection and policy, renews the grant and serves. A
+setup refusal (an invalid collection, a paused or departed mirror, an
+interrupted init) is printed and the container idles instead of looping; use
+`docker compose exec mirror model-preserve mirror ...` to inspect or
+`mirror resume`, then restart it.
+
+## Run as a service
+
+The [systemd user unit](../deploy/mirror/model-preserve-mirror@.service) matches
+the [installer](installation.md): software in `~/sovereign` (a link to the
+installed release) and mirrors in `~/sovereign-mirrors/<instance>`. It only runs
+`mirror run --resume`, which refuses without a current restart grant.
+
+```sh
+install -Dm0644 deploy/mirror/model-preserve-mirror@.service \
+  ~/.config/systemd/user/model-preserve-mirror@.service
+loginctl enable-linger "$USER"
+systemctl --user daemon-reload
+systemctl --user enable --now model-preserve-mirror@example
+```
+
+The intended layout keeps the mirror on loopback behind a TLS reverse proxy
+(such as Caddy) that you run separately. The Python server does not terminate
+TLS itself.
+
+## Change configuration later
+
+```sh
+model-preserve mirror config --dir ~/sovereign-mirrors/example \
+  --disk-bytes 2T --egress-monthly 4T --port 8081
+```
+
+`config` changes the name, budgets, bind (`127.0.0.1`, `::1`, `0.0.0.0` or `::`),
+port, UTC serving window, refresh interval, public URL, contact and announcement
+choices. Stop the controller first. Any effective change alters the policy
+identity and clears the standing restart grant; grant it again after review.
+Retained bytes are never touched. Per-model limits that were derived from the
+old disk budget follow the new one; limits set explicitly stay.
+
+An announcement policy and the deferred/withdrawn receipts below are written to
+the owner state only when used, so an unchanged mirror keeps its exact encoding
+and restart grant across this upgrade. A release that predates them refuses such
+a ledger rather than silently ignoring it.
+
+## Announce the mirror
+
+With a public URL, a running mirror signs a short-lived (7-day) mirror card with
+its own mirror key (`mirror-key.pem` in the mirror directory, never a model or
+source key). The card names the URL, an optional contact, the followed catalog
+IDs and a filter of the verified selections it serves. It is published, with
+peers this mirror has spot-checked, at `/.well-known/sovereign/peers.json`. Each
+cycle the mirror learns peers from followed catalogs' mirror hints, checks that
+they serve bytes they claim, and republishes. Gossip is charged 64 MiB of ingress
+per round and skipped when the daily budget cannot cover it. Every read in a
+round is capped to fit that reservation: at most 8 peers documents, 2
+spot-checked mirrors and 18 MiB of relay frames. HTTP headers and DHT datagrams
+are outside it. Serving, withdrawals and the card are renewed every cycle from
+verified retained copies, even when source refresh or intake fails on budget. See
+[mirror discovery](mirror-discovery.md) for how clients use cards.
+
+HTTPS is preferred; an `http://` URL is accepted with a warning. Two further
+choices are separate opt-ins, each needing `--confirm-public-announcement`
+because they publish the address beyond this mirror:
+
+- `--announce-nostr` publishes the card to public Nostr relays.
+- `--announce-dht` announces the address on the public BitTorrent DHT (needs the
+  `bittorrent` extra). The DHT can only express a plain-HTTP root URL, so an
+  HTTPS URL behind a proxy is not announced there.
+
+`mirror config --clear-public-url` stops announcing and removes the peers
+document; an already published card lapses when it expires. The desktop
+community mirror announces the same way. [Bucket mirrors](bucket-mirrors.md) are
+static: they never crawl, spot-check or gossip, and their peers document changes
+only when a running host publishes it.
+
+## Takedown: withdrawal versus expiry
+
+A source withdraws a model by publishing a new signed catalog without it. When
+the selection's own source has a current (authenticated, unexpired) catalog that
+no longer lists it, and no other followed source's current catalog lists it,
+the mirror records the selection as `withdrawn` and stops serving it on the next
+cycle: its public links are removed and requests are refused. Retained bytes
+stay under the ordinary retention rules (pin, block and explicit prune). Each
+source's withdrawals are recorded as soon as its refresh is accepted, even if a
+later source's refresh fails on budget in the same cycle.
+
+A withdrawal persists until a current followed catalog lists the model again,
+or until you run `mirror unwithdraw --manifest ...`. If the withdrawing catalog
+later expires or disappears, the model stays withdrawn. While a current catalog
+still omits it, the next cycle withdraws it again.
+
+Expiry is different. A catalog that merely expires, a source that cannot be
+reached, or a refresh that fails says nothing about withdrawal: that is an
+availability problem. Retained verified copies that were never withdrawn keep
+serving, and withdrawn ones stay withdrawn. To stop serving one model yourself,
+use `mirror block`.
+
+## Budgets that defer, failures that wait
+
+When the daily ingress budget or the disk budget cannot admit a selection now,
+it is recorded as **deferred**, not failed. A later cycle retries it
+automatically once an offline estimate says the budget could admit it; until
+then no supplier is contacted. Reservations already made stay charged and are
+never refunded or charged twice. Raising a budget with `mirror config` lets the
+next cycle continue. Every other failure (signatures, terms, corrupt bytes, the
+per-model limit) stays a recorded error until an explicit `mirror retry`.
+
+`mirror retry --adopt-source-grant` (with the controller stopped) replaces a
+selection's original keys, terms and limit with its source's current grant,
+after you re-followed that source with a changed policy. A pinned original
+wrapper must still authenticate under the adopted keys and terms. If adoption
+changes anything the transfer receipt binds (keys, connection permissions or
+the limit), it starts a new, separately charged ingress operation.
+
+## Set up manually
+
+Quickstart wraps these steps; they remain available individually. Use a disk
+whose rename, fsync and flock behavior is reliable. A missing/replaced enrolled
+directory is refused. Keep the owner-only state on durable storage; retaining
+only weights loses source floors, policy and accounting.
+
+```sh
+model-preserve mirror init --dir ~/sovereign-mirrors/example \
+  --disk-bytes 100G --ingress-daily 50G --egress-daily 50G --egress-monthly 1T
 ```
 
 The parent must exist and belong to you; the selected directory must be new.
 Init creates private `mirror.json`, `discovery/`, `store/`, `public/`, `scratch/`
 and enrolls their device/inode identities. It opens no listener and obtains no
 software or models. The default HTTP bind is `127.0.0.1:8080`. Choose
-`--bind 0.0.0.0` explicitly at init for other hosts. Arrange routing/firewall/TLS
-separately; a bind does not establish public reachability. HTTP clients need
-explicit plaintext/private-address grants where applicable.
+`--bind 0.0.0.0` or `--bind ::` explicitly for other hosts. Arrange
+routing/firewall/TLS separately; a bind does not establish public reachability.
+HTTP clients need explicit plaintext/private-address grants where applicable.
 
 Obtain a source/cache file and authenticate its whole bootstrap identity
 independently. Separately obtain the model-signing trust file. A source's bundled
@@ -47,10 +250,10 @@ license/reference pairs whose redistribution terms you have reviewed:
 ```
 
 ```sh
-model-preserve mirror follow --dir /srv/sovereign/example \
+model-preserve mirror follow --dir ~/sovereign-mirrors/example \
   --source-file chosen.foxsource --expected-bootstrap-id BOOTSTRAP_SHA256 \
   --bundle-trust model-trust.json --terms-file terms.json --confirm-redistribution
-model-preserve mirror plan --dir /srv/sovereign/example
+model-preserve mirror plan --dir ~/sovereign-mirrors/example
 ```
 
 Follow and plan stay offline. The model-key and terms policy authorizes intake
@@ -62,10 +265,12 @@ closure. Unfamiliar cards/properties/provenance are retained unchanged.
 
 Use `--allow-http`, `--allow-private`, and `--allow-local` on **follow** only when
 those source/model connections are intended. `--max-bytes` sets the fixed
-per-model object transfer allowance (default 20 GiB), including retries. The
-stored grant includes all these choices. Re-following changes policy, preserves
-source floors and invalidates any standing restart grant. Stop the controller
-before changing sources; pause/block/pin are separate live local controls.
+per-model object transfer allowance, including retries; by default it is the
+disk budget less 256 MiB of headroom, so any model the disk could hold is
+admitted. The stored grant includes all these choices. Re-following changes
+policy, preserves source floors and invalidates any standing restart grant. Stop
+the controller before changing sources; pause/block/pin are separate live local
+controls.
 
 ## Retain a public copy you already have
 
@@ -75,11 +280,11 @@ exact manifest, independently accepted model keys, and terms you reviewed for
 every member:
 
 ```sh
-model-preserve mirror retain --dir /srv/sovereign/example \
+model-preserve mirror retain --dir ~/sovereign-mirrors/example \
   --store /path/to/verified-public-archive --manifest MANIFEST_SHA256 \
   --bundle-trust model-trust.json --terms-file terms.json \
   --confirm-redistribution
-model-preserve mirror status --dir /srv/sovereign/example
+model-preserve mirror status --dir ~/sovereign-mirrors/example
 ```
 
 A public kit can first be imported using the ordinary independently trusted
@@ -180,11 +385,11 @@ A retained model does not depend on its original catalog, publisher or Library
 import record. Inspect an exact identity directly, regardless of list pages:
 
 ```sh
-model-preserve mirror selection --dir /srv/sovereign/example \
+model-preserve mirror selection --dir ~/sovereign-mirrors/example \
   --manifest MANIFEST_SHA256
-model-preserve mirror inspect --dir /srv/sovereign/example \
+model-preserve mirror inspect --dir ~/sovereign-mirrors/example \
   --manifest MANIFEST_SHA256
-model-preserve mirror export-kit --dir /srv/sovereign/example \
+model-preserve mirror export-kit --dir ~/sovereign-mirrors/example \
   --manifest MANIFEST_SHA256 --output /separate-disk/model.foxkit
 ```
 
@@ -206,7 +411,7 @@ already on disk, stop the mirror controller, then recover that exact selection
 without starting a service or contacting a source:
 
 ```sh
-model-preserve mirror recover --dir /srv/sovereign/example \
+model-preserve mirror recover --dir ~/sovereign-mirrors/example \
   --manifest MANIFEST_SHA256 --progress
 ```
 
@@ -262,6 +467,7 @@ authority remain separate. No private signing key or mirror policy is exported.
 These tools recover both public preservation-v1 and PMF selections; a PMF
 selection exports as a PMF (v2) recovery kit.
 
+
 ## Run manually, then choose restart permission separately
 
 HTTP serving is a separate choice from native peer transports. It remains enabled
@@ -269,7 +475,7 @@ for existing mirrors. To run IPFS/BitTorrent without an HTTP listener, stop the
 controller and choose:
 
 ```sh
-model-preserve mirror http --dir /srv/sovereign/example --disable
+model-preserve mirror http --dir ~/sovereign-mirrors/example --disable
 ```
 
 Then explicitly configure at least one native transport as described in
@@ -283,22 +489,25 @@ router, and is not a privacy mode. It cannot stop an independently operated
 static server or recall copies another operator retained.
 
 ```sh
-model-preserve mirror run --dir /srv/sovereign/example --public --seconds 3600
+model-preserve mirror run --dir ~/sovereign-mirrors/example --public --seconds 3600
 ```
 
 This is a fresh finite manual public grant, at most 24 hours. It refreshes source
 metadata, selects at most 1,000 exact cached candidates in deterministic
 mirror-specific order and admits only fresh followed-source selections. Failed
-admissions retain a reason and require explicit `retry`. A full 1,000-selection
-ledger refuses new intake while continuing existing retries and verification;
-removed tombstones also occupy ledger slots. Status reports capacity. Retain
-that ledger and use a separately configured state directory for additional
-intake rather than erasing deletion/accounting history. There is no default
-catalog or compulsory Foxlight key/service. Existing verified retained models
-remain available when catalogs expire, withdraw entries or disappear. A completed
-pending local or v5 source capture can be recovered without its publisher once
-all original objects are present. Receiving remaining objects still requires
-the original source freshness, route permissions and bounded operation policy.
+admissions retain a reason and require explicit `retry`; budget refusals are
+[deferred](#budgets-that-defer-failures-that-wait) instead. A full
+1,000-selection ledger refuses new intake while continuing existing retries and
+verification; removed tombstones also occupy ledger slots. Status reports
+capacity. Retain that ledger and use a separately configured state directory for
+additional intake rather than erasing deletion/accounting history. There is no
+default catalog or compulsory Foxlight key/service. Existing verified retained
+models remain available when catalogs expire or disappear; entries
+[withdrawn](#takedown-withdrawal-versus-expiry) from every current followed
+catalog stop being served. A completed pending local or v5 source capture can be
+recovered without its publisher once all original objects are present.
+Receiving remaining objects still requires the original source freshness, route
+permissions and bounded operation policy.
 
 The `ready` receipt identifies a local listening port; it does not mean models
 have finished downloading or that the port is publicly reachable. Use status.
@@ -309,35 +518,37 @@ selected native transport refuses before starting byte workers or networking.
 Startup reads and validates the selected policy under the owner lock, so a
 completed configuration change cannot leave an old transport choice in effect.
 Every cycle re-verifies retained closures, publishes objects before envelopes,
-and serves only exact manifest/object paths. There is no upload, directory
-listing, admin HTTP endpoint, request-history log or implicit proxy. Public
-hardlinks avoid duplicate model allocation; they are not an integrity boundary.
-Clients independently verify exact identities, signatures and file hashes.
+and serves only exact manifest/object paths and the peers document. There is no
+upload, directory listing, admin HTTP endpoint, request-history log or implicit
+proxy. Public hardlinks avoid duplicate model allocation; they are not an
+integrity boundary. Clients independently verify exact identities, signatures
+and file hashes.
 
 Stop with Ctrl-C, SIGTERM, or your service manager. The process retains ownership
 until byte work and actual HTTP handlers drain. Stop actively shuts down accepted
-sockets, including incomplete request headers, before joining handlers. An OS filesystem stall may delay
-that drain; cancellation does not interrupt the filesystem. A forced process kill
-releases the kernel lock and stops its in-process HTTP threads, but does not
-reset reservations or authorize a restart. No separate native daemon is started.
+sockets, including incomplete request headers, before joining handlers. An OS
+filesystem stall may delay that drain; cancellation does not interrupt the
+filesystem. A forced process kill releases the kernel lock and stops its
+in-process HTTP threads, but does not reset reservations or authorize a restart.
+No separate native daemon is started.
 
 Unattended serving requires a **separate** expiring restart grant, valid for at
-most 366 days. Supply an absolute UTC Unix expiry you chose:
+most 366 days:
 
 ```sh
-model-preserve mirror grant-resume --dir /srv/sovereign/example \
-  --expires UTC_UNIX_EXPIRY --confirm-resume
-model-preserve mirror run --dir /srv/sovereign/example --resume
+model-preserve mirror grant-resume --dir ~/sovereign-mirrors/example \
+  --for 365d --confirm-resume
+model-preserve mirror run --dir ~/sovereign-mirrors/example --resume
 ```
 
-This grant binds directory identities, sources/model keys/terms, transports,
-limits and serving policy. Changes invalidate it. `--resume` refuses without it,
-after expiry, clock rollback or durable pause/leave. **Do not configure a service
-manager to replay `--public`**: that is a new manual grant on each invocation.
-Use only `--resume` with the separate standing grant. The
-[systemd template](../deploy/mirror/model-preserve-mirror@.service) does this.
-Install/enable it only after reviewing paths, user, configuration and public
-permission. The recipe does not create users, mount disks or grant consent.
+`--expires UTC_UNIX_EXPIRY` remains available instead of `--for`. This grant
+binds directory identities, sources/model keys/terms, transports, limits,
+listener, announcement and serving policy. Changes invalidate it. `--resume`
+refuses without it, after expiry, clock rollback or durable pause/leave. **Do not
+configure a service manager to replay `--public`**: that is a new manual grant on
+each invocation. Use only `--resume` with the separate standing grant, as the
+[service](#run-as-a-service) and the container do. The recipes do not create
+users, mount disks or grant consent.
 
 ## Observe, stop serving, retain
 
@@ -367,13 +578,13 @@ evidence or operator retention/deletion. Ordinary callers retain the default
 standalone subprocess supervisor; no Skulk dependency is introduced.
 
 ```sh
-model-preserve mirror status --dir /srv/sovereign/example
-model-preserve mirror pause --dir /srv/sovereign/example
-model-preserve mirror resume --dir /srv/sovereign/example
-model-preserve mirror revoke-resume --dir /srv/sovereign/example
-model-preserve mirror leave --dir /srv/sovereign/example
-model-preserve mirror pin --dir /srv/sovereign/example --manifest MANIFEST_SHA256
-model-preserve mirror block --dir /srv/sovereign/example --manifest MANIFEST_SHA256
+model-preserve mirror status --dir ~/sovereign-mirrors/example
+model-preserve mirror pause --dir ~/sovereign-mirrors/example
+model-preserve mirror resume --dir ~/sovereign-mirrors/example
+model-preserve mirror revoke-resume --dir ~/sovereign-mirrors/example
+model-preserve mirror leave --dir ~/sovereign-mirrors/example
+model-preserve mirror pin --dir ~/sovereign-mirrors/example --manifest MANIFEST_SHA256
+model-preserve mirror block --dir ~/sovereign-mirrors/example --manifest MANIFEST_SHA256
 ```
 
 Status/plan read local state and authenticated cached listings. They contact no
@@ -393,9 +604,11 @@ the original trust, sources, policy, operation and remaining allowance; it never
 refills the operation's spent credit.
 
 A saved copy's terms and trust remain its original accepted policy. Re-following
-with different keys does not silently rewrite retained model authority. Block a
-retained copy explicitly if you no longer wish to serve it. A catalog withdrawal,
-expiry, budget shortage or missing source has no deletion power.
+with different keys does not silently rewrite retained model authority; adopt
+the new grant explicitly with `mirror retry --adopt-source-grant`. Block a
+retained copy explicitly if you no longer wish to serve it. A catalog withdrawal
+stops serving but, like expiry, a budget shortage or a missing source, has no
+deletion power.
 
 ## Budgets and windows
 
@@ -414,14 +627,14 @@ source refresh. Object allowance scales to three complete copies plus 16 MiB,
 capped by the reviewed maximum. The exact allowance is retained across retries.
 These are intentionally conservative reservations, not received-byte counters.
 They include unused and uncertain credit, survive crashes and are not refunded
-on retry, withdrawal or prune. Selected HTTP response bodies are fully reserved
+on retry, deferral, withdrawal or prune. Selected HTTP response bodies are fully reserved
 and fsynced before sending; interrupted responses keep the entire reservation.
 Headers, TLS/TCP overhead and HTTP error responses are outside that body budget.
 Daily/monthly windows use UTC; forward rollover resets only its own window.
 Clock rollback refuses new credit rather than reopening an earlier window.
 
-An optional UTC serving window is selected at init with `--serve-start HOUR`
-and `--serve-end HOUR`; equal values mean all day and overnight ranges work.
+An optional UTC serving window is selected at init or with `mirror config`
+using `--serve-start HOUR` and `--serve-end HOUR`; equal values mean all day and overnight ranges work.
 Budget/window/pause/grant refusal returns 503 with `Retry-After` and an empty
 body. The server checks local policy between chunks. Metadata acquisition and
 model object budgets remain distinct; no hard total wire quota is claimed.
@@ -432,9 +645,9 @@ Stop the controller and explicitly unblock its pin protection before physical
 removal; keeping it blocked prevents serving and automatic re-admission:
 
 ```sh
-model-preserve mirror block --dir /srv/sovereign/example --manifest MANIFEST_SHA256
-model-preserve mirror unpin --dir /srv/sovereign/example --manifest MANIFEST_SHA256
-model-preserve mirror prune --dir /srv/sovereign/example \
+model-preserve mirror block --dir ~/sovereign-mirrors/example --manifest MANIFEST_SHA256
+model-preserve mirror unpin --dir ~/sovereign-mirrors/example --manifest MANIFEST_SHA256
+model-preserve mirror prune --dir ~/sovereign-mirrors/example \
   --manifest MANIFEST_SHA256 --confirm-manifest MANIFEST_SHA256
 ```
 
@@ -450,7 +663,7 @@ preventing catalog updates from quietly re-downloading the removed model.
 Do not attach an unmanaged static server directly to `public/` if you expect the
 controller's live pause/grant/budget enforcement. A static host supplies its own
 policy and quotas. Retain the complete state/software/trust and test recovery on
-your actual filesystem. Ordinary HTTP hosting is visible and non-anonymous.
+your actual filesystem. Ordinary HTTP hosting is visible and not anonymous.
 
 ## Slow recipients and upload reservations
 

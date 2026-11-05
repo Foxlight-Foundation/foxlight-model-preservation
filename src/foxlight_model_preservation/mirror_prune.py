@@ -164,7 +164,12 @@ def prune(ledger: MirrorLedger, manifest: str, confirmation: str) -> dict[str, o
             current = models[manifest]
             models[manifest] = HeldModel.model_validate(
                 current.model_copy(
-                    update={"state": "removed", "error": None, "verified_at": None}
+                    update={
+                        "state": "removed",
+                        "error": None,
+                        "verified_at": None,
+                        "deferred": None,
+                    }
                 ).model_dump()
             )
             native_models = dict(state.native_models)
