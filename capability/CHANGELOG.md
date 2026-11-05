@@ -6,6 +6,8 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+## 0.24.0
+
 - Help keep models available says how the mirror is found. Setup adds an
   optional public address (HTTPS preferred, plain HTTP warned) and toggles for
   announcing on the BitTorrent DHT and publishing to Nostr relays. Both stay on

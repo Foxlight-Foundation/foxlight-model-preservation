@@ -40,9 +40,9 @@ software signing, and an unfamiliar capture key still needs explicit review.
 
 The [independent Library](docs/sovereign-desktop.md) also supports signed catalog
 browsing, independent source following and offline search. The public Library
-0.23 installation archive includes both independent public packages.
+0.24 installation archive includes both independent public packages.
 For the independent interface, authenticate and extract the
-[Library 0.23 archive](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/library-v0.23.0),
+[Library 0.24 archive](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/library-v0.24.0),
 then select its desktop profile:
 
 ```sh
@@ -53,18 +53,26 @@ python3 install.py --directory "$HOME/sovereign-desktop" \
 
 This Python installation path needs Python 3.13+ and uv. Follow the
 [verification and offline installation guide](docs/installation.md) before
-executing the helper. The 0.23 desktop profile offers first-launch choices for **Browse public models**,
+executing the helper. The 0.24 desktop profile offers first-launch choices for **Browse public models**,
 **Choose a recovery kit** and **Choose a sharing file**, with reusable **Getting started** help.
 **Share** separates a kit to send from public-mirror review; **Recovery instructions**
 provides the saved copy’s public verification identifiers for separate comparison. No Skulk or managed SDK is required.
 
 ## Current public previews
 
-- **Standalone 0.27.0** includes persistent HTTP/IPFS/BitTorrent mirrors,
+- **Standalone 0.28.0** includes persistent HTTP/IPFS/BitTorrent mirrors,
   offline local-copy intake, portable handoffs, signed source following,
   retained-copy inspection/recovery-kit export, offline completion recovery,
   PirateFace lookup/intake and
   the separately opted-in I2P pilots.
+- **Standalone 0.28.0 / Library 0.24.0** make hosting and finding mirrors
+  easy: downloads also try mirrors found through discovery; the desktop
+  mirror can keep a copy in the owner's own cloud bucket (Cloudflare R2,
+  Backblaze B2, Amazon S3, Wasabi or any S3-compatible service), so even a
+  computer behind a router is discoverable; setup takes a public address and
+  explains the DHT and Nostr choices; the desktop profile bundles the
+  BitTorrent DHT binding; and `mirror quickstart` with a container and Caddy
+  sets up a headless HTTPS mirror in one command.
 - **Standalone 0.27.0 / Library 0.23.0** add the community mirror network:
   PMF archives travel natively, public copies share one identity per model and
   terms, the desktop app's **Help keep models available** mirror shares every
@@ -95,13 +103,13 @@ censorship resistance for at-risk users.
 ## Install
 
 Python 3.11+ on Linux or macOS, with an authenticated Python/uv toolchain. Use the
-[0.27.0 installation archive](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/v0.27.0)
+[0.28.0 installation archive](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/v0.28.0)
 and its detached attestation bundle. [Verify it first](docs/installation.md),
 extract it, then install into a new directory:
 
 ```sh
-python3 install.py --directory "$HOME/sovereign-0.27.0"
-"$HOME/sovereign-0.27.0/bin/model-preserve" --help
+python3 install.py --directory "$HOME/sovereign-0.28.0"
+"$HOME/sovereign-0.28.0/bin/model-preserve" --help
 ```
 
 The archive contains the exact package wheel, source, hash-locked dependencies
