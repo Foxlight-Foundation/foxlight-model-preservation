@@ -549,6 +549,7 @@ main[inert] .sk-scrim {opacity:0;}
   .sk-app::before {background-position:42% 20%;height:520px;}
   .sk-app::after {height:520px;background:linear-gradient(180deg,rgba(7,10,20,.3) 0%,rgba(7,10,20,.12) 18%,rgba(7,10,20,.78) 52%,#070a14 76%);}
   :root[data-theme="noon"] .sk-app::after {background:var(--backdrop-scrim);}
+  @media (prefers-color-scheme: light) {:root:not([data-theme="night"]) .sk-app::after {background:var(--backdrop-scrim);}}
   .sk-header-inner {grid-template-columns:minmax(0,1fr) auto;padding:0 12px 0 var(--gutter);gap:8px;}
   .sovereign-logo {height:24px;}
   .sk-header-actions > .sk-btn {min-height:36px;padding:7px 12px;border:1px solid var(--line-strong);border-radius:var(--radius-pill);background:var(--header);color:var(--text-1);font-size:13px;}
@@ -559,6 +560,7 @@ main[inert] .sk-scrim {opacity:0;}
   .sk-restore .sk-icon {display:block!important;}
   .sk-nav {position:fixed;left:0;right:0;bottom:0;justify-self:stretch;width:100%;z-index:30;margin:0;height:var(--tab);padding:8px 4px env(safe-area-inset-bottom);display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:0;border-radius:0;border:0;border-top:1px solid rgba(255,255,255,.1);background:rgba(8,12,24,.94);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);}
   :root[data-theme="noon"] .sk-nav {background:rgba(255,255,255,.94);border-top-color:var(--line-card);}
+  @media (prefers-color-scheme: light) {:root:not([data-theme="night"]) .sk-nav {background:rgba(255,255,255,.94);border-top-color:var(--line-card);}}
   .sk-nav-item {flex-direction:column;justify-content:center;gap:4px;height:100%;min-height:48px;padding:4px 0;border-radius:0;font-size:12px;font-weight:500;color:var(--text-4);text-shadow:none;}
   .sk-nav-item .sk-icon {display:block;width:22px;height:22px;}
   .sk-nav-item:hover {background:transparent;}
