@@ -6,6 +6,10 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- On phones, a light system theme now draws the light tab bar and backdrop.
+  Before, only the in-app Noon choice did, so the dark starry backdrop and
+  tab bar showed behind the light pages.
+
 - Publish Sovereign Mac build 10 (core 0.28 / Library 0.24): Developer ID
   signed and Apple notarized (app 088a3489…, DMG 995d3735…), DMG d02c319a… and
   ZIP c116c0f5…. Download pages now point at build 10.

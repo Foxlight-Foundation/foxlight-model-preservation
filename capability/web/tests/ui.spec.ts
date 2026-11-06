@@ -24,6 +24,25 @@ test('Night by default and in dark mode, Noon follows a light system, and a manu
   expect(await voidColor(page)).toBe('#070a14');
 });
 
+test('On a phone, a light system theme draws the same Noon tab bar and backdrop as choosing Noon',async({page})=>{
+  await library(page);
+  await page.setViewportSize({width:390,height:844});
+  await page.emulateMedia({colorScheme:'light'});
+  await page.goto('/');
+  await expect(page.getByRole('heading',{name:'Your models',exact:true})).toBeVisible();
+  const phone=()=>page.evaluate(()=>{
+    const nav=document.querySelector('.sk-nav') as HTMLElement;
+    const app=document.querySelector('.sk-app') as HTMLElement;
+    return {nav:getComputedStyle(nav).backgroundColor,border:getComputedStyle(nav).borderTopColor,backdrop:getComputedStyle(app,'::after').backgroundImage};
+  });
+  const system=await phone();
+  expect(system.nav).toBe('rgba(255, 255, 255, 0.94)');
+  await page.evaluate(()=>document.documentElement.setAttribute('data-theme','noon'));
+  expect(await phone()).toEqual(system);
+  await page.evaluate(()=>document.documentElement.setAttribute('data-theme','night'));
+  expect((await phone()).nav).toBe('rgba(8, 12, 24, 0.94)');
+});
+
 test('Escape closes a review sheet like Back: no effect starts and the review is discarded',async({page})=>{
   await library(page);
   let starts=0;
