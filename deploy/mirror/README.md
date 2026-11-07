@@ -48,7 +48,7 @@ docker compose --env-file deploy/mirror/mirror.env -f deploy/mirror/compose.yaml
 The first start prints the review and serves nothing. When you agree with it,
 set `SOVEREIGN_MIRROR_CONSENT=yes-i-consent-to-public-serving` in `mirror.env`
 and run the same `up` command again. Each start re-applies the collection and
-settings and renews the restart grant (`SOVEREIGN_MIRROR_GRANT`, default 90d).
+settings and renews the restart grant (`SOVEREIGN_MIRROR_GRANT`, default 180d).
 Remove the consent value and restart to stop serving; retained models stay in
 the `mirror-data` volume. If setup is refused (for example the mirror was
 paused), the reason is logged and the container idles; run

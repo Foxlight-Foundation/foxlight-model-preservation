@@ -20,7 +20,7 @@ set -- mirror quickstart \
   --ingress-daily "${SOVEREIGN_MIRROR_INGRESS_DAILY:-50G}" \
   --egress-daily "${SOVEREIGN_MIRROR_EGRESS_DAILY:-50G}" \
   --egress-monthly "${SOVEREIGN_MIRROR_EGRESS_MONTHLY:-1T}" \
-  --resume-for "${SOVEREIGN_MIRROR_GRANT:-90d}"
+  --resume-for "${SOVEREIGN_MIRROR_GRANT:-180d}"
 
 # A container's host name changes when it is recreated; prefer a stable name.
 name="${SOVEREIGN_MIRROR_NAME:-${SOVEREIGN_MIRROR_DOMAIN:-}}"

@@ -293,8 +293,8 @@ def register_mirror_commands(
             command.add_argument(
                 "--resume-for",
                 type=_duration,
-                default=90 * 86400,
-                help="standing restart grant, at most 366d (default 90d)",
+                default=180 * 86400,
+                help="standing restart grant, at most 366d (default 180d)",
             )
             command.add_argument(
                 "--max-bytes",
@@ -502,7 +502,7 @@ def _quickstart(
         bind=arguments.mirror_bind or "127.0.0.1",
         port=8080 if arguments.mirror_port is None else arguments.mirror_port,
         announce=announce,
-        resume_seconds=arguments.resume_for or 90 * 86400,
+        resume_seconds=arguments.resume_for or 180 * 86400,
         max_bytes=arguments.model_max_bytes,
     )
     text, summary = review(collection, document, settings)

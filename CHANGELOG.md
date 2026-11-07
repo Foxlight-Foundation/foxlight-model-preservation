@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The mirror's default standing restart grant (quickstart, the container's
+  `SOVEREIGN_MIRROR_GRANT` and `--resume-for`) is now 180 days, up from 90.
+  The 366-day cap is unchanged.
+
 - Publish the headless mirror image to
   `ghcr.io/foxlight-foundation/sovereign-mirror:VERSION` for each core release
   tag, with a signed build provenance attestation bound to that tag (the first

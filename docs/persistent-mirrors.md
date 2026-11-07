@@ -78,7 +78,7 @@ setting clears the old grant; unchanged settings change nothing else. A source
 already followed under the same bootstrap keeps the roots and catalog its later
 refreshes accepted: quickstart applies the reviewed grant without reimporting
 the collection's possibly older snapshot. Quickstart refuses to resume a
-paused mirror or rejoin one that left. The default grant lasts 90 days
+paused mirror or rejoin one that left. The default grant lasts 180 days
 (`--resume-for`, at most 366 days).
 
 Sizes everywhere accept bytes or binary units: `K`, `M`, `G`, `T` and `P` are

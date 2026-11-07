@@ -1284,7 +1284,7 @@ def test_restart_keeps_policy_and_renews_the_grant(tmp_path, capture):
     assert policy_id(state) == policy and state.sources == sources
     assert restart_allowed(state)
     # The collection's settings define the standing grant on every start.
-    assert abs(state.restart.expires - (time.time() + 90 * 86400)) < 120
+    assert abs(state.restart.expires - (time.time() + 180 * 86400)) < 120
 
 
 def test_restart_with_changed_environment_applies_it(tmp_path, capture):
