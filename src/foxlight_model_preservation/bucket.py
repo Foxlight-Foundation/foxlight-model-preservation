@@ -60,24 +60,54 @@ KEYCHAIN_SERVICE = "sovereign-bucket"
 Provider = Literal["r2", "b2", "s3", "wasabi", "hetzner", "other"]
 
 
+# Cloudflare R2 jurisdictions and their S3 endpoints, from
+# https://developers.cloudflare.com/r2/reference/data-location/ (checked
+# 2026-11-07): a jurisdictional bucket is reached only at
+# https://<ACCOUNT_ID>.<JURISDICTION>.r2.cloudflarestorage.com.
+R2_JURISDICTIONS: dict[str, str] = {
+    "eu": "European Union",
+    "fedramp": "FedRAMP",
+    "us": "United States",
+}
+_R2_ENDPOINT = re.compile(
+    r"https://[0-9a-f]{32}\.(?:(" + "|".join(R2_JURISDICTIONS) + r")\.)?"
+    r"r2\.cloudflarestorage\.com"
+)
+
+
 @dataclass(frozen=True)
 class ProviderPreset:
-    """What a provider needs from the owner, and how to address it."""
+    """What a provider needs from the owner, and how to address it.
+
+    ``optional`` names the asked fields the owner may leave empty; every other
+    asked field is required. ``choices`` lists the allowed values of a field
+    chosen from a list, as (value, label) pairs; the empty value is the default.
+    """
 
     name: str
     asks: tuple[str, ...]
     path_style: bool
     note: str
+    optional: tuple[str, ...] = ()
+    choices: dict[str, tuple[tuple[str, str], ...]] = field(default_factory=dict)
 
 
 PRESETS: dict[str, ProviderPreset] = {
     "r2": ProviderPreset(
         "Cloudflare R2",
-        ("account_id", "bucket", "public_url"),
+        ("account_id", "jurisdiction", "bucket", "public_url"),
         True,
         "Recommended: R2 charges nothing for downloads. In the bucket's Settings, "
-        "turn on Public access (the r2.dev subdomain or your own domain) and paste "
-        "that public address here.",
+        "connect your own domain (or turn on the r2.dev address) and paste that "
+        "public address here. Choose a jurisdiction only if the bucket was "
+        "created in one; it cannot be changed later.",
+        optional=("jurisdiction",),
+        choices={
+            "jurisdiction": (
+                ("", "Default (no jurisdiction)"),
+                *R2_JURISDICTIONS.items(),
+            )
+        },
     ),
     "b2": ProviderPreset(
         "Backblaze B2",
@@ -88,10 +118,14 @@ PRESETS: dict[str, ProviderPreset] = {
     ),
     "s3": ProviderPreset(
         "Amazon S3",
-        ("region", "bucket"),
+        ("region", "bucket", "public_url"),
         False,
-        "Allow public reads on the bucket (turn off Block Public Access and add a "
-        "read-only bucket policy). Downloads are billed by Amazon.",
+        "With CloudFront in front, keep the bucket private (Origin Access "
+        "Control) and paste the distribution's https:// address or your own "
+        "domain as the public address. Without one, leave it empty: the bucket's "
+        "own address is used, so it must allow public reads (Block Public Access "
+        "off and a read-only bucket policy). Amazon bills downloads.",
+        optional=("public_url",),
     ),
     "wasabi": ProviderPreset(
         "Wasabi",
@@ -160,19 +194,35 @@ def target_for(
     region: str | None = None,
     endpoint: str | None = None,
     public_url: str | None = None,
+    jurisdiction: str | None = None,
 ) -> BucketTarget:
-    """Build a target from the few answers a provider preset asks for."""
+    """Build a target from the few answers a provider preset asks for.
+
+    An R2 ``jurisdiction`` (``eu``, ``fedramp`` or ``us``) selects that
+    jurisdiction's S3 endpoint. An Amazon S3 ``public_url``, such as a
+    CloudFront distribution, replaces the bucket's own public address; it must
+    be a plain ``https://`` address.
+    """
     preset = PRESETS[provider]
+    if jurisdiction and provider != "r2":
+        raise PreservationError("bucket_details_invalid")
     if provider == "r2":
         if not account_id or not re.fullmatch(r"[0-9a-f]{32}", account_id):
             raise PreservationError("bucket_account_id_invalid")
-        endpoint, region = f"https://{account_id}.r2.cloudflarestorage.com", "auto"
+        if jurisdiction and jurisdiction not in R2_JURISDICTIONS:
+            raise PreservationError("bucket_details_invalid")
+        host = f"{account_id}.{jurisdiction}" if jurisdiction else account_id
+        endpoint, region = f"https://{host}.r2.cloudflarestorage.com", "auto"
     elif provider == "b2":
         endpoint = f"https://s3.{region}.backblazeb2.com"
         public_url = public_url or f"https://{bucket}.s3.{region}.backblazeb2.com"
     elif provider == "s3":
         endpoint = f"https://s3.{region}.amazonaws.com"
-        public_url = public_url or f"https://{bucket}.s3.{region}.amazonaws.com"
+        if public_url:
+            # A CDN such as CloudFront: recipients download only from here.
+            public_url = https_public_url(public_url)
+        else:
+            public_url = f"https://{bucket}.s3.{region}.amazonaws.com"
     elif provider == "wasabi":
         endpoint = f"https://s3.{region}.wasabisys.com"
         public_url = public_url or f"https://s3.{region}.wasabisys.com/{bucket}"
@@ -196,6 +246,31 @@ def target_for(
         public_url=public_url,
         key_name=key_name,
     )
+
+
+def https_public_url(value: str) -> str:
+    """Check an owner-supplied public address: plain ``https://``, no secrets.
+
+    The address recipients download from is published in mirror cards and
+    handoffs, so it may carry no user name, password, query or fragment.
+    """
+    try:
+        parsed = urlsplit(value)
+        _ = parsed.port
+        plain = base_url(value)
+    except ValueError:
+        raise PreservationError("bucket_public_url_invalid") from None
+    if parsed.scheme != "https":
+        raise PreservationError("bucket_public_url_invalid")
+    return plain
+
+
+def r2_jurisdiction(target: BucketTarget) -> str | None:
+    """The R2 jurisdiction a target's endpoint names, or None for the default."""
+    if target.provider != "r2":
+        return None
+    matched = _R2_ENDPOINT.fullmatch(target.endpoint)
+    return matched[1] if matched else None
 
 
 @dataclass(frozen=True)

@@ -4,15 +4,31 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Literal
 
 import pytest
 from conftest import Capture
+from pydantic import ValidationError
 from test_bucket import KEYS, LOCAL, bucket
 from test_local_backups import saved
 from test_local_community import enable, free_port, wait_for
 
-from foxlight_model_preservation.archives import verify_archive_contents
-from foxlight_model_preservation.bucket import BucketCredentials
+from foxlight_model_preservation.archives import (
+    verify_archive_contents,
+    verify_archive_manifest,
+)
+from foxlight_model_preservation.bucket import (
+    BucketCredentials,
+    BucketTarget,
+    r2_jurisdiction,
+)
+from foxlight_model_preservation.handoffs import read_handoff
+from foxlight_model_preservation.invitations import (
+    Invitation,
+    accept_invitation_keys,
+    authenticate_invitation,
+    fetch_invitation,
+)
 from foxlight_model_preservation.local_host import community as module
 from foxlight_model_preservation.local_host.owner import LocalOwner
 from foxlight_model_preservation.mirror_cards import read_peers, verify_card
@@ -21,8 +37,10 @@ from foxlight_model_preservation.mirror_directory import (
     fetch_discovered,
 )
 from foxlight_model_preservation.mirror_state import MirrorLedger
+from foxlight_model_preservation.models import Record
 from foxlight_model_preservation.operations import OperationControl
-from foxlight_model_preservation.storage import manifest_path
+from foxlight_model_preservation.signing import canonical_bytes
+from foxlight_model_preservation.storage import directory, manifest_path, read_metadata
 
 
 @pytest.fixture
@@ -527,5 +545,354 @@ def test_one_refused_withdrawal_never_keeps_the_others_public(
             result = owner.community.sync_bucket(OperationControl())
             assert result is not None and result.synced == ()
             assert manifest_path(stuck) not in server.objects
+    finally:
+        owner.close()
+
+
+# What the bucket serves, and what a recipient needs ---------------------------
+
+
+def test_the_bucket_lists_its_models_and_exports_a_handoff_for_each(
+    tmp_path: Path, capture: Capture, keychain: dict[str, BucketCredentials]
+) -> None:
+    owner = LocalOwner(tmp_path / "owner")
+    owner.community.bucket_policy = LOCAL
+    try:
+        saved(owner, tmp_path, capture)
+        with bucket() as (server, client):
+            enable(owner, free_port())
+            identity = _shared(owner, server, client)
+            wait_for(
+                lambda: (
+                    (owner.control("community-read", {})["bucket"] or {}).get(
+                        "model_count"
+                    )
+                    == 1
+                ),
+                seconds=120,
+            )
+            public_url = client.target.public_url
+            requests_before = len(server.order)
+            contents = owner.control("community-bucket-contents", {})
+            # Read from the app's own records: no request reached the bucket.
+            assert len(server.order) == requests_before
+            assert contents["total"] == 1 and contents["public_url"] == public_url
+            (row,) = contents["models"]
+            held = (
+                MirrorLedger(owner.home / "sharing/community/mirror")
+                .read()
+                .models[identity]
+            )
+            trust = held.grant.trust
+            with directory(owner.home / "sharing/community/mirror/store") as root:
+                manifest = verify_archive_manifest(
+                    read_metadata(root, manifest_path(identity)), trust, identity
+                )
+            assert row == {
+                "manifest_id": identity,
+                "name": manifest.name,
+                "size_bytes": manifest.total_bytes,
+                "synced_at": owner.community.bucket().synced_at[identity],
+                "keys": [key.key_id for key in trust.keys],
+            }
+            assert (
+                owner.control("community-bucket-contents", {"offset": 1})["models"]
+                == []
+            )
+
+            document = owner.bucket_handoff(identity)
+            # The ordinary one-file handoff: an unchanged signed invitation
+            # whose only mirror is the bucket's public address.
+            handoff = read_handoff(document)
+            invitation = handoff.reference
+            assert isinstance(invitation, Invitation)
+            assert handoff.contacts == ()
+            assert invitation.manifest_id == identity
+            assert invitation.mirrors == (public_url,)
+            assert invitation.candidate_trust == trust
+            assert authenticate_invitation(invitation, trust) == manifest
+            # Public metadata only: no keys, keychain names or local paths.
+            text = document.decode()
+            for private in (
+                KEYS.secret_key,
+                KEYS.access_key,
+                owner.community.bucket().target.key_name,
+                str(tmp_path),
+                "PRIVATE KEY",
+            ):
+                assert private not in text
+
+            # A recipient who accepts the signing key downloads straight from
+            # the bucket and verifies every byte.
+            accepted = accept_invitation_keys(
+                invitation, tuple(key.key_id for key in trust.keys)
+            )
+            received = tmp_path / "recipient"
+            assert fetch_invitation(invitation, accepted, received, LOCAL) == manifest
+            # The recipient's app opens the same file offline.
+            other = LocalOwner(tmp_path / "other")
+            try:
+                preview = other.sources.review_handoff(document)
+                assert preview["manifest_id"] == identity
+                assert preview["mirrors"] == [public_url]
+            finally:
+                other.close()
+
+            for missing in ("f" * 64, "not-an-id"):
+                with pytest.raises(module.PreservationError):
+                    owner.bucket_handoff(missing)
+            with pytest.raises(module.PreservationError, match="invalid_control"):
+                owner.control("community-bucket-contents", {"offset": -1})
+            with pytest.raises(module.PreservationError):
+                owner.control("community-bucket-contents", {"other": 1})
+    finally:
+        owner.close()
+
+
+def test_a_model_not_confirmed_in_the_bucket_has_no_handoff(
+    tmp_path: Path, keychain: dict[str, BucketCredentials]
+) -> None:
+    owner = LocalOwner(tmp_path / "owner")
+    owner.community.bucket_policy = LOCAL
+    try:
+        assert owner.control("community-bucket-contents", {})["models"] == []
+        with pytest.raises(module.PreservationError, match="bucket_model_unavailable"):
+            owner.bucket_handoff("a" * 64)
+        with bucket() as (_server, client):
+            endpoint, public_url = addresses(client)
+            owner.control("community-bucket-connect", details(endpoint, public_url))
+        state = owner.community.bucket()
+        owner.community._save_bucket(state.model_copy(update={"pending": ("a" * 64,)}))
+        # Pending uploads may be public, but were never confirmed complete.
+        with pytest.raises(module.PreservationError, match="bucket_model_unavailable"):
+            owner.bucket_handoff("a" * 64)
+    finally:
+        owner.close()
+
+
+# Stored bucket.json compatibility --------------------------------------------
+
+# Exactly what the previous release wrote for a bucket with one synced model.
+_V1_TARGET = {
+    "schema_version": "sovereign.bucket-target.v1",
+    "provider": "r2",
+    "endpoint": "https://" + "0" * 32 + ".r2.cloudflarestorage.com",
+    "region": "auto",
+    "bucket": "models",
+    "path_style": True,
+    "public_url": "https://mirror.example.org",
+    "key_name": "community-0123456789abcdef",
+}
+_V1_STATE = {
+    "schema_version": "sovereign.community-bucket.v1",
+    "target": _V1_TARGET,
+    "synced": ["b" * 64],
+    "pending": [],
+    "last_error": None,
+    "last_synced": 1700000000,
+}
+
+
+class _ReleasedBucketState(Record):
+    """The bucket state as the previous release reads it (strict, v1 only)."""
+
+    schema_version: Literal["sovereign.community-bucket.v1"]
+    target: BucketTarget
+    synced: tuple[str, ...] = ()
+    pending: tuple[str, ...] = ()
+    last_error: str | None = None
+    last_synced: int | None = None
+
+
+def test_a_bucket_saved_by_the_previous_release_still_reads_and_stays_v1(
+    tmp_path: Path,
+) -> None:
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        path = owner.home / "sharing/community/bucket.json"
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        released = canonical_bytes(_V1_STATE)
+        path.write_bytes(released)
+        state = owner.community.bucket()
+        assert state is not None and state.synced == ("b" * 64,)
+        assert state.synced_at == {}
+        summary = owner.control("community-read", {})["bucket"]
+        assert summary["jurisdiction"] is None and summary["model_count"] == 1
+        # Saving it again without new information keeps the released bytes.
+        assert module.encode_bucket(state) == released
+        assert owner.community._save_bucket(state)
+        assert path.read_bytes() == released
+        _ReleasedBucketState.model_validate_json(path.read_bytes())
+        # The model's upload time is unknown; the list says so plainly.
+        (row,) = owner.control("community-bucket-contents", {})["models"]
+        assert row["synced_at"] is None and row["name"] is None
+    finally:
+        owner.close()
+
+
+def test_upload_times_are_version_2_which_older_releases_refuse(
+    tmp_path: Path,
+) -> None:
+    state = module.BucketState.model_validate_json(canonical_bytes(_V1_STATE))
+    timed = module.BucketState.model_validate(
+        {
+            **dict(state),
+            "schema_version": "sovereign.community-bucket.v2",
+            "synced_at": {"b" * 64: 1700000001},
+        }
+    )
+    encoded = module.encode_bucket(timed)
+    assert json.loads(encoded)["schema_version"] == "sovereign.community-bucket.v2"
+    assert module.BucketState.model_validate_json(encoded) == timed
+    # An older release refuses the new version outright instead of guessing.
+    with pytest.raises(ValidationError):
+        _ReleasedBucketState.model_validate_json(encoded)
+    # Version 1 cannot carry upload times, and times name only synced models.
+    for bad in (
+        {**_V1_STATE, "synced_at": {"b" * 64: 1}},
+        {
+            **_V1_STATE,
+            "schema_version": "sovereign.community-bucket.v2",
+            "synced_at": {"c" * 64: 1},
+        },
+        {**_V1_STATE, "unknown": True},
+        {**_V1_STATE, "schema_version": "sovereign.community-bucket.v3"},
+    ):
+        with pytest.raises(ValueError):
+            module.BucketState.model_validate_json(canonical_bytes(bad))
+    # A jurisdiction lives in the endpoint, so the target itself is unchanged.
+    eu = {
+        **_V1_TARGET,
+        "endpoint": "https://" + "0" * 32 + ".eu.r2.cloudflarestorage.com",
+    }
+    target = BucketTarget.model_validate_json(canonical_bytes(eu))
+    assert r2_jurisdiction(target) == "eu"
+    _ReleasedBucketState.model_validate_json(
+        canonical_bytes({**_V1_STATE, "target": eu})
+    )
+
+
+def test_connecting_passes_the_new_choices_and_refuses_unsafe_ones(
+    tmp_path: Path, keychain: dict[str, BucketCredentials]
+) -> None:
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        base = {"bucket": "models", "access_key": "a", "secret_key": "b"}
+        for body, code in (
+            (
+                {
+                    **base,
+                    "provider": "s3",
+                    "region": "us-east-1",
+                    "public_url": "http://d1234abcd.cloudfront.net",
+                },
+                "bucket_public_url_invalid",
+            ),
+            (
+                {
+                    **base,
+                    "provider": "s3",
+                    "region": "us-east-1",
+                    "public_url": "https://user:pw@d1234abcd.cloudfront.net",
+                },
+                "bucket_public_url_invalid",
+            ),
+            (
+                {
+                    **base,
+                    "provider": "r2",
+                    "account_id": "0" * 32,
+                    "public_url": "https://mirror.example.org",
+                    "jurisdiction": "apac",
+                },
+                "bucket_details_invalid",
+            ),
+            (
+                {
+                    **base,
+                    "provider": "b2",
+                    "region": "us-west-004",
+                    "jurisdiction": "eu",
+                },
+                "bucket_details_invalid",
+            ),
+        ):
+            with pytest.raises(module.PreservationError, match=code) as raised:
+                owner.control("community-bucket-connect", body)
+            assert "user:pw" not in str(raised.value)
+        assert keychain == {} and owner.community.bucket() is None
+        providers = {
+            item["id"]: item
+            for item in owner.control("community-read", {})["bucket_providers"]
+        }
+        assert providers["s3"]["optional"] == ["public_url"]
+        assert providers["r2"]["optional"] == ["jurisdiction"]
+        assert [
+            choice["value"] for choice in providers["r2"]["choices"]["jurisdiction"]
+        ] == ["", "eu", "fedramp", "us"]
+        assert (
+            providers["other"]["optional"] == [] and providers["other"]["choices"] == {}
+        )
+    finally:
+        owner.close()
+
+
+def test_a_cloudfront_address_is_what_the_owner_sees_and_recipients_get(
+    tmp_path: Path,
+    keychain: dict[str, BucketCredentials],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An S3 bucket behind a CDN: uploads to S3, everything public names the CDN."""
+    seen: list[tuple[str, str]] = []
+
+    def check(client, _policy):
+        seen.append((client.target.endpoint, client.target.public_url))
+        return {"status": "ready", "detail": ""}
+
+    monkeypatch.setattr(module, "check_bucket", check)
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        ready = owner.control(
+            "community-bucket-connect",
+            {
+                "provider": "s3",
+                "region": "eu-central-1",
+                "bucket": "sovereign-mirror-example",
+                "public_url": "https://d1234abcd.cloudfront.net",
+                "access_key": "AKIAEXAMPLE",
+                "secret_key": "secret",
+            },
+        )
+        assert ready["status"] == "ready"
+        assert seen == [
+            (
+                "https://s3.eu-central-1.amazonaws.com",
+                "https://d1234abcd.cloudfront.net",
+            )
+        ]
+        assert ready["bucket"]["public_url"] == "https://d1234abcd.cloudfront.net"
+        saved_state = owner.community.bucket()
+        assert saved_state.target.provider == "s3"
+        assert saved_state.target.public_url == "https://d1234abcd.cloudfront.net"
+        # Nothing new to store: older releases still read this bucket.
+        _ReleasedBucketState.model_validate_json(
+            (owner.home / "sharing/community/bucket.json").read_bytes()
+        )
+        r2 = owner.control(
+            "community-bucket-connect",
+            {
+                "provider": "r2",
+                "account_id": "0" * 32,
+                "jurisdiction": "eu",
+                "bucket": "models",
+                "public_url": "https://mirror.example.org",
+                "access_key": "a",
+                "secret_key": "b",
+            },
+        )
+        assert seen[-1][0] == "https://" + "0" * 32 + ".eu.r2.cloudflarestorage.com"
+        assert r2["bucket"]["jurisdiction"] == "eu"
+        # The replaced bucket's keys are forgotten.
+        assert len(keychain) == 1
     finally:
         owner.close()

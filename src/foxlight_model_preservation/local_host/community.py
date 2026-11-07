@@ -27,8 +27,15 @@ from typing import Literal, Protocol, cast
 from urllib.parse import urlsplit
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from pydantic import Field, JsonValue, ValidationError, field_validator
+from pydantic import (
+    Field,
+    JsonValue,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
+from ..archives import verify_archive_manifest
 from ..assurance import load_retained_card
 from ..bucket import (
     PRESETS,
@@ -40,11 +47,14 @@ from ..bucket import (
     load_credentials,
     publish_peers,
     publish_to_bucket,
+    r2_jurisdiction,
     remove_from_bucket,
     save_credentials,
     target_for,
 )
 from ..cards import identity_json
+from ..handoffs import Handoff
+from ..invitations import create_invitation
 from ..mirror import model_action, run_mirror
 from ..mirror_cards import (
     MAX_PEERS_BYTES,
@@ -70,8 +80,15 @@ from ..models import (
 )
 from ..nostr import DEFAULT_RELAYS, find_cards, publish_card
 from ..operations import OperationControl, OperationError, failure_code
-from ..signing import create_key, digest, encode_record, load_key, public_record
-from ..storage import atomic_bytes, directory, read_metadata
+from ..signing import (
+    canonical_bytes,
+    create_key,
+    digest,
+    encode_record,
+    load_key,
+    public_record,
+)
+from ..storage import atomic_bytes, directory, manifest_path, read_metadata
 from ..transfer import MirrorHTTPError, TransferPolicy, response
 from .presentation import card_summary
 from .sharing import MemberDecision, Sharing
@@ -253,11 +270,17 @@ def _reserve(ledger: MirrorLedger, count: int) -> bool:
 
 
 class BucketState(Record):
-    """A connected cloud bucket; it names a keychain entry and holds no secret."""
+    """A connected cloud bucket; it names a keychain entry and holds no secret.
 
-    schema_version: Literal["sovereign.community-bucket.v1"] = (
-        "sovereign.community-bucket.v1"
-    )
+    Version 2 adds ``synced_at``. A state without it is still written as
+    version 1, byte for byte as before, so older apps keep reading it; one
+    with it is written as version 2, which older apps refuse rather than
+    misread (see ``encode_bucket``).
+    """
+
+    schema_version: Literal[
+        "sovereign.community-bucket.v1", "sovereign.community-bucket.v2"
+    ] = "sovereign.community-bucket.v1"
     target: BucketTarget
     synced: tuple[Digest, ...] = Field(default=(), max_length=1000)
     # Uploads that started but were not confirmed. Their manifest may be
@@ -265,6 +288,30 @@ class BucketState(Record):
     pending: tuple[Digest, ...] = Field(default=(), max_length=1000)
     last_error: str | None = Field(default=None, max_length=200)
     last_synced: int | None = None
+    # When each synced model's upload was confirmed (version 2 only).
+    synced_at: dict[Digest, int] = Field(default_factory=dict, max_length=1000)
+
+    @model_validator(mode="after")
+    def versioned(self) -> BucketState:
+        """Version 1 has no upload times; times belong only to synced models."""
+        if self.synced_at and self.schema_version == "sovereign.community-bucket.v1":
+            raise PreservationError("bucket_state_invalid")
+        if not set(self.synced_at) <= set(self.synced) or any(
+            value < 0 for value in self.synced_at.values()
+        ):
+            raise PreservationError("bucket_state_invalid")
+        return self
+
+
+def encode_bucket(state: BucketState) -> bytes:
+    """Encode bucket state in the oldest version that can hold it."""
+    value = state.model_dump(mode="json")
+    if state.synced_at:
+        value["schema_version"] = "sovereign.community-bucket.v2"
+    else:
+        value.pop("synced_at")
+        value["schema_version"] = "sovereign.community-bucket.v1"
+    return canonical_bytes(value)
 
 
 # The version of the announcement disclosure (DHT and Nostr) the app shows before
@@ -851,7 +898,7 @@ class CommunityMirror:
             ):
                 return False
             with directory(self.path, create=True) as root:
-                atomic_bytes(root, "bucket.json", encode_record(state))
+                atomic_bytes(root, "bucket.json", encode_bucket(state))
             return True
 
     def connect_bucket(self, body: dict[str, JsonValue]) -> dict[str, JsonValue]:
@@ -868,6 +915,7 @@ class CommunityMirror:
             "region",
             "endpoint",
             "public_url",
+            "jurisdiction",
             "access_key",
             "secret_key",
         }
@@ -897,6 +945,7 @@ class CommunityMirror:
                 region=text.get("region"),
                 endpoint=text.get("endpoint"),
                 public_url=text.get("public_url"),
+                jurisdiction=text.get("jurisdiction"),
             )
         except ValueError as error:
             code = str(error)
@@ -913,11 +962,98 @@ class CommunityMirror:
             previous = self.bucket()
             with directory(self.path, create=True) as root:
                 atomic_bytes(
-                    root, "bucket.json", encode_record(BucketState(target=target))
+                    root, "bucket.json", encode_bucket(BucketState(target=target))
                 )
         if previous is not None:
             delete_credentials(previous.target.key_name)
         return {"status": "ready", "public_url": target.public_url}
+
+    # How many bucket models one contents read returns; replies stay small.
+    BUCKET_PAGE = 50
+
+    def bucket_contents(self, offset: int = 0) -> dict[str, JsonValue]:
+        """List the models the bucket serves, from this app's own records.
+
+        Nothing is listed remotely: the bucket holds exactly the manifests this
+        app confirmed uploading (``synced``), and each one's name, size and
+        signing keys come from the verified copy this mirror retains.
+        """
+        state = self.bucket()
+        if state is None:
+            return {"models": [], "total": 0, "offset": 0, "public_url": None}
+        try:
+            models = MirrorLedger(self.path / "mirror").read().models
+        except FileNotFoundError:
+            models = {}
+        rows: list[JsonValue] = []
+        for identity in state.synced[offset : offset + self.BUCKET_PAGE]:
+            name: str | None = None
+            size: int | None = None
+            keys: list[JsonValue] = []
+            held = models.get(identity)
+            if held is not None:
+                trust = held.grant.trust
+                keys = [
+                    key.key_id
+                    for key in trust.keys
+                    if key.key_id not in trust.revoked_keys
+                ]
+                try:
+                    with directory(self.path / "mirror/store") as root:
+                        manifest = verify_archive_manifest(
+                            read_metadata(root, manifest_path(identity)),
+                            trust,
+                            identity,
+                        )
+                    name, size = manifest.name, manifest.total_bytes
+                except (ValueError, OSError):
+                    pass  # Shown by its identity alone; the bucket copy is intact.
+            rows.append(
+                {
+                    "manifest_id": identity,
+                    "name": name,
+                    "size_bytes": size,
+                    "synced_at": state.synced_at.get(identity),
+                    "keys": keys,
+                }
+            )
+        return {
+            "models": rows,
+            "total": len(state.synced),
+            "offset": offset,
+            "public_url": state.target.public_url,
+        }
+
+    def bucket_handoff(self, manifest_id: str) -> bytes:
+        """A one-file handoff for one model the bucket serves.
+
+        It is the ordinary ``.foxhandoff`` (an unchanged signed invitation)
+        with the bucket's public address as its only mirror: the signed
+        manifest, its exact identity and the public trust profile of the key
+        that signed it. Recipients inspect it offline and authenticate the key
+        fingerprint independently. It holds no bucket key and no local path.
+        """
+        if re.fullmatch(r"[0-9a-f]{64}", manifest_id) is None:
+            raise PreservationError("invalid_control")
+        state = self.bucket()
+        if state is None or manifest_id not in state.synced:
+            raise PreservationError("bucket_model_unavailable")
+        try:
+            held = MirrorLedger(self.path / "mirror").read().models.get(manifest_id)
+        except FileNotFoundError:
+            held = None
+        if held is None:
+            raise PreservationError("bucket_model_unavailable")
+        try:
+            invitation = create_invitation(
+                self.path / "mirror/store",
+                manifest_id,
+                held.grant.trust,
+                (state.target.public_url,),
+            )
+            return encode_record(Handoff(reference=invitation))
+        except (ValueError, OSError):
+            raise PreservationError("bucket_handoff_unavailable") from None
 
     def disconnect_bucket(self) -> None:
         """Stop using the bucket. Its contents are left exactly as they are."""
@@ -949,15 +1085,22 @@ class CommunityMirror:
         state: BucketState = found
         synced = list(state.synced)
         pending = [item for item in state.pending if item not in synced]
+        synced_at = dict(state.synced_at)
         failure: str | None = None
 
         def save() -> bool:
             nonlocal state
-            state = state.model_copy(
-                update={
+            times = {key: value for key, value in synced_at.items() if key in synced}
+            state = BucketState.model_validate(
+                {
+                    **dict(state),
+                    "schema_version": "sovereign.community-bucket.v2"
+                    if times
+                    else "sovereign.community-bucket.v1",
                     "synced": tuple(synced),
                     "pending": tuple(pending),
                     "last_error": failure,
+                    "synced_at": times,
                 }
             )
             return self._save_bucket(state)
@@ -1017,6 +1160,7 @@ class CommunityMirror:
                         break  # The allowance renews; try again then.
                     continue  # Other models may still upload.
                 synced.append(identity)
+                synced_at[identity] = int(time.time())
                 pending.remove(identity)
                 if not save():
                     return self.bucket()
@@ -1352,6 +1496,13 @@ class CommunityMirror:
                     "id": key,
                     "name": preset.name,
                     "asks": list(preset.asks),
+                    "optional": list(preset.optional),
+                    "choices": {
+                        name: [
+                            {"value": value, "label": label} for value, label in options
+                        ]
+                        for name, options in preset.choices.items()
+                    },
                     "note": preset.note,
                 }
                 for key, preset in PRESETS.items()
@@ -1367,6 +1518,7 @@ class CommunityMirror:
         return {
             "provider": state.target.provider,
             "provider_name": PRESETS[state.target.provider].name,
+            "jurisdiction": r2_jurisdiction(state.target),
             "bucket": state.target.bucket,
             "public_url": state.target.public_url,
             "model_count": len(state.synced),
