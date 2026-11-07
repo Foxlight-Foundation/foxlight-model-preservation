@@ -24,10 +24,13 @@ services:
       - caddy-config:/config
 
   mirror:
+    # The published, attested image. Verify it before the first start (see
+    # README.md); pin a digest with SOVEREIGN_MIRROR_IMAGE=...@sha256:... .
+    # `up --build` builds this checkout instead.
+    image: ${SOVEREIGN_MIRROR_IMAGE:-ghcr.io/foxlight-foundation/sovereign-mirror:0.28.1}
     build:
       context: ../..
       dockerfile: deploy/mirror/Dockerfile
-    image: sovereign-mirror:local
     restart: unless-stopped
     # Share Caddy's network namespace: the mirror's 127.0.0.1:8080 listener is
     # reachable by Caddy and by nothing else.
