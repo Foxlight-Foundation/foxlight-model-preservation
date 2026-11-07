@@ -143,14 +143,14 @@ model-preserve mirror config --dir ~/sovereign-mirrors/example \
 ```
 
 `config` changes the name, budgets, bind (`127.0.0.1`, `::1`, `0.0.0.0` or `::`),
-port, UTC serving window, refresh interval, public URL, contact and announcement
-choices. Stop the controller first. Any effective change alters the policy
+port, UTC serving window, refresh interval, public URL, contact, announcement
+choices and whether to [follow catalog withdrawals](#catalog-withdrawal-is-advisory-takedown-is-yours). Stop the controller first. Any effective change alters the policy
 identity and clears the standing restart grant; grant it again after review.
 Retained bytes are never touched. Per-model limits that were derived from the
 old disk budget follow the new one; limits set explicitly stay.
 
-An announcement policy and the deferred/withdrawn receipts below are written to
-the owner state only when used, so an unchanged mirror keeps its exact encoding
+An announcement policy, `--follow-withdrawals on` and the deferred and
+withdrawal-advisory receipts below are written to the owner state only when used, so an unchanged mirror keeps its exact encoding
 and restart grant across this upgrade. A release that predates them refuses such
 a ledger rather than silently ignoring it.
 
@@ -166,7 +166,7 @@ they serve bytes they claim, and republishes. Gossip is charged 64 MiB of ingres
 per round and skipped when the daily budget cannot cover it. Every read in a
 round is capped to fit that reservation: at most 8 peers documents, 2
 spot-checked mirrors and 18 MiB of relay frames. HTTP headers and DHT datagrams
-are outside it. Serving, withdrawals and the card are renewed every cycle from
+are outside it. Serving, withdrawal advisories and the card are renewed every cycle from
 verified retained copies, even when source refresh or intake fails on budget. See
 [mirror discovery](mirror-discovery.md) for how clients use cards.
 
@@ -185,27 +185,77 @@ community mirror announces the same way. [Bucket mirrors](bucket-mirrors.md) are
 static: they never crawl, spot-check or gossip, and their peers document changes
 only when a running host publishes it.
 
-## Takedown: withdrawal versus expiry
+## Catalog withdrawal is advisory; takedown is yours
 
-A source withdraws a model by publishing a new signed catalog without it. When
-the selection's own source has a current (authenticated, unexpired) catalog that
-no longer lists it, and no other followed source's current catalog lists it,
-the mirror records the selection as `withdrawn` and stops serving it on the next
-cycle: its public links are removed and requests are refused. Retained bytes
-stay under the ordinary retention rules (pin, block and explicit prune). Each
-source's withdrawals are recorded as soon as its refresh is accepted, even if a
-later source's refresh fails on budget in the same cycle.
+Catalogs are discovery, not authority. No catalog publisher, Foxlight
+included, can make a mirror stop serving a copy it already holds. A remote
+"stop serving" lever would be a single choke point over every mirror, which is
+what Sovereign avoids. Each operator is responsible for what they host and for
+responding to legal notices in their own jurisdiction. Sovereign provides no
+network-wide off switch, and it makes no anonymity or censorship-resistance
+claims: a mirror's address and probable holdings are public.
 
-A withdrawal persists until a current followed catalog lists the model again,
-or until you run `mirror unwithdraw --manifest ...`. If the withdrawing catalog
-later expires or disappears, the model stays withdrawn. While a current catalog
-still omits it, the next cycle withdraws it again.
+A source withdraws a listing by publishing a new signed catalog without it.
+When the selection's own source has a current (authenticated, unexpired)
+catalog that no longer lists it, and no other followed source's current catalog
+lists it, the mirror records a **withdrawal advisory**: which source withdrew it,
+the exact catalog version (`catalog_id`) and when it was first seen. The
+retained, verified copy keeps serving. Its signed manifest, licence and notices
+do not depend on the catalog. `mirror status` lists each advisory under
+`withdrawal_advisories` ("a publisher withdrew this listing; you decide") with
+the exact `mirror block` command for that copy. Each source's withdrawals are
+recorded as soon as its refresh is accepted, even if a later source's refresh
+fails on budget in the same cycle.
 
-Expiry is different. A catalog that merely expires, a source that cannot be
-reached, or a refresh that fails says nothing about withdrawal: that is an
-availability problem. Retained verified copies that were never withdrawn keep
-serving, and withdrawn ones stay withdrawn. To stop serving one model yourself,
-use `mirror block`.
+An advisory stays until a current followed catalog lists the copy again. If the
+withdrawing catalog later expires or disappears, it stays. Expiry is different:
+a catalog that merely expires, a source that cannot be reached, or a refresh that
+fails says nothing about withdrawal. That is an availability problem, and it
+neither records nor clears an advisory.
+
+To stop serving a copy, for example after a legal notice, block it. Blocking
+takes effect on the next request or chunk, persists across restarts, and no
+catalog change undoes it. Retained bytes stay under the ordinary retention
+rules (pin, block and explicit prune):
+
+```sh
+model-preserve mirror block --dir ~/sovereign-mirrors/example --manifest MANIFEST_SHA256
+```
+
+`mirror acknowledge --manifest ...` records that you reviewed an advisory and
+keep serving that copy. `mirror unwithdraw` is a deprecated alias of it. It no
+longer has anything to undo, since withdrawal no longer stops serving on its
+own.
+
+### Optional: follow withdrawals automatically
+
+If you prefer, you can choose to let followed catalogs' withdrawals withhold
+your copies:
+
+```sh
+model-preserve mirror config --dir ~/sovereign-mirrors/example --follow-withdrawals on
+```
+
+This is your setting, off by default, never a publisher's. With it on, a copy
+under an unacknowledged advisory stops being served on the next cycle: its
+public links are removed and requests, IPFS and BitTorrent sessions are refused.
+Bytes are kept. A relisting by a current catalog resumes serving; expiry, a lost
+source or one source's budget failure never withholds a copy. An acknowledged
+copy is your per-copy exception and keeps serving until it is relisted and then
+withdrawn again. The setting is part of the reviewed policy, so changing it
+clears the standing restart grant; review and grant again.
+
+### Upgrading from an earlier release
+
+Earlier releases stopped serving a withdrawn copy and stored `withdrawn: true`.
+This release reads that as an advisory whose catalog version and time are
+unknown, which the next cycle fills in from current evidence. Unless
+`--follow-withdrawals on` is set, **those copies serve again**. The first ledger
+write after upgrade stores the new form and logs a warning that lists them, with
+the `block` and `--follow-withdrawals on` commands. The controller makes that
+write when it starts, and the policy identity and restart grant do not change. To keep them
+withheld, block them or turn the setting on before running. An earlier release
+refuses a ledger with advisories or the setting rather than ignoring them.
 
 ## Budgets that defer, failures that wait
 
@@ -506,9 +556,10 @@ verification; removed tombstones also occupy ledger slots. Status reports
 capacity. Retain that ledger and use a separately configured state directory for
 additional intake rather than erasing deletion/accounting history. There is no
 default catalog or compulsory Foxlight key/service. Existing verified retained
-models remain available when catalogs expire or disappear; entries
-[withdrawn](#takedown-withdrawal-versus-expiry) from every current followed
-catalog stop being served. A completed pending local or v5 source capture can be
+models remain available when catalogs expire, disappear or
+[withdraw them](#catalog-withdrawal-is-advisory-takedown-is-yours); a withdrawal
+stops serving only if you follow withdrawals. Catalogs still decide discovery: a
+withdrawn entry is not newly admitted, and a pending one is not fetched. A completed pending local or v5 source capture can be
 recovered without its publisher once all original objects are present.
 Receiving remaining objects still requires the original source freshness, route
 permissions and bounded operation policy.
@@ -611,7 +662,7 @@ A saved copy's terms and trust remain its original accepted policy. Re-following
 with different keys does not silently rewrite retained model authority; adopt
 the new grant explicitly with `mirror retry --adopt-source-grant`. Block a
 retained copy explicitly if you no longer wish to serve it. A catalog withdrawal
-stops serving but, like expiry, a budget shortage or a missing source, has no
+is advisory and, like expiry, a budget shortage or a missing source, has no
 deletion power.
 
 ## Budgets and windows

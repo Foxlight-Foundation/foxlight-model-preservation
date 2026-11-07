@@ -243,8 +243,10 @@ def review(
             if announce
             else []
         ),
-        "Not exposed: private keys, the ledger, partial or unverified bytes,",
-        "  blocked models and models withdrawn from every followed catalog.",
+        "Not exposed: private keys, the ledger, partial or unverified bytes",
+        "  and models you block.",
+        "Catalog withdrawal is advisory: a copy a publisher stops listing keeps",
+        "  serving and is flagged in status. You decide; block it to stop serving.",
     ]
     if warnings:
         lines += ["", "Warnings:", *("  ! " + item for item in warnings)]

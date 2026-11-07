@@ -17,7 +17,12 @@ from typing import Protocol
 
 from .handoffs import Handoff, peer_contacts
 from .mirror_models import MirrorState, NativeModel, NativePolicy
-from .mirror_state import HEADROOM, MirrorLedger, serving_hour
+from .mirror_state import (
+    HEADROOM,
+    MirrorLedger,
+    serving_hour,
+    withdrawal_withholds,
+)
 from .models import PreservationError
 from .operations import OperationCancelled, OperationControl
 from .peer import publish_peer_model
@@ -491,7 +496,7 @@ class NativeMirrors:
             and held.state == "retained"
             and not held.blocked
             and not held.error
-            and not held.withdrawn
+            and not withdrawal_withholds(state, held)
             and not (native and native.error)
         )
 

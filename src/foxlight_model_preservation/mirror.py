@@ -26,6 +26,7 @@ from .mirror_models import (
     MirrorState,
     SourceGrant,
     SourceIntake,
+    WithdrawalAdvisory,
 )
 from .mirror_native import NativeMirrors, PeerSessionRunner
 from .mirror_state import (
@@ -34,6 +35,7 @@ from .mirror_state import (
     policy_id,
     restart_allowed,
     serving_hour,
+    withdrawal_withholds,
 )
 from .models import PreservationError
 from .operations import OperationCancelled, OperationControl, failure_code
@@ -60,6 +62,13 @@ from .transfer import TransferPolicy, fetch, inspect_envelope, request_digest
 # Catalog states whose authenticated, unexpired listing is a current statement.
 # An expired ("stale") catalog says nothing about withdrawal: that is availability.
 CURRENT_CATALOGS = frozenset({"fresh", "retained", "imported"})
+
+ADVISORY = (
+    "A publisher withdrew this listing; you decide. Catalogs are discovery, not "
+    "authority: this verified copy, its signed manifest, licence and notices "
+    "are unchanged. To stop serving it (for example after a legal notice), run "
+    "'model-preserve mirror block --dir <mirror> --manifest {manifest}'."
+)
 
 
 class MirrorBudgetDeferred(PreservationError):
@@ -138,6 +147,21 @@ def plan(ledger: MirrorLedger) -> dict[str, JsonValue]:
     """Explain bounded locally cached candidates and retained policy without network."""
     state = ledger.read()
     candidates: list[JsonValue] = []
+    advisories: list[JsonValue] = []
+    for identity, held in state.models.items():
+        if held.withdrawal is not None and held.state != "removed":
+            advisories.append(
+                {
+                    "manifest": identity,
+                    "source_id": held.withdrawal.source_id,
+                    "catalog_id": held.withdrawal.catalog_id,
+                    "observed_at": held.withdrawal.observed_at,
+                    "acknowledged": held.withdrawal.acknowledged,
+                    "serving_withheld": withdrawal_withholds(state, held),
+                    "blocked": held.blocked,
+                    "advice": ADVISORY.format(manifest=identity),
+                }
+            )
     for result in search_sources(ledger.path / "discovery", "", limit=1000):
         for location in result.locations:
             if location.source_id in state.sources:
@@ -156,6 +180,8 @@ def plan(ledger: MirrorLedger) -> dict[str, JsonValue]:
         "state": state.model_dump(mode="json"),
         "candidates": candidates,
         "candidate_limit": 1000,
+        "follow_withdrawals": state.follow_withdrawals,
+        "withdrawal_advisories": advisories,
         "controller_active": ledger.running(),
         "network_started": False,
     }
@@ -169,14 +195,47 @@ def model_action(ledger: MirrorLedger, manifest_id: str, action: str) -> MirrorS
         "block": {"blocked": True},
         "unblock": {"blocked": False},
         "retry": {"error": None, "deferred": None, "state": "pending"},
-        # Resume serving a withdrawn selection. A current catalog that still
-        # omits it withdraws it again on the next cycle.
-        "unwithdraw": {"withdrawn": False},
     }
+    if action in ("acknowledge", "unwithdraw"):
+        # ``unwithdraw`` is the deprecated name from when withdrawal stopped
+        # serving; both now acknowledge the advisory.
+        return acknowledge_withdrawal(ledger, manifest_id)
     if action not in changes:
         raise PreservationError("unsupported mirror model action")
     update = cast(dict[str, object], changes[action])
     return record_model(ledger, manifest_id, update)
+
+
+def acknowledge_withdrawal(ledger: MirrorLedger, manifest_id: str) -> MirrorState:
+    """Record that the operator reviewed a withdrawal advisory and keeps serving.
+
+    The advisory stays as a record until a current followed catalog lists the
+    copy again. With ``follow_withdrawals`` on, an acknowledged copy is the
+    operator's per-copy exception and keeps serving. Nothing is deleted, and
+    blocking remains the way to stop serving.
+    """
+
+    def apply(state: MirrorState) -> MirrorState:
+        held = state.models.get(manifest_id)
+        if held is None:
+            raise PreservationError("unknown retained mirror selection")
+        if held.withdrawal is None:
+            raise PreservationError("no followed catalog has withdrawn this selection")
+        acknowledged = held.withdrawal.model_copy(update={"acknowledged": True})
+        return state.model_copy(
+            update={
+                "models": dict(
+                    state.models,
+                    **{
+                        manifest_id: held.model_copy(
+                            update={"withdrawal": acknowledged}
+                        )
+                    },
+                )
+            }
+        )
+
+    return ledger.update(apply)
 
 
 def configure_http(ledger: MirrorLedger, *, enabled: bool) -> MirrorState:
@@ -213,12 +272,13 @@ CONFIGURABLE = frozenset(
         "serve_end",
         "refresh_seconds",
         "announce",
+        "follow_withdrawals",
     }
 )
 
 
 def configure_mirror(ledger: MirrorLedger, changes: dict[str, object]) -> MirrorState:
-    """Change bind, port, budgets, name or announcement offline.
+    """Change bind, port, budgets, name, announcement or withdrawal following offline.
 
     Any effective change alters the mirror's policy identity, so it also clears
     the standing restart grant: unattended serving needs fresh consent for the
@@ -398,7 +458,7 @@ def record_model(
         "verified_at",
         "transfer_bytes",
         "deferred",
-        "withdrawn",
+        "withdrawal",
     }:
         raise PreservationError("selection authority cannot be changed by a receipt")
 
@@ -524,7 +584,7 @@ def _source_intake(identity: str, held: HeldModel) -> SourceIntake:
                         "error",
                         "verified_at",
                         "deferred",
-                        "withdrawn",
+                        "withdrawal",
                     },
                 )
             )
@@ -633,14 +693,15 @@ def _budget_may_admit(
 def withdrawn_selections(ledger: MirrorLedger) -> dict[str, bool]:
     """Decide, offline, which source selections current catalogs withdrew.
 
-    Only current evidence decides. A selection is withdrawn when its own source
+    This is advice for the operator, never a takedown. Only current evidence
+    decides. A selection is withdrawn when its own source
     has an authenticated, unexpired catalog that no longer lists it and no other
     followed source's current catalog lists it. It is listed (not withdrawn)
     when any current followed catalog lists it. Otherwise there is no decision
     and the caller keeps the existing receipt: a catalog that merely expires (or
     cannot refresh) is availability, neither withdrawal nor relisting, so it
-    never withdraws a served copy and never resumes a withdrawn one. Local
-    selections are never withdrawn.
+    neither records nor clears an advisory. Local selections are never
+    withdrawn.
     """
     state = ledger.read()
     cache = ledger.path / "discovery"
@@ -669,33 +730,71 @@ def withdrawn_selections(ledger: MirrorLedger) -> dict[str, bool]:
 
 
 def mark_withdrawn(ledger: MirrorLedger) -> MirrorState:
-    """Record catalog withdrawal receipts; bytes stay retained per retention rules.
+    """Record or clear catalog withdrawal advisories; never delete or block.
 
-    A withdrawn selection stops being served on the next public selection and
-    stays withdrawn, even if the withdrawing catalog later expires or vanishes,
-    until a current followed catalog lists it again or the operator runs
-    ``mirror unwithdraw``. This is the takedown path: a source withdraws an
-    entry from its signed catalog.
+    A followed catalog is discovery, not authority over this mirror. When the
+    withdrawing source's current catalog omits a retained copy, the advisory
+    names that source, the exact catalog version and when it was first seen.
+    The copy keeps serving unless the operator blocks it or turned on
+    ``follow_withdrawals``. The advisory persists even if the withdrawing
+    catalog later expires or vanishes, and clears when a current followed
+    catalog lists the copy again. An earlier release's receipt, which lacks
+    these facts, is replaced by current evidence when there is some.
     """
     decisions = withdrawn_selections(ledger)
+    catalogs = {
+        status.source_id: status.catalog_id
+        for status in list_sources(ledger.path / "discovery")
+    }
+    now = int(time.time())
+
+    def advisory(held: HeldModel, withdrawn: bool) -> WithdrawalAdvisory | None:
+        if not withdrawn:
+            return None
+        current = held.withdrawal
+        if current is not None and current.observed_at is not None:
+            return current
+        return WithdrawalAdvisory(
+            source_id=held.source_id,
+            catalog_id=catalogs.get(held.source_id or ""),
+            observed_at=now,
+            acknowledged=current is not None and current.acknowledged,
+        )
 
     def apply(state: MirrorState) -> MirrorState:
         models = dict(state.models)
         for identity, withdrawn in decisions.items():
             held = models.get(identity)
-            if held is not None and held.withdrawn != withdrawn:
+            if held is not None and held.withdrawal != advisory(held, withdrawn):
                 models[identity] = HeldModel.model_validate(
-                    held.model_copy(update={"withdrawn": withdrawn}).model_dump()
+                    held.model_copy(
+                        update={"withdrawal": advisory(held, withdrawn)}
+                    ).model_dump()
                 )
         return state.model_copy(update={"models": models})
 
     if all(
         (held := ledger.read().models.get(identity)) is None
-        or held.withdrawn == withdrawn
+        or held.withdrawal == advisory(held, withdrawn)
         for identity, withdrawn in decisions.items()
     ):
         return ledger.read()
     return ledger.update(apply)
+
+
+def convert_legacy_withdrawals(ledger: MirrorLedger) -> tuple[str, ...]:
+    """Store an earlier release's withdrawn receipts as advisories, logging once.
+
+    Earlier releases stopped serving a copy a catalog withdrew. Withdrawal is
+    now advisory, so unless the operator follows withdrawals those copies serve
+    again. The first ledger write after upgrade (this one, at the latest when
+    the controller starts) stores the advisory form and logs that change, so
+    later starts are quiet. Receipts only: policy identity is unchanged.
+    """
+    legacy = ledger.legacy_withdrawals()
+    if legacy:
+        ledger.update(lambda current: current)
+    return legacy
 
 
 def reconcile(ledger: MirrorLedger, control: OperationControl) -> None:
@@ -705,8 +804,10 @@ def reconcile(ledger: MirrorLedger, control: OperationControl) -> None:
     operation and conservative ingress reservation. Failures require explicit
     retry. Ingress/disk budget refusals are deferred instead and retried in a
     later cycle; reservations already made stay charged. Source changes never
-    delete bytes, pins or accepted model evidence; a selection withdrawn from
-    every current followed catalog is recorded and stops being served.
+    delete bytes, pins or accepted model evidence. A selection withdrawn from
+    every current followed catalog gets an advisory; it stops being served only
+    if the operator follows withdrawals. Catalogs still decide discovery: only
+    a fresh listing admits a new selection or retries a pending one.
     """
     if (ledger.path / "prune.json").exists():
         raise PreservationError("finish the interrupted operator prune first")
@@ -735,7 +836,8 @@ def reconcile(ledger: MirrorLedger, control: OperationControl) -> None:
     finally:
         # Record every authenticated withdrawal already accepted, even when a
         # later source's budget or cancellation stops this cycle: one source's
-        # failure must not delay another source's takedown.
+        # failure must not delay another source's advisory (or, when the
+        # operator follows withdrawals, its effect on serving).
         mark_withdrawn(ledger)
     state = ledger.read()
     catalogs = {
@@ -1000,7 +1102,12 @@ def public_selection(
         ledger.child("public") as target,
     ):
         for identity, held in state.models.items():
-            if held.blocked or held.error or held.withdrawn or held.state != "retained":
+            if (
+                held.blocked
+                or held.error
+                or held.state != "retained"
+                or withdrawal_withholds(state, held)
+            ):
                 continue
             try:
                 manifest = verify_retained(
@@ -1131,7 +1238,7 @@ class MirrorServer(SeedServer):
             (held := state.models.get(identity)) is not None
             and not held.blocked
             and not held.error
-            and not held.withdrawn
+            and not withdrawal_withholds(state, held)
             and held.state == "retained"
             for identity in self.owners.get(path, ())
         )
@@ -1231,6 +1338,9 @@ def run_mirror(
             raise PreservationError(
                 "finish the interrupted operator prune before serving"
             )
+        # Receipts only: neither the policy identity nor the grant changes.
+        convert_legacy_withdrawals(ledger)
+        state = ledger.read()
         if not state.http_enabled and not (
             state.native_policy
             and (state.native_policy.ipfs_binary or state.native_policy.torrent)
@@ -1288,7 +1398,7 @@ def run_mirror(
                             ledger, active.fork()
                         )
                     # A budget or source failure must not skip the steps below:
-                    # withdrawals already recorded must leave the serving set,
+                    # followed withdrawals must leave the serving set,
                     # and the card must be renewed from verified retained copies.
                     failed: BaseException | None = None
                     try:

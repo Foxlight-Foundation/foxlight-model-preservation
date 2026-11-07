@@ -65,6 +65,7 @@ class MirrorArguments(argparse.Namespace):
     serve_start: int | None
     serve_end: int | None
     refresh_seconds: int | None
+    follow_withdrawals: str | None
     public_url: str | None
     clear_public_url: bool
     contact: str | None
@@ -222,6 +223,7 @@ def register_mirror_commands(
         "block",
         "unblock",
         "retry",
+        "acknowledge",
         "unwithdraw",
         "prune",
         "transports",
@@ -231,7 +233,14 @@ def register_mirror_commands(
         "export-kit",
         "recover",
     ):
-        command = actions.add_parser(name)
+        command = actions.add_parser(
+            name,
+            help={
+                "acknowledge": "acknowledge a catalog withdrawal advisory and "
+                "keep serving the copy (block it to stop serving)",
+                "unwithdraw": "deprecated alias of acknowledge",
+            }.get(name),
+        )
         command.add_argument("--dir", dest="mirror_dir", type=Path, required=True)
         if name == "recover":
             command.add_argument("--progress", action="store_true")
@@ -282,6 +291,15 @@ def register_mirror_commands(
                 "--refresh-seconds",
                 type=int,
                 default=None if name == "config" else 21600,
+            )
+        if name == "config":
+            command.add_argument(
+                "--follow-withdrawals",
+                choices=["on", "off"],
+                default=None,
+                help="on: stop serving copies a followed catalog withdrew (your "
+                "choice, never a publisher's); off (default): withdrawal is only "
+                "an advisory in status. Changing it clears the restart grant",
             )
         if name == "quickstart":
             command.add_argument(
@@ -375,6 +393,7 @@ def register_mirror_commands(
             "block",
             "unblock",
             "retry",
+            "acknowledge",
             "unwithdraw",
             "prune",
             "export",
@@ -585,6 +604,9 @@ def run_mirror_command(
                 "serve_start": arguments.serve_start,
                 "serve_end": arguments.serve_end,
                 "refresh_seconds": arguments.refresh_seconds,
+                "follow_withdrawals": None
+                if arguments.follow_withdrawals is None
+                else arguments.follow_withdrawals == "on",
             }.items()
             if value is not None
         }
@@ -768,8 +790,11 @@ def run_mirror_command(
         )
     else:
         model_action(ledger, arguments.mirror_manifest, action)
-    return {
+    receipt: dict[str, JsonValue] = {
         "action": action,
         "retained_bytes_deleted": action == "prune",
         "recorded_at": int(time.time()),
     }
+    if action == "unwithdraw":
+        receipt["deprecated"] = "use 'mirror acknowledge'; withdrawal is advisory"
+    return receipt

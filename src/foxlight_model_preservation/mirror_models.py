@@ -90,6 +90,23 @@ class SourceGrant(Record):
     max_bytes: int = Field(default=20 * 1024**3, ge=1, le=2**53 - 1)
 
 
+class WithdrawalAdvisory(Record):
+    """A followed catalog stopped listing a retained copy: advice, not a takedown.
+
+    Catalogs are discovery, not authority. The copy's own signed manifest,
+    licence and notices are unchanged, so it keeps serving unless the operator
+    blocks it or chose ``follow_withdrawals``. ``source_id`` and ``catalog_id``
+    name the withdrawing source and the exact catalog version that omitted it;
+    all three facts are None for a receipt converted from an earlier release.
+    ``acknowledged`` records that the operator reviewed it and keeps serving.
+    """
+
+    source_id: Digest | None = None
+    catalog_id: Digest | None = None
+    observed_at: int | None = Field(default=None, ge=0)
+    acknowledged: bool = False
+
+
 class HeldModel(Record):
     """Retained exact selection and original policy, independent of catalog churn."""
 
@@ -113,9 +130,10 @@ class HeldModel(Record):
         max_length=500,
         description="Budget refusal retried automatically; never a sticky error.",
     )
-    withdrawn: bool = Field(
-        default=False,
-        description="No current followed catalog lists it: retained, not served.",
+    withdrawal: WithdrawalAdvisory | None = Field(
+        default=None,
+        description="No current followed catalog lists it; served unless the "
+        "operator blocks it or follows withdrawals.",
     )
 
     @model_validator(mode="after")
@@ -224,6 +242,11 @@ class MirrorState(Record):
         default_factory=dict, max_length=1000
     )
     announce: AnnouncePolicy | None = None
+    follow_withdrawals: bool = Field(
+        default=False,
+        description="Operator's choice to stop serving copies a followed catalog "
+        "withdrew; off means withdrawal is advisory only.",
+    )
 
     @model_validator(mode="after")
     def native_profile_version(self) -> MirrorState:
