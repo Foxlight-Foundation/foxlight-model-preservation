@@ -111,7 +111,7 @@ export function LibraryKeepAvailable({copies,features,bittorrentAvailable,onDial
 /** One sheet: what, which licences, how people reach this host, then one consent. */
 function ShareSetup({page,state,copies,reviewed,on,bittorrentAvailable,onReview,onClose,onStarted}:{page:MirrorPage;state:Switch;copies:Copy[];reviewed:Reviewed[];on:boolean;bittorrentAvailable:boolean;onReview:(licenses:string[])=>Promise<void>;onClose:()=>void;onStarted:(value:Switch)=>void}) {
  const base=page.configuration;
- const [share,setShare]=useState<'eligible'|'chosen'>('eligible'),[chosen,setChosen]=useState<string[]>([]);
+ const [share,setShare]=useState<'eligible'|'chosen'>('eligible'),[chosen,setChosen]=useState<string[]>(()=>copies.filter(copy=>page.models.some(model=>model.manifest_id===copy.manifest_id&&model.state!=='removed'&&!model.blocked)).map(copy=>copy.copy_id));
  const [licenses,setLicenses]=useState<string[]>(state.default_licenses);
  const [draft,setDraft]=useState<MirrorConfiguration>(()=>base?{...base}:{...state.defaults,torrent:bittorrentAvailable});
  const [peer,setPeer]=useState<PeerGrant|null>(null),[agreed,setAgreed]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('');
@@ -140,12 +140,13 @@ function ShareSetup({page,state,copies,reviewed,on,bittorrentAvailable,onReview,
  return <Sheet kicker="Help keep models available" title="Share your public copies with everyone" back="Close sharing setup" onClose={onClose} footer={<button className="sk-btn sk-solid" disabled={busy||!ready} onClick={()=>void start()}>{busy?'Saving…':on?'Save changes':'Start sharing'}</button>}>
   {error&&<Callout tone="bad" role="alert">{shareError(error)}</Callout>}
   <Step n={1} title="What to share">
-   <ShareChoice value={share} onChange={setShare} name="library-share" every={['Every public copy whose licence allows it','Copies already kept stay as they are. You can keep any one back.']} chosen={['Only the copies I choose','Pick them below.']}/>
+   <ShareChoice value={share} onChange={setShare} name="library-share" every={['Every public copy whose licence allows it','Copies you kept back stay kept back. You can keep any one back later.']} chosen={['Only the copies I choose','Pick them below.']}/>
    <ul className="sk-community-list" aria-label="Public copies">{copies.map(copy=>{const value=status(copy),[text,tone]=label[value],can=shareable.includes(value);return <li key={copy.copy_id}>
     {share==='chosen'&&can?<label><input type="checkbox" checked={chosen.includes(copy.copy_id)} onChange={event=>setChosen(current=>event.target.checked?[...current,copy.copy_id]:current.filter(item=>item!==copy.copy_id))}/> <strong>{copy.model_id}</strong></label>:<strong>{copy.model_id}</strong>}
     <span> · {bytes(copy.size_bytes)}{(reviewed.find(item=>item.copy_id===copy.copy_id)?.licenses.length??0)>0&&<> · {reviewed.find(item=>item.copy_id===copy.copy_id)!.licenses.join(', ')}</>}</span> <Pill tone={tone}>{text}</Pill>
    </li>;})}</ul>
    {copies.length===0&&<p>No public copies yet. Private copies stay private.</p>}
+   <p className="sk-hint">Only what you agree to here is served. {share==='chosen'?'Copies you don’t choose':'Copies whose licence isn’t on your list'} stop being served; their files stay on this host.</p>
   </Step>
   <Step n={2} title="Licences that allow sharing">
    <p>A copy is shared only if every part has a licence on this list. Copies with no licence stay private. Whether the original download asked who you are doesn’t matter; the licence does.</p>

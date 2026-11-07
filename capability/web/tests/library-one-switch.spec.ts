@@ -3,8 +3,8 @@ import {test,expect,type Page} from '@playwright/test';
 const gib=1024**3;
 const defaults={name:'Library community mirror',disk_bytes:50*gib,ingress_daily:20*gib,egress_daily:20*gib,egress_monthly:300*gib,http:true,exposure:'network',port:8743,ipfs:false,torrent:false,peer_setup_id:null,max_active:2,session_seconds:3600,session_bytes:64*1024**2,upload_rate:1024**2};
 const publicCopy=(n:string,model:string)=>({copy_id:n.repeat(64),model_id:model,location_id:'public-copy',manifest_id:String.fromCharCode(n.charCodeAt(0)+1).repeat(64),audience:'public',size_bytes:4*gib,checked_at:1,member_count:1,publisher_key_ids:['ed25519:'+'f'.repeat(64)]});
-const apache=publicCopy('1','community/apache-model'),gpl=publicCopy('3','community/gpl-model'),unknown=publicCopy('5','community/unlicensed-model');
-const licences:Record<string,string>={[apache.manifest_id]:'apache-2.0',[gpl.manifest_id]:'GPL-3.0',[unknown.manifest_id]:'other'};
+const apache=publicCopy('1','community/apache-model'),gpl=publicCopy('3','community/gpl-model'),unknown=publicCopy('5','community/unlicensed-model'),mit=publicCopy('7','community/mit-model');
+const licences:Record<string,string>={[apache.manifest_id]:'apache-2.0',[gpl.manifest_id]:'GPL-3.0',[unknown.manifest_id]:'other',[mit.manifest_id]:'mit'};
 const year=365*86400;
 type Held={manifest_id:string;state:'pending'|'retained'|'removed';pinned:boolean;blocked:boolean};
 const browserErrors=new WeakMap<Page,string[]>();
@@ -12,17 +12,18 @@ test.beforeEach(async({page})=>{const errors:string[]=[];browserErrors.set(page,
 test.afterEach(async({page})=>{expect(browserErrors.get(page)??[]).toEqual([]);});
 
 /** Mocked browser contract; the Library server and Core enforce the same rules. */
-async function host(page:Page,options:{existing?:boolean}={}){
+async function host(page:Page,options:{existing?:boolean;both?:boolean}={}){
   const idle={state:'idle',step:null,kept:0,total:0,skipped:[] as {copy_id:string;reason:string}[],error_code:null as string|null,expires:null as number|null};
   const state={
     snapshot:{schema_version:'skulk.preservation-mirror.v1',configured:false,available:false,policy_id:null as string|null,configuration:null as typeof defaults|null,paused:true,restart_expires:null as number|null,restart_allowed:false,controller_job_id:null as string|null,activity:null as {running:boolean;http_port:number|null;native_workers:number}|null,models:[] as Held[],model_count:0,next_offset:null},
     progress:{...idle},starts:[] as Record<string,unknown>[],shares:[] as Record<string,unknown>[],stops:0,reviews:[] as string[][],
   };
+  if(options.both)Object.assign(state.snapshot,{configured:true,available:true,policy_id:'a'.repeat(64),configuration:{...defaults},paused:false,restart_expires:Math.floor(Date.now()/1000)+year,restart_allowed:true,controller_job_id:'c'.repeat(64),models:[apache,mit].map(item=>({manifest_id:item.manifest_id,state:'retained',pinned:false,blocked:false})),model_count:2});
   if(options.existing){
     // A mirror set up before this release: a reviewed selection, settings and a 24-hour grant.
     Object.assign(state.snapshot,{configured:true,available:true,policy_id:'a'.repeat(64),configuration:{...defaults,name:'Older mirror',exposure:'loopback',port:8080},paused:false,restart_expires:Math.floor(Date.now()/1000)+20*3600,restart_allowed:true,controller_job_id:'c'.repeat(64),activity:{running:true,http_port:8080,native_workers:0},models:[{manifest_id:apache.manifest_id,state:'retained',pinned:true,blocked:false}],model_count:1});
   }
-  await page.route('**/api/library?offset=*',route=>route.fulfill({json:{locations:[],models:[],copies:[],public_copies:[apache,gpl,unknown],bittorrent_available:true,jobs:[],next_offset:null}}));
+  await page.route('**/api/library?offset=*',route=>route.fulfill({json:{locations:[],models:[],copies:[],public_copies:options.both?[apache,mit,gpl,unknown]:[apache,gpl,unknown],bittorrent_available:true,jobs:[],next_offset:null}}));
   await page.route('**/api/core-features',route=>route.fulfill({json:{'Portable handoffs':true,'Persistent mirrors':true,'Public copy review':true,'Retained recovery':true}}));
   await page.route('**/api/mirror-*',async route=>{
     const action=new URL(route.request().url()).pathname.split('/').at(-1);
@@ -41,7 +42,7 @@ async function host(page:Page,options:{existing?:boolean}={}){
       state.shares.push(input);const copies=input.copies as {manifest_id:string}[];
       state.progress={...idle,state:'working',step:'keeping',total:copies.length};
       // The next read reports the finished, recorded Core decisions.
-      setTimeout(()=>{const expires=Math.floor(Date.now()/1000)+year;Object.assign(state.snapshot,{configured:true,available:true,policy_id:'b'.repeat(64),configuration:input.configuration,paused:false,restart_expires:expires,restart_allowed:true,controller_job_id:'d'.repeat(64),activity:{running:true,http_port:8743,native_workers:0},models:copies.map(item=>({manifest_id:item.manifest_id,state:'retained',pinned:false,blocked:false}))});state.progress={...idle,state:'done',kept:copies.length,total:copies.length,expires};},300);
+      setTimeout(()=>{const expires=Math.floor(Date.now()/1000)+year;Object.assign(state.snapshot,{configured:true,available:true,policy_id:'b'.repeat(64),configuration:input.configuration,paused:false,restart_expires:expires,restart_allowed:true,controller_job_id:'d'.repeat(64),activity:{running:true,http_port:8743,native_workers:0},models:[...state.snapshot.models.filter(model=>!copies.some(item=>item.manifest_id===model.manifest_id)).map(model=>({...model,blocked:true})),...copies.map(item=>({manifest_id:item.manifest_id,state:'retained' as const,pinned:false,blocked:input.share!=='chosen'&&Boolean(state.snapshot.models.find(model=>model.manifest_id===item.manifest_id)?.blocked)}))]});state.progress={...idle,state:'done',kept:copies.length,total:copies.length,expires};},300);
       return route.fulfill({json:{progress:state.progress,default_licenses:['apache-2.0','mit'],defaults,consent_seconds:year,disclosure:1}});
     }
     if(action==='mirror-share-stop'){state.stops++;Object.assign(state.snapshot,{controller_job_id:null,activity:null,paused:true});state.progress={...state.progress,state:'stopped'};return route.fulfill({json:{progress:state.progress,job:null}});}
@@ -191,4 +192,45 @@ test('Stop sharing is one action',async({page},info)=>{
   expect(state.starts).toEqual([]);
   await expect(card(page).getByRole('button',{name:'Turn on',exact:true})).toBeVisible();
   await expect(card(page).getByText(/1 copy is already kept for sharing on this host/)).toBeVisible();
+});
+
+test('choosing only one of two shared copies keeps the other back',async({page})=>{
+  const state=await host(page,{both:true});
+  await expect(card(page).getByText('Sharing 2 models',{exact:true})).toBeVisible();
+  await card(page).getByRole('button',{name:'Change what’s shared',exact:true}).click();
+  const sheet=page.getByRole('dialog');
+  await sheet.getByRole('radio',{name:/Only the copies I choose/}).check();
+  await expect(sheet.getByText('Only what you agree to here is served. Copies you don’t choose stop being served; their files stay on this host.')).toBeVisible();
+  // What is served now starts chosen, so narrowing is an explicit change.
+  await expect(sheet.getByRole('checkbox',{name:apache.model_id})).toBeChecked();
+  await expect(sheet.getByRole('checkbox',{name:mit.model_id})).toBeChecked();
+  await sheet.getByRole('checkbox',{name:mit.model_id}).uncheck();
+  await sheet.getByRole('checkbox',{name:/Keep sharing these public copies/}).check();
+  await sheet.getByRole('button',{name:'Save changes',exact:true}).click();
+  expect(state.shares[0]).toMatchObject({share:'chosen',copies:[{copy_id:apache.copy_id}]});
+  await expect(card(page).getByText('Sharing 1 model',{exact:true})).toBeVisible();
+  await card(page).getByText('Your public copies · 1 shared').click();
+  await expect(card(page).getByRole('listitem').filter({hasText:mit.model_id}).getByText('Kept back',{exact:true})).toBeVisible();
+});
+
+test('switching from every eligible copy to chosen ones narrows what is served',async({page})=>{
+  const state=await host(page,{both:false});
+  await page.unroute('**/api/library?offset=*');
+  await page.route('**/api/library?offset=*',route=>route.fulfill({json:{locations:[],models:[],copies:[],public_copies:[apache,mit,gpl,unknown],bittorrent_available:true,jobs:[],next_offset:null}}));
+  await page.reload();await page.getByRole('button',{name:'Sharing',exact:true}).click();
+  await card(page).getByRole('button',{name:'Turn on',exact:true}).click();
+  let sheet=page.getByRole('dialog');
+  await expect(sheet.getByText('Only what you agree to here is served. Copies whose licence isn’t on your list stop being served; their files stay on this host.')).toBeVisible();
+  await sheet.getByRole('checkbox',{name:/Keep sharing these public copies/}).check();
+  await sheet.getByRole('button',{name:'Start sharing',exact:true}).click();
+  expect((state.shares[0] as {share:string;copies:{copy_id:string}[]}).copies.map(item=>item.copy_id)).toEqual([apache.copy_id,mit.copy_id]);
+  await expect(card(page).getByText('Sharing 2 models',{exact:true})).toBeVisible();
+  await card(page).getByRole('button',{name:'Change what’s shared',exact:true}).click();
+  sheet=page.getByRole('dialog');
+  await sheet.getByRole('radio',{name:/Only the copies I choose/}).check();
+  await sheet.getByRole('checkbox',{name:apache.model_id}).uncheck();
+  await sheet.getByRole('checkbox',{name:/Keep sharing these public copies/}).check();
+  await sheet.getByRole('button',{name:'Save changes',exact:true}).click();
+  expect(state.shares[1]).toMatchObject({share:'chosen',copies:[{copy_id:mit.copy_id}]});
+  await expect(card(page).getByText('Sharing 1 model',{exact:true})).toBeVisible();
 });

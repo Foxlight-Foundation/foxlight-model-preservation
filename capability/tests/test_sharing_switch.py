@@ -21,8 +21,9 @@ from foxlight_preservation_library.sharing_switch import (
     DEFAULT_CONFIGURATION,
 )
 
-APACHE, OTHER, GPL, PMF, REMOVED = (c * 64 for c in "abcde")
+APACHE, OTHER, GPL, PMF, REMOVED, MIT = (c * 64 for c in "abcdef")
 LICENCES = {APACHE: "Apache 2.0", OTHER: "other", GPL: "GPL-3.0", REMOVED: "MIT"}
+ALL = (APACHE, OTHER, GPL, PMF, REMOVED, MIT)
 
 
 def copy(manifest: str) -> dict[str, JsonValue]:
@@ -83,6 +84,8 @@ class FakeCore:
         self.decisions: list[dict[str, Any]] = []
         self.calls: list[tuple[str, str]] = []
         self.hold_retain = False
+        # When set, mirror reads wait so a Stop can overtake an admission.
+        self.gate: asyncio.Event | None = None
         self.sequence = 0
 
     def _policy(self) -> None:
@@ -103,17 +106,25 @@ class FakeCore:
         self.jobs[job_id] = job
         return job
 
+    async def handle_async(self, request: httpx.Request) -> httpx.Response:
+        if self.gate is not None and request.url.path == "/preservation/mirror":
+            await self.gate.wait()
+        return self.handle(request)
+
+    def served(self) -> set[str]:
+        return {
+            m["manifest_id"]
+            for m in self.page["models"]
+            if m["state"] in {"retained", "pending"} and not m["blocked"]
+        }
+
     def handle(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path.removeprefix("/preservation/")
         self.calls.append((request.method, path))
         if request.method == "GET" and path == "mirror":
             return httpx.Response(200, json=self.page)
         if request.method == "GET" and path.startswith("public-copies/"):
-            manifest = next(
-                m
-                for m in (APACHE, OTHER, GPL, PMF, REMOVED)
-                if m[0] == path.split("/")[1][-1]
-            )
+            manifest = next(m for m in ALL if m[0] == path.split("/")[1][-1])
             return httpx.Response(200, json=review(manifest))
         job_id = path.removeprefix("mirror/jobs/")
         if request.method == "GET" and job_id in self.jobs:
@@ -154,6 +165,10 @@ class FakeCore:
                 self._policy()
                 if self.hold_retain:
                     job["state"] = "running"
+            elif kind == "model":
+                for model in self.page["models"]:
+                    if model["manifest_id"] == decision["manifest_id"]:
+                        model["blocked"] = decision["action"] == "block"
             elif kind == "grant_resume":
                 assert decision["confirm_resume"] is True
                 self.page["restart_expires"] = decision["resume_expires"]
@@ -170,7 +185,7 @@ class FakeCore:
 async def core() -> Any:
     fake = FakeCore()
     client = CoreClient(
-        Settings(), "client", transport=httpx.MockTransport(fake.handle)
+        Settings(), "client", transport=httpx.MockTransport(fake.handle_async)
     )
     app = LibraryServer(None, client, asyncio.get_running_loop())
     app.sharing.poll_seconds = 0
@@ -447,3 +462,143 @@ def test_licence_policy_matches_the_core_community_mirror() -> None:
         assert sharing_switch.normalize_license(value) == community.normalize_license(
             value
         )
+
+
+def held(*identities: str, blocked: tuple[str, ...] = ()) -> list[dict[str, Any]]:
+    return [
+        {
+            "manifest_id": m,
+            "state": "retained",
+            "pinned": False,
+            "blocked": m in blocked,
+        }
+        for m in identities
+    ]
+
+
+def existing(fake: FakeCore, *identities: str, blocked: tuple[str, ...] = ()) -> None:
+    fake.page.update(
+        configured=True,
+        available=True,
+        policy_id="9" * 64,
+        configuration=dict(DEFAULT_CONFIGURATION),
+        models=held(*identities, blocked=blocked),
+    )
+
+
+async def test_choosing_only_a_stops_serving_b_before_the_grant(core: Any) -> None:
+    fake, app = core
+    existing(fake, APACHE, MIT)
+    await app.dispatch(
+        "mirror-share-start", start_body(fake, share="chosen", copies=[copy(APACHE)])
+    )
+    progress = await finished(app)
+    assert progress["state"] == "done", progress
+    assert fake.served() == {APACHE}
+    # B keeps its retained bytes; it is only blocked from serving.
+    assert {m["manifest_id"] for m in fake.page["models"]} == {APACHE, MIT}
+    kinds = [(d["kind"], d.get("action")) for d in fake.decisions]
+    assert kinds == [("model", "block"), ("grant_resume", None), ("run", None)]
+    assert fake.decisions[0]["manifest_id"] == MIT
+
+
+async def test_switching_from_all_to_chosen_narrows_what_is_served(core: Any) -> None:
+    fake, app = core
+    await app.dispatch(
+        "mirror-share-start", start_body(fake, copies=[copy(APACHE), copy(MIT)])
+    )
+    assert (await finished(app))["state"] == "done"
+    assert fake.served() == {APACHE, MIT}
+    fake.decisions.clear()
+    await app.dispatch(
+        "mirror-share-start",
+        start_body(fake, share="chosen", copies=[copy(MIT)]),
+    )
+    progress = await finished(app)
+    assert progress["state"] == "done", progress
+    assert fake.served() == {MIT}
+    assert progress["kept"] == 1
+    assert [d["kind"] for d in fake.decisions] == ["model", "grant_resume", "run"]
+    assert fake.page["controller_job_id"] is not None
+
+
+async def test_all_eligible_never_serves_ineligible_or_kept_back_copies(
+    core: Any,
+) -> None:
+    fake, app = core
+    # GPL was kept under an older, wider list; MIT was kept back by the owner.
+    existing(fake, APACHE, GPL, MIT, blocked=(MIT,))
+    await app.dispatch(
+        "mirror-share-start",
+        start_body(fake, copies=[copy(APACHE), copy(GPL), copy(MIT)]),
+    )
+    progress = await finished(app)
+    assert progress["state"] == "done", progress
+    assert fake.served() == {APACHE}
+    assert {"copy_id": "copy-c", "reason": "license_not_selected"} in progress[
+        "skipped"
+    ]
+    # Choosing a kept-back copy explicitly is the consent to serve it again.
+    fake.decisions.clear()
+    await app.dispatch(
+        "mirror-share-start",
+        start_body(fake, share="chosen", copies=[copy(APACHE), copy(MIT)]),
+    )
+    assert (await finished(app))["state"] == "done"
+    assert fake.served() == {APACHE, MIT}
+
+
+async def test_holdings_outside_the_reviewed_list_are_not_served(core: Any) -> None:
+    fake, app = core
+    # PMF is not on this page of public copies, so it was never reviewed here.
+    existing(fake, APACHE)
+    fake.page["models"].append(
+        {"manifest_id": "0" * 64, "state": "pending", "pinned": False, "blocked": False}
+    )
+    await app.dispatch("mirror-share-start", start_body(fake, copies=[copy(APACHE)]))
+    assert (await finished(app))["state"] == "done"
+    assert fake.served() == {APACHE}
+
+
+async def test_concurrent_starts_admit_one_and_stop_fences_every_setup(
+    core: Any,
+) -> None:
+    fake, app = core
+    fake.gate = asyncio.Event()
+    first = asyncio.create_task(app.dispatch("mirror-share-start", start_body(fake)))
+    second = asyncio.create_task(app.dispatch("mirror-share-start", start_body(fake)))
+    await asyncio.sleep(0)
+    # Both are mid-admission; the second was refused before any Core read.
+    with pytest.raises(CoreRefused, match="mirror_share_busy"):
+        await second
+    stopping = asyncio.create_task(app.dispatch("mirror-share-stop", {}))
+    await asyncio.sleep(0)
+    fake.gate.set()
+    stopped = await stopping
+    with pytest.raises(CoreRefused, match="mirror_share_stopped"):
+        await first
+    assert stopped["progress"]["state"] == "stopped"
+    for _ in range(50):
+        await asyncio.sleep(0)
+    assert app.sharing._task is None  # pyright: ignore[reportPrivateUsage]
+    assert fake.decisions == []
+    assert fake.page["restart_expires"] is None
+    assert fake.page["controller_job_id"] is None
+
+
+async def test_a_stop_during_setup_prevents_any_later_grant_or_run(core: Any) -> None:
+    fake, app = core
+    fake.hold_retain = True
+    await app.dispatch("mirror-share-start", start_body(fake))
+    for _ in range(500):
+        if any(d["kind"] == "retain" for d in fake.decisions):
+            break
+        await asyncio.sleep(0)
+    task = app.sharing._task  # pyright: ignore[reportPrivateUsage]
+    await app.dispatch("mirror-share-stop", {})
+    assert task is not None and task.done()
+    # A later Start is a new, separately admitted decision.
+    for _ in range(50):
+        await asyncio.sleep(0)
+    assert {d["kind"] for d in fake.decisions} <= {"configure", "retain"}
+    assert fake.page["restart_expires"] is None
