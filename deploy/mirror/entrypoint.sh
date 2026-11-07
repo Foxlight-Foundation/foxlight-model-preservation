@@ -18,7 +18,7 @@ set -- mirror quickstart \
   --port "${SOVEREIGN_MIRROR_PORT:-8080}" \
   --disk-bytes "${SOVEREIGN_MIRROR_BUDGET:-100G}" \
   --ingress-daily "${SOVEREIGN_MIRROR_INGRESS_DAILY:-50G}" \
-  --resume-for "${SOVEREIGN_MIRROR_GRANT:-90d}"
+  --resume-for "${SOVEREIGN_MIRROR_GRANT:-180d}"
 
 # Upload caps are opt-in. Unset: a new mirror has none and an existing mirror
 # keeps the caps it has. A size caps uploads; "none" removes the cap.

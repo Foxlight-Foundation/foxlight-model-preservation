@@ -144,7 +144,7 @@ class QuickstartSettings:
     bind: str = "127.0.0.1"
     port: int = 8080
     announce: AnnouncePolicy | None = None
-    resume_seconds: int = 90 * 86400
+    resume_seconds: int = 180 * 86400
     max_bytes: int | None = None
 
 

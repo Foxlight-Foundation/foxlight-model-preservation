@@ -78,7 +78,7 @@ setting clears the old grant; unchanged settings change nothing else. A source
 already followed under the same bootstrap keeps the roots and catalog its later
 refreshes accepted: quickstart applies the reviewed grant without reimporting
 the collection's possibly older snapshot. Quickstart refuses to resume a
-paused mirror or rejoin one that left. The default grant lasts 90 days
+paused mirror or rejoin one that left. The default grant lasts 180 days
 (`--resume-for`, at most 366 days).
 
 Sizes everywhere accept bytes or binary units: `K`, `M`, `G`, `T` and `P` are
@@ -99,14 +99,18 @@ without them; pass `none` (for example `--egress-daily none`) to remove one.
 [`deploy/mirror/`](../deploy/mirror/README.md) packages a multi-arch image
 (amd64 and arm64) and a compose file with Caddy. Caddy obtains a certificate for
 your domain and reverse-proxies to the mirror, which listens on loopback inside
-the same network namespace. Caddy's access log stays off.
+the same network namespace. Caddy's access log stays off. Each core release
+publishes the image as `ghcr.io/foxlight-foundation/sovereign-mirror:VERSION`
+with a signed build provenance attestation; verify it first as shown in the
+[deploy README](../deploy/mirror/README.md#container), or add `--build` to
+build this checkout instead.
 
 ```sh
 cp deploy/mirror/mirror.env.example deploy/mirror/mirror.env   # edit it
 mkdir deploy/mirror/collection
 cp collection.json example.foxsource deploy/mirror/collection/
 docker compose --env-file deploy/mirror/mirror.env \
-  -f deploy/mirror/compose.yaml up -d --build
+  -f deploy/mirror/compose.yaml up -d
 docker compose --env-file deploy/mirror/mirror.env \
   -f deploy/mirror/compose.yaml logs mirror   # read the review
 ```

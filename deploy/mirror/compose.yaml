@@ -24,10 +24,13 @@ services:
       - caddy-config:/config
 
   mirror:
+    # The published, attested image. Verify it before the first start (see
+    # README.md); pin a digest with SOVEREIGN_MIRROR_IMAGE=...@sha256:... .
+    # `up --build` builds this checkout instead.
+    image: ${SOVEREIGN_MIRROR_IMAGE:-ghcr.io/foxlight-foundation/sovereign-mirror:0.28.1}
     build:
       context: ../..
       dockerfile: deploy/mirror/Dockerfile
-    image: sovereign-mirror:local
     restart: unless-stopped
     # Share Caddy's network namespace: the mirror's 127.0.0.1:8080 listener is
     # reachable by Caddy and by nothing else.
@@ -43,7 +46,7 @@ services:
       # existing mirror keeps the caps it has. "none" removes them.
       SOVEREIGN_MIRROR_EGRESS_DAILY: ${SOVEREIGN_MIRROR_EGRESS_DAILY:-}
       SOVEREIGN_MIRROR_EGRESS_MONTHLY: ${SOVEREIGN_MIRROR_EGRESS_MONTHLY:-}
-      SOVEREIGN_MIRROR_GRANT: ${SOVEREIGN_MIRROR_GRANT:-90d}
+      SOVEREIGN_MIRROR_GRANT: ${SOVEREIGN_MIRROR_GRANT:-180d}
       SOVEREIGN_MIRROR_COLLECTION: /config/collection.json
       SOVEREIGN_MIRROR_CONSENT: ${SOVEREIGN_MIRROR_CONSENT:-}
     volumes:

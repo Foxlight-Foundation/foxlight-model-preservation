@@ -7,7 +7,7 @@ anonymous.
 
 | File | Purpose |
 | --- | --- |
-| `Dockerfile` | Multi-arch image (linux/amd64, linux/arm64) built from this checkout's wheel with hash-locked dependencies and the `bittorrent` extra. Runs as an unprivileged user. |
+| `Dockerfile` | Multi-arch image (linux/amd64, linux/arm64) built from this checkout's wheel with hash-locked dependencies and the `bittorrent` extra. Runs as an unprivileged user. Published for each core release as `ghcr.io/foxlight-foundation/sovereign-mirror:VERSION`. |
 | `compose.yaml` | Caddy (automatic TLS, no access log) in front of the mirror, which listens on 127.0.0.1 inside Caddy's network namespace. |
 | `Caddyfile` | The reverse proxy for `SOVEREIGN_MIRROR_DOMAIN`. |
 | `entrypoint.sh` | Runs `mirror quickstart`: plan-only without consent, otherwise set up, renew the grant and serve. |
@@ -19,19 +19,36 @@ anonymous.
 You need a domain whose DNS points at the host, ports 80 and 443 open, and a
 reviewed collection file (`sovereign.mirror-collection.v1`).
 
+Each core release tag publishes the image to the GitHub Container Registry with
+a signed build provenance attestation (Sigstore, keyless). Verify it before the
+first start; the attestation names the exact workflow and release tag that built
+it:
+
+```sh
+docker pull ghcr.io/foxlight-foundation/sovereign-mirror:0.28.1
+gh attestation verify oci://ghcr.io/foxlight-foundation/sovereign-mirror:0.28.1 \
+  --repo Foxlight-Foundation/foxlight-model-preservation \
+  --signer-workflow Foxlight-Foundation/foxlight-model-preservation/.github/workflows/mirror-image.yml \
+  --source-ref refs/tags/v0.28.1 --deny-self-hosted-runners
+```
+
+To pin exactly what you verified, set
+`SOVEREIGN_MIRROR_IMAGE=ghcr.io/foxlight-foundation/sovereign-mirror@sha256:DIGEST`
+in `mirror.env` (the digest is printed by `docker pull`).
+
 ```sh
 cp deploy/mirror/mirror.env.example deploy/mirror/mirror.env      # edit
 mkdir deploy/mirror/collection
 cp collection.json example.foxsource deploy/mirror/collection/
 docker compose --env-file deploy/mirror/mirror.env \
-  -f deploy/mirror/compose.yaml up -d --build
+  -f deploy/mirror/compose.yaml up -d
 docker compose --env-file deploy/mirror/mirror.env -f deploy/mirror/compose.yaml logs mirror
 ```
 
 The first start prints the review and serves nothing. When you agree with it,
 set `SOVEREIGN_MIRROR_CONSENT=yes-i-consent-to-public-serving` in `mirror.env`
 and run the same `up` command again. Each start re-applies the collection and
-settings and renews the restart grant (`SOVEREIGN_MIRROR_GRANT`, default 90d).
+settings and renews the restart grant (`SOVEREIGN_MIRROR_GRANT`, default 180d).
 Remove the consent value and restart to stop serving; retained models stay in
 the `mirror-data` volume. If setup is refused (for example the mirror was
 paused), the reason is logged and the container idles; run
@@ -50,8 +67,8 @@ has; set a value to `none` to remove one. The disk budget
 The collection directory must hold `collection.json` and any source file it
 names with `"file"`; alternatively embed the source with `"inline"`.
 
-Set the build argument `EXTRAS=""` to omit libtorrent. The image is not yet
-published or signed; build it locally.
+To build this checkout instead of pulling, add `--build` to the `up` command.
+Set the build argument `EXTRAS=""` to omit libtorrent.
 
 ## systemd user unit
 
@@ -59,7 +76,7 @@ Install the authenticated release as in [installation](../../docs/installation.m
 then link it and set up the mirror:
 
 ```sh
-ln -sfn "$HOME/sovereign-0.28.0" "$HOME/sovereign"
+ln -sfn "$HOME/sovereign-0.28.1" "$HOME/sovereign"
 mkdir -m 0700 "$HOME/sovereign-mirrors"
 ~/sovereign/bin/model-preserve mirror quickstart \
   --dir ~/sovereign-mirrors/example --collection collection.json \
