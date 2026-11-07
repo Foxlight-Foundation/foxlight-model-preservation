@@ -19,6 +19,7 @@ You need a bucket, a key that can write to it, and public read access.
 | Backblaze B2 | region, bucket | Make the bucket public. Create an application key limited to it. The region is in the bucket's S3 endpoint, for example `us-west-004`. |
 | Amazon S3 | region, bucket | Turn off Block Public Access for the bucket and add a read-only bucket policy. Amazon bills downloads. |
 | Wasabi | region, bucket | Create a bucket with public read access. |
+| Hetzner Object Storage | region (location), bucket | Create the bucket with Visibility **Public**. The region is the location code: `fsn1`, `nbg1` or `hel1`. S3 credentials cover every bucket in the project. |
 | Other S3-compatible | endpoint, region, bucket, public address | For MinIO and similar services. |
 
 Sovereign works out the endpoint, signing region, addressing style and (where

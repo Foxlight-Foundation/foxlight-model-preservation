@@ -97,7 +97,7 @@ def test_a_bucket_is_saved_only_after_it_passes_the_check(
         assert KEYS.secret_key not in json.dumps(ready)
         assert KEYS.access_key not in json.dumps(ready)
         providers = {item["id"] for item in ready["bucket_providers"]}
-        assert {"r2", "b2", "s3", "wasabi", "other"} <= providers
+        assert {"r2", "b2", "s3", "wasabi", "hetzner", "other"} <= providers
     finally:
         owner.close()
 
