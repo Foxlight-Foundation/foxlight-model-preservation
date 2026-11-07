@@ -1,5 +1,6 @@
 import {useState,type ReactNode} from 'react';
 import {Callout,Details} from './ui';
+import {familyUse,matchCount} from './counts';
 
 /** Join items as prose: "a", "a and b", "a, b and c". */
 export const listed=(items:string[])=>items.length<2?items.join(''):`${items.slice(0,-1).join(', ')} and ${items[items.length-1]}`;
@@ -65,12 +66,12 @@ export function LicenceFamilies({definition,licenses,onChange,copies,noun}:{defi
  const matching=copies.filter(item=>licenceMatches(item.licenses,licenses,definition)).length;
  function add(){const value=normalizeLicence(extra,definition);if(!value)return;if(unidentified(value,definition)){setInvalid(true);return;}setInvalid(false);set([value],true);setExtra('');}
  return <div className="sk-licence-families">
-  <p className="sk-licence-count" role="status"><strong>{matching} of your {copies.length} {copies.length===1?noun[0]:noun[1]} match.</strong> Models with no licence, “other” or an unknown licence always stay private.</p>
+  <p className="sk-licence-count" role="status"><strong>{matchCount(matching,copies.length,noun)}</strong> Models with no licence, “other” or an unknown licence always stay private.</p>
   <ul>{definition.families.map(family=>{
    const ids=family.licences.map(item=>item.id),count=ids.filter(id=>chosen.has(id)).length,all=count===ids.length,some=count>0&&!all;
    const uses=copies.filter(item=>item.licenses.some(licence=>ids.includes(normalizeLicence(licence,definition)))).length;
    return <li key={family.id} className="sk-licence-family">
-    <label className="sk-consent"><input type="checkbox" role="switch" aria-checked={all} checked={all} ref={node=>{if(node)node.indeterminate=some;}} onChange={event=>set(ids,event.target.checked)}/><span><strong>{family.name}</strong>{some&&<> · {count} of {ids.length}</>}<small>{family.summary}{uses>0&&` ${uses} of your ${uses===1?noun[0]:noun[1]} ${uses===1?'uses':'use'} one of these.`}</small></span></label>
+    <label className="sk-consent"><input type="checkbox" role="switch" aria-checked={all} checked={all} ref={node=>{if(node)node.indeterminate=some;}} onChange={event=>set(ids,event.target.checked)}/><span><strong>{family.name}</strong>{some&&<> · {count} of {ids.length}</>}<small>{family.summary}{uses>0&&` ${familyUse(uses,noun)}`}</small></span></label>
     <Details summary={`${family.name} licences · ${count} of ${ids.length} on`}>
      <ul className="sk-licence-checklist">{family.licences.map(item=><li key={item.id}><label><input type="checkbox" checked={chosen.has(item.id)} onChange={event=>set([item.id],event.target.checked)}/> <span>{item.name} <code>{item.id}</code>{item.note&&<small>{item.note}</small>}</span></label></li>)}</ul>
     </Details>

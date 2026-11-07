@@ -118,7 +118,7 @@ test('one consent after the disclosures shares only public-licence copies for a 
   await sheet.getByRole('switch',{name:/^Copyleft/}).uncheck();
   await expect(list.getByText('Can be shared',{exact:true})).toHaveCount(1);
   await expect(list.getByText('Licence not in your list',{exact:true})).toHaveCount(1);
-  await expect(sheet.getByText('1 of your 3 public copies match.',{exact:false})).toBeVisible();
+  await expect(sheet.getByText('1 of your 3 public copies matches.',{exact:false})).toBeVisible();
   await sheet.getByLabel('Custom licence id').fill('unknown');await sheet.getByRole('button',{name:'Add',exact:true}).click();
   await expect(sheet.getByText('That doesn’t name a licence',{exact:false})).toBeVisible();
   await sheet.getByText('Advanced settings',{exact:true}).click();

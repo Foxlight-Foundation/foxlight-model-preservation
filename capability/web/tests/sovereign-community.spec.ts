@@ -48,6 +48,7 @@ test('one switch shares every eligible backup after a single standing consent',a
  // Licence families are one choice for every model, not a per-model review.
  // Permissive, attribution, copyleft and responsible-AI licences start on.
  await expect(page.getByText('2 of your 3 backups match.',{exact:false})).toBeVisible();
+ await expect(page.getByRole('switch',{name:/^Permissive/})).toHaveAccessibleName(/1 of your backups uses one of these\./);
  for(const name of ['Permissive','Attribution','Copyleft','Responsible AI'])await expect(page.getByRole('switch',{name:new RegExp('^'+name)})).toBeChecked();
  const custom=page.getByRole('switch',{name:/^Custom model terms/});
  await expect(custom).not.toBeChecked();

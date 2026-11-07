@@ -108,7 +108,7 @@ export function LibraryKeepAvailable({copies,features,bittorrentAvailable,onDial
    </Details>
    <div className="sk-actions"><button className="sk-btn sk-outline" disabled={busy} onClick={()=>{setError('');setSetup(true);}}>Change what’s shared</button><button className="sk-btn sk-outline" disabled={busy} onClick={()=>void stop()}><Icon name="stop"/>Stop sharing</button></div>
   </>:<>
-   <p>{copies.length===0?'Publish, receive or import a public copy first. Private copies stay private.':eligible>0?`${eligible} public ${eligible===1?'copy':'copies'} can be shared under the default licence list.`:'Public copies join when every part has a licence on your list.'} Nothing is shared until you turn this on.</p>
+   <p>{copies.length===0?'Publish, receive or import a public copy first. Private copies stay private.':eligible>0?`${eligible} public ${eligible===1?'copy':'copies'} can be shared under your licence list.`:'Public copies join when every part has a licence on your list.'} Nothing is shared until you turn this on.</p>
    {held.length>0&&<p className="sk-hint">{held.length} {held.length===1?'copy is':'copies are'} already kept for sharing on this host. Turning on keeps {held.length===1?'it':'them'} as {held.length===1?'it is':'they are'}.</p>}
    <div className="sk-actions"><button className="sk-btn sk-solid" disabled={busy||copies.length===0||!state||!page.available&&page.configured} onClick={()=>{setError('');setSetup(true);}}>Turn on</button></div>
   </>)}
