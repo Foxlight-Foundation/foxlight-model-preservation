@@ -180,6 +180,11 @@ class ShareSwitch:
         self.client = client
         self._task: asyncio.Task[None] | None = None
         self._job: str | None = None
+        # Admission is reserved synchronously, before any await, so two Starts
+        # can never both pass. Stop advances the epoch first; a setup from an
+        # older epoch may not send another Core decision.
+        self._admitted = False
+        self._epoch = 0
         self._reviews: dict[tuple[str, str], tuple[str, list[str]]] = {}
         # Whether this Core keeps a standing intake policy under the grant.
         self._intake = False
@@ -288,37 +293,55 @@ class ShareSwitch:
     async def start(self, body: dict[str, JsonValue]) -> dict[str, JsonValue]:
         """Begin the one reviewed decision; Core performs and records each step."""
         decision = _validated(ShareStartInput, body)
-        if self._task is not None and not self._task.done():
+        if self._admitted:
             raise CoreRefused("mirror_share_busy")
-        page = await self.client.request("GET", "mirror")
-        if page.get("policy_id") != decision.policy_id:
-            raise CoreRefused("mirror_policy_changed")
-        if page.get("configured") is True and page.get("available") is not True:
-            raise CoreRefused("mirror_unavailable")
+        self._admitted = True
+        epoch = self._epoch
         try:
-            features = await check_core(self.client)
-        except CoreRefused:
-            # Unknown support is treated as an older Core: limits required,
-            # and no standing intake policy is sent.
-            features = {}
-        settings = decision.configuration
-        if (
-            settings.egress_daily is None or settings.egress_monthly is None
-        ) and not features.get("Uncapped uploads"):
-            # An older Core can't store "no upload limit"; ask for one.
-            raise CoreRefused("mirror_upload_limit_required")
-        self._intake = features.get("Standing intake") is True
+            page = await self.client.request("GET", "mirror")
+            self._fence(epoch)
+            if page.get("policy_id") != decision.policy_id:
+                raise CoreRefused("mirror_policy_changed")
+            if page.get("configured") is True and page.get("available") is not True:
+                raise CoreRefused("mirror_unavailable")
+            try:
+                features = await check_core(self.client)
+            except CoreRefused:
+                # Unknown support is treated as an older Core: limits are
+                # required, and no standing intake policy is sent.
+                features = {}
+            self._fence(epoch)
+            settings = decision.configuration
+            if (
+                settings.egress_daily is None or settings.egress_monthly is None
+            ) and not features.get("Uncapped uploads"):
+                # An older Core can't store "no upload limit"; ask for one.
+                raise CoreRefused("mirror_upload_limit_required")
+            self._intake = features.get("Standing intake") is True
+        except BaseException:
+            if self._epoch == epoch:
+                self._admitted = False
+            raise
         self._progress = {
             **self._idle(),
             "state": "working",
             "total": len(decision.copies),
         }
-        self._task = asyncio.create_task(self._run(decision, page))
+        self._task = asyncio.create_task(self._run(decision, page, epoch))
         return self.read()
+
+    def _fence(self, epoch: int) -> None:
+        """Refuse every further step of a setup that a Stop has overtaken."""
+        if self._epoch != epoch:
+            raise CoreRefused("mirror_share_stopped")
 
     async def stop(self) -> dict[str, JsonValue]:
         """Stop sharing in one action: setup, any owned step and the controller."""
+        # Fence first, synchronously: an admission still awaiting Core and the
+        # running setup both observe the new epoch before any further decision.
+        self._epoch += 1
         task, owned = self._task, self._job
+        self._task = None
         if task is not None and not task.done():
             _ = task.cancel()
             with suppress(asyncio.CancelledError, CoreRefused):
@@ -335,6 +358,8 @@ class ShareSwitch:
             # Core records cancellation, drains the controller, clears running
             # intent and pauses the role so a restart does not resume it.
             stopped = await self.client.request("DELETE", "mirror/jobs/" + controller)
+        self._job = None
+        self._admitted = False
         self._progress = {**self._progress, "state": "stopped", "step": None}
         return {**self.read(), "job": stopped}
 
@@ -346,7 +371,8 @@ class ShareSwitch:
         value = page.get("policy_id")
         return value if isinstance(value, str) else None
 
-    async def _decide(self, **decision: JsonValue) -> dict[str, JsonValue]:
+    async def _decide(self, epoch: int, **decision: JsonValue) -> dict[str, JsonValue]:
+        self._fence(epoch)
         operation = uuid.uuid4().hex
         # JSON validation, as Core receives it: lists stand for tuples.
         checked = MirrorStartInput.model_validate_json(
@@ -380,9 +406,11 @@ class ShareSwitch:
             raise CoreRefused(code if isinstance(code, str) else "mirror_worker_failed")
         return job
 
-    async def _run(self, decision: ShareStartInput, page: dict[str, JsonValue]) -> None:
+    async def _run(
+        self, decision: ShareStartInput, page: dict[str, JsonValue], epoch: int
+    ) -> None:
         try:
-            await self._perform(decision, page)
+            await self._perform(decision, page, epoch)
         except CoreRefused as error:
             self._progress = {
                 **self._progress,
@@ -396,16 +424,19 @@ class ShareSwitch:
                 "error_code": "host_unavailable",
             }
         finally:
-            self._job = None
+            if self._epoch == epoch:
+                self._job = None
+                self._admitted = False
 
     async def _perform(
-        self, decision: ShareStartInput, page: dict[str, JsonValue]
+        self, decision: ShareStartInput, page: dict[str, JsonValue], epoch: int
     ) -> None:
         controller = page.get("controller_job_id")
         if isinstance(controller, str):
             # Core refuses new intake or a new grant beside a running
             # controller; the reviewed change pauses sharing briefly.
             self._step("stopping")
+            self._fence(epoch)
             _ = await self.client.request("DELETE", "mirror/jobs/" + controller)
             _ = await self._settle_stopped(controller)
         policy = page.get("policy_id")
@@ -416,7 +447,7 @@ class ShareSwitch:
             self._step("configuring")
             _ = await self._settle(
                 await self._decide(
-                    kind="configure", policy_id=policy, configuration=wanted
+                    epoch, kind="configure", policy_id=policy, configuration=wanted
                 )
             )
             policy = await self._policy()
@@ -441,61 +472,61 @@ class ShareSwitch:
                 self._step("configuring")
                 _ = await self._settle(
                     await self._decide(
-                        kind="intake", policy_id=policy, intake=wanted_intake
+                        epoch, kind="intake", policy_id=policy, intake=wanted_intake
                     )
                 )
                 policy = await self._policy()
         self._step("keeping")
         allowed = _allowed(decision.licenses)
         held = await self._held()
-        kept = 0
+        consented: set[str] = set()
         skipped: list[JsonValue] = []
         for copy in decision.copies:
             model = held.get(copy.manifest_id)
             state = model.get("state") if model is not None else None
-            if state in {"retained", "pending"}:
-                # Existing selections and their per-copy choices are kept as is.
-                kept += 1
-            elif state == "removed":
+            if state == "removed":
                 # Returning a removed copy is a separate explicit re-intake.
                 skipped.append({"copy_id": copy.copy_id, "reason": "removed"})
-            else:
-                reason: str | None
+                continue
+            # Every listed copy, kept already or not, must pass this licence list.
+            reason = await self._ineligible(copy, allowed)
+            if reason is None and state not in {"retained", "pending"}:
                 try:
-                    archive, licences = await self._review(copy)
-                    reason = (
-                        "unsupported"
-                        if archive != "preservation-v1"
-                        else None
-                        if licence_status(licences, allowed) == "eligible"
-                        else licence_status(licences, allowed)
+                    _ = await self._settle(
+                        await self._decide(
+                            epoch,
+                            kind="retain",
+                            policy_id=policy,
+                            copy_id=copy.copy_id,
+                            manifest_id=copy.manifest_id,
+                            confirm_redistribution=True,
+                        )
                     )
                 except CoreRefused as error:
+                    if str(error) == "mirror_share_stopped":
+                        raise
                     reason = str(error)
-                if reason is None:
-                    try:
-                        _ = await self._settle(
-                            await self._decide(
-                                kind="retain",
-                                policy_id=policy,
-                                copy_id=copy.copy_id,
-                                manifest_id=copy.manifest_id,
-                                confirm_redistribution=True,
-                            )
-                        )
-                        kept += 1
-                    except CoreRefused as error:
-                        reason = str(error)
-                    policy = await self._policy()
-                if reason is not None:
-                    skipped.append({"copy_id": copy.copy_id, "reason": reason})
-            self._progress = {**self._progress, "kept": kept, "skipped": skipped}
-        if kept == 0:
+                policy = await self._policy()
+            if reason is None:
+                consented.add(copy.manifest_id)
+            else:
+                skipped.append({"copy_id": copy.copy_id, "reason": reason})
+            self._progress = {
+                **self._progress,
+                "kept": len(consented),
+                "skipped": skipped,
+            }
+        policy, serving = await self._reconcile(
+            epoch, policy, consented, chosen=decision.share == "chosen"
+        )
+        self._progress = {**self._progress, "kept": len(serving)}
+        if not serving:
             raise CoreRefused("community_nothing_to_share")
         self._step("permitting")
         expires = int(time.time()) + CONSENT_SECONDS
         _ = await self._settle(
             await self._decide(
+                epoch,
                 kind="grant_resume",
                 policy_id=policy,
                 confirm_resume=True,
@@ -505,6 +536,7 @@ class ShareSwitch:
         self._step("starting")
         _ = await self._settle(
             await self._decide(
+                epoch,
                 kind="run",
                 policy_id=policy,
                 public_participation=True,
@@ -518,6 +550,62 @@ class ShareSwitch:
             "step": None,
             "expires": expires,
         }
+
+    async def _ineligible(
+        self, copy: MirrorCopyInput, allowed: frozenset[str]
+    ) -> str | None:
+        try:
+            archive, licences = await self._review(copy)
+        except CoreRefused as error:
+            return str(error)
+        if archive != "preservation-v1":
+            return "unsupported"
+        status = licence_status(licences, allowed)
+        return None if status == "eligible" else status
+
+    async def _reconcile(
+        self, epoch: int, policy: str | None, consented: set[str], *, chosen: bool
+    ) -> tuple[str | None, set[str]]:
+        """Make the served set exactly the consented one before any grant.
+
+        A resume controller serves every unblocked selection in the ledger, so
+        each holding outside this decision (not listed, not chosen, or failing
+        the licence list) is blocked; its retained bytes stay. Explicitly
+        chosen copies are served again; in all-eligible mode a copy the owner
+        kept back stays kept back.
+        """
+        held = await self._held()
+        for identity, model in held.items():
+            if model.get("state") not in {"retained", "pending"}:
+                continue
+            blocked = model.get("blocked") is True
+            action: Literal["block", "unblock"] | None = None
+            if identity not in consented and not blocked:
+                action = "block"
+            elif identity in consented and blocked and chosen:
+                action = "unblock"
+            if action is not None:
+                _ = await self._settle(
+                    await self._decide(
+                        epoch,
+                        kind="model",
+                        policy_id=policy,
+                        manifest_id=identity,
+                        action=action,
+                    )
+                )
+                policy = await self._policy()
+        # Verify against Core, not intent, before the grant binds this policy.
+        serving: set[str] = set()
+        for identity, model in (await self._held()).items():
+            if (
+                model.get("state") in {"retained", "pending"}
+                and model.get("blocked") is not True
+            ):
+                if identity not in consented:
+                    raise CoreRefused("mirror_selection_changed")
+                serving.add(identity)
+        return await self._policy(), serving
 
     async def _settle_stopped(self, job_id: str) -> dict[str, JsonValue]:
         while True:
