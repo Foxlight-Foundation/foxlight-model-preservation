@@ -11,7 +11,8 @@ const copies=[
  {copy_id:none,name:'Unlabelled model',size_bytes:4096,status:'no_license',licenses:[],public_manifest_id:null},
 ];
 const providers=[
- {id:'r2',name:'Cloudflare R2',asks:['account_id','bucket','public_url'],note:'Recommended: R2 charges nothing for downloads.'},
+ {id:'r2',name:'Cloudflare R2',asks:['account_id','jurisdiction','bucket','public_url'],optional:['jurisdiction'],choices:{jurisdiction:[{value:'',label:'Default (no jurisdiction)'},{value:'eu',label:'European Union'},{value:'fedramp',label:'FedRAMP'},{value:'us',label:'United States'}]},note:'Recommended: R2 charges nothing for downloads.'},
+ {id:'s3',name:'Amazon S3',asks:['region','bucket','public_url'],optional:['public_url'],note:'With CloudFront in front, keep the bucket private and paste its address.'},
  {id:'b2',name:'Backblaze B2',asks:['region','bucket'],note:'Create a public bucket.'},
  {id:'hetzner',name:'Hetzner Object Storage',asks:['region','bucket'],note:'Set the bucket to Public.'},
  {id:'other',name:'Other S3-compatible storage',asks:['endpoint','region','bucket','public_url'],note:'For MinIO.'},
@@ -299,4 +300,98 @@ test('an unusable saved address and a slow address are explained, not fatal',asy
  await panel.getByRole('button',{name:'Check address',exact:true}).click();
  await expect(panel.getByRole('status')).toContainText('answered too slowly, so the check stopped');
  await expect(panel.getByRole('status')).toContainText('best-effort check');
+});
+
+const shots=process.env.BUCKET_SHOTS;
+const handoffs=(ids:string[])=>ids.map(item=>`api/desktop-bucket-handoff/${item}`);
+
+test('Amazon S3 takes an optional CloudFront address; empty keeps the public bucket',async({page},info)=>{
+ const sent:Record<string,unknown>[]=[];
+ await page.route('**/api/desktop-community-read',r=>r.fulfill({json:view(true)}));
+ await page.route('**/api/desktop-community-bucket-connect',r=>{const body=r.request().postDataJSON();sent.push(body);
+  return body.public_url==='http://d1234abcd.cloudfront.net'?r.fulfill({status:409,json:{error:'bucket_public_url_invalid'}}):r.fulfill({json:{...view(true),status:'upload'}});});
+ await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();
+ await page.getByRole('region',{name:'Help keep models available'}).getByRole('button',{name:'Set up cloud storage',exact:true}).click();
+ await page.getByRole('radio',{name:/Amazon S3/}).check();
+ const address=page.getByLabel('Public address');
+ await expect(address).toHaveAttribute('placeholder','https://d1234abcd.cloudfront.net (optional)');
+ await expect(page.getByText('(optional)',{exact:false}).first()).toBeVisible();
+ await page.getByLabel('Region').fill('eu-central-1');await page.getByLabel('Bucket name').fill('sovereign-mirror-example');
+ await page.getByLabel('Access key ID').fill('AKIAEXAMPLE');await page.getByLabel('Secret access key').fill('s3cret');
+ const go=page.getByRole('button',{name:'Check and connect',exact:true});
+ // The public address is optional, so the form is complete without it.
+ await expect(go).toBeEnabled();
+ await sent_(page,go);
+ expect(sent[0]).toEqual({provider:'s3',region:'eu-central-1',bucket:'sovereign-mirror-example',access_key:'AKIAEXAMPLE',secret_key:'s3cret'});
+ await address.fill('http://d1234abcd.cloudfront.net');
+ await sent_(page,go);
+ await expect(page.getByRole('alert')).toContainText('must start with https://');
+ await address.fill('https://d1234abcd.cloudfront.net');
+ if(shots&&info.project.name==='desktop'){await page.setViewportSize({width:1280,height:1500});await page.screenshot({path:`${shots}/s3-cloudfront-form.png`});}
+ await sent_(page,go);
+ expect(sent[2]).toEqual({provider:'s3',region:'eu-central-1',bucket:'sovereign-mirror-example',public_url:'https://d1234abcd.cloudfront.net',access_key:'AKIAEXAMPLE',secret_key:'s3cret'});
+});
+async function sent_(page:Page,button:Locator){await sent(page,button,'desktop-community-bucket-connect');}
+
+test('an R2 bucket in a jurisdiction is connected at that jurisdiction',async({page},info)=>{
+ let bucket:Record<string,unknown>|null=null;const sentBodies:Record<string,unknown>[]=[];
+ await page.route('**/api/desktop-community-read',r=>r.fulfill({json:view(true,{bucket})}));
+ await page.route('**/api/desktop-community-bucket-contents',r=>r.fulfill({json:{models:[],total:0,offset:0,public_url:'https://mirror.example.org'}}));
+ await page.route('**/api/desktop-community-bucket-connect',r=>{sentBodies.push(r.request().postDataJSON());bucket={...connected,public_url:'https://mirror.example.org',jurisdiction:'eu',model_count:0};return r.fulfill({json:{...view(true,{bucket}),status:'ready'}});});
+ await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();
+ const panel=page.getByRole('region',{name:'Help keep models available'});
+ await panel.getByRole('button',{name:'Set up cloud storage',exact:true}).click();
+ const jurisdiction=page.getByLabel('Jurisdiction');
+ await expect(jurisdiction).toHaveValue('');
+ await expect(jurisdiction.locator('option')).toHaveText(['Default (no jurisdiction)','European Union','FedRAMP','United States']);
+ await jurisdiction.selectOption('eu');
+ await page.getByLabel('Account ID').fill('0'.repeat(32));await page.getByLabel('Bucket name').fill('my-models');
+ await page.getByLabel('Public address').fill('https://mirror.example.org');
+ await page.getByLabel('Access key ID').fill('AKIAEXAMPLE');await page.getByLabel('Secret access key').fill('s3cret');
+ if(shots&&info.project.name==='desktop'){await page.setViewportSize({width:1280,height:1500});await page.screenshot({path:`${shots}/r2-jurisdiction-form.png`});}
+ await sent_(page,page.getByRole('button',{name:'Check and connect',exact:true}));
+ expect(sentBodies[0]).toEqual({provider:'r2',account_id:'0'.repeat(32),jurisdiction:'eu',bucket:'my-models',public_url:'https://mirror.example.org',access_key:'AKIAEXAMPLE',secret_key:'s3cret'});
+ await expect(panel.getByText('Cloudflare R2 (EU jurisdiction) · my-models',{exact:true})).toBeVisible();
+});
+
+test('the bucket lists what it serves and exports verification info for recipients',async({page},info)=>{
+ const first='e'.repeat(64),second='f'.repeat(64),key='ed25519:'+'1'.repeat(64);
+ const models=[
+  {manifest_id:first,name:'Open text model',size_bytes:3*1024**3,synced_at:1999990000,keys:[key]},
+  {manifest_id:second,name:null,size_bytes:null,synced_at:null,keys:[]},
+ ];
+ const offsets:number[]=[];
+ await page.route('**/api/desktop-community-read',r=>r.fulfill({json:view(true,{bucket:{...connected,model_count:3}})}));
+ await page.route('**/api/desktop-community-bucket-contents',r=>{const {offset}=r.request().postDataJSON();offsets.push(offset);
+  return r.fulfill({json:offset===0?{models,total:3,offset:0,public_url:connected.public_url}:{models:[{manifest_id:'9'.repeat(64),name:'Third model',size_bytes:1024,synced_at:1999999000,keys:[key]}],total:3,offset:2,public_url:connected.public_url}});});
+ await page.route('**/api/desktop-bucket-handoff/*',r=>r.fulfill({body:'{"schema_version":"foxlight.model-preservation.handoff.v1"}',headers:{'Content-Type':'application/octet-stream','Content-Disposition':'attachment; filename="Sovereign-bucket-eeeeeeeeeeee.foxhandoff"'}}));
+ await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();
+ const panel=page.getByRole('region',{name:'Help keep models available'});
+ const list=panel.getByRole('list',{name:'Models in the bucket'});
+ await expect(list.getByRole('listitem')).toHaveCount(2);
+ await expect(list.getByText('Open text model')).toBeVisible();
+ await expect(list.getByText('3.0 GB')).toBeVisible();
+ await expect(list.getByText(first,{exact:true})).toBeVisible();
+ await expect(list.getByText('Unnamed model')).toBeVisible();
+ // A model whose upload time predates this version shows the bucket's check time.
+ await expect(list.getByRole('listitem').nth(1)).toContainText('checked');
+ await panel.getByRole('button',{name:/Show more \(1 left\)/}).click();
+ await expect(list.getByRole('listitem')).toHaveCount(3);
+ expect(offsets).toEqual([0,2]);
+ if(shots&&info.project.name==='desktop'){await page.setViewportSize({width:1280,height:1500});await panel.getByText('Cloud storage',{exact:true}).scrollIntoViewIfNeeded();await page.screenshot({path:`${shots}/bucket-contents-list.png`});}
+ await panel.getByRole('button',{name:'Export verification info',exact:true}).click();
+ const sheet=page.getByRole('dialog');
+ await expect(sheet.getByText('https://pub-abc.r2.dev',{exact:true})).toBeVisible();
+ await expect(sheet.getByText(key,{exact:true})).toHaveCount(1);
+ const links=sheet.getByRole('link',{name:/Save sharing file for/});
+ await expect(links).toHaveCount(3);
+ const hrefs=await links.evaluateAll(items=>items.map(item=>new URL((item as HTMLAnchorElement).href).pathname.replace(/^\//,'')));
+ expect(hrefs).toEqual(handoffs([first,second,'9'.repeat(64)]));
+ await expect(links.first()).toHaveAttribute('download','Open-text-model.foxhandoff');
+ if(shots&&info.project.name==='desktop')await page.screenshot({path:`${shots}/bucket-export-verification-info.png`});
+ const download=page.waitForEvent('download');
+ await links.first().click();
+ expect((await download).suggestedFilename()).toBe('Open-text-model.foxhandoff');
+ // Nothing secret or private appears in the export screen.
+ expect(await sheet.textContent()).not.toMatch(/secret|keychain|\/Users\//i);
 });

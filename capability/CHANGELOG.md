@@ -6,6 +6,12 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Cloud storage: Amazon S3 takes an optional public address (for CloudFront),
+  Cloudflare R2 an optional jurisdiction, and optional answers are labelled.
+  A connected bucket lists the models it serves, with copyable manifest IDs,
+  and **Export verification info** saves a sharing file per model and shows
+  the signing key to confirm with recipients.
+
 - Sharing in Library mode now opens on one "Help keep models available"
   switch, like Sovereign: choose what to share and a licence list, read what
   the HTTP and BitTorrent exposure reveals, then give one consent that lasts a

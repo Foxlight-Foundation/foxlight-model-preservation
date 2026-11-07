@@ -647,6 +647,13 @@ main[inert] .sk-scrim {opacity:0;}
 .sk-community-list {list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px;}
 .sk-community-bucket {margin:18px 0 0;padding:16px 0 0;border-top:1px solid var(--line-hair);}
 .sk-community-bucket h3 {margin:0 0 8px;font-size:15px;}
+.sk-bucket-contents {margin:14px 0 0;}
+.sk-bucket-contents h4 {margin:0 0 8px;font-size:14px;color:var(--text-2);}
+.sk-bucket-contents .sk-actions {margin:8px 0 14px;}
+.sk-bucket-model {display:grid;gap:6px;padding:10px 0;border-top:1px solid var(--line-hair);overflow-wrap:anywhere;}
+.sk-bucket-model:first-child {border-top:0;}
+.sk-bucket-model-head {display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;}
+.sk-optional {font-weight:400;color:var(--muted);}
 .sk-community-list li {display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line-control);overflow-wrap:anywhere;}
 .sk-community-list li > span:first-child {flex:1 1 240px;min-width:0;}
 .sk-community-licences {list-style:none;margin:0 0 12px;padding:0;display:flex;flex-wrap:wrap;gap:8px;}
