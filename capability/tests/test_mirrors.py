@@ -5,7 +5,7 @@ import json
 
 import httpx
 import pytest
-from pydantic import JsonValue
+from pydantic import JsonValue, ValidationError
 
 from foxlight_preservation_library.client import CoreClient, CoreRefused
 from foxlight_preservation_library.contracts import Settings
@@ -343,3 +343,38 @@ async def test_lost_start_response_does_not_automatically_resubmit() -> None:
         assert calls == 1
     finally:
         await client.close()
+
+
+def test_intake_decisions_are_exact_and_hidden_from_older_cores() -> None:
+    from foxlight_preservation_library.mirrors import MirrorStartInput
+
+    base: dict[str, JsonValue] = {"operation_id": "op", "policy_id": "a" * 64}
+    intake: dict[str, JsonValue] = {
+        "share": "eligible",
+        "licenses": ["mit"],
+        "definition": 1,
+        "withheld": [],
+    }
+    decision = MirrorStartInput.model_validate_json(
+        json.dumps({**base, "kind": "intake", "intake": intake})
+    )
+    assert decision.wire()["intake"] == intake
+    plain = MirrorStartInput.model_validate_json(
+        json.dumps(
+            {
+                **base,
+                "kind": "grant_resume",
+                "confirm_resume": True,
+                "resume_expires": 9,
+            }
+        )
+    )
+    assert "intake" not in plain.wire()
+    for wrong in (
+        {**base, "kind": "intake"},
+        {**base, "kind": "run", "public_participation": True, "intake": intake},
+        {**base, "kind": "intake", "intake": {**intake, "licenses": ["mit", "mit"]}},
+        {**base, "kind": "intake", "intake": {**intake, "withheld": ["x"]}},
+    ):
+        with pytest.raises(ValidationError):
+            MirrorStartInput.model_validate_json(json.dumps(wrong))

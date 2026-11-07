@@ -193,3 +193,28 @@ async def test_actual_mirror_contract_keeps_stop_and_terms_support_distinct(
         assert requests == ["GET /preservation/library", "GET /api/openapi.json"]
     finally:
         await client.close()
+
+
+@pytest.mark.parametrize("modern", [False, True])
+async def test_standing_intake_and_uncapped_uploads_are_negotiated(
+    modern: bool,
+) -> None:
+    """Both need Core's own contract; an older Core keeps limits and no intake."""
+    from test_sharing_switch import contract
+
+    value = contract(modern=modern)
+
+    def core(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"jobs": []} if request.url.path == "/preservation/library" else value,
+        )
+
+    client = CoreClient(Settings(), "local", transport=httpx.MockTransport(core))
+    try:
+        report = await check_core(client)
+        assert report["Persistent mirrors"]
+        assert report["Standing intake"] is modern
+        assert report["Uncapped uploads"] is modern
+    finally:
+        await client.close()

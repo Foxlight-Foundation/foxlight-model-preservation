@@ -9,8 +9,8 @@ from pathlib import Path
 
 from .archives import ArchiveManifest, archive_objects, verify_archive_manifest
 from .mirror import record_model, require_terms, verify_retained
-from .mirror_models import HeldModel, MirrorState, SourceGrant
-from .mirror_state import HEADROOM, MirrorLedger
+from .mirror_models import HeldModel, MirrorState, SourceGrant, at_least
+from .mirror_state import HEADROOM, MirrorLedger, intake_covers, policy_id
 from .models import PreservationError
 from .operations import OperationControl, failure_code
 from .signing import digest
@@ -42,7 +42,10 @@ def retain_local(
     and reviewed terms for every member. Existing selection authority cannot be
     replaced. Re-admitting a removed selection needs separate confirmation and
     preserves its block/accounting. A new write-ahead selection invalidates
-    restart consent; failed copies retain bytes and need explicit retry.
+    restart consent unless the mirror's standing intake policy already covers
+    it (an "all eligible" policy whose licences include every reviewed term);
+    a withheld copy is admitted blocked. Failed copies retain bytes and need
+    explicit retry.
     Original envelope bytes are committed only after every object is copied and
     verified. No signing, network, runtime admission or deletion occurs.
 
@@ -147,20 +150,38 @@ def retain_local(
                     if previous is None or previous.state == "removed":
 
                         def select(current: MirrorState) -> MirrorState:
-                            return current.model_copy(
+                            withheld = (
+                                current.intake is not None
+                                and manifest_id in current.intake.withheld
+                            )
+                            after = current.model_copy(
                                 update={
-                                    "schema_version": current.schema_version
-                                    if current.schema_version
-                                    in {
-                                        "foxlight.mirror-state.v4",
-                                        "foxlight.mirror-state.v5",
-                                    }
-                                    else "foxlight.mirror-state.v3",
-                                    "models": dict(
-                                        current.models, **{manifest_id: held}
+                                    "schema_version": at_least(
+                                        current.schema_version,
+                                        "foxlight.mirror-state.v3",
                                     ),
-                                    "restart": None,
+                                    "models": dict(
+                                        current.models,
+                                        **{
+                                            manifest_id: held.model_copy(
+                                                update={"blocked": True}
+                                            )
+                                            if withheld
+                                            else held
+                                        },
+                                    ),
                                 }
+                            )
+                            # A selection the standing intake policy already
+                            # covers leaves the policy identity unchanged, so
+                            # the grant stays; anything else needs consent.
+                            kept = (
+                                current.restart is not None
+                                and intake_covers(current, held)
+                                and policy_id(after) == policy_id(current)
+                            )
+                            return after.model_copy(
+                                update={"restart": current.restart if kept else None}
                             )
 
                         ledger.update(select)

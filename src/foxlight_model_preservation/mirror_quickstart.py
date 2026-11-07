@@ -138,8 +138,9 @@ class QuickstartSettings:
     name: str
     disk_bytes: int
     ingress_daily: int
-    egress_daily: int
-    egress_monthly: int
+    # None is no upload cap: uploads are counted but never refused.
+    egress_daily: int | None
+    egress_monthly: int | None
     bind: str = "127.0.0.1"
     port: int = 8080
     announce: AnnouncePolicy | None = None
@@ -184,6 +185,12 @@ def review(
             "listener binds every interface: it is directly reachable without "
             "the reverse proxy"
         )
+    if settings.egress_daily is None and settings.egress_monthly is None:
+        warnings.append(
+            "uploads are not capped: serving can use a lot of bandwidth, and "
+            "on metered hosting that costs money. Set --egress-daily and "
+            "--egress-monthly to cap it"
+        )
     expires = int(time.time()) + settings.resume_seconds
     limit = model_limit(collection, settings)
     lines = [
@@ -211,8 +218,13 @@ def review(
         f"Per-model limit: {format_size(limit)}",
         f"Disk budget:     {format_size(settings.disk_bytes)}",
         f"Ingress budget:  {format_size(settings.ingress_daily)} per UTC day",
-        f"Egress budget:   {format_size(settings.egress_daily)} per UTC day, "
-        f"{format_size(settings.egress_monthly)} per UTC month",
+        "Upload cap:      "
+        + (
+            "none (uploads are counted, never refused)"
+            if settings.egress_daily is None and settings.egress_monthly is None
+            else f"{_cap_text(settings.egress_daily)} per UTC day, "
+            f"{_cap_text(settings.egress_monthly)} per UTC month"
+        ),
         f"Listener:        {settings.bind} port {settings.port}",
         f"Public URL:      {announce.public_url if announce else 'none'}",
         "Announcement:    "
@@ -267,6 +279,10 @@ def review(
         "anonymous": False,
     }
     return "\n".join(lines), summary
+
+
+def _cap_text(value: int | None) -> str:
+    return "no cap" if value is None else format_size(value)
 
 
 def _items(value: JsonValue) -> list[JsonValue]:

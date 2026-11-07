@@ -8,12 +8,19 @@ import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import cast
+from typing import Literal, cast
 
 from pydantic import JsonValue, TypeAdapter
 
+from .licences import (
+    DEFAULT_LICENSES,
+    LICENCE_DEFINITION_VERSION,
+    definition,
+    identified_licences,
+)
 from .mirror import (
     configure_http,
+    configure_intake,
     configure_mirror,
     derived_model_limit,
     follow,
@@ -21,11 +28,18 @@ from .mirror import (
     plan,
     retry_selection,
     run_mirror,
+    withhold,
 )
 from .mirror_announce import DISCLOSURE, mirror_key_id
 from .mirror_cards import base_url
 from .mirror_intake import retain_local
-from .mirror_models import AnnouncePolicy, MirrorObservation, SourceGrant, Terms
+from .mirror_models import (
+    AnnouncePolicy,
+    IntakePolicy,
+    MirrorObservation,
+    SourceGrant,
+    Terms,
+)
 from .mirror_native import configure, export_reference, write_reference
 from .mirror_prune import prune
 from .mirror_quickstart import (
@@ -58,8 +72,12 @@ class MirrorArguments(argparse.Namespace):
     mirror_name: str | None
     disk_bytes: int | None
     ingress_daily: int | None
-    egress_daily: int | None
-    egress_monthly: int | None
+    egress_daily: int | Literal["none"] | None
+    egress_monthly: int | Literal["none"] | None
+    intake_share: Literal["all", "chosen"] | None
+    intake_licenses: str | None
+    licence_families: str | None
+    clear_intake: bool
     mirror_bind: str | None
     mirror_port: int | None
     serve_start: int | None
@@ -117,6 +135,21 @@ def _size(text: str) -> int:
         raise argparse.ArgumentTypeError(str(error)) from error
 
 
+UNCAPPED = ("none", "off", "unlimited")
+
+
+def _cap(text: str) -> int | Literal["none"]:
+    """An upload cap: a size, or "none" for no cap (uploads are still counted)."""
+    if text.strip().casefold() in UNCAPPED:
+        return "none"
+    return _size(text)
+
+
+def _resolved_cap(value: int | Literal["none"] | None) -> int | None:
+    """None and "none" both mean no cap where nothing else applies."""
+    return None if value is None or value == "none" else value
+
+
 def _duration(text: str) -> int:
     try:
         return parse_duration(text)
@@ -125,11 +158,20 @@ def _duration(text: str) -> int:
 
 
 SIZE_HELP = "bytes, or a binary size such as 500G or 2T (1G = 1024^3 bytes)"
+# The disk budget is always bounded, and the download budget protects the
+# operator's own connection. Upload caps are opt-in: none unless one is given.
 BUDGETS = (
     ("disk-bytes", 100 * 1024**3, "total retained-byte budget"),
     ("ingress-daily", 50 * 1024**3, "download reservation per UTC day"),
-    ("egress-daily", 50 * 1024**3, "upload reservation per UTC day"),
-    ("egress-monthly", 1024**4, "upload reservation per UTC month"),
+)
+UPLOAD_CAPS = (
+    ("egress-daily", "optional upload cap per UTC day"),
+    ("egress-monthly", "optional upload cap per UTC month"),
+)
+CAP_HELP = (
+    'a size such as 50G, or "none" for no cap (the default for a new mirror; '
+    "uploads are still counted, and uncapped serving can use a lot of "
+    "bandwidth, which costs money on metered hosting)"
 )
 BINDS = ["127.0.0.1", "::1", "0.0.0.0", "::"]  # noqa: S104 - explicit choices
 
@@ -148,6 +190,14 @@ def _policy_arguments(command: argparse.ArgumentParser, *, config: bool) -> None
             type=_size,
             default=None if config else default,
             help=f"{purpose}; {SIZE_HELP}",
+        )
+    for flag, purpose in UPLOAD_CAPS:
+        command.add_argument(
+            "--" + flag,
+            type=_cap,
+            default=None,
+            help=f"{purpose}; {CAP_HELP}"
+            + ("; unchanged unless given" if config else ""),
         )
     command.add_argument(
         "--bind",
@@ -208,6 +258,8 @@ def register_mirror_commands(
         "quickstart",
         "follow",
         "retain",
+        "withhold",
+        "release",
         "http",
         "plan",
         "status",
@@ -265,6 +317,37 @@ def register_mirror_commands(
             )
         if name in ("init", "config", "quickstart"):
             _policy_arguments(command, config=name == "config")
+        if name == "config":
+            command.add_argument(
+                "--share",
+                dest="intake_share",
+                choices=["all", "chosen"],
+                default=None,
+                help="standing public intake: every licence-eligible local copy "
+                "joins under the restart grant (all), or each copy is consented "
+                "to separately (chosen); changing it clears the restart grant",
+            )
+            command.add_argument(
+                "--licenses",
+                "--licences",
+                dest="intake_licenses",
+                default=None,
+                help="comma-separated licence identifiers the standing intake "
+                "admits (default: the default families)",
+            )
+            command.add_argument(
+                "--licence-families",
+                "--license-families",
+                dest="licence_families",
+                default=None,
+                help="comma-separated licence families to include: "
+                + ", ".join(family.id for family in definition().families),
+            )
+            command.add_argument(
+                "--clear-intake",
+                action="store_true",
+                help="remove the standing intake policy (clears the restart grant)",
+            )
         if name in ("init", "config"):
             command.add_argument(
                 "--serve-start",
@@ -374,6 +457,8 @@ def register_mirror_commands(
             "unpin",
             "block",
             "unblock",
+            "withhold",
+            "release",
             "retry",
             "unwithdraw",
             "prune",
@@ -479,6 +564,53 @@ def _warnings(announce: AnnouncePolicy | None) -> list[JsonValue]:
     return []
 
 
+def _intake(
+    arguments: MirrorArguments, current: IntakePolicy | None
+) -> IntakePolicy | None:
+    """Combine intake flags with the current policy; withheld copies are kept."""
+    if arguments.clear_intake:
+        if (
+            arguments.intake_share
+            or arguments.intake_licenses
+            or (arguments.licence_families)
+        ):
+            raise PreservationError("clearing the intake policy takes no other choice")
+        return None
+    if not (
+        arguments.intake_share
+        or arguments.intake_licenses
+        or arguments.licence_families
+    ):
+        return current
+    licences: list[str] = []
+    if arguments.licence_families:
+        families = {family.id: family for family in definition().families}
+        for name in arguments.licence_families.split(","):
+            family = families.get(name.strip())
+            if family is None:
+                raise PreservationError(f"unknown licence family: {name.strip()}")
+            licences += [licence.id for licence in family.licences]
+    if arguments.intake_licenses:
+        licences += [
+            item for item in arguments.intake_licenses.split(",") if item.strip()
+        ]
+    if not licences:
+        licences = list(current.licenses if current else DEFAULT_LICENSES)
+    share = (
+        ("eligible" if arguments.intake_share == "all" else "chosen")
+        if arguments.intake_share
+        else current.share
+        if current
+        else "eligible"
+    )
+    return IntakePolicy(
+        share=share,
+        licenses=identified_licences(licences),
+        definition=LICENCE_DEFINITION_VERSION,
+        withheld=current.withheld if current else (),
+    )
+
+
 def _model_limit(arguments: MirrorArguments, ledger: MirrorLedger) -> int:
     """An explicit per-model limit, else what the disk budget could ever admit."""
     if arguments.model_max_bytes is not None:
@@ -493,12 +625,27 @@ def _quickstart(
     collection, document = load_collection(arguments.collection)
     # Quickstart states the whole policy: no public URL means no announcement.
     announce = _announce(arguments, None)
+    # Upload caps are opt-in. An existing mirror keeps the caps it has unless
+    # a value (or "none") is given; a new one has none unless one is given.
+    existing = (
+        MirrorLedger(arguments.mirror_dir).read()
+        if (arguments.mirror_dir / "mirror.json").exists()
+        else None
+    )
+    daily, monthly = (
+        _resolved_cap(arguments.egress_daily)
+        if arguments.egress_daily is not None or existing is None
+        else existing.egress_daily,
+        _resolved_cap(arguments.egress_monthly)
+        if arguments.egress_monthly is not None or existing is None
+        else existing.egress_monthly,
+    )
     settings = QuickstartSettings(
         name=arguments.mirror_name or default_name(),
         disk_bytes=arguments.disk_bytes or BUDGETS[0][1],
         ingress_daily=arguments.ingress_daily or BUDGETS[1][1],
-        egress_daily=arguments.egress_daily or BUDGETS[2][1],
-        egress_monthly=arguments.egress_monthly or BUDGETS[3][1],
+        egress_daily=daily,
+        egress_monthly=monthly,
         bind=arguments.mirror_bind or "127.0.0.1",
         port=8080 if arguments.mirror_port is None else arguments.mirror_port,
         announce=announce,
@@ -551,8 +698,8 @@ def run_mirror_command(
             name=arguments.mirror_name or default_name(),
             disk_bytes=arguments.disk_bytes,
             ingress_daily=arguments.ingress_daily,
-            egress_daily=arguments.egress_daily,
-            egress_monthly=arguments.egress_monthly,
+            egress_daily=_resolved_cap(arguments.egress_daily),
+            egress_monthly=_resolved_cap(arguments.egress_monthly),
             bind=arguments.mirror_bind,
             port=arguments.mirror_port,
             serve_start=arguments.serve_start,
@@ -588,9 +735,16 @@ def run_mirror_command(
             }.items()
             if value is not None
         }
+        for key in ("egress_daily", "egress_monthly"):
+            if changes.get(key) == "none":
+                changes[key] = None  # Explicitly no upload cap.
         if announce != before.announce:
             changes["announce"] = announce
-        after = configure_mirror(ledger, changes)
+        intake = _intake(arguments, before.intake)
+        after = configure_mirror(ledger, changes) if changes else before
+        if intake != before.intake:
+            after = configure_intake(ledger, intake)
+            changes["intake"] = True
         return {
             "configured": [cast(JsonValue, key) for key in sorted(changes)],
             "network_started": False,
@@ -762,6 +916,8 @@ def run_mirror_command(
                 }
             )
         )
+    elif action in ("withhold", "release"):
+        withhold(ledger, arguments.mirror_manifest, withheld=action == "withhold")
     elif action == "prune":
         return TypeAdapter(dict[str, JsonValue]).validate_python(
             prune(ledger, arguments.mirror_manifest, arguments.confirm_manifest)
