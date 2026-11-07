@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.28.1
+
 - The mirror's default standing restart grant (quickstart, the container's
   `SOVEREIGN_MIRROR_GRANT` and `--resume-for`) is now 180 days, up from 90.
   The 366-day cap is unchanged.
