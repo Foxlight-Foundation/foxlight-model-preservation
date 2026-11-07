@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `mirror quickstart` is now all or nothing on an existing mirror. It checks
+  the settings, the source's bootstrap ID, disk admission under the new budget
+  and the grant length before writing anything, and restores the previous
+  ledger if a later step still refuses. A refused reconfiguration (for example
+  a new source with a disk budget below what is already retained) previously
+  cleared the restart grant, so the existing service could no longer resume.
+
 - Add an optional hardened systemd system service for the headless mirror,
   `deploy/mirror/sovereign-mirror@.service`, for always-on Linux servers and
   NAS boxes without Docker. It runs as the unprivileged `sovereign` system

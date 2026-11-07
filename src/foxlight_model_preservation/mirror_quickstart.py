@@ -27,7 +27,13 @@ from .mirror import (
 )
 from .mirror_announce import DISCLOSURE, dht_port
 from .mirror_models import AnnouncePolicy, SourceGrant, Terms
-from .mirror_state import MirrorLedger, grant_restart, policy_id
+from .mirror_state import (
+    HEADROOM,
+    MirrorLedger,
+    MirrorState,
+    grant_restart,
+    policy_id,
+)
 from .models import Digest, PreservationError, Record, TrustProfile
 from .signing import canonical_bytes, load_trust, strict_json
 
@@ -302,7 +308,10 @@ def apply_quickstart(
     reimporting the collection's possibly older snapshot, so a later refresh
     never turns into a rollback refusal. A paused or departed mirror refuses:
     quickstart never resumes or rejoins it. Without consent nothing is written.
-    No network is used; ``mirror run`` starts serving separately.
+    Every refusal it can foresee (settings, source identity, disk admission,
+    grant length) is checked before anything is written, and a later refusal
+    restores the previous ledger, so an existing mirror keeps its settings and
+    restart grant. No network is used; ``mirror run`` starts serving separately.
     """
     if not consented:
         raise PreservationError(
@@ -326,48 +335,73 @@ def apply_quickstart(
     )
     source = inspect_source(document)
     source_id = str(source["source_id"])
+    if source["bootstrap_id"] != collection.expected_bootstrap_id:
+        raise PreservationError(
+            "source file differs from the collection's expected bootstrap ID"
+        )
+    if not 0 < settings.resume_seconds <= 366 * 86400:
+        raise PreservationError("resume expiry must be within the next 366 days")
+    existing: MirrorLedger | None = None
+    previous: MirrorState | None = None
     if (directory / "mirror.json").exists():
-        ledger = MirrorLedger(directory)
-        state = ledger.read()
-        if state.left:
+        existing = MirrorLedger(directory)
+        previous = existing.read()
+        if previous.left:
             raise PreservationError(
                 "this mirror has left; quickstart does not rejoin it. Use a new "
                 "mirror directory to serve again"
             )
-        if state.paused:
+        if previous.paused:
             raise PreservationError(
                 "this mirror is paused; run `mirror resume` first if you want it "
                 "to serve again"
             )
-        before = policy_id(state)
-        configure_mirror(ledger, config)
-        created = False
+        # The new settings must validate before anything is written.
+        MirrorState.model_validate(previous.model_copy(update=config).model_dump())
+        followed = {
+            status.source_id: status.bootstrap_id
+            for status in list_sources(existing.path / "discovery")
+        }
+        reimported = not (
+            source_id in previous.sources
+            and followed.get(source_id) == collection.expected_bootstrap_id
+        )
+        usage = existing.usage()
     elif directory.exists():
         raise PreservationError(
             "mirror directory exists without mirror.json (an interrupted init?); "
             "inspect it and remove it before running quickstart again"
         )
     else:
+        reimported, usage = True, 0
+    # Following admits nothing once retained bytes fill the new disk budget.
+    if reimported and usage + HEADROOM > settings.disk_bytes:
+        raise PreservationError(
+            "mirror disk admission budget exhausted: the disk budget must exceed "
+            "the bytes already retained plus headroom"
+        )
+    if existing is None:
         ledger = MirrorLedger.initialize(directory, **config)
-        before = None
-        created = True
-    followed = {
-        status.source_id: status.bootstrap_id
-        for status in list_sources(ledger.path / "discovery")
-    }
-    reimported = not (
-        source_id in ledger.read().sources
-        and followed.get(source_id) == collection.expected_bootstrap_id
-    )
-    if reimported:
-        follow(ledger, document, collection.expected_bootstrap_id, grant)
     else:
-        apply_source_grant(ledger, source_id, grant)
-    changed = before is None or policy_id(ledger.read()) != before
-    expires = int(time.time()) + settings.resume_seconds
-    grant_restart(ledger, expires)
+        ledger = existing
+        configure_mirror(ledger, config)
+    try:
+        if reimported:
+            follow(ledger, document, collection.expected_bootstrap_id, grant)
+        else:
+            apply_source_grant(ledger, source_id, grant)
+        changed = previous is None or policy_id(ledger.read()) != policy_id(previous)
+        expires = int(time.time()) + settings.resume_seconds
+        grant_restart(ledger, expires)
+    except BaseException:
+        if previous is not None:
+            # An unforeseen refusal leaves the mirror as it was, grant included.
+            restored = previous
+            with ledger.service_lock():
+                ledger.update(lambda _current: restored)
+        raise
     return ledger, {
-        "initialized": created,
+        "initialized": previous is None,
         "source_id": source_id,
         "source_reimported": reimported,
         "policy_changed": changed,

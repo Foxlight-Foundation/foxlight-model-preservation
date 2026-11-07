@@ -249,6 +249,11 @@ if systemctl is-active --quiet "$unit"; then
   echo "Stopping $unit while the settings change (it drains first)."
   systemctl stop "$unit"
 fi
+# Taken once the service has stopped writing, to report a refusal truthfully.
+ledger_before=""
+if [ -f "$mirror_dir/mirror.json" ]; then
+  ledger_before="$(sha256sum "$mirror_dir/mirror.json" | cut -d ' ' -f 1)"
+fi
 setup=(
   "$target/bin/model-preserve" mirror quickstart
   --dir "$mirror_dir" --collection "$work/collection/collection.json"
@@ -256,11 +261,26 @@ setup=(
 )
 if ! (cd / && runuser -u sovereign -- env -i PATH=/usr/bin:/bin LANG=C.UTF-8 \
   "${setup[@]}" >/dev/null); then
-  if [ -n "$was_active" ]; then
-    systemctl start "$unit" || true
-    die "quickstart refused (see above); $unit was started again with its previous settings"
+  ledger_after=""
+  if [ -f "$mirror_dir/mirror.json" ]; then
+    ledger_after="$(sha256sum "$mirror_dir/mirror.json" | cut -d ' ' -f 1)"
   fi
-  die "quickstart refused (see above); the service was not enabled"
+  if [ -z "$ledger_before$ledger_after" ]; then
+    outcome="no mirror was set up"
+  elif [ "$ledger_after" = "$ledger_before" ]; then
+    outcome="the mirror's settings and restart grant are unchanged"
+  else
+    # Releases before the all-or-nothing quickstart could refuse part-way.
+    outcome="the mirror's settings changed before the refusal, which can clear its restart grant; check \`mirror status\` and renew the grant if needed"
+  fi
+  if [ -n "$was_active" ]; then
+    systemctl reset-failed "$unit" 2>/dev/null || true
+    if systemctl start "$unit" && sleep 5 && systemctl is-active --quiet "$unit"; then
+      die "quickstart refused (see above); $outcome. $unit is running again"
+    fi
+    die "quickstart refused (see above); $outcome. $unit did not start again: journalctl -u $unit"
+  fi
+  die "quickstart refused (see above); $outcome. $unit was not running and was not started"
 fi
 
 step "Record the collection in $config_dir and use $version"

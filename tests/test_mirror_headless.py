@@ -1182,6 +1182,48 @@ def test_interactive_consent_prompt(tmp_path, capture, monkeypatch):
     assert restart_allowed(MirrorLedger(tmp_path / "mirror").read())
 
 
+def _granted_quickstart_mirror(tmp_path: Path, capture: Capture) -> Path:
+    target = tmp_path / "granted"
+    loaded, document = load_collection(collection(tmp_path, capture))
+    apply_quickstart(target, loaded, document, settings(), consented=True)
+    assert restart_allowed(MirrorLedger(target).read())
+    return target
+
+
+def test_refused_quickstart_keeps_the_existing_mirror_and_grant(tmp_path, capture):
+    target = _granted_quickstart_mirror(tmp_path, capture)
+    before = (target / "mirror.json").read_bytes()
+    state = MirrorLedger(target).read()
+    # A different source with a disk budget below retained usage plus headroom.
+    other, document = load_collection(collection(tmp_path, capture))
+    assert other.expected_bootstrap_id not in str(state.model_dump())
+    tight = settings(disk_bytes=HEADROOM + 1, max_bytes=1024, name="Changed")
+    with pytest.raises(PreservationError, match="disk admission"):
+        apply_quickstart(target, other, document, tight, consented=True)
+    after = MirrorLedger(target).read()
+    assert (target / "mirror.json").read_bytes() == before
+    assert policy_id(after) == policy_id(state) and after.restart == state.restart
+    assert restart_allowed(after)
+
+
+def test_unforeseen_quickstart_refusal_restores_the_ledger(
+    tmp_path, capture, monkeypatch
+):
+    target = _granted_quickstart_mirror(tmp_path, capture)
+    before = (target / "mirror.json").read_bytes()
+    other, document = load_collection(collection(tmp_path, capture))
+
+    def refuse(*_args: object, **_kwargs: object) -> str:
+        raise PreservationError("cache import would roll back trusted roots")
+
+    monkeypatch.setattr("foxlight_model_preservation.mirror_quickstart.follow", refuse)
+    changed = settings(disk_bytes=4 * 1024**3, name="Changed")
+    with pytest.raises(PreservationError, match="roll back"):
+        apply_quickstart(target, other, document, changed, consented=True)
+    assert (target / "mirror.json").read_bytes() == before
+    assert restart_allowed(MirrorLedger(target).read())
+
+
 # Restart idempotency (the container re-runs quickstart on every start) --------
 
 
