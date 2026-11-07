@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import importlib.util
 import json
 import time
@@ -86,6 +87,9 @@ class FakeCore:
         self.hold_retain = False
         # When set, mirror reads wait so a Stop can overtake an admission.
         self.gate: asyncio.Event | None = None
+        # POSTs of these kinds wait, so a Stop can land while one is in flight.
+        self.post_gates: dict[str, asyncio.Event] = {}
+        self.posts_waiting: list[str] = []
         self.sequence = 0
 
     def _policy(self) -> None:
@@ -93,7 +97,10 @@ class FakeCore:
         self.page["policy_id"] = f"{self.sequence:064x}"
 
     def _job(self, decision: dict[str, Any]) -> dict[str, Any]:
-        job_id = f"{len(self.jobs) + 1:064x}"
+        # Core derives the receipt identity from the client's operation.
+        job_id = hashlib.sha256(
+            f"mirror\x00{decision['owner_id']}\x00{decision['operation_id']}".encode()
+        ).hexdigest()
         job = {
             "job_id": job_id,
             "owner_id": decision["owner_id"],
@@ -109,6 +116,11 @@ class FakeCore:
     async def handle_async(self, request: httpx.Request) -> httpx.Response:
         if self.gate is not None and request.url.path == "/preservation/mirror":
             await self.gate.wait()
+        if request.method == "POST" and request.url.path.endswith("/mirror/jobs"):
+            kind = json.loads(request.content)["kind"]
+            if kind in self.post_gates:
+                self.posts_waiting.append(kind)
+                await self.post_gates[kind].wait()
         return self.handle(request)
 
     def served(self) -> set[str]:
@@ -169,6 +181,8 @@ class FakeCore:
                 for model in self.page["models"]:
                     if model["manifest_id"] == decision["manifest_id"]:
                         model["blocked"] = decision["action"] == "block"
+            elif kind == "revoke_resume":
+                self.page["restart_expires"] = None
             elif kind == "grant_resume":
                 assert decision["confirm_resume"] is True
                 self.page["restart_expires"] = decision["resume_expires"]
@@ -602,3 +616,98 @@ async def test_a_stop_during_setup_prevents_any_later_grant_or_run(core: Any) ->
         await asyncio.sleep(0)
     assert {d["kind"] for d in fake.decisions} <= {"configure", "retain"}
     assert fake.page["restart_expires"] is None
+
+
+async def wait_for(condition: Any, rounds: int = 20000) -> None:
+    for _ in range(rounds):
+        if condition():
+            return
+        await asyncio.sleep(0)
+    raise AssertionError("condition not reached")
+
+
+async def test_stop_during_an_in_flight_run_post_stops_the_job_it_created(
+    core: Any,
+) -> None:
+    fake, app = core
+    fake.post_gates["run"] = asyncio.Event()
+    await app.dispatch("mirror-share-start", start_body(fake))
+    await wait_for(lambda: fake.posts_waiting == ["run"])
+    stopping = asyncio.create_task(app.dispatch("mirror-share-stop", {}))
+    for _ in range(200):
+        await asyncio.sleep(0)
+    # Stop has cancelled the setup's wait and is draining the shielded POST;
+    # it must not report success while Core may still accept the run.
+    assert not stopping.done()
+    assert fake.page["controller_job_id"] is None
+    # Core accepts the run only now, after Stop began.
+    fake.post_gates["run"].set()
+    stopped = await stopping
+    assert stopped["progress"]["state"] == "stopped"
+    run = next(job for job in fake.jobs.values() if job["kind"] == "run")
+    assert run["state"] == "cancelled"
+    assert fake.page["controller_job_id"] is None
+    # The grant that landed for this setup is withdrawn too.
+    assert fake.page["restart_expires"] is None
+    assert [d["kind"] for d in fake.decisions][-1] == "revoke_resume"
+    assert app.sharing._task is None  # pyright: ignore[reportPrivateUsage]
+
+
+async def test_stop_during_an_in_flight_grant_sends_no_run_and_revokes(
+    core: Any,
+) -> None:
+    fake, app = core
+    fake.post_gates["grant_resume"] = asyncio.Event()
+    await app.dispatch("mirror-share-start", start_body(fake))
+    await wait_for(lambda: fake.posts_waiting == ["grant_resume"])
+    stopping = asyncio.create_task(app.dispatch("mirror-share-stop", {}))
+    await asyncio.sleep(0)
+    # A Start while Stop drains is refused (one setup at a time).
+    with pytest.raises(CoreRefused, match="mirror_share_busy"):
+        await app.dispatch("mirror-share-start", start_body(fake))
+    fake.post_gates["grant_resume"].set()
+    stopped = await stopping
+    assert stopped["progress"]["state"] == "stopped"
+    kinds = [d["kind"] for d in fake.decisions]
+    assert "run" not in kinds
+    assert kinds[-1] == "revoke_resume"
+    assert fake.page["restart_expires"] is None
+
+
+async def test_an_unanswered_post_never_reports_stopped(core: Any) -> None:
+    fake, app = core
+    app.sharing.drain_seconds = 0.05
+    fake.post_gates["run"] = asyncio.Event()
+    await app.dispatch("mirror-share-start", start_body(fake))
+    await wait_for(lambda: fake.posts_waiting == ["run"])
+    stopped = await app.dispatch("mirror-share-stop", {})
+    assert stopped["progress"]["state"] == "failed"
+    assert stopped["progress"]["error_code"] == "mirror_stop_unconfirmed"
+    fake.post_gates["run"].set()
+
+
+async def test_a_core_failure_mid_setup_sends_no_grant_or_run(core: Any) -> None:
+    fake, app = core
+    existing(fake, APACHE)
+    fake.page["controller_job_id"] = "f" * 64
+    fake.jobs["f" * 64] = {"job_id": "f" * 64, "kind": "run", "state": "running"}
+    original = fake.handle
+
+    def failing(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST" and json.loads(request.content)["kind"] == "model":
+            return httpx.Response(409, json={"detail": "mirror_busy_stop_first"})
+        return original(request)
+
+    fake.handle = failing  # type: ignore[method-assign]
+    existing_models = held(APACHE, MIT)
+    fake.page["models"] = existing_models
+    await app.dispatch(
+        "mirror-share-start", start_body(fake, share="chosen", copies=[copy(APACHE)])
+    )
+    progress = await finished(app)
+    assert progress["state"] == "failed"
+    assert progress["error_code"] == "mirror_busy_stop_first"
+    kinds = {d["kind"] for d in fake.decisions}
+    assert "grant_resume" not in kinds and "run" not in kinds
+    # Sharing is left off rather than serving the unreviewed copy B.
+    assert fake.page["controller_job_id"] is None

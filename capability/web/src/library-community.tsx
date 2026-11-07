@@ -37,11 +37,39 @@ const shareError=(code:string)=>({
  license_not_selected:'licence not in your list',no_license:'no licence found',unsupported:'can’t be shared yet',removed:'removed earlier',
 } as Record<string,string>)[code]??errorText(code);
 
+type Identity={copy_id:string;manifest_id:string;member_count:number};
+interface Review_ {key:string;rows:Reviewed[]}
+const reviewKey=(licenses:string[],identities:Identity[],held:string)=>JSON.stringify([licenses,identities,held]);
+
+/**
+ * Licence review bound to one licence list. Each request is tagged with the
+ * exact list, copies and Core holdings it evaluated plus a revision; a result
+ * for a superseded request is dropped, so a background refresh can never
+ * overwrite a newer or different list's review. A caller reads rows only when
+ * `key` equals the key of what it currently shows.
+ */
+function useLicenceReview(licenses:string[]|null,identities:Identity[],held:string,delay=0,initial?:Review_):[Review_|null,string]{
+ const [review,setReview]=useState<Review_|null>(initial??null);
+ const revision=useRef(0);
+ const key=licenses?reviewKey(licenses,identities,held):'';
+ useEffect(()=>{
+  if(!licenses)return;
+  const mine=++revision.current;
+  if(review?.key===key)return;
+  if(licenses.length===0||identities.length===0){setReview({key,rows:[]});return;}
+  const timer=setTimeout(()=>{void api<{copies:Reviewed[]}>('mirror-share-review',{licenses,copies:identities}).then(value=>{if(mine===revision.current)setReview({key,rows:value.copies});}).catch(()=>{if(mine===revision.current)setReview({key,rows:[]});});},delay);
+  return()=>clearTimeout(timer);
+  // The key covers licences, copies and holdings; review identity is irrelevant.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ },[key]);
+ useEffect(()=>()=>{revision.current++;},[]);
+ return [review,key];
+}
+
 /** Sovereign's one-switch community mirror, over this host's persistent mirror. */
 export function LibraryKeepAvailable({copies,features,bittorrentAvailable,onDialogChange}:{copies:Copy[];features:Record<string,boolean>|null;bittorrentAvailable:boolean;onDialogChange?:(open:boolean)=>void}) {
  const [page,setPage]=useState<MirrorPage|null>(null),[state,setState]=useState<Switch|null>(null),[readError,setReadError]=useState('');
  const [setup,setSetup]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('');
- const [reviewed,setReviewed]=useState<Reviewed[]>([]);
  const live=useRef(true);
  const supported=features?.['Persistent mirrors']===true&&features?.['Public copy review']===true;
  useEffect(()=>{live.current=true;return()=>{live.current=false;};},[]);
@@ -52,15 +80,15 @@ export function LibraryKeepAvailable({copies,features,bittorrentAvailable,onDial
   catch(reason){if(live.current)setReadError(reason instanceof Error?reason.message:'host_unavailable');}
  },[]);
  useEffect(()=>{if(!supported)return;void refresh();const timer=setInterval(()=>void refresh(),working?1000:4000);return()=>clearInterval(timer);},[supported,refresh,working]);
- const identities=useMemo(()=>copies.map(copy=>({copy_id:copy.copy_id,manifest_id:copy.manifest_id,member_count:copy.member_count})),[copies]);
- const review=useCallback(async(licenses:string[])=>{
-  if(licenses.length===0||identities.length===0){setReviewed([]);return;}
-  try{const value=await api<{copies:Reviewed[]}>('mirror-share-review',{licenses,copies:identities});if(live.current)setReviewed(value.copies);}
-  catch(reason){if(live.current)setError(reason instanceof Error?reason.message:'host_unavailable');}
- },[identities]);
- useEffect(()=>{if(supported&&page)void review(state?.default_licenses??[]);},[supported,Boolean(page),Boolean(state),review]);
+ // Stable across Library refreshes that return the same copies and holdings.
+ const identityKey=JSON.stringify(copies.map(copy=>[copy.copy_id,copy.manifest_id,copy.member_count]));
+ const identities=useMemo<Identity[]>(()=>(JSON.parse(identityKey) as [string,string,number][]).map(([copy_id,manifest_id,member_count])=>({copy_id,manifest_id,member_count})),[identityKey]);
+ const heldKey=JSON.stringify((page?.models??[]).map(model=>[model.manifest_id,model.state,model.blocked]));
+ const [summary,summaryKey]=useLicenceReview(supported&&page&&state?state.default_licenses:null,identities,heldKey);
+ // Between reviews the last rows stay on screen; nothing is started from the summary.
+ const reviewed=summary?.rows??[];
  async function stop(){setBusy(true);setError('');try{await api('mirror-share-stop',{});}catch(reason){if(live.current)setError(reason instanceof Error?reason.message:'host_unavailable');}finally{if(live.current){setBusy(false);void refresh();}}}
- async function keepBack(model:HeldModel,back:boolean){if(!page?.policy_id)return;setBusy(true);setError('');try{await api('mirror-start',{kind:'model',policy_id:page.policy_id,manifest_id:model.manifest_id,action:back?'block':'unblock',operation_id:crypto.randomUUID()});}catch(reason){if(live.current)setError(reason instanceof Error?reason.message:'host_unavailable');}finally{if(live.current){setBusy(false);void refresh();void review(state?.default_licenses??[]);}}}
+ async function keepBack(model:HeldModel,back:boolean){if(!page?.policy_id)return;setBusy(true);setError('');try{await api('mirror-start',{kind:'model',policy_id:page.policy_id,manifest_id:model.manifest_id,action:back?'block':'unblock',operation_id:crypto.randomUUID()});}catch(reason){if(live.current)setError(reason instanceof Error?reason.message:'host_unavailable');}finally{if(live.current){setBusy(false);void refresh();}}}
  if(features===null)return null;
  if(!supported)return <section className="sk-card sk-community" aria-label="Help keep models available"><h2>Help keep models available</h2><p className="sk-hint">Update the preservation host to share public copies with one switch. Existing sharing sessions below remain available.</p></section>;
  const on=Boolean(page?.controller_job_id);
@@ -104,20 +132,24 @@ export function LibraryKeepAvailable({copies,features,bittorrentAvailable,onDial
    {held.length>0&&<p className="sk-hint">{held.length} {held.length===1?'copy is':'copies are'} already kept for sharing on this host. Turning on keeps {held.length===1?'it':'them'} as {held.length===1?'it is':'they are'}.</p>}
    <div className="sk-actions"><button className="sk-btn sk-solid" disabled={busy||copies.length===0||!state||!page.available&&page.configured} onClick={()=>{setError('');setSetup(true);}}>Turn on</button></div>
   </>)}
-  {setup&&page&&state&&<ShareSetup page={page} state={state} copies={copies} reviewed={reviewed} on={on} bittorrentAvailable={bittorrentAvailable} onReview={review} onClose={()=>{setSetup(false);void review(state.default_licenses);}} onStarted={value=>{setState(value);setSetup(false);void refresh();void review(state.default_licenses);}}/>}
+  {setup&&page&&state&&<ShareSetup page={page} state={state} copies={copies} identities={identities} heldKey={heldKey} summary={summary&&summary.key===summaryKey?summary:undefined} on={on} bittorrentAvailable={bittorrentAvailable} onClose={()=>setSetup(false)} onStarted={value=>{setState(value);setSetup(false);void refresh();}}/>}
  </section>;
 }
 
 /** One sheet: what, which licences, how people reach this host, then one consent. */
-function ShareSetup({page,state,copies,reviewed,on,bittorrentAvailable,onReview,onClose,onStarted}:{page:MirrorPage;state:Switch;copies:Copy[];reviewed:Reviewed[];on:boolean;bittorrentAvailable:boolean;onReview:(licenses:string[])=>Promise<void>;onClose:()=>void;onStarted:(value:Switch)=>void}) {
+function ShareSetup({page,state,copies,identities,heldKey,summary,on,bittorrentAvailable,onClose,onStarted}:{page:MirrorPage;state:Switch;copies:Copy[];identities:Identity[];heldKey:string;summary?:Review_;on:boolean;bittorrentAvailable:boolean;onClose:()=>void;onStarted:(value:Switch)=>void}) {
  const base=page.configuration;
  const [share,setShare]=useState<'eligible'|'chosen'>('eligible'),[chosen,setChosen]=useState<string[]>(()=>copies.filter(copy=>page.models.some(model=>model.manifest_id===copy.manifest_id&&model.state!=='removed'&&!model.blocked)).map(copy=>copy.copy_id));
  const [licenses,setLicenses]=useState<string[]>(state.default_licenses);
  const [draft,setDraft]=useState<MirrorConfiguration>(()=>base?{...base}:{...state.defaults,torrent:bittorrentAvailable});
  const [peer,setPeer]=useState<PeerGrant|null>(null),[agreed,setAgreed]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const [policy]=useState(page.policy_id);
- const first=useRef(true);
- useEffect(()=>{if(first.current){first.current=false;return;}const timer=setTimeout(()=>void onReview(licenses),300);return()=>clearTimeout(timer);},[licenses,onReview]);
+ // The sheet's own review, for exactly its licence list. It starts from the
+ // summary only when that was made for the same list, copies and holdings.
+ const [sheetReview,sheetKey]=useLicenceReview(licenses,identities,heldKey,300,summary&&summary.key===reviewKey(licenses,identities,heldKey)?summary:undefined);
+ const current=sheetReview?.key===sheetKey;
+ // Last rows stay visible while a newer list is checked; Start waits for it.
+ const reviewed=sheetReview?.rows??[];
  const status=(copy:Copy):Status=>reviewed.find(item=>item.manifest_id===copy.manifest_id)?.status??'review_unavailable';
  const candidates=copies.filter(copy=>shareable.includes(status(copy)));
  const selected=share==='eligible'?candidates:candidates.filter(copy=>chosen.includes(copy.copy_id));
@@ -129,7 +161,7 @@ function ShareSetup({page,state,copies,reviewed,on,bittorrentAvailable,onReview,
  const numeric=(key:keyof MirrorConfiguration,value:number)=>setDraft(current=>({...current,[key]:value}));
  const validNumbers=[configuration.disk_bytes,configuration.ingress_daily,configuration.egress_daily,configuration.egress_monthly,configuration.session_bytes].every(value=>Number.isSafeInteger(value)&&value>0)&&configuration.disk_bytes>=256*1024**2&&configuration.egress_daily<=configuration.egress_monthly&&Number.isInteger(configuration.port)&&configuration.port>=0&&configuration.port<=65535&&Number.isInteger(configuration.max_active)&&configuration.max_active>=1&&configuration.max_active<=4&&Number.isInteger(configuration.session_seconds)&&configuration.session_seconds>0&&configuration.session_seconds<=86400&&Number.isSafeInteger(configuration.upload_rate)&&configuration.upload_rate>=1024&&configuration.upload_rate<=100*1024**2&&(!configuration.ipfs||Boolean(peer));
  const transports=[network?'other devices over HTTP':configuration.http?'this device over HTTP':null,configuration.torrent?'public BitTorrent':null,configuration.ipfs?'public IPFS':null].filter((item):item is string=>!!item);
- const ready=agreed&&licenses.length>0&&selected.length>0&&validNumbers&&transports.length>0;
+ const ready=current&&agreed&&licenses.length>0&&selected.length>0&&validNumbers&&transports.length>0;
  async function start(){
   setBusy(true);setError('');
   try{const value=await api<Switch>('mirror-share-start',{consent:true,disclosure:state.disclosure,policy_id:policy,share,licenses,copies:selected.map(copy=>({copy_id:copy.copy_id,manifest_id:copy.manifest_id,member_count:copy.member_count})),configuration});onStarted(value);}
@@ -146,6 +178,7 @@ function ShareSetup({page,state,copies,reviewed,on,bittorrentAvailable,onReview,
     <span> · {bytes(copy.size_bytes)}{(reviewed.find(item=>item.copy_id===copy.copy_id)?.licenses.length??0)>0&&<> · {reviewed.find(item=>item.copy_id===copy.copy_id)!.licenses.join(', ')}</>}</span> <Pill tone={tone}>{text}</Pill>
    </li>;})}</ul>
    {copies.length===0&&<p>No public copies yet. Private copies stay private.</p>}
+   {!current&&copies.length>0&&<p className="sk-hint" role="status">Checking each copy against this licence list…</p>}
    <p className="sk-hint">Only what you agree to here is served. {share==='chosen'?'Copies you don’t choose':'Copies whose licence isn’t on your list'} stop being served; their files stay on this host.</p>
   </Step>
   <Step n={2} title="Licences that allow sharing">

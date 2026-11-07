@@ -11,11 +11,42 @@ for the consent's year and starts the controller in resume mode.
 The Library keeps no durable state of its own. Every step is an ordinary
 operator decision on Core, recorded in Core's mirror history; a closed or
 restarted Library never repeats a decision or consents again on its own.
+
+Invariants (each has a test in tests/test_sharing_switch.py):
+
+I1 One setup at a time. Start reserves admission synchronously, before its
+   first await; a second Start, or a Start while a Stop drains, is refused.
+I2 Stop fences first. It advances the epoch synchronously; every Core decision
+   checks the epoch immediately before it is sent, so no decision (and so no
+   grant_resume or run) is sent by a setup that a Stop has overtaken.
+I3 Stop accounts for submissions already sent. Each decision's Core job
+   identity is derived from its client operation identity (Core's
+   sha256("mirror\0" owner "\0" operation)) and recorded before sending.
+   The POST runs shielded from cancellation; Stop waits (bounded) for it,
+   then stops every recorded job that Core reports active, re-reads the
+   mirror until no controller runs, and withdraws a restart grant this setup
+   recorded. Only then does it report "stopped"; otherwise it reports that
+   the stop is unconfirmed.
+I4 What is served is exactly what was consented. Before the grant, every
+   holding outside the reviewed decision is blocked (bytes kept) and the
+   served set is verified against Core.
+I5 Existing settings and selections are only changed by a reviewed Start.
+   Reads and reviews never send a decision.
+
+Await points in a setup and what may land there:
+- admission read: Stop -> refused with mirror_share_stopped (I2); a second
+  Start -> busy (I1); Core failure -> admission released.
+- each POST: Stop -> drained and stopped (I3); Core failure -> setup fails.
+- each poll, review or page read: Stop -> cancelled, the owned job is stopped
+  (I3); Core failure -> setup fails with sharing off, since a reviewed change
+  first pauses the previous controller. No grant or run follows a failure.
+- Library page refreshes only read, so they cannot change a setup (I5).
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import time
 import uuid
@@ -215,7 +246,11 @@ class ShareSwitch:
         # can never both pass. Stop advances the epoch first; a setup from an
         # older epoch may not send another Core decision.
         self._admitted = False
+        self._stopping = 0
         self._epoch = 0
+        # Every Core job this setup sent or is sending, with its kind.
+        self._sent: list[tuple[str, str]] = []
+        self._posting: asyncio.Future[dict[str, JsonValue]] | None = None
         self._reviews: dict[tuple[str, str], tuple[str, list[str]]] = {}
         self._progress: dict[str, JsonValue] = self._idle()
 
@@ -316,9 +351,10 @@ class ShareSwitch:
     async def start(self, body: dict[str, JsonValue]) -> dict[str, JsonValue]:
         """Begin the one reviewed decision; Core performs and records each step."""
         decision = _validated(ShareStartInput, body)
-        if self._admitted:
+        if self._admitted or self._stopping:
             raise CoreRefused("mirror_share_busy")
         self._admitted = True
+        self._sent = []
         epoch = self._epoch
         try:
             page = await self.client.request("GET", "mirror")
@@ -344,33 +380,112 @@ class ShareSwitch:
         if self._epoch != epoch:
             raise CoreRefused("mirror_share_stopped")
 
+    drain_seconds: float = 30.0
+    stop_attempts: int = 20
+
     async def stop(self) -> dict[str, JsonValue]:
-        """Stop sharing in one action: setup, any owned step and the controller."""
+        """Stop sharing in one action: setup, every sent step and the controller."""
         # Fence first, synchronously: an admission still awaiting Core and the
         # running setup both observe the new epoch before any further decision.
         self._epoch += 1
-        task, owned = self._task, self._job
+        self._stopping += 1
+        task, posting, sent = self._task, self._posting, list(self._sent)
         self._task = None
-        if task is not None and not task.done():
-            _ = task.cancel()
-            with suppress(asyncio.CancelledError, CoreRefused):
-                await task
-        if owned is not None:
-            # A Core step runs on after the Library stops waiting for it.
-            job = await self.client.request("GET", "mirror/jobs/" + owned)
+        interrupted = (task is not None and not task.done()) or (
+            posting is not None and not posting.done()
+        )
+        try:
+            if task is not None and not task.done():
+                # A shielded POST keeps running; only waits are interrupted.
+                _ = task.cancel()
+                with suppress(asyncio.CancelledError, CoreRefused, ValueError, OSError):
+                    await task
+            settled = True
+            if posting is not None and not posting.done():
+                try:
+                    _ = await asyncio.wait_for(
+                        asyncio.shield(posting), self.drain_seconds
+                    )
+                except TimeoutError:
+                    settled = False
+                except (CoreRefused, ValueError, OSError):
+                    pass
+            stopped = await self._stop_controller()
+            # Then every job this setup sent, including a run Core accepted
+            # after the first read; then confirm again that none is running.
+            known, granted = await self._withdraw(sent)
+            again = await self._stop_controller()
+            if again is False:
+                stopped = False
+            elif stopped is None:
+                stopped = again
+            if interrupted and granted and stopped is not False:
+                # The grant landed although its run was fenced or stopped;
+                # withdraw standing permission so nothing outlives Stop.
+                await self._revoke()
+            confirmed = settled and known
+            self._sent = []
+        finally:
+            self._stopping -= 1
+            if self._posting is posting:
+                self._posting = None
+            self._job = None
+            self._admitted = False
+        state = "stopped" if confirmed and stopped is not False else "failed"
+        self._progress = {
+            **self._progress,
+            "state": state,
+            "step": None,
+            "error_code": None if state == "stopped" else "mirror_stop_unconfirmed",
+        }
+        return {
+            **self.read(),
+            "job": stopped if isinstance(stopped, dict) else None,
+        }
+
+    async def _withdraw(self, sent: list[tuple[str, str]]) -> tuple[bool, bool]:
+        """Stop each recorded job Core accepted; report (all known, grant seen)."""
+        known = True
+        granted = False
+        for kind, job_id in sent:
+            try:
+                job = await self.client.request("GET", "mirror/jobs/" + job_id)
+            except CoreRefused:
+                # Core never accepted it, or cannot say. A settled POST that
+                # Core refused is the only unknown that is safe.
+                continue
+            if job.get("job_id") != job_id:
+                known = False
+                continue
             if job.get("state") in _ACTIVE:
-                _ = await self.client.request("DELETE", "mirror/jobs/" + owned)
+                _ = await self.client.request("DELETE", "mirror/jobs/" + job_id)
+            if kind == "grant_resume" and job.get("state") in _ACTIVE | {"succeeded"}:
+                granted = True
+        return known, granted
+
+    async def _revoke(self) -> None:
         page = await self.client.request("GET", "mirror")
-        controller = page.get("controller_job_id")
+        policy = page.get("policy_id")
+        if isinstance(policy, str) and page.get("restart_expires") is not None:
+            job = await self._submit(
+                {"kind": "revoke_resume", "policy_id": policy}, record=False
+            )
+            with suppress(CoreRefused):
+                _ = await self._settle(job)
+
+    async def _stop_controller(self) -> dict[str, JsonValue] | bool | None:
+        """Re-read the mirror until no controller runs; False if it keeps running."""
         stopped: dict[str, JsonValue] | None = None
-        if isinstance(controller, str):
+        for _ in range(self.stop_attempts):
+            page = await self.client.request("GET", "mirror")
+            controller = page.get("controller_job_id")
+            if not isinstance(controller, str):
+                return stopped
             # Core records cancellation, drains the controller, clears running
             # intent and pauses the role so a restart does not resume it.
             stopped = await self.client.request("DELETE", "mirror/jobs/" + controller)
-        self._job = None
-        self._admitted = False
-        self._progress = {**self._progress, "state": "stopped", "step": None}
-        return {**self.read(), "job": stopped}
+            await asyncio.sleep(self.poll_seconds)
+        return False
 
     def _step(self, step: Step) -> None:
         self._progress = {**self._progress, "step": step}
@@ -380,25 +495,48 @@ class ShareSwitch:
         value = page.get("policy_id")
         return value if isinstance(value, str) else None
 
+    def _job_id(self, operation: str) -> str:
+        """Core's own receipt identity for this client's operation."""
+        return hashlib.sha256(
+            ("mirror\x00" + self.client.mirror_owner_id + "\x00" + operation).encode()
+        ).hexdigest()
+
     async def _decide(self, epoch: int, **decision: JsonValue) -> dict[str, JsonValue]:
         self._fence(epoch)
+        return await self._submit(decision)
+
+    async def _submit(
+        self, decision: dict[str, JsonValue], *, record: bool = True
+    ) -> dict[str, JsonValue]:
         operation = uuid.uuid4().hex
         checked = MirrorStartInput.model_validate(
             {**decision, "operation_id": operation}
         )
-        job = await self.client.request(
-            "POST",
-            "mirror/jobs",
-            {
-                **checked.model_dump(mode="json"),
-                "owner_id": self.client.mirror_owner_id,
-            },
+        expected = self._job_id(operation)
+        if record:
+            # Recorded before sending, so Stop can find a job whose reply is lost.
+            self._sent.append((checked.kind, expected))
+        posting = asyncio.ensure_future(
+            self.client.request(
+                "POST",
+                "mirror/jobs",
+                {
+                    **checked.model_dump(mode="json"),
+                    "owner_id": self.client.mirror_owner_id,
+                },
+            )
         )
-        if job.get("operation_id") != operation or not isinstance(
-            job.get("job_id"), str
-        ):
+        if record:
+            self._posting = posting
+        try:
+            job = await asyncio.shield(posting)
+        finally:
+            if self._posting is posting and posting.done():
+                self._posting = None
+        if job.get("operation_id") != operation or job.get("job_id") != expected:
             raise CoreRefused("invalid_job_identity")
-        self._job = str(job["job_id"])
+        if record:
+            self._job = expected
         return job
 
     async def _settle(
@@ -594,11 +732,12 @@ class ShareSwitch:
         return await self._policy(), serving
 
     async def _settle_stopped(self, job_id: str) -> dict[str, JsonValue]:
-        while True:
+        for _ in range(self.stop_attempts * 10):
             job = await self.client.request("GET", "mirror/jobs/" + job_id)
             if job.get("state") in _TERMINAL:
                 return job
             await asyncio.sleep(self.poll_seconds)
+        raise CoreRefused("mirror_stop_incomplete")
 
 
 async def share_control(
