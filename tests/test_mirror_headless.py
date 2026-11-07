@@ -1451,6 +1451,7 @@ def test_deploy_files_match_the_installer_and_proxy_model():
 def test_no_anonymity_claims_in_mirror_text():
     paths = [
         ROOT / "docs/persistent-mirrors.md",
+        *sorted((ROOT / "docs/mirror-hosting").glob("*.md")),
         *sorted((ROOT / "deploy/mirror").iterdir()),
         ROOT / "src/foxlight_model_preservation/mirror_quickstart.py",
         ROOT / "src/foxlight_model_preservation/mirror_announce.py",

@@ -24,6 +24,12 @@ You need a bucket, a key that can write to it, and public read access.
 Sovereign works out the endpoint, signing region, addressing style and (where
 it can) the public address from these answers (`bucket.target_for`).
 
+Step-by-step guides with exact values, costs and how to stop:
+[Cloudflare R2](mirror-hosting/r2.md),
+[Hetzner Object Storage](mirror-hosting/hetzner-object-storage.md) and
+[AWS S3 behind CloudFront](mirror-hosting/aws-s3-cloudfront.md). See
+[where to host a mirror](mirror-hosting/README.md) for a cost comparison.
+
 ## Keys stay in the keychain
 
 The access key and secret are stored in the operating system's keychain (the
