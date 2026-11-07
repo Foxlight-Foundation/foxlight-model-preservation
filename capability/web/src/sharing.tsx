@@ -1,6 +1,7 @@
 import {useEffect,useRef,useState} from 'react';
 import {api,bytes,errorText,saveHandoff,saveInvitation,transferAllowance,torrentDownload,trustDownload,type Copy,type Job,type Page,type Plan} from './client';
 import {PeerAccess,type PeerGrant} from './peer';
+import {LibraryKeepAvailable} from './library-community';
 import {PersistentMirrors} from './persistent-mirrors';
 import {Callout,Consent,Details,Empty,Icon,Label,Menu,Monogram,Mono,Pill,Progress,Row,Sheet,Step,ago,initials} from './ui';
 
@@ -15,7 +16,7 @@ export function Sharing({page,busy,onImport,onReceive,onKit,onRestore,onReview,o
   const [handoff,setHandoff]=useState<Copy|null>(null),[mirrors,setMirrors]=useState(''),[saved,setSaved]=useState(false),[saving,setSaving]=useState(false);
   const [planning,setPlanning]=useState(false),[error,setError]=useState('');
   const [peerGrant,setPeerGrant]=useState<PeerGrant|null>(null),[portable,setPortable]=useState<boolean|null>(null);
-  const [features,setFeatures]=useState<Record<string,boolean>|null>(null),[mirrorOverlay,setMirrorOverlay]=useState(false);
+  const [features,setFeatures]=useState<Record<string,boolean>|null>(null),[mirrorOverlay,setMirrorOverlay]=useState(false),[switchOverlay,setSwitchOverlay]=useState(false);
   useEffect(()=>{let live=true;void api<Record<string,boolean>>('core-features',{}).then(value=>{if(live){setPortable(Boolean(value['Portable handoffs']));setFeatures(value);}}).catch(()=>{if(live){setPortable(false);setFeatures({});}});return()=>{live=false;};},[]);
   const selectionEpoch=useRef(0);
   useEffect(()=>()=>{selectionEpoch.current++;},[]);
@@ -26,9 +27,10 @@ export function Sharing({page,busy,onImport,onReceive,onKit,onRestore,onReview,o
   const invalid=(selection?.kind==='peer_share'&&!peerGrant)||!Number.isFinite(hours)||hours<=0||hours>24||!Number.isFinite(allowance)||allowance<=0||!Number.isInteger(port)||port<0||port>65535||!Number.isFinite(rate)||rate<=0||rate>100;
   const closeSelection=()=>{selectionEpoch.current++;setPlanning(false);setSelection(null);};
   return <>
-    <section aria-labelledby="sharing-title" inert={Boolean(handoff||selection||mirrorOverlay)}>
+    <section aria-labelledby="sharing-title" inert={Boolean(handoff||selection||mirrorOverlay||switchOverlay)}>
       <div className="sk-page-head"><div><h1 id="sharing-title">Sharing</h1><p>Keep public copies available to others, by kit, invitation, mirror or BitTorrent.</p></div>
         <div className="sk-page-actions">{page.publishing!==undefined&&<button className="sk-btn sk-outline" disabled={busy} onClick={onReceive}><Icon name="download"/>Receive shared model</button>}<button className="sk-btn sk-quiet" disabled={busy} onClick={onImport}><Icon name="upload"/>Import public bundle</button></div></div>
+      <LibraryKeepAvailable copies={page.public_copies??[]} features={features} bittorrentAvailable={page.bittorrent_available===true} onDialogChange={setSwitchOverlay}/>
       <Callout icon="lock"><strong>Sharing is always your choice.</strong> Importing or browsing never starts a listener or peer session; each one needs its own review. To publish a private copy, choose Publish beside it in Library.
         <Details summary="Details"><p>Importing starts no listener or peer session. Serving requires its own review. To publish a private capture, choose Publish beside its saved copy in Library and review every member’s terms. Public copies can be handed off as recovery kits or invitations.</p><p>Public mirrors can see a downloader’s network address. Public BitTorrent peers can see each other, the shared bundle and participation. Neither mode is anonymous. Core keeps aggregate counters without remote peer history. A peer handoff includes this host’s numeric contact hints, which you choose to send. Tor and I2P remain under evaluation.</p></Details></Callout>
       <Label as="h2">Public copies · {(page.public_copies??[]).length}</Label>
@@ -45,7 +47,7 @@ export function Sharing({page,busy,onImport,onReceive,onKit,onRestore,onReview,o
       <div className="sk-cards">{sessions.map(job=><SharingSession key={job.job_id} job={job} busy={busy} onStop={()=>onStop(job)}/>)}</div>
       <Details summary="How finite sessions behave"><p>Core verifies all bytes before serving. Closing Library leaves your reviewed finite session running; stopping or restarting Core ends it. A restart never resumes a finite session automatically. Peer sessions count observed native wire traffic including overhead; thresholds can overshoot. Stop keeps the copy, handoff and native cache; clearing stopped cache files is your choice. This reference host does not arrange independent custody, anonymity or public reachability.</p></Details>
     </section>
-    <PersistentMirrors copies={page.public_copies??[]} features={features} blocked={Boolean(handoff||selection)} onOverlayChange={setMirrorOverlay} bittorrentAvailable={page.bittorrent_available===true}/>
+    <Details summary="Advanced mirror controls" className="sk-advanced-mirror"><p className="sk-hint">Per-copy review, recovery kits, finite runs, restart permission and the decision history for this host’s persistent mirror. Help keep models available above uses the same mirror.</p><PersistentMirrors copies={page.public_copies??[]} features={features} blocked={Boolean(handoff||selection||switchOverlay)} onOverlayChange={setMirrorOverlay} bittorrentAvailable={page.bittorrent_available===true}/></Details>
     {handoff&&<Handoff key={handoff.copy_id} copy={handoff} mirrors={mirrors} onMirrors={value=>{selectionEpoch.current++;setSaving(false);setMirrors(value);setSaved(false);}} portable={portable===true} checking={portable===null} onPeer={()=>choose(handoff,'peer_share')} saved={saved} saving={saving} error={error} onSave={()=>{const selected=handoff,epoch=selectionEpoch.current;setSaving(true);setError('');void (portable?saveHandoff(selected,{mirrors:mirrors.split('\n').map(value=>value.trim()).filter(Boolean)}):saveInvitation(selected,mirrors.split('\n').map(value=>value.trim()).filter(Boolean))).then(()=>{if(epoch===selectionEpoch.current)setSaved(true);}).catch(err=>{if(epoch===selectionEpoch.current)setError(err instanceof Error?err.message:'public_metadata_refused');}).finally(()=>{if(epoch===selectionEpoch.current)setSaving(false);});}} onKit={()=>onKit(handoff)} onClose={()=>{selectionEpoch.current++;setHandoff(null);}}/>}
     {selection&&<Sheet kicker={selection.kind==='peer_share'?'Share one model':selection.kind==='http_share'?'HTTP mirror':'BitTorrent session'} title={selection.kind==='peer_share'?'Prepare a sharing file':selection.kind==='http_share'?'Set up an HTTP mirror':'Set up a BitTorrent session'} subtitle={selection.copy.model_id} back="Cancel setup" onClose={closeSelection}
       footer={<><button className="sk-btn sk-quiet" disabled={planning} onClick={closeSelection}>Cancel setup</button><button className="sk-btn sk-solid" disabled={busy||planning||invalid} onClick={()=>void review()}>{planning?'Preparing review…':'Review sharing session'}</button></>}>

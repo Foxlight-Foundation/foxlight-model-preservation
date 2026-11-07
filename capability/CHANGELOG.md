@@ -6,6 +6,14 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Sharing in Library mode now opens on one "Help keep models available"
+  switch, like Sovereign: choose what to share and a licence list, read what
+  the HTTP and BitTorrent exposure reveals, then give one consent that lasts a
+  year and survives restarts. It drives the host's existing persistent mirror
+  (a 365-day restart grant). Existing mirror selections, settings and grants
+  are kept as they are. The older mirror controls move under a collapsed
+  "Advanced mirror controls".
+
 - On phones, a light system theme now draws the light tab bar and backdrop.
   Before, only the in-app Noon choice did, so the dark starry backdrop and
   tab bar showed behind the light pages.

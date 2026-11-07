@@ -19,7 +19,7 @@ async function host(page:Page,options:{supported?:boolean;controller?:boolean}={
   await page.route('**/api/library?offset=*',route=>route.fulfill({json:{locations:[],models:[],copies:[],public_copies:[],jobs:[],next_offset:null}}));
   await page.route('**/api/core-features',route=>route.fulfill({json:{'Persistent mirrors':true,'Public copy review':true,'Retained recovery':true,'Pending recovery':options.supported!==false}}));
   await page.route('**/api/mirror-*',async route=>{
-    const action=new URL(route.request().url()).pathname.split('/').at(-1),input=route.request().postDataJSON() as Record<string,unknown>;
+    const action=new URL(route.request().url()).pathname.split('/').at(-1),input=route.request().postDataJSON() as Record<string,unknown>;if(action==='mirror-share-read')return route.fulfill({json:{progress:{state:'idle',step:null,kept:0,total:0,skipped:[],error_code:null,expires:null},default_licenses:['mit'],defaults:{},consent_seconds:31536000,disclosure:1}});if(action==='mirror-share-review')return route.fulfill({json:{copies:[]}});
     if(action==='mirror-read')return route.fulfill({json:{configured:true,available:state.available,policy_id:state.policy,configuration:null,paused:!state.controller,restart_allowed:false,restart_expires:null,controller_job_id:state.controller,models:[state.model],model_count:1,next_offset:null}});
     if(action==='mirror-retained-review')return state.metadataError?route.abort('failed'):route.fulfill({json:review});
     if(action==='mirror-selection')return route.fulfill({json:{manifest_id:identity,configured:true,available:state.available,policy_id:state.policy,model:{...state.model,state:state.selectedState}}});
@@ -139,5 +139,5 @@ for(const condition of ['removed','unavailable','changed-policy'])test(`${condit
 });
 
 test('Sharing exposes the same pending check without starting intake or public participation',async({page})=>{
-  const state=await host(page);await page.getByRole('button',{name:'Sharing',exact:true}).click();await page.getByRole('button',{name:'Check local bytes',exact:true}).click();await expect(page.getByRole('dialog').getByRole('heading',{name:review.name,exact:true})).toBeVisible();expect(state.checks).toHaveLength(0);expect(state.preparations).toHaveLength(0);
+  const state=await host(page);await page.getByRole('button',{name:'Sharing',exact:true}).click();await page.getByText('Advanced mirror controls',{exact:true}).click();await page.getByRole('button',{name:'Check local bytes',exact:true}).click();await expect(page.getByRole('dialog').getByRole('heading',{name:review.name,exact:true})).toBeVisible();expect(state.checks).toHaveLength(0);expect(state.preparations).toHaveLength(0);
 });

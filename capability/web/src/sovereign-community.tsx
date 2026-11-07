@@ -1,8 +1,9 @@
-import {useCallback,useEffect,useRef,useState,type ReactNode} from 'react';
+import {useCallback,useEffect,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
 import {api,bytes,errorText} from './client';
 import {CloudStorage,type BucketProvider,type BucketSummary} from './sovereign-bucket';
 import {Callout,Consent,Details,Pill,Row,Sheet,Step,type Tone} from './ui';
+import {Announce,LicenceList,ShareChoice,listed} from './community-parts';
 
 type Status='sharing'|'eligible'|'failed'|'withheld'|'not_chosen'|'license_not_selected'|'no_license'|'unsupported';
 interface CommunityCopy {copy_id:string;name:string;size_bytes:number;status:Status;licenses:string[];public_manifest_id:string|null;error_code?:string|null}
@@ -28,7 +29,6 @@ const dhtWhy:Record<Reason,string>={
  no_relays:'no relays are set',
 };
 const nostrWhy:Record<Reason,string>={...dhtWhy,no_reachable_address:'people outside your network can’t reach this computer, no public address is set and there’s no cloud storage'};
-const listed=(items:string[])=>items.length<2?items.join(''):`${items.slice(0,-1).join(', ')} and ${items[items.length-1]}`;
 const why=(reasons:Reason[],text:Record<Reason,string>)=>listed(reasons.map(item=>text[item]));
 function checkResult(result:AddressCheck,port:number):[string,'ok'|'warn'|'bad']{
  const at=result.address;
@@ -44,16 +44,11 @@ function checkResult(result:AddressCheck,port:number):[string,'ok'|'warn'|'bad']
  } as Record<CheckOutcome,[string,'ok'|'warn'|'bad']>)[result.outcome];
 }
 
-/** An announcement choice, with what it reveals said before it is made. */
-function Announce({checked,onChange,title,children}:{checked:boolean;onChange:(value:boolean)=>void;title:string;children:ReactNode}){
- return <label className="sk-consent"><input type="checkbox" checked={checked} onChange={event=>onChange(event.target.checked)}/><span><strong>{title}</strong><small>{children}</small></span></label>;
-}
-
 /** One switch that turns this computer into a long-lived mirror of its backups. */
 export function HelpKeepAvailable({version,onDialogChange}:{version:string|undefined;onDialogChange?:(open:boolean)=>void}) {
  const [state,setState]=useState<Community|null>(null),[unavailable,setUnavailable]=useState(false);
  const [setup,setSetup]=useState<false|'all'|'announce'>(false),[agreed,setAgreed]=useState(false),[share,setShare]=useState<'eligible'|'chosen'>('eligible');
- const [licenses,setLicenses]=useState<string[]>([]),[extra,setExtra]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
+ const [licenses,setLicenses]=useState<string[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const [address,setAddress]=useState(''),[dht,setDht]=useState(true),[nostr,setNostr]=useState(true);
  const [checking,setChecking]=useState(false),[check,setCheck]=useState<AddressCheck|null>(null);
  const live=useRef(true);
@@ -66,14 +61,13 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
  const refresh=useCallback(async()=>{try{const value=await api<Community>('desktop-community-read',{});if(live.current){loaded.current=true;setState(value);setUnavailable(false);}}catch{if(live.current&&!loaded.current)setUnavailable(true);}},[]);
  useEffect(()=>{void refresh();const timer=setInterval(()=>void refresh(),5000);return()=>clearInterval(timer);},[refresh,version]);
  async function act(action:string,body:Record<string,unknown>){setBusy(true);setError('');try{const value=await api<Community>(action,body);if(live.current)setState(value);return true;}catch(err){if(live.current)setError(err instanceof Error?err.message:'host_unavailable');return false;}finally{if(live.current)setBusy(false);}}
- function open(mode:'all'|'announce'='all'){if(!state)return;setLicenses(state.policy.licenses);setShare(state.policy.share);setAddress(state.policy.public_url??'');setDht(state.policy.announce_dht??true);setNostr(state.policy.publish_nostr??true);setAgreed(false);setExtra('');setError('');setSetup(mode);}
+ function open(mode:'all'|'announce'='all'){if(!state)return;setLicenses(state.policy.licenses);setShare(state.policy.share);setAddress(state.policy.public_url??'');setDht(state.policy.announce_dht??true);setNostr(state.policy.publish_nostr??true);setAgreed(false);setError('');setSetup(mode);}
  // What people find is chosen with its disclosure on screen; sending the
  // disclosure version records that the owner saw it (with the consent, or later).
  const findChoices=()=>({public_url:address.trim()||null,announce_dht:dht,publish_nostr:nostr,announce_disclosure:1});
  const choices=()=>({share,licenses,...findChoices()});
  async function turnOn(){if(await act('desktop-community-configure',{enabled:true,consent:true,...choices()}))setSetup(false);}
  async function checkAddress(){setChecking(true);setCheck(null);setError('');try{const value=await api<AddressCheck>('desktop-community-check-address',{});if(live.current)setCheck(value);}catch(err){if(live.current)setError(err instanceof Error?err.message:'host_unavailable');}finally{if(live.current)setChecking(false);}}
- function addLicense(){const value=extra.trim();if(value&&!licenses.some(item=>item.toLowerCase()===value.toLowerCase()))setLicenses(current=>[...current,value]);setExtra('');}
  if(unavailable||!state)return null;
  const {policy,reachability}=state;
  const on=state.consented;
@@ -147,16 +141,11 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
   {setup==='all'&&createPortal(<Sheet kicker="Help keep models available" title="Share your backups with everyone" back="Close sharing setup" onClose={()=>setSetup(false)} footer={<button className="sk-btn sk-solid" disabled={busy||!agreed||licenses.length===0||badAddress} onClick={()=>void (on?act('desktop-community-configure',choices()).then(ok=>ok&&setSetup(false)):turnOn())}>{busy?'Saving…':on?'Save changes':'Start sharing'}</button>}>
    {alert}
    <Step n={1} title="What to share">
-    <div role="radiogroup" aria-label="What to share">
-     <label className="sk-radio"><input type="radio" name="community-share" checked={share==='eligible'} onChange={()=>setShare('eligible')}/> <span><strong>Every backup whose licence allows it</strong><br/>New backups join on their own. You can keep any one back.</span></label>
-     <label className="sk-radio"><input type="radio" name="community-share" checked={share==='chosen'} onChange={()=>setShare('chosen')}/> <span><strong>Only the backups I choose</strong><br/>Pick them from the list after you start.</span></label>
-    </div>
+    <ShareChoice value={share} onChange={setShare} name="community-share" every={['Every backup whose licence allows it','New backups join on their own. You can keep any one back.']} chosen={['Only the backups I choose','Pick them from the list after you start.']}/>
    </Step>
    <Step n={2} title="Licences that allow sharing">
     <p>A model is shared only if every part has a licence on this list. Models with no licence stay private. Whether the original download asked who you are doesn’t matter; the licence does.</p>
-    <ul className="sk-community-licences">{licenses.map(item=><li key={item} className="sk-licence-chip">{item}<button type="button" aria-label={`Remove ${item}`} onClick={()=>setLicenses(current=>current.filter(value=>value!==item))}>×</button></li>)}</ul>
-    <div className="sk-licence-add"><label className="sk-field">Add a licence<input className="sk-input" value={extra} maxLength={200} placeholder="For example CC-BY-4.0" onChange={event=>setExtra(event.target.value)} onKeyDown={event=>{if(event.key==='Enter'){event.preventDefault();addLicense();}}}/></label><button className="sk-btn sk-outline" disabled={!extra.trim()} onClick={addLicense}>Add</button></div>
-    {state.default_licenses.some(item=>!licenses.includes(item))&&<button className="sk-btn sk-outline" onClick={()=>setLicenses(current=>[...current,...state.default_licenses.filter(item=>!current.includes(item))])}>Restore the default licences</button>}
+    <LicenceList licenses={licenses} onChange={setLicenses} defaults={state.default_licenses}/>
    </Step>
    {announceStep(3)}
    <Step n={4} title="What others can see">
