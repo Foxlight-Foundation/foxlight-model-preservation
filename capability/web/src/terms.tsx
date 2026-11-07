@@ -2,7 +2,7 @@ import {listed} from './community-parts';
 import {Callout,Consent,Pill} from './ui';
 
 /** One licence a person accepts before keeping a model, as the host describes it. */
-export interface LicenceTerms {license_id:string;name:string;family:string|null;summary:string;requires_acceptance:boolean;references:{member:string;reference:string;url:string|null}[]}
+export interface LicenceTerms {license_id:string;name:string;family:string|null;summary:string;requires_acceptance:boolean;references:{members:string[];reference:string;url:string|null}[]}
 /** The terms review on a receive plan; `accept` lists licences that need a tick. */
 export interface TermsReview {definition:number;licences:LicenceTerms[];accept:string[]}
 

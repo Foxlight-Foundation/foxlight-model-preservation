@@ -16,14 +16,16 @@ from typing import cast
 from pydantic import JsonValue
 
 from .client import CoreRefused
-from .licences import terms_review
+from .licences import MAX_TERMS_MEMBERS, terms_review
 
 
 def _members(plan: dict[str, JsonValue]) -> list[dict[str, JsonValue]] | None:
     members = plan.get("member_terms")
     if not isinstance(members, list):
         return None
-    if len(members) > 100 or not all(isinstance(item, dict) for item in members):
+    if len(members) > MAX_TERMS_MEMBERS or not all(
+        isinstance(item, dict) for item in members
+    ):
         raise CoreRefused("invalid_host_response")
     return [cast(dict[str, JsonValue], item) for item in members]
 
@@ -58,7 +60,7 @@ def accepted_terms(
         return body
     if (
         not isinstance(accepted, list)
-        or len(accepted) > 100
+        or len(accepted) > MAX_TERMS_MEMBERS
         or not all(isinstance(item, str) for item in accepted)
         or sorted(cast(list[str], accepted)) != required
     ):

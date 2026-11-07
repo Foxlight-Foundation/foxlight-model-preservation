@@ -30,6 +30,7 @@ from .mirror_models import (
     at_least,
     reached,
     upgrade_profile,
+    withheld,
 )
 from .mirror_native import NativeMirrors, PeerSessionRunner
 from .mirror_state import (
@@ -479,6 +480,22 @@ def record_model(
             raise PreservationError("unknown retained mirror selection")
         models = dict(state.models)
         selected_changes = dict(changes)
+        intake = state.intake
+        if (
+            changes.get("blocked") is False
+            and intake is not None
+            and withheld(state, manifest_id)
+        ):
+            # An explicit unblock is the owner sharing it again: it leaves the
+            # withheld list too, so nothing serves a copy still listed as kept
+            # back. Withholding is not bound into the grant, so neither is this.
+            intake = intake.model_copy(
+                update={
+                    "withheld": tuple(
+                        item for item in intake.withheld if item != manifest_id
+                    )
+                }
+            )
         if (
             changes.get("state") == "pending"
             and state.models[manifest_id].origin == "local"
@@ -503,7 +520,9 @@ def record_model(
         native = dict(state.native_models)
         if changes.get("state") == "pending" and manifest_id in native:
             native[manifest_id] = native[manifest_id].model_copy(update={"error": None})
-        return state.model_copy(update={"models": models, "native_models": native})
+        return state.model_copy(
+            update={"models": models, "native_models": native, "intake": intake}
+        )
 
     return ledger.update(apply)
 
@@ -864,7 +883,16 @@ def reconcile(ledger: MirrorLedger, control: OperationControl) -> None:
                     "schema_version": at_least(
                         current.schema_version, "foxlight.mirror-state.v5"
                     ),
-                    "models": dict(current.models, **{identity: selected}),
+                    # A copy the owner withheld is selected blocked: nothing is
+                    # fetched or served until the owner releases it.
+                    "models": dict(
+                        current.models,
+                        **{
+                            identity: selected.model_copy(
+                                update={"blocked": withheld(current, identity)}
+                            )
+                        },
+                    ),
                     "restart": current.restart
                     if reached(current.schema_version, "foxlight.mirror-state.v5")
                     else None,

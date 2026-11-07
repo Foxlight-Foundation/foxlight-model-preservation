@@ -101,6 +101,8 @@ def licence_status(
     return "eligible"
 
 
+# A preservation archive holds at most 256 members (v1 and PMF alike).
+MAX_TERMS_MEMBERS: Final = 256
 _UNKNOWN_SUMMARY: Final = (
     "The licence couldn't be identified. Read the terms that come with the "
     "model before using it."
@@ -138,7 +140,8 @@ def _reference_url(item: dict[str, JsonValue]) -> str | None:
 def terms_review(members: list[dict[str, JsonValue]]) -> dict[str, JsonValue]:
     """The core's terms review, for members Core reports on a receive plan.
 
-    Each member is ``{member, license_id, reference, repository?, revision?}``.
+    Each member is ``{member, license_id, reference, repository?, revision?}``;
+    every supported archive (up to 256 members) is accepted.
     Licences with use restrictions or conditions to pass on, and any that
     can't be identified, need an explicit acceptance before the download.
     """
@@ -148,6 +151,8 @@ def terms_review(members: list[dict[str, JsonValue]]) -> dict[str, JsonValue]:
         for licence in _licences(family)
     }
     grouped: dict[str, list[dict[str, JsonValue]]] = {}
+    if len(members) > MAX_TERMS_MEMBERS:
+        raise ValueError("terms_review_too_many_members")
     for item in members:
         licence = item.get("license_id")
         grouped.setdefault(
@@ -156,15 +161,21 @@ def terms_review(members: list[dict[str, JsonValue]]) -> dict[str, JsonValue]:
     rows: list[JsonValue] = []
     accept: list[str] = []
     for license_id, listed in grouped.items():
-        references: list[JsonValue] = []
+        # Identical references are listed once, with the members sharing them.
+        shared: dict[tuple[str, str | None], list[JsonValue]] = {}
         for item in listed:
-            reference: dict[str, JsonValue] = {
-                "member": _text(item.get("member"), 200) or "member",
-                "reference": _text(item.get("reference"), 2048) or "not stated",
-                "url": _reference_url(item),
-            }
-            if reference not in references:
-                references.append(reference)
+            key = (
+                _text(item.get("reference"), 2048) or "not stated",
+                _reference_url(item),
+            )
+            member = _text(item.get("member"), 200) or "member"
+            sharing = shared.setdefault(key, [])
+            if member not in sharing:
+                sharing.append(member)
+        references: list[JsonValue] = [
+            {"members": sharing, "reference": reference, "url": url}
+            for (reference, url), sharing in shared.items()
+        ]
         found = known.get(license_id)
         if found is None:
             unidentified = license_id in UNIDENTIFIED

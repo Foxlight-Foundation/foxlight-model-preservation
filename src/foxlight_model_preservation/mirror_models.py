@@ -302,6 +302,11 @@ class MirrorState(Record):
             for held in self.models.values()
         ) and not reached(self.schema_version, "foxlight.mirror-state.v5"):
             raise PreservationError("source metadata custody requires state v5")
+        if self.intake is not None and any(
+            identity in self.models and not self.models[identity].blocked
+            for identity in self.intake.withheld
+        ):
+            raise PreservationError("a withheld mirror selection must stay blocked")
         if needs_v6(self) and not reached(
             self.schema_version, "foxlight.mirror-state.v6"
         ):
@@ -318,6 +323,11 @@ def needs_v6(state: MirrorState) -> bool:
         or state.egress_monthly is None
         or state.intake is not None
     )
+
+
+def withheld(state: MirrorState, identity: str) -> bool:
+    """Whether the standing intake policy keeps this exact identity back."""
+    return state.intake is not None and identity in state.intake.withheld
 
 
 def upgrade_profile(state: MirrorState) -> MirrorState:

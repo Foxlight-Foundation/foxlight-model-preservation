@@ -118,7 +118,7 @@ test('saved-copy kit action prepares a download without regranting model trust',
 });
 
 const shot=(name:string,info:{project:{name:string};outputPath:(name:string)=>string})=>process.env.LIBRARY_SCREENSHOTS?`${process.env.LIBRARY_SCREENSHOTS}/${info.project.name}-${name}.png`:info.outputPath(`${name}.png`);
-const gatedTerms={definition:1,accept:['llama3.1'],licences:[{license_id:'llama3.1',name:'Llama 3.1 Community License',family:'custom',summary:'Meta’s acceptable use policy applies; attribution “Built with Llama” required; copies must include the licence.',requires_acceptance:true,references:[{member:'weights',reference:'LICENSE',url:'https://huggingface.co/meta-llama/Llama-3.1-8B/blob/'+'b'.repeat(40)+'/LICENSE'}]},{license_id:'mit',name:'MIT',family:'permissive',summary:'Anyone may copy and share, keeping the licence and copyright notice.',requires_acceptance:false,references:[{member:'tokenizer',reference:'LICENSE',url:null}]}]};
+const gatedTerms={definition:1,accept:['llama3.1'],licences:[{license_id:'llama3.1',name:'Llama 3.1 Community License',family:'custom',summary:'Meta’s acceptable use policy applies; attribution “Built with Llama” required; copies must include the licence.',requires_acceptance:true,references:[{members:['weights'],reference:'LICENSE',url:'https://huggingface.co/meta-llama/Llama-3.1-8B/blob/'+'b'.repeat(40)+'/LICENSE'}]},{license_id:'mit',name:'MIT',family:'permissive',summary:'Anyone may copy and share, keeping the licence and copyright notice.',requires_acceptance:false,references:[{members:['tokenizer'],reference:'LICENSE',url:null}]}]};
 test('a model under use-restricted terms is kept only after I accept these terms',async({page},info)=>{
  let submitted:Record<string,unknown>|null=null;
  await page.route('**/api/library*',route=>route.fulfill({json:empty}));
@@ -149,7 +149,7 @@ test('a model under use-restricted terms is kept only after I accept these terms
 });
 test('plain permissive terms are shown but ask for no acceptance',async({page})=>{
  let submitted:Record<string,unknown>|null=null;
- const permissive={definition:1,accept:[],licences:[{license_id:'apache-2.0',name:'Apache License 2.0',family:'permissive',summary:'Anyone may copy and share, keeping the licence and copyright notice.',requires_acceptance:false,references:[{member:'weights',reference:'LICENSE',url:null}]}]};
+ const permissive={definition:1,accept:[],licences:[{license_id:'apache-2.0',name:'Apache License 2.0',family:'permissive',summary:'Anyone may copy and share, keeping the licence and copyright notice.',requires_acceptance:false,references:[{members:['weights'],reference:'LICENSE',url:null}]}]};
  await page.route('**/api/library*',route=>route.fulfill({json:empty}));
  await page.route('**/api/desktop-search',route=>route.fulfill({json:{catalog_id:id,results:[model],total:1,next_offset:null}}));
  await page.route('**/api/desktop-plan',route=>route.fulfill({json:{plan_id:id,kind:'receive',name:model.name,card_id:card,size_bytes:4096,members:['example/model'],expires_at:9999999999,terms:permissive}}));

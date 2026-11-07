@@ -411,6 +411,52 @@ def test_withholding_narrows_without_re_scoping_the_grant(tmp_path, capture):
         withhold(mirror(tmp_path / "other"), second, withheld=True)
 
 
+def test_a_withheld_copy_a_followed_source_lists_is_admitted_blocked(tmp_path, capture):
+    from test_mirror import cycle
+    from test_mirror import mirror as source_mirror
+
+    from foxlight_model_preservation.mirror import model_action, public_selection
+    from foxlight_model_preservation.operations import OperationControl
+    from foxlight_model_preservation.storage import manifest_path
+
+    def served() -> bool:
+        with ledger.service_lock():
+            allowed, _ = public_selection(ledger, OperationControl())
+        return "/" + manifest_path(capture.identity) in allowed
+
+    ledger, _publisher = source_mirror(tmp_path, capture)
+    configure_intake(ledger, intake("test-only"))
+    withhold(ledger, capture.identity, withheld=True)
+    cycle(ledger)
+    held = ledger.read().models[capture.identity]
+    # Selected like any listed copy, but blocked: not fetched, never served.
+    assert held.origin == "source" and held.blocked
+    assert held.state == "pending"
+    assert not (ledger.path / "store" / manifest_path(capture.identity)).exists()
+    assert not served()
+    # A state that would serve a withheld copy is refused outright.
+    with pytest.raises(ValueError, match="withheld mirror selection must stay blocked"):
+        ledger.update(
+            lambda state: state.model_copy(
+                update={
+                    "models": {
+                        **state.models,
+                        capture.identity: state.models[capture.identity].model_copy(
+                            update={"blocked": False}
+                        ),
+                    }
+                }
+            )
+        )
+    # An explicit unblock is the owner sharing it again: it leaves the list too.
+    model_action(ledger, capture.identity, "unblock")
+    state = ledger.read()
+    assert state.intake is not None and capture.identity not in state.intake.withheld
+    cycle(ledger)
+    assert ledger.read().models[capture.identity].state == "retained"
+    assert served()
+
+
 def test_existing_grants_are_not_silently_re_scoped(tmp_path, capture):
     """An existing mirror keeps its grant; adopting a standing policy needs consent."""
     ledger = mirror(tmp_path)

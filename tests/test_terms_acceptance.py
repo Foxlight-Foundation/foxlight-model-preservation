@@ -54,7 +54,7 @@ def test_use_restricted_terms_need_acceptance_with_a_plain_summary(
     # The full text is linked: the same licence file the bundle carries.
     assert row["references"] == [
         {
-            "member": "weights",
+            "members": ["weights"],
             "reference": "LICENSE",
             "url": f"https://huggingface.co/example/model/blob/{REVISION}/LICENSE",
         }
@@ -143,3 +143,47 @@ def test_receiving_records_the_acceptance_before_any_download(tmp_path, monkeypa
         )
     finally:
         owner.close()
+
+
+@pytest.mark.parametrize(
+    ("license_id", "accept"), [("MIT", []), ("llama3.1", ["llama3.1"])]
+)
+def test_every_supported_member_count_has_a_terms_review(
+    license_id: str, accept: list[str]
+):
+    """Archives hold up to 256 members; identical references are listed once."""
+    members = [member(license_id, member=f"member-{index}") for index in range(256)]
+    review = terms_review(members)
+    assert review["accept"] == accept
+    (row,) = review["licences"]  # type: ignore[misc]
+    (reference,) = row["references"]  # type: ignore[index]
+    assert len(reference["members"]) == 256  # type: ignore[index]
+    # Distinct references stay distinct.
+    varied = [
+        member(license_id, member=f"m{index}", reference=f"LICENSE-{index}")
+        for index in range(256)
+    ]
+    assert len(terms_review(varied)["licences"][0]["references"]) == 256  # type: ignore[index]
+    with pytest.raises(PreservationError, match="too_many_members"):
+        terms_review([*members, member(license_id, member="one-more")])
+
+
+def test_a_256_member_receive_plan_records_its_acceptance(tmp_path):
+    from foxlight_model_preservation.licences import LicenceTerms
+
+    review = terms_review(
+        [member("llama3.1", member=f"member-{index}") for index in range(256)]
+    )
+    rows = [
+        LicenceTerms.model_validate_json(json.dumps(row)) for row in review["licences"]
+    ]  # type: ignore[union-attr]
+    assert rows[0].references[0].members[255] == "member-255"
+    record = TermsAcceptance(
+        plan_id="a" * 64,
+        job_id="b" * 64,
+        name="large archive",
+        definition=1,
+        accepted=tuple(f"licence-{index}" for index in range(256)),
+        accepted_at=0,
+    )
+    assert len(record.accepted) == 256

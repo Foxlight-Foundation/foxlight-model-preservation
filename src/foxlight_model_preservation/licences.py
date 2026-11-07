@@ -158,10 +158,18 @@ def licence_status(
     return "eligible"
 
 
-class TermsReference(Record):
-    """Where one member's full licence text is: a file in the bundle, or a card."""
+# A preservation archive holds at most 256 members (v1 and PMF alike).
+MAX_TERMS_MEMBERS = 256
 
-    member: str = Field(min_length=1, max_length=200)
+
+class TermsReference(Record):
+    """Where a licence's full text is (a file in the bundle, or a card), once.
+
+    Members that share the same reference are listed together, so a large
+    archive whose members all carry the same LICENSE yields one entry.
+    """
+
+    members: tuple[str, ...] = Field(min_length=1, max_length=MAX_TERMS_MEMBERS)
     reference: str = Field(min_length=1, max_length=2048)
     url: str | None = Field(default=None, max_length=4096)
 
@@ -174,7 +182,9 @@ class LicenceTerms(Record):
     family: str | None = None
     summary: str = Field(min_length=1, max_length=300)
     requires_acceptance: bool
-    references: tuple[TermsReference, ...] = Field(default=(), max_length=100)
+    references: tuple[TermsReference, ...] = Field(
+        default=(), max_length=MAX_TERMS_MEMBERS
+    )
 
 
 class MemberTerms(Record):
@@ -284,20 +294,22 @@ def terms_review(members: Iterable[MemberTerms]) -> dict[str, JsonValue]:
         for licence in family.licences
     }
     grouped: dict[str, list[MemberTerms]] = {}
+    members = list(members)
+    if len(members) > MAX_TERMS_MEMBERS:
+        raise PreservationError("terms_review_too_many_members")
     for member in members:
         grouped.setdefault(normalize_license(member.license_id), []).append(member)
     rows: list[LicenceTerms] = []
     for license_id, listed in grouped.items():
         known = families.get(license_id)
+        shared: dict[tuple[str, str | None], list[str]] = {}
+        for item in listed:
+            sharing = shared.setdefault((item.reference, _reference_url(item)), [])
+            if item.member not in sharing:
+                sharing.append(item.member)
         references = tuple(
-            dict.fromkeys(
-                TermsReference(
-                    member=item.member,
-                    reference=item.reference,
-                    url=_reference_url(item),
-                )
-                for item in listed
-            )
+            TermsReference(members=tuple(sharing), reference=reference, url=url)
+            for (reference, url), sharing in shared.items()
         )
         if known is None:
             unidentified = license_id in UNIDENTIFIED
@@ -345,5 +357,5 @@ class TermsAcceptance(Record):
     job_id: str = Field(pattern=r"^[0-9a-f]{64}$")
     name: str = Field(min_length=1, max_length=1000)
     definition: int = Field(ge=1)
-    accepted: tuple[str, ...] = Field(max_length=100)
+    accepted: tuple[str, ...] = Field(max_length=MAX_TERMS_MEMBERS)
     accepted_at: int = Field(ge=0)

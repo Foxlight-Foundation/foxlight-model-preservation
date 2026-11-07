@@ -89,3 +89,25 @@ def test_terms_review_matches_the_core() -> None:
             for item in sample
         ]
         assert terms_review(sample) == core_review(members)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("license_id", "accept"), [("MIT", []), ("llama3", ["llama3"])]
+)
+def test_receive_plans_with_256_members_are_reviewed(
+    license_id: str, accept: list[str]
+) -> None:
+    members: list[JsonValue] = [
+        {"member": f"m{index}", "license_id": license_id, "reference": "LICENSE"}
+        for index in range(256)
+    ]
+    reviewed = with_terms(plan(member_terms=members))
+    terms = reviewed["terms"]
+    assert isinstance(terms, dict) and terms["accept"] == accept
+    (row,) = terms["licences"]  # type: ignore[misc]
+    (reference,) = row["references"]  # type: ignore[index]
+    assert len(reference["members"]) == 256  # type: ignore[index]
+    body = {**BODY, "accepted_terms": accept} if accept else BODY
+    assert accepted_terms(plan(member_terms=members), body) == body
+    with pytest.raises(CoreRefused):
+        with_terms(plan(member_terms=[*members, members[0]]))

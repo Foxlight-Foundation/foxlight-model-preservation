@@ -10,6 +10,7 @@ from pathlib import Path
 from .archives import ArchiveManifest, archive_objects, verify_archive_manifest
 from .mirror import record_model, require_terms, verify_retained
 from .mirror_models import HeldModel, MirrorState, SourceGrant, at_least
+from .mirror_models import withheld as is_withheld
 from .mirror_state import HEADROOM, MirrorLedger, intake_covers, policy_id
 from .models import PreservationError
 from .operations import OperationControl, failure_code
@@ -150,10 +151,7 @@ def retain_local(
                     if previous is None or previous.state == "removed":
 
                         def select(current: MirrorState) -> MirrorState:
-                            withheld = (
-                                current.intake is not None
-                                and manifest_id in current.intake.withheld
-                            )
+                            withheld = is_withheld(current, manifest_id)
                             after = current.model_copy(
                                 update={
                                     "schema_version": at_least(
@@ -177,6 +175,9 @@ def retain_local(
                             # the grant stays; anything else needs consent.
                             kept = (
                                 current.restart is not None
+                                # Never a removed selection coming back.
+                                and previous is None
+                                and manifest_id not in current.models
                                 and intake_covers(current, held)
                                 and policy_id(after) == policy_id(current)
                             )
