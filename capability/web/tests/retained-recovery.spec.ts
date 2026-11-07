@@ -17,7 +17,7 @@ async function host(page:Page){
   await page.route('**/api/library?offset=*',route=>route.fulfill({json:{locations:[],models:[],copies:[],public_copies:[],jobs:[],next_offset:null}}));
   await page.route('**/api/core-features',route=>route.fulfill({json:{'Retained recovery':true,'Persistent mirrors':true,'Public copy review':true}}));
   await page.route('**/api/mirror-*',async route=>{
-    const action=new URL(route.request().url()).pathname.split('/').at(-1);
+    const action=new URL(route.request().url()).pathname.split('/').at(-1);if(action==='mirror-share-read')return route.fulfill({json:{progress:{state:'idle',step:null,kept:0,total:0,skipped:[],error_code:null,expires:null},default_licenses:['mit'],defaults:{},consent_seconds:31536000,disclosure:1}});if(action==='mirror-share-review')return route.fulfill({json:{copies:[]}});
     if(action==='mirror-read')return route.fulfill({json:{schema_version:'skulk.preservation-mirror.v1',configured:true,available:true,policy_id:policy,configuration:null,paused:true,restart_expires:null,restart_allowed:false,controller_job_id:null,models:state.showModels?[model]:[],model_count:state.showModels?1:0,next_offset:null}});
     if(action==='mirror-history'){const offset=Number(route.request().postDataJSON().offset??0);return route.fulfill({json:{jobs:state.history.slice(offset,offset+20),next_offset:offset+20<state.history.length?offset+20:null}});}
     if(action==='mirror-retained-review')return state.metadataError?route.abort('failed'):route.fulfill({json:review});
@@ -140,7 +140,7 @@ test('permanent history manages an older kit after model metadata loss and beyon
   const state=await host(page);
   const first:Job={job_id:jobId,owner_id:'library',operation_id:'old',kind:'prepare_kit',state:'succeeded',manifest_id:identity,created_at:1,updated_at:1,bytes_hashed:10,bytes_copied:10,error_code:null,kit_removed:false,kit:{state:'prepared',manifest_id:identity,size_bytes:17,sha256:'f'.repeat(64)}};
   state.history=Array.from({length:20},(_,i)=>({...first,job_id:(i+100).toString(16).padStart(64,'0'),kind:'model',kit:null}));state.history.push(first);state.showModels=false;state.metadataError=true;
-  await page.getByRole('button',{name:'Sharing',exact:true}).click();
+  await page.getByRole('button',{name:'Sharing',exact:true}).click();await page.getByText('Advanced mirror controls',{exact:true}).click();
   await page.getByText('Mirror activity and decisions',{exact:true}).click();
   await page.getByRole('button',{name:'Older decisions',exact:true}).click();
   await page.getByRole('article',{name:`Mirror decision ${first.job_id}`,exact:true}).getByRole('button',{name:'Recovery kit actions',exact:true}).click();

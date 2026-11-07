@@ -277,6 +277,28 @@ class PreparedMirrorKit(Contract):
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
+async def reviewed_public_copy(
+    client: CoreClient, copy: MirrorCopyInput
+) -> tuple[dict[str, JsonValue], _CopyReview]:
+    """Read every member's signed terms for one exact copy, or refuse."""
+    review = await client.request("GET", "public-copies/" + copy.copy_id + "/review")
+    # Validation is deliberately separate from the returned dictionary:
+    # preserve unknown additive metadata while refusing incomplete terms.
+    try:
+        checked = _CopyReview.model_validate_json(json.dumps(review))
+    except ValidationError as error:
+        raise CoreRefused("public_copy_review_changed") from error
+    if (
+        checked.copy_id != copy.copy_id
+        or checked.manifest_id != copy.manifest_id
+        or len(checked.members) != copy.member_count
+        or len({member.member_id for member in checked.members}) != copy.member_count
+        or sum(member.size_bytes for member in checked.members) != checked.size_bytes
+    ):
+        raise CoreRefused("public_copy_review_changed")
+    return review, checked
+
+
 async def _owned_mirror_job(client: CoreClient, job_id: str) -> dict[str, JsonValue]:
     job = await client.request("GET", "mirror/jobs/" + job_id)
     if job.get("job_id") != job_id:
@@ -479,26 +501,9 @@ async def mirror_control(
     }:
         return await _recovery_control(client, action, body)
     if action == "mirror-copy-review":
-        copy = MirrorCopyInput.model_validate(body)
-        review = await client.request(
-            "GET", "public-copies/" + copy.copy_id + "/review"
+        review, _ = await reviewed_public_copy(
+            client, MirrorCopyInput.model_validate(body)
         )
-        # Validation is deliberately separate from the returned dictionary:
-        # preserve unknown additive metadata while refusing incomplete terms.
-        try:
-            checked = _CopyReview.model_validate_json(json.dumps(review))
-        except ValidationError as error:
-            raise CoreRefused("public_copy_review_changed") from error
-        if (
-            checked.copy_id != copy.copy_id
-            or checked.manifest_id != copy.manifest_id
-            or len(checked.members) != copy.member_count
-            or len({member.member_id for member in checked.members})
-            != copy.member_count
-            or sum(member.size_bytes for member in checked.members)
-            != checked.size_bytes
-        ):
-            raise CoreRefused("public_copy_review_changed")
         return review
     if action == "mirror-read":
         page = MirrorPageInput.model_validate(body)

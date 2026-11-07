@@ -37,6 +37,7 @@ from .contracts import (
 )
 from .discovery import discovery_control
 from .mirrors import mirror_control, prepared_mirror_kit
+from .sharing_switch import ShareSwitch, share_control
 
 #: The exact built interface files this screen serves. A ``None`` type uses the
 #: platform registry; fonts are explicit because ``mimetypes`` may not know
@@ -67,6 +68,9 @@ CONTROL_TIMEOUTS: Final[dict[str, float]] = {
     "desktop-community-bucket-connect": 150,
     "desktop-community-bucket-disconnect": 60,
     "desktop-community-check-address": 45,
+    # Reviewing every public copy's signed terms can take several Core reads.
+    "mirror-share-review": 60,
+    "mirror-share-stop": 60,
 }
 
 
@@ -137,6 +141,7 @@ class LibraryServer:
         self.servers: list[_Server] = []
         self.threads: list[threading.Thread] = []
         self.static = files("foxlight_preservation_library").joinpath("static")
+        self.sharing = ShareSwitch(client)
 
     def _bind_hosts(self) -> tuple[str, ...]:
         if self.startup is None:
@@ -215,6 +220,13 @@ class LibraryServer:
             "mirror-kit-remove",
         }:
             return await mirror_control(self.client, action, body)
+        if action in {
+            "mirror-share-read",
+            "mirror-share-review",
+            "mirror-share-start",
+            "mirror-share-stop",
+        }:
+            return await share_control(self.sharing, action, body)
         if action in {
             "peer-read",
             "peer-setup",
@@ -678,6 +690,10 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                         "api/mirror-prepare",
                         "api/mirror-recover",
                         "api/mirror-kit-remove",
+                        "api/mirror-share-read",
+                        "api/mirror-share-review",
+                        "api/mirror-share-start",
+                        "api/mirror-share-stop",
                         "api/peer-setup",
                         "api/peer-runtime-read",
                         "api/peer-runtime-start",

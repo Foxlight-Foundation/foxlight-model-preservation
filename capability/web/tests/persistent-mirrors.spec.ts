@@ -30,7 +30,7 @@ async function host(page:Page,options:{configured?:boolean;terms?:boolean;held?:
   await page.route('**/api/library?offset=*',route=>route.fulfill({json:{locations:[],models:[],copies:[],public_copies:[copy],bittorrent_available:true,jobs:[],next_offset:null}}));
   await page.route('**/api/core-features',route=>route.fulfill({json:{'Portable handoffs':true,'Persistent mirrors':true,'Public copy review':options.terms!==false,'Retained recovery':options.recovery!==false}}));
   await page.route('**/api/mirror-*',async route=>{
-    const action=new URL(route.request().url()).pathname.split('/').at(-1);
+    const action=new URL(route.request().url()).pathname.split('/').at(-1);if(action==='mirror-share-read')return route.fulfill({json:{progress:{state:'idle',step:null,kept:0,total:0,skipped:[],error_code:null,expires:null},default_licenses:['mit'],defaults:{},consent_seconds:31536000,disclosure:1}});if(action==='mirror-share-review')return route.fulfill({json:{copies:[]}});
     const input=route.request().postDataJSON() as Record<string,unknown>;
     if(action==='mirror-read')return route.fulfill({json:state.snapshot});
     if(action==='mirror-history')return route.fulfill({json:{jobs:state.jobs,next_offset:null}});
@@ -66,7 +66,7 @@ async function host(page:Page,options:{configured?:boolean;terms?:boolean;held?:
     if(state.loseNext){state.loseNext=false;return route.abort('failed');}
     return route.fulfill({json:receipt});
   });
-  await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();
+  await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();await page.getByText('Advanced mirror controls',{exact:true}).click();
   await expect(page.getByRole('heading',{name:'Keep models available',exact:true})).toBeVisible();
   return state;
 }
@@ -192,7 +192,7 @@ test('removal requires unpinning, blocking and fresh exact-selection consent aft
   await expect(page.getByRole('button',{name:'Remove mirror copy',exact:true})).toBeDisabled();
   await page.getByRole('checkbox',{name:'Delete only this exact retained mirror copy.',exact:true}).check();
   await page.getByRole('button',{name:'Storage',exact:true}).click();
-  await page.getByRole('button',{name:'Sharing',exact:true}).click();
+  await page.getByRole('button',{name:'Sharing',exact:true}).click();await page.getByText('Advanced mirror controls',{exact:true}).click();
   await controls().click();await page.getByRole('menuitem',{name:'Remove mirror copy',exact:true}).click();
   await expect(page.getByRole('checkbox',{name:'Delete only this exact retained mirror copy.',exact:true})).not.toBeChecked();
   expect(state.starts.some(input=>input.kind==='prune')).toBe(false);
@@ -213,7 +213,7 @@ test('late terms responses cannot reopen a sheet after leaving Sharing',async({p
   await page.getByRole('button',{name:'Keep available',exact:true}).click();await requested;
   await page.getByRole('button',{name:'Library',exact:true}).click();
   const response=page.waitForResponse('**/api/mirror-copy-review');release();await(await response).finished();
-  await page.getByRole('button',{name:'Sharing',exact:true}).click();
+  await page.getByRole('button',{name:'Sharing',exact:true}).click();await page.getByText('Advanced mirror controls',{exact:true}).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   expect(state.starts).toHaveLength(0);
 });
