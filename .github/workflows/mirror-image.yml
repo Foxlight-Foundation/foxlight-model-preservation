@@ -1,9 +1,19 @@
 name: Mirror image
-# Proves the headless mirror image builds for both architectures. Nothing is
-# pushed. TODO(maintainers): decide on a registry, then add signed publication
-# (for example cosign keyless signing plus a build provenance attestation).
+# Every change: prove the headless mirror image builds for both architectures
+# and smoke-test it (nothing is pushed).
+# Release tags (v*) and manual dispatch with a tag: build that tagged source,
+# push it to ghcr.io/foxlight-foundation/sovereign-mirror and attach a signed
+# build provenance attestation (Sigstore keyless via GitHub OIDC, no keys to
+# keep). Verify with:
+#   gh attestation verify oci://ghcr.io/foxlight-foundation/sovereign-mirror:VERSION \
+#     --repo Foxlight-Foundation/foxlight-model-preservation \
+#     --signer-workflow Foxlight-Foundation/foxlight-model-preservation/.github/workflows/mirror-image.yml
 on:
   push:
+    # Listing tags would otherwise stop branch pushes from triggering; path
+    # filters apply to branch pushes only, so every v* tag publishes.
+    branches: ['**']
+    tags: ['v*']
     paths:
       - deploy/mirror/**
       - src/**
@@ -17,10 +27,18 @@ on:
       - pyproject.toml
       - uv.lock
       - .github/workflows/mirror-image.yml
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing core release tag to publish, for example v0.28.0
+        required: true
 permissions:
   contents: read
+env:
+  IMAGE: ghcr.io/foxlight-foundation/sovereign-mirror
 jobs:
   build:
+    if: github.event_name != 'workflow_dispatch' && !startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -52,3 +70,71 @@ jobs:
         env:
           SOVEREIGN_MIRROR_DOMAIN: mirror.example.org
         run: docker compose -f deploy/mirror/compose.yaml config --quiet
+
+  publish:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Resolve the release tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          tag="${INPUT_TAG:-$GITHUB_REF_NAME}"
+          if ! printf '%s' "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "refusing tag '$tag': expected vMAJOR.MINOR.PATCH" >&2; exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ steps.tag.outputs.tag }}
+      - name: Refuse a tag whose source has no mirror image
+        run: test -f deploy/mirror/Dockerfile
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push linux/amd64 and linux/arm64
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/mirror/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: false
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.tag.outputs.version }}
+            ${{ env.IMAGE }}:latest
+          labels: |
+            org.opencontainers.image.title=Sovereign mirror
+            org.opencontainers.image.description=Headless Sovereign public mirror (plan-only until consent is given)
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.tag.outputs.version }}
+            org.opencontainers.image.licenses=Apache-2.0
+          annotations: |
+            index:org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            index:org.opencontainers.image.description=Headless Sovereign public mirror (plan-only until consent is given)
+            index:org.opencontainers.image.licenses=Apache-2.0
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+      - name: Smoke test the published image by digest
+        run: |
+          ref="${IMAGE}@${{ steps.push.outputs.digest }}"
+          docker run --rm --platform linux/amd64 --entrypoint model-preserve "$ref" mirror quickstart --help
+          docker run --rm --platform linux/amd64 -e SOVEREIGN_MIRROR_IDLE=0 "$ref"
+          echo "Published $ref (tags ${{ steps.tag.outputs.version }}, latest)" >> "$GITHUB_STEP_SUMMARY"
