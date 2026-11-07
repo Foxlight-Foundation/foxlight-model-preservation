@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The mirror's default standing restart grant (quickstart, the container's
+  `SOVEREIGN_MIRROR_GRANT` and `--resume-for`) is now 180 days, up from 90.
+  The 366-day cap is unchanged.
+
 - Publish Sovereign Mac build 10 (core 0.28 / Library 0.24): Developer ID
   signed and Apple notarized (app 088a3489…, DMG 995d3735…), DMG d02c319a… and
   ZIP c116c0f5…. Download pages now point at build 10.
