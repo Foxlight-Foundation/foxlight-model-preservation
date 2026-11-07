@@ -25,11 +25,11 @@ first start; the attestation names the exact workflow and release tag that built
 it:
 
 ```sh
-docker pull ghcr.io/foxlight-foundation/sovereign-mirror:0.28.0
-gh attestation verify oci://ghcr.io/foxlight-foundation/sovereign-mirror:0.28.0 \
+docker pull ghcr.io/foxlight-foundation/sovereign-mirror:0.28.1
+gh attestation verify oci://ghcr.io/foxlight-foundation/sovereign-mirror:0.28.1 \
   --repo Foxlight-Foundation/foxlight-model-preservation \
   --signer-workflow Foxlight-Foundation/foxlight-model-preservation/.github/workflows/mirror-image.yml \
-  --source-ref refs/tags/v0.28.0 --deny-self-hosted-runners
+  --source-ref refs/tags/v0.28.1 --deny-self-hosted-runners
 ```
 
 To pin exactly what you verified, set

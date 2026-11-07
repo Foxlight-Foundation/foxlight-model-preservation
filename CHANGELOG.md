@@ -4,8 +4,8 @@
 
 - Publish the headless mirror image to
   `ghcr.io/foxlight-foundation/sovereign-mirror:VERSION` for each core release
-  tag (manual dispatch republishes an existing tag), with a signed build
-  provenance attestation. `compose.yaml` now pulls that image by default and
+  tag, with a signed build provenance attestation bound to that tag (the first
+  is 0.28.1). `compose.yaml` now pulls that image by default and
   `SOVEREIGN_MIRROR_IMAGE` pins a verified digest; `up --build` still builds the
   checkout.
 

@@ -1,13 +1,16 @@
 name: Mirror image
 # Every change: prove the headless mirror image builds for both architectures
 # and smoke-test it (nothing is pushed).
-# Release tags (v*) and manual dispatch with a tag: build that tagged source,
-# push it to ghcr.io/foxlight-foundation/sovereign-mirror and attach a signed
-# build provenance attestation (Sigstore keyless via GitHub OIDC, no keys to
-# keep). Verify with:
+# Release tags (v*): build that tag, push it to
+# ghcr.io/foxlight-foundation/sovereign-mirror and attach a signed build
+# provenance attestation (Sigstore keyless via GitHub OIDC, no keys to keep).
+# The attestation's source ref and commit come from the run itself, so publishing
+# only ever runs on the release tag (a re-run uses "Run workflow" on that tag).
+# Verify with:
 #   gh attestation verify oci://ghcr.io/foxlight-foundation/sovereign-mirror:VERSION \
 #     --repo Foxlight-Foundation/foxlight-model-preservation \
-#     --signer-workflow Foxlight-Foundation/foxlight-model-preservation/.github/workflows/mirror-image.yml
+#     --signer-workflow Foxlight-Foundation/foxlight-model-preservation/.github/workflows/mirror-image.yml \
+#     --source-ref refs/tags/vVERSION --deny-self-hosted-runners
 on:
   push:
     # Listing tags would otherwise stop branch pushes from triggering; path
@@ -27,11 +30,8 @@ on:
       - pyproject.toml
       - uv.lock
       - .github/workflows/mirror-image.yml
+  # Only meaningful when run on a v* release tag; publish refuses anything else.
   workflow_dispatch:
-    inputs:
-      tag:
-        description: Existing core release tag to publish, for example v0.28.0
-        required: true
 permissions:
   contents: read
 env:
@@ -72,7 +72,7 @@ jobs:
         run: docker compose -f deploy/mirror/compose.yaml config --quiet
 
   publish:
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -80,20 +80,18 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - name: Resolve the release tag
+      - name: Require a release tag run
         id: tag
-        env:
-          INPUT_TAG: ${{ inputs.tag }}
         run: |
-          tag="${INPUT_TAG:-$GITHUB_REF_NAME}"
-          if ! printf '%s' "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "refusing tag '$tag': expected vMAJOR.MINOR.PATCH" >&2; exit 1
+          # The attestation names this run's ref and commit, so the run itself
+          # must be the release tag: never build one ref while signing another.
+          if [ "$GITHUB_REF_TYPE" != tag ] ||
+             ! printf '%s' "$GITHUB_REF_NAME" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "refusing $GITHUB_REF: publish only runs on a vMAJOR.MINOR.PATCH tag" >&2
+            exit 1
           fi
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
-        with:
-          ref: refs/tags/${{ steps.tag.outputs.tag }}
       - name: Refuse a tag whose source has no mirror image
         run: test -f deploy/mirror/Dockerfile
       - uses: docker/setup-qemu-action@v3
