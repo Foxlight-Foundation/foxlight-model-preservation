@@ -17,6 +17,10 @@ Mirrors carry both public preservation-v1 bundles and draft
 [PMF over the network](#pmf-over-the-network)). Standalone 0.13 and later include
 separately opted-in [persistent IPFS/BitTorrent sessions](persistent-peers.md).
 
+For a provider walkthrough (server choice, firewall, DNS, Docker and costs),
+see [host a server mirror on Hetzner](mirror-hosting/hetzner-server.md) and
+[where to host a mirror](mirror-hosting/README.md).
+
 ## Quickstart: one reviewed collection file
 
 A **collection file** bundles everything an operator must independently review
