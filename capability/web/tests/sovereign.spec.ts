@@ -135,9 +135,15 @@ test('a model under use-restricted terms is kept only after I accept these terms
  await page.getByLabel('Proceed with this exact private selection.').check();
  // The licence gate is separate from the selection consent, as on Hugging Face.
  await expect(start).toBeDisabled();
- await terms.getByRole('checkbox',{name:/I accept these terms/}).scrollIntoViewIfNeeded();
+ // The acceptance is its own section, names the licence, and only gated entries carry the badge.
+ const accept=terms.getByRole('region',{name:'Terms to accept'});
+ await expect(accept.getByRole('heading',{name:'Terms to accept'})).toBeVisible();
+ await expect(terms.getByText('Needs your acceptance',{exact:true})).toHaveCount(1);
+ await expect(terms.getByRole('listitem').filter({hasText:'Llama 3.1 Community License'}).getByText('Needs your acceptance')).toBeVisible();
+ await expect(terms.getByRole('listitem').filter({hasText:'MIT'}).getByText('Needs your acceptance')).toHaveCount(0);
+ await accept.getByRole('checkbox',{name:'I accept the Llama 3.1 Community License.'}).scrollIntoViewIfNeeded();
  await page.screenshot({path:shot('terms-acceptance',info)});
- await terms.getByRole('checkbox',{name:/I accept these terms/}).check();
+ await accept.getByRole('checkbox',{name:'I accept the Llama 3.1 Community License.'}).check();
  await start.click();
  expect(submitted).toEqual({plan_id:id,operation_id:expect.any(String),confirmed:true,accepted_terms:['llama3.1']});
 });
@@ -150,6 +156,7 @@ test('plain permissive terms are shown but ask for no acceptance',async({page})=
  await page.route('**/api/desktop-start',route=>{submitted=route.request().postDataJSON();return route.fulfill({json:{}});});
  await page.goto('/');await page.getByRole('button',{name:'Keep a copy',exact:true}).click();
  await expect(page.getByLabel('Licence terms').getByRole('checkbox')).toHaveCount(0);
+ await expect(page.getByText('Needs your acceptance',{exact:true})).toHaveCount(0);
  await page.getByLabel('Proceed with this exact private selection.').check();
  await page.getByRole('button',{name:'Download & preserve',exact:true}).click();
  expect(submitted).toEqual({plan_id:id,operation_id:expect.any(String),confirmed:true});

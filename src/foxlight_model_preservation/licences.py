@@ -36,7 +36,9 @@ class KnownLicence(Record):
     ``summary`` says in a few plain words what a person accepts when keeping
     or downloading a model under it. ``default`` overrides the family's
     default (for example a maker's terms we could not confirm allow
-    redistribution). ``warning`` is shown while the licence is on.
+    redistribution). ``warning`` is shown while the licence is on;
+    ``eu_subject`` names what the terms don't license in the EU, and the
+    sheet combines the licences that are on into one notice.
     """
 
     id: str = Field(min_length=1, max_length=200)
@@ -44,6 +46,12 @@ class KnownLicence(Record):
     summary: str | None = Field(default=None, max_length=300)
     note: str | None = Field(default=None, max_length=300)
     warning: str | None = Field(default=None, max_length=300)
+    eu_subject: str | None = Field(
+        default=None,
+        max_length=100,
+        description="What the maker's terms don't license in the EU.",
+    )
+    short_name: str | None = Field(default=None, max_length=60)
     default: bool | None = None
 
 

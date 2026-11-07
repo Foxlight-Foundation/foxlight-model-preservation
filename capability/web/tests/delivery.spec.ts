@@ -88,7 +88,7 @@ test('a received model under use-restricted terms needs I accept these terms',as
   await page.getByLabel('I accept this exact signed copy').check();
   const download=page.getByRole('button',{name:'Download model',exact:true});
   await expect(download).toBeDisabled();
-  await terms.getByRole('checkbox',{name:/I accept these terms/}).check();
+  await terms.getByRole('checkbox',{name:'I accept the Llama 3.1 Community License.'}).check();
   await download.click();
   expect(started).toMatchObject({plan_id:basePlan.plan_id,accept_owner_capture:true,accepted_terms:['llama3.1']});
 });

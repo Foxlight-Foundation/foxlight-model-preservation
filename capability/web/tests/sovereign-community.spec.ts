@@ -61,12 +61,16 @@ test('one switch shares every eligible backup after a single standing consent',a
  await expect(custom).not.toBeChecked();
  await expect(custom).toHaveAccessibleName(/9 of 12/);
  // Llama 3.2 and Llama 4 are on, so the EU notice shows; each has its own switch.
- await expect(page.locator('.sk-callout').getByText("Meta's terms don't license Llama 4 to people or companies based in the EU",{exact:false})).toBeVisible();
+ // Both are on: one sentence names both, not a notice per licence.
+ await expect(page.locator('.sk-callout').getByText('Meta’s terms don’t license the Llama 3.2 vision models or Llama 4 to people or companies based in the EU. If you’re in the EU, switch off Llama 3.2 and Llama 4.',{exact:true})).toBeVisible();
+ await expect(page.locator('.sk-callout').getByText(/based in the EU/)).toHaveCount(1);
  await page.getByRole('switch',{name:/^Copyleft/}).uncheck();
  await page.getByText('Custom model terms licences · 9 of 12 on',{exact:false}).click();
  await expect(page.getByText('Covers Gemma 1 to 3',{exact:false})).toBeVisible();
  await expect(page.getByText('we couldn\'t confirm these terms allow anyone to redistribute',{exact:false}).first()).toBeVisible();
  await page.getByRole('checkbox',{name:/Llama 4 Community License/}).uncheck();
+ // Only the switch that is still on is named.
+ await expect(page.locator('.sk-callout').getByText('Meta’s terms don’t license the Llama 3.2 vision models to people or companies based in the EU. If you’re in the EU, switch off Llama 3.2.',{exact:true})).toBeVisible();
  await page.getByRole('checkbox',{name:/Grok 2 Community License/}).check();
  // Upload limits are off unless the owner turns them on.
  await expect(page.getByRole('switch',{name:/^Limit uploads/})).not.toBeChecked();
@@ -340,7 +344,7 @@ test('upload limits are opt-in and a custom licence id is checked before it is a
  await page.getByText('Licences that allow sharing').scrollIntoViewIfNeeded();
  await page.screenshot({path:screenshot('community-licences',info)});
  await page.getByText('Custom model terms licences',{exact:false}).click();
- await page.locator('.sk-callout').getByText("Meta's terms don't license Llama 4",{exact:false}).scrollIntoViewIfNeeded();
+ await page.locator('.sk-callout').getByText('switch off Llama 3.2 and Llama 4',{exact:false}).scrollIntoViewIfNeeded();
  await page.screenshot({path:screenshot('community-families',info)});
  await page.getByRole('switch',{name:/^Non-commercial/}).scrollIntoViewIfNeeded();
  await page.screenshot({path:screenshot('community-noncommercial',info)});

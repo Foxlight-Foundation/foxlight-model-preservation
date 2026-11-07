@@ -1,4 +1,5 @@
-import {Callout,Consent} from './ui';
+import {listed} from './community-parts';
+import {Callout,Consent,Pill} from './ui';
 
 /** One licence a person accepts before keeping a model, as the host describes it. */
 export interface LicenceTerms {license_id:string;name:string;family:string|null;summary:string;requires_acceptance:boolean;references:{member:string;reference:string;url:string|null}[]}
@@ -19,11 +20,11 @@ export function TermsAcceptance({terms,accepted,onChange}:{terms:TermsReview;acc
  const gated=terms.licences.filter(item=>item.requires_acceptance);
  return <div className="sk-terms" aria-label="Licence terms">
   <ul className="sk-terms-list">{terms.licences.map(item=><li key={item.license_id}>
-   <strong>{item.name}</strong>{item.license_id&&<> <code>{item.license_id}</code></>}
+   <span className="sk-terms-head"><strong>{item.name}</strong>{item.license_id&&<code>{item.license_id}</code>}{item.requires_acceptance&&<Pill tone="info">Needs your acceptance</Pill>}</span>
    <span>{item.summary}</span>
    {item.references.map((reference,index)=><small key={index}>{reference.url?<a href={reference.url} target="_blank" rel="noopener noreferrer">Read the full terms{reference.reference.startsWith('https://')?'':` (${reference.reference}, carried with the model)`}</a>:<>Full terms: {reference.reference}, carried with the model</>}</small>)}
   </li>)}</ul>
-  {gated.length>0?<Consent checked={accepted} onChange={onChange} note={`Required for ${gated.map(item=>item.name).join(', ')}, as on Hugging Face. Your acceptance is recorded with this copy.`}>I accept these terms.</Consent>:<p className="sk-hint">These licences ask nothing extra of you beyond keeping their notices.</p>}
+  {gated.length>0?<section className="sk-terms-accept" aria-label="Terms to accept"><h4>Terms to accept</h4><Consent checked={accepted} onChange={onChange} note="As on Hugging Face, these terms are accepted before the model is kept. Your acceptance is recorded with this copy.">I accept the {listed(gated.map(item=>item.name))}.</Consent></section>:<p className="sk-hint">These licences ask nothing extra of you beyond keeping their notices.</p>}
   <Callout tone="info">This describes the licences in plain words; it isn’t legal advice. You’re responsible for following them where you live.</Callout>
  </div>;
 }

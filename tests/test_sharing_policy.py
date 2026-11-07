@@ -147,9 +147,9 @@ def test_one_versioned_definition_with_hugging_face_style_defaults():
     licences = {
         licence.id: licence for family in loaded.families for licence in family.licences
     }
-    for eu in ("llama3.2", "llama4"):
-        assert "EU" in (licences[eu].warning or "")
-    assert licences["llama3.1"].warning is None
+    assert licences["llama3.2"].eu_subject == "the Llama 3.2 vision models"
+    assert licences["llama4"].eu_subject == "Llama 4"
+    assert licences["llama3.1"].eu_subject is None
     assert "Gemma 4 is Apache-2.0" in (licences["gemma"].note or "")
     assert KNOWN_LICENSES.isdisjoint(UNIDENTIFIED)
 
