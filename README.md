@@ -60,11 +60,14 @@ provides the saved copy’s public verification identifiers for separate compari
 
 ## Current public previews
 
-- **Standalone 0.28.0** includes persistent HTTP/IPFS/BitTorrent mirrors,
+- **Standalone 0.28.1** includes persistent HTTP/IPFS/BitTorrent mirrors,
   offline local-copy intake, portable handoffs, signed source following,
   retained-copy inspection/recovery-kit export, offline completion recovery,
   PirateFace lookup/intake and
   the separately opted-in I2P pilots.
+- **Standalone 0.28.1** adds the signed headless mirror container image,
+  `ghcr.io/foxlight-foundation/sovereign-mirror:0.28.1` (linux/amd64 and arm64,
+  with build provenance), and a 180-day default restart grant for headless mirrors.
 - **Standalone 0.28.0 / Library 0.24.0** make hosting and finding mirrors
   easy: downloads also try mirrors found through discovery; the desktop
   mirror can keep a copy in the owner's own cloud bucket (Cloudflare R2,
@@ -103,13 +106,13 @@ censorship resistance for at-risk users.
 ## Install
 
 Python 3.11+ on Linux or macOS, with an authenticated Python/uv toolchain. Use the
-[0.28.0 installation archive](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/v0.28.0)
+[0.28.1 installation archive](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/v0.28.1)
 and its detached attestation bundle. [Verify it first](docs/installation.md),
 extract it, then install into a new directory:
 
 ```sh
-python3 install.py --directory "$HOME/sovereign-0.28.0"
-"$HOME/sovereign-0.28.0/bin/model-preserve" --help
+python3 install.py --directory "$HOME/sovereign-0.28.1"
+"$HOME/sovereign-0.28.1/bin/model-preserve" --help
 ```
 
 The archive contains the exact package wheel, source, hash-locked dependencies
