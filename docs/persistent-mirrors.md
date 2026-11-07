@@ -174,12 +174,13 @@ being the network access a mirror exists to use. The layout follows the
 
 Nothing installs or enables it unless you choose to. The setup script
 [`install-system-service.sh`](../deploy/mirror/install-system-service.sh), run
-as root, does each step and prints it: it authenticates the release archive
-with `gh attestation verify` (or an independently obtained SHA-256) and refuses
-an unverified one, creates the account, installs the release, installs the
-unit, runs `mirror quickstart` as `sovereign` (which prints the review and asks
-you to type `serve`) and enables `sovereign-mirror@<instance>`. Running it
-again is safe; use it to upgrade or to change settings.
+as root, prints each step. Before changing anything it authenticates the
+release archive with `gh attestation verify` (or an independently obtained
+SHA-256) and refuses an unverified one, prints the `mirror quickstart` review
+and asks you to type `serve`. Then it creates the account, installs the
+release, sets up the mirror as `sovereign`, installs the unit and enables
+`sovereign-mirror@<instance>`. Running it again is safe; use it to upgrade or
+to change settings.
 
 ```sh
 sudo deploy/mirror/install-system-service.sh \
@@ -194,7 +195,8 @@ It needs Python 3.11+ outside `/home` and `/root` (the distro's `python3`),
 `uv`, `unzip` and, for `--bundle`, the GitHub CLI. The default
 `requirements-mirror.lock` profile includes libtorrent; choose
 `--requirements requirements.lock` where no libtorrent wheel exists. Add
-`-- --plan-only` to read the review without changing the mirror.
+`-- --plan-only` to read the review only: nothing on the host changes and a
+running service keeps running.
 
 The mirror listens on `127.0.0.1:8080`. Use the distro's Caddy package with the
 repository's [Caddyfile](../deploy/mirror/Caddyfile) rather than writing

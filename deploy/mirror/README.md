@@ -94,13 +94,15 @@ sudo deploy/mirror/install-system-service.sh \
   -- --public-url https://mirror.example.org
 ```
 
-It prints each step: it verifies the archive (`gh attestation verify`, or
-`--sha256` with an independently obtained hash) and refuses an unverified one,
-creates the `sovereign` system account, installs the release into
-`/opt/sovereign/<version>` with `/opt/sovereign/current` pointing at it, copies
-the collection to `/etc/sovereign/mirrors/<instance>`, installs the unit, runs
-`mirror quickstart` as `sovereign` (review, then type `serve`) and enables
-`sovereign-mirror@<instance>`. State lives in
+It prints each step. Before changing anything it verifies the archive
+(`gh attestation verify`, or `--sha256` with an independently obtained hash)
+and refuses an unverified one, prints the `mirror quickstart` review and asks
+you to type `serve`. Only then does it create the `sovereign` system account,
+install the release into `/opt/sovereign/<version>`, set up the mirror as
+`sovereign`, record the collection in `/etc/sovereign/mirrors/<instance>`,
+point `/opt/sovereign/current` at the release, install the unit and enable
+`sovereign-mirror@<instance>`. With `-- --plan-only` it stops after the review
+and leaves the host, including a running service, untouched. State lives in
 `/var/lib/sovereign/mirrors/<instance>` (mode 0700). Running it again is safe;
 it is also how to upgrade or change settings. `--help` lists the options.
 

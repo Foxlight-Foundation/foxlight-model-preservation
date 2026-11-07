@@ -1495,6 +1495,12 @@ def test_deploy_files_match_the_installer_and_proxy_model():
     assert "gh attestation verify" in setup and "--deny-self-hosted-runners" in setup
     assert "refusing an unverified archive" in setup
     assert "curl" not in setup and "runuser -u sovereign" in setup
+    # Every refusal, the review and consent come before the first change.
+    first_change = setup.index("# --- Changes")
+    for guard in ("refusing an unverified archive", "--plan-only", "Plan only:"):
+        assert setup.index(guard) < first_change, guard
+    for change in ("useradd --system", 'systemctl stop "', "mv -Tf", "install -o root"):
+        assert setup.index(change) > first_change, change
 
 
 def test_no_anonymity_claims_in_mirror_text():
