@@ -115,12 +115,22 @@ class FakeCore:
         self.decisions: list[dict[str, Any]] = []
         self.calls: list[tuple[str, str]] = []
         self.hold_retain = False
+        # Something outside this setup changes the standing intake policy.
+        self.tamper_intake = False
         # When set, mirror reads wait so a Stop can overtake an admission.
         self.gate: asyncio.Event | None = None
         # POSTs of these kinds wait, so a Stop can land while one is in flight.
         self.post_gates: dict[str, asyncio.Event] = {}
         self.posts_waiting: list[str] = []
+        self.before: dict[str, Any] = {}
+        self.after: dict[str, Any] = {}
         self.sequence = 0
+
+    def other_tab_configures(self, **changes: Any) -> None:
+        """Another Library tab saves different mirror settings."""
+        self.page["configuration"] = {**self.page["configuration"], **changes}
+        self.page["restart_expires"] = None
+        self._policy()
 
     def _policy(self) -> None:
         self.sequence += 1
@@ -188,8 +198,15 @@ class FakeCore:
         if request.method == "POST" and path == "mirror/jobs":
             decision: dict[str, Any] = json.loads(request.content)
             self.decisions.append(decision)
-            assert decision["policy_id"] == self.page["policy_id"]
+            # Another tab or client acting just before this decision lands.
+            before = self.before.pop(decision["kind"], None)
+            if before is not None:
+                before(self)
             job = self._job(decision)
+            if decision["policy_id"] != self.page["policy_id"]:
+                # Core binds every effect to the current policy (mirror_host).
+                job.update(state="failed", error_code="mirror_policy_changed")
+                return httpx.Response(202, json=job)
             kind = decision["kind"]
             if kind == "configure":
                 self.page.update(
@@ -201,6 +218,13 @@ class FakeCore:
                 self._policy()
             elif kind == "retain":
                 assert decision["confirm_redistribution"] is True
+                if self.tamper_intake:
+                    self.page["intake"] = {
+                        "share": "eligible",
+                        "licenses": ["mit", "gpl-3.0"],
+                        "definition": 1,
+                        "withheld": [],
+                    }
                 self.page["models"].append(
                     {
                         "manifest_id": decision["manifest_id"],
@@ -232,6 +256,9 @@ class FakeCore:
                 assert decision["mode"] == "resume"
                 job["state"] = "running"
                 self.page.update(controller_job_id=job["job_id"], paused=False)
+            after = self.after.pop(kind, None)
+            if after is not None:
+                after(self)
             return httpx.Response(202, json=job)
         return httpx.Response(404, json={"detail": "not_found"})
 
@@ -838,3 +865,122 @@ async def test_a_core_failure_mid_setup_sends_no_grant_or_run(core: Any) -> None
     assert "grant_resume" not in kinds and "run" not in kinds
     # Sharing is left off rather than serving the unreviewed copy B.
     assert fake.page["controller_job_id"] is None
+
+
+LOOPBACK = {**DEFAULT_CONFIGURATION, "exposure": "loopback"}
+
+
+def no_authorization(fake: FakeCore) -> None:
+    kinds = [d["kind"] for d in fake.decisions]
+    assert "grant_resume" not in kinds and "run" not in kinds
+    assert fake.page["restart_expires"] is None
+    assert fake.page["controller_job_id"] is None
+
+
+@pytest.mark.parametrize("when", ["before", "after"])
+async def test_another_tab_opening_network_http_mid_setup_aborts(
+    core: Any, when: str
+) -> None:
+    fake, app = core
+    existing(fake, MIT)
+    fake.page["configuration"] = dict(LOOPBACK)
+    # Codex's case: the reviewed settings are loopback-only; another tab
+    # switches HTTP to the network while this setup keeps a copy.
+    hook = getattr(fake, when)
+    hook["retain"] = lambda core: core.other_tab_configures(exposure="network")
+    await app.dispatch(
+        "mirror-share-start",
+        start_body(fake, configuration=LOOPBACK, copies=[copy(APACHE), copy(MIT)]),
+    )
+    progress = await finished(app)
+    assert progress["state"] == "failed"
+    assert progress["error_code"] in {
+        "mirror_policy_changed",
+        "mirror_changed_during_setup",
+    }
+    no_authorization(fake)
+
+
+async def test_another_tab_changing_transports_before_the_grant_aborts(
+    core: Any,
+) -> None:
+    fake, app = core
+    existing(fake, APACHE, MIT)
+    fake.before["grant_resume"] = lambda core: core.other_tab_configures(torrent=True)
+    await app.dispatch(
+        "mirror-share-start",
+        start_body(fake, share="chosen", copies=[copy(APACHE)]),
+    )
+    progress = await finished(app)
+    assert progress["state"] == "failed"
+    # Core refuses the grant for the moved policy; no run follows.
+    assert "run" not in [d["kind"] for d in fake.decisions]
+    assert fake.page["restart_expires"] is None
+    assert fake.page["controller_job_id"] is None
+
+
+async def test_holdings_changed_by_another_client_abort_before_the_grant(
+    core: Any,
+) -> None:
+    fake, app = core
+    existing(fake, APACHE, MIT)
+
+    def other_client_keeps(core: FakeCore) -> None:
+        core.page["models"].append(
+            {"manifest_id": GPL, "state": "retained", "pinned": False, "blocked": False}
+        )
+        core._policy()  # pyright: ignore[reportPrivateUsage]
+
+    fake.after["model"] = other_client_keeps
+    await app.dispatch(
+        "mirror-share-start",
+        start_body(fake, share="chosen", copies=[copy(APACHE)]),
+    )
+    progress = await finished(app)
+    assert progress["state"] == "failed"
+    assert progress["error_code"] == "mirror_changed_during_setup"
+    no_authorization(fake)
+
+
+async def test_an_unblock_elsewhere_is_caught_before_the_run(core: Any) -> None:
+    fake, app = core
+    existing(fake, APACHE, MIT)
+
+    def other_tab_unblocks(core: FakeCore) -> None:
+        # Block state is outside Core's policy hash, so only a direct check sees it.
+        for model in core.page["models"]:
+            model["blocked"] = False
+
+    fake.after["grant_resume"] = other_tab_unblocks
+    await app.dispatch(
+        "mirror-share-start",
+        start_body(fake, share="chosen", copies=[copy(APACHE)]),
+    )
+    progress = await finished(app)
+    assert progress["state"] == "failed"
+    assert progress["error_code"] == "mirror_changed_during_setup"
+    assert "run" not in [d["kind"] for d in fake.decisions]
+    assert fake.page["controller_job_id"] is None
+
+
+async def test_a_refused_intake_aborts_instead_of_being_skipped(core: Any) -> None:
+    fake, app = core
+    fake.before["retain"] = lambda core: core.other_tab_configures(port=9999)
+    await app.dispatch("mirror-share-start", start_body(fake))
+    progress = await finished(app)
+    assert progress["state"] == "failed"
+    assert progress["error_code"] == "mirror_policy_changed"
+    no_authorization(fake)
+
+
+async def test_an_intake_policy_changed_during_setup_is_never_authorized(
+    core: Any,
+) -> None:
+    fake, app = core
+    fake.tamper_intake = True
+    await app.dispatch("mirror-share-start", start_body(fake))
+    progress = await finished(app)
+    assert progress["state"] == "failed"
+    assert progress["error_code"] == "mirror_changed_during_setup"
+    kinds = [decision["kind"] for decision in fake.decisions]
+    assert "grant_resume" not in kinds and "run" not in kinds

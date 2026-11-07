@@ -1,8 +1,10 @@
 import {readFileSync} from 'node:fs';
-import {test,expect} from '@playwright/test';
+import {test,expect,type Locator,type Page} from '@playwright/test';
 // The core's licence-family definition, exactly as the host sends it.
 const families=JSON.parse(readFileSync(new URL('../../src/foxlight_preservation_library/licence_families_v1.json',import.meta.url),'utf8')) as {families:{id:string;default:boolean;licences:{id:string;default?:boolean}[]}[]};
 const familyIds=(id:string)=>families.families.find(family=>family.id===id)!.licences.map(item=>item.id);
+/** A click resolves before the route handler records its body; wait for the reply. */
+async function sent(page:Page,button:Locator,action:string){const reply=page.waitForResponse(response=>response.url().endsWith('/api/'+action));await button.click();await reply;}
 const id='a'.repeat(64),other='b'.repeat(64),none='c'.repeat(64);
 const copy={copy_id:id,manifest_id:id,name:'Open text model',size_bytes:1024,member_count:2};
 // A licence's own default overrides its family's, as in the core definition.
@@ -70,7 +72,7 @@ test('one switch shares every eligible backup after a single standing consent',a
  await expect(page.getByRole('switch',{name:/^Limit uploads/})).not.toBeChecked();
  await expect(page.getByText('No upload limit. Uploads are counted',{exact:false})).toBeVisible();
  await page.getByRole('checkbox',{name:'Keep sharing these models from this computer until I turn it off, and announce it publicly on the BitTorrent DHT and 2 Nostr relays.'}).check();
- await start.click();
+ await sent(page,start,'desktop-community-configure');
  const copyleft=familyIds('copyleft');
  const chosen=new Set([...defaults.filter(item=>!copyleft.includes(item)&&item!=='llama4'),'grok2-community']);
  expect(configured).toEqual({enabled:true,consent:true,share:'eligible',licenses:order.filter(item=>chosen.has(item)),daily_upload_bytes:null,monthly_upload_bytes:null,public_url:null,announce_dht:true,publish_nostr:true,announce_disclosure:1});
@@ -79,7 +81,7 @@ test('one switch shares every eligible backup after a single standing consent',a
  // Reachability is stated plainly; the router is never changed.
  await expect(panel.getByText('behind a router',{exact:false})).toBeVisible();
  await expect(panel.getByText('http://192.168.1.20:8743',{exact:true})).toBeVisible();
- await panel.getByRole('button',{name:'Turn off',exact:true}).click();
+ await sent(page,panel.getByRole('button',{name:'Turn off',exact:true}),'desktop-community-configure');
  expect(configured).toEqual({enabled:false});
  await expect(panel.getByText('Off',{exact:true})).toBeVisible();
  expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
@@ -94,7 +96,7 @@ test('a backup can be kept back and a backup without a licence stays private',as
  await panel.getByText('Your backups · 1 of 3 can be shared',{exact:true}).click();
  await expect(panel.getByText('No licence found · stays private',{exact:true})).toBeVisible();
  await expect(panel.getByText('Licence not in your list',{exact:true})).toBeVisible();
- await panel.getByRole('button',{name:'Keep this one back',exact:true}).click();
+ await sent(page,panel.getByRole('button',{name:'Keep this one back',exact:true}),'desktop-community-choose');
  expect(chosen).toEqual({copy_id:id,chosen:false,withheld:true});
  await expect(panel.getByRole('button',{name:'Share again',exact:true})).toBeVisible();
  await expect(panel.getByText('Nothing is deleted.',{exact:false})).toBeVisible();
@@ -115,7 +117,7 @@ test('a backup that failed to join can still be kept back before its retry',asyn
  const panel=page.getByRole('region',{name:'Help keep models available'});
  await panel.getByText(/Your backups ·/).click();
  await expect(panel.getByText('Couldn’t join · will retry',{exact:true})).toBeVisible();
- await panel.getByRole('button',{name:'Keep this one back',exact:true}).click();
+ await sent(page,panel.getByRole('button',{name:'Keep this one back',exact:true}),'desktop-community-choose');
  expect(chosen).toEqual({copy_id:id,chosen:false,withheld:true});
 });
 
@@ -239,7 +241,7 @@ test('each public announcement is disclosed before consent and named in it',asyn
  await consent.check();
  await nostr.uncheck();
  await expect(page.getByRole('checkbox',{name:'Keep sharing these models from this computer until I turn it off, without announcing it publicly.'})).toBeChecked();
- await start.click();
+ await sent(page,start,'desktop-community-configure');
  expect(configured).toEqual({enabled:true,consent:true,share:'eligible',licenses:defaults,daily_upload_bytes:null,monthly_upload_bytes:null,public_url:'https://models.example.org',announce_dht:false,publish_nostr:false,announce_disclosure:1});
  expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
 });
@@ -299,7 +301,7 @@ test('a consent given before the disclosure announces nothing until the owner ch
  await expect(page.getByRole('checkbox',{name:/Keep sharing these models/})).toHaveCount(0);
  await page.screenshot({path:info.outputPath('community-announce-review.png')});
  await page.getByRole('checkbox',{name:/Announce on the BitTorrent DHT/}).uncheck();
- await page.getByRole('button',{name:'Save these choices',exact:true}).click();
+ await sent(page,page.getByRole('button',{name:'Save these choices',exact:true}),'desktop-community-configure');
  expect(configured).toEqual({public_url:null,announce_dht:false,publish_nostr:true,announce_disclosure:1});
  await expect(page.locator('#sovereign-main')).not.toHaveAttribute('inert','');
  await expect(panel.getByRole('button',{name:'Choose how people find this computer'})).toHaveCount(0);
@@ -353,7 +355,7 @@ test('upload limits are opt-in and a custom licence id is checked before it is a
  await page.getByLabel('Upload limit per day (GB)').fill('5');
  await limit.scrollIntoViewIfNeeded();
  await page.screenshot({path:screenshot('community-limits',info)});
- await page.getByRole('button',{name:'Start sharing',exact:true}).click();
+ await sent(page,page.getByRole('button',{name:'Start sharing',exact:true}),'desktop-community-configure');
  expect(configured).toMatchObject({licenses:[...defaults,'eupl-1.2'],daily_upload_bytes:5*1024**3,monthly_upload_bytes:300*1024**3});
  const panel=page.getByRole('region',{name:'Help keep models available'});
  await expect(panel.getByText(/of 5(\.0)? GB/)).toBeVisible();

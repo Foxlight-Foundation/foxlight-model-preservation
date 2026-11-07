@@ -32,6 +32,17 @@ I4 What is served is exactly what was consented. Before the grant, every
    served set is verified against Core.
 I5 Existing settings and selections are only changed by a reviewed Start.
    Reads and reviews never send a decision.
+I6 Authorization is only ever for the exact reviewed configuration. A setup
+   never adopts a policy identity it did not produce: after each of its own
+   decisions it re-reads Core and accepts the new policy only if Core's
+   configuration equals the reviewed one field for field and Core's holdings
+   (every selection, its state and its block) equal exactly what this setup
+   expects. Anything else (another tab, another client, a Core-side change)
+   aborts with mirror_changed_during_setup before any grant or run. The same
+   check runs again before the grant and before the run, and both decisions
+   carry that verified policy, so Core itself refuses them if the policy
+   moves afterwards. Any refused intake aborts the setup rather than being
+   skipped. Share mode and licences live only in this setup's own decision.
 
 Await points in a setup and what may land there:
 - admission read: Stop -> refused with mirror_share_stopped (I2); a second
@@ -41,6 +52,10 @@ Await points in a setup and what may land there:
   (I3); Core failure -> setup fails with sharing off, since a reviewed change
   first pauses the previous controller. No grant or run follows a failure.
 - Library page refreshes only read, so they cannot change a setup (I5).
+- between any two steps another tab or client may change Core: the next
+  verification sees it and aborts; Core fences the grant and run by policy
+  (I6). Block/unblock does not change Core's policy, so the served set is
+  compared directly before the grant and again before the run.
 """
 
 from __future__ import annotations
@@ -221,8 +236,11 @@ class ShareSwitch:
         self._sent: list[tuple[str, str]] = []
         self._posting: asyncio.Future[dict[str, JsonValue]] | None = None
         self._reviews: dict[tuple[str, str], tuple[str, list[str]]] = {}
-        # Whether this Core keeps a standing intake policy under the grant.
+        # Whether this Core keeps a standing intake policy under the grant,
+        # the policy this setup wants there, and the one Core last reported.
         self._intake = False
+        self._wanted_intake: dict[str, JsonValue] | None = None
+        self._seen_intake: JsonValue = None
         self._progress: dict[str, JsonValue] = self._idle()
 
     @staticmethod
@@ -567,6 +585,58 @@ class ShareSwitch:
                 self._job = None
                 self._admitted = False
 
+    async def _snapshot(
+        self,
+    ) -> tuple[str | None, dict[str, JsonValue] | None, dict[str, tuple[str, bool]]]:
+        """Read policy, configuration and every holding as one consistent view."""
+        first = await self.client.request("GET", "mirror")
+        holdings: dict[str, tuple[str, bool]] = {}
+        for identity, model in (await self._held()).items():
+            state = model.get("state")
+            holdings[identity] = (
+                "removed" if state == "removed" else "held",
+                model.get("blocked") is True,
+            )
+        last = await self.client.request("GET", "mirror")
+        if first.get("policy_id") != last.get("policy_id"):
+            raise CoreRefused("mirror_changed_during_setup")
+        policy = last.get("policy_id")
+        configuration = last.get("configuration")
+        self._seen_intake = last.get("intake")
+        return (
+            policy if isinstance(policy, str) else None,
+            configuration if isinstance(configuration, dict) else None,
+            holdings,
+        )
+
+    async def _adopt(
+        self,
+        wanted: dict[str, JsonValue],
+        expected: dict[str, tuple[str, bool]],
+        consented: set[str] | None = None,
+    ) -> str:
+        """Accept Core's policy only if it is exactly what this setup produced."""
+        policy, configuration, holdings = await self._snapshot()
+        if (
+            policy is None
+            or configuration is None
+            or any(configuration.get(key) != value for key, value in wanted.items())
+            or holdings != expected
+            # The standing intake policy is part of what the grant covers, so
+            # only the exact reviewed one is ever authorized.
+            or (
+                self._wanted_intake is not None
+                and self._seen_intake != self._wanted_intake
+            )
+        ):
+            raise CoreRefused("mirror_changed_during_setup")
+        if consented is not None and any(
+            state == "held" and not blocked and identity not in consented
+            for identity, (state, blocked) in holdings.items()
+        ):
+            raise CoreRefused("mirror_changed_during_setup")
+        return policy
+
     async def _perform(
         self, decision: ShareStartInput, page: dict[str, JsonValue], epoch: int
     ) -> None:
@@ -578,10 +648,15 @@ class ShareSwitch:
             self._fence(epoch)
             _ = await self.client.request("DELETE", "mirror/jobs/" + controller)
             _ = await self._settle_stopped(controller)
-        policy = page.get("policy_id")
-        policy = policy if isinstance(policy, str) else None
+        self._wanted_intake = None
+        # The reviewed policy covers the settings and selections the sheet showed.
+        policy, configuration, expected = await self._snapshot()
+        if policy != decision.policy_id:
+            raise CoreRefused("mirror_changed_during_setup")
         wanted = decision.configuration.model_dump(mode="json")
-        if page.get("configured") is not True or page.get("configuration") != wanted:
+        if configuration is None or any(
+            configuration.get(key) != value for key, value in wanted.items()
+        ):
             # Existing settings stay untouched unless the reviewed ones differ.
             self._step("configuring")
             _ = await self._settle(
@@ -589,13 +664,15 @@ class ShareSwitch:
                     epoch, kind="configure", policy_id=policy, configuration=wanted
                 )
             )
-            policy = await self._policy()
+            policy = await self._adopt(wanted, expected)
+        if policy is None:
+            raise CoreRefused("mirror_not_configured")
         if self._intake:
             # Core keeps the owner's choice as a standing intake policy that
             # the grant covers, so the saved list shows after a reload and a
             # newly kept matching copy joins without new consent. Withheld
             # copies stay as Core has them.
-            current = page.get("intake")
+            current = self._seen_intake
             withheld: JsonValue = (
                 current.get("withheld", []) if isinstance(current, dict) else []
             )
@@ -607,6 +684,7 @@ class ShareSwitch:
                 "definition": LICENCE_DEFINITION_VERSION,
                 "withheld": withheld,
             }
+            self._wanted_intake = wanted_intake
             if current != wanted_intake:
                 self._step("configuring")
                 _ = await self._settle(
@@ -614,54 +692,62 @@ class ShareSwitch:
                         epoch, kind="intake", policy_id=policy, intake=wanted_intake
                     )
                 )
-                policy = await self._policy()
+                # Accept the new policy only if nothing else changed meanwhile.
+                policy = await self._adopt(wanted, expected)
         self._step("keeping")
         allowed = _allowed(decision.licenses)
-        held = await self._held()
         consented: set[str] = set()
         skipped: list[JsonValue] = []
         for copy in decision.copies:
-            model = held.get(copy.manifest_id)
-            state = model.get("state") if model is not None else None
+            state = expected.get(copy.manifest_id, ("absent", False))[0]
             if state == "removed":
                 # Returning a removed copy is a separate explicit re-intake.
                 skipped.append({"copy_id": copy.copy_id, "reason": "removed"})
                 continue
             # Every listed copy, kept already or not, must pass this licence list.
             reason = await self._ineligible(copy, allowed)
-            if reason is None and state not in {"retained", "pending"}:
-                try:
-                    _ = await self._settle(
-                        await self._decide(
-                            epoch,
-                            kind="retain",
-                            policy_id=policy,
-                            copy_id=copy.copy_id,
-                            manifest_id=copy.manifest_id,
-                            confirm_redistribution=True,
-                        )
-                    )
-                except CoreRefused as error:
-                    if str(error) == "mirror_share_stopped":
-                        raise
-                    reason = str(error)
-                policy = await self._policy()
-            if reason is None:
-                consented.add(copy.manifest_id)
-            else:
+            if reason is not None:
                 skipped.append({"copy_id": copy.copy_id, "reason": reason})
+                continue
+            if state != "held":
+                # A refused intake (a changed policy, storage, terms) aborts:
+                # nothing is granted for a setup that did not go as reviewed.
+                _ = await self._settle(
+                    await self._decide(
+                        epoch,
+                        kind="retain",
+                        policy_id=policy,
+                        copy_id=copy.copy_id,
+                        manifest_id=copy.manifest_id,
+                        confirm_redistribution=True,
+                    )
+                )
+                expected[copy.manifest_id] = ("held", False)
+                policy = await self._adopt(wanted, expected)
+            consented.add(copy.manifest_id)
             self._progress = {
                 **self._progress,
                 "kept": len(consented),
                 "skipped": skipped,
             }
-        policy, serving = await self._reconcile(
-            epoch, policy, consented, chosen=decision.share == "chosen"
+        policy = await self._reconcile(
+            epoch,
+            policy,
+            wanted,
+            expected,
+            consented,
+            chosen=decision.share == "chosen",
         )
-        self._progress = {**self._progress, "kept": len(serving)}
+        serving = {
+            identity
+            for identity, (state, blocked) in expected.items()
+            if state == "held" and not blocked
+        }
+        self._progress = {**self._progress, "kept": len(serving), "skipped": skipped}
         if not serving:
             raise CoreRefused("community_nothing_to_share")
         self._step("permitting")
+        policy = await self._adopt(wanted, expected, consented)
         expires = int(time.time()) + CONSENT_SECONDS
         _ = await self._settle(
             await self._decide(
@@ -673,6 +759,9 @@ class ShareSwitch:
             )
         )
         self._step("starting")
+        # A grant changes no policy; anything else that moved is not reviewed.
+        if await self._adopt(wanted, expected, consented) != policy:
+            raise CoreRefused("mirror_changed_during_setup")
         _ = await self._settle(
             await self._decide(
                 epoch,
@@ -703,8 +792,15 @@ class ShareSwitch:
         return None if status == "eligible" else status
 
     async def _reconcile(
-        self, epoch: int, policy: str | None, consented: set[str], *, chosen: bool
-    ) -> tuple[str | None, set[str]]:
+        self,
+        epoch: int,
+        policy: str,
+        wanted: dict[str, JsonValue],
+        expected: dict[str, tuple[str, bool]],
+        consented: set[str],
+        *,
+        chosen: bool,
+    ) -> str:
         """Make the served set exactly the consented one before any grant.
 
         A resume controller serves every unblocked selection in the ledger, so
@@ -713,11 +809,9 @@ class ShareSwitch:
         chosen copies are served again; in all-eligible mode a copy the owner
         kept back stays kept back.
         """
-        held = await self._held()
-        for identity, model in held.items():
-            if model.get("state") not in {"retained", "pending"}:
+        for identity, (state, blocked) in sorted(expected.items()):
+            if state != "held":
                 continue
-            blocked = model.get("blocked") is True
             action: Literal["block", "unblock"] | None = None
             if identity not in consented and not blocked:
                 action = "block"
@@ -733,18 +827,9 @@ class ShareSwitch:
                         action=action,
                     )
                 )
-                policy = await self._policy()
-        # Verify against Core, not intent, before the grant binds this policy.
-        serving: set[str] = set()
-        for identity, model in (await self._held()).items():
-            if (
-                model.get("state") in {"retained", "pending"}
-                and model.get("blocked") is not True
-            ):
-                if identity not in consented:
-                    raise CoreRefused("mirror_selection_changed")
-                serving.add(identity)
-        return await self._policy(), serving
+                expected[identity] = ("held", action == "block")
+                policy = await self._adopt(wanted, expected)
+        return policy
 
     async def _settle_stopped(self, job_id: str) -> dict[str, JsonValue]:
         for _ in range(self.stop_attempts * 10):
