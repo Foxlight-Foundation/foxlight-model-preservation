@@ -6,6 +6,13 @@
   `SOVEREIGN_MIRROR_GRANT` and `--resume-for`) is now 180 days, up from 90.
   The 366-day cap is unchanged.
 
+- Publish the headless mirror image to
+  `ghcr.io/foxlight-foundation/sovereign-mirror:VERSION` for each core release
+  tag, with a signed build provenance attestation bound to that tag (the first
+  is 0.28.1). `compose.yaml` now pulls that image by default and
+  `SOVEREIGN_MIRROR_IMAGE` pins a verified digest; `up --build` still builds the
+  checkout.
+
 - Publish Sovereign Mac build 10 (core 0.28 / Library 0.24): Developer ID
   signed and Apple notarized (app 088a3489…, DMG 995d3735…), DMG d02c319a… and
   ZIP c116c0f5…. Download pages now point at build 10.

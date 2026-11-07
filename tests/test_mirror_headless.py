@@ -1435,6 +1435,12 @@ def test_deploy_files_match_the_installer_and_proxy_model():
     compose = (deploy / "compose.yaml").read_text()
     assert "network_mode: service:caddy" in compose
     assert "SOVEREIGN_MIRROR_CONSENT" in compose
+    # The published, attested release image is the default; a digest can pin it.
+    image = "${SOVEREIGN_MIRROR_IMAGE:-ghcr.io/foxlight-foundation/sovereign-mirror:"
+    assert image in compose
+    workflow = (ROOT / ".github/workflows/mirror-image.yml").read_text()
+    assert "attest-build-provenance" in workflow
+    assert "push-to-registry: true" in workflow
     caddyfile = (deploy / "Caddyfile").read_text()
     assert "reverse_proxy 127.0.0.1:8080" in caddyfile
     assert not re.search(r"^\s*log\b", caddyfile, re.MULTILINE)
