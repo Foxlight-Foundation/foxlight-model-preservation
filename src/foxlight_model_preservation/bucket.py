@@ -2,8 +2,9 @@
 
 A Sovereign store is only ``manifests/`` and ``objects/sha256/``, which any
 static HTTPS host can serve. A public-read bucket at Cloudflare R2, Backblaze
-B2, Amazon S3, Wasabi or any S3-compatible service is therefore a mirror that
-needs no server, opens no port and exposes no home IP address.
+B2, Amazon S3, Wasabi, Hetzner Object Storage or any S3-compatible service is
+therefore a mirror that needs no server, opens no port and exposes no home IP
+address.
 
 This module uploads with the standard library only (AWS Signature Version 4).
 Every object is verified locally before upload and the signed manifest is
@@ -56,7 +57,7 @@ PART_SIZE = 64 * 1024**2
 CHECK_PATH = ".well-known/sovereign/bucket-check.json"
 KEYCHAIN_SERVICE = "sovereign-bucket"
 
-Provider = Literal["r2", "b2", "s3", "wasabi", "other"]
+Provider = Literal["r2", "b2", "s3", "wasabi", "hetzner", "other"]
 
 
 @dataclass(frozen=True)
@@ -97,6 +98,14 @@ PRESETS: dict[str, ProviderPreset] = {
         ("region", "bucket"),
         False,
         "Create a bucket with public read access in your chosen region.",
+    ),
+    "hetzner": ProviderPreset(
+        "Hetzner Object Storage",
+        ("region", "bucket"),
+        True,
+        "Create a bucket with Visibility set to Public. The region is its "
+        "location: fsn1, nbg1 or hel1. S3 credentials are valid for every bucket "
+        "in the project, so keep this bucket in a project of its own.",
     ),
     "other": ProviderPreset(
         "Other S3-compatible storage",
@@ -167,6 +176,15 @@ def target_for(
     elif provider == "wasabi":
         endpoint = f"https://s3.{region}.wasabisys.com"
         public_url = public_url or f"https://s3.{region}.wasabisys.com/{bucket}"
+    elif provider == "hetzner":
+        # Locations are short codes such as fsn1; they are also the signing region.
+        if region and not re.fullmatch(r"[a-z]{3}[0-9]{1,2}", region):
+            raise PreservationError("bucket_details_invalid")
+        if region:
+            endpoint = f"https://{region}.your-objectstorage.com"
+            public_url = (
+                public_url or f"https://{bucket}.{region}.your-objectstorage.com"
+            )
     if not endpoint or not region or not public_url:
         raise PreservationError("bucket_details_incomplete")
     return BucketTarget(

@@ -13,6 +13,7 @@ const copies=[
 const providers=[
  {id:'r2',name:'Cloudflare R2',asks:['account_id','bucket','public_url'],note:'Recommended: R2 charges nothing for downloads.'},
  {id:'b2',name:'Backblaze B2',asks:['region','bucket'],note:'Create a public bucket.'},
+ {id:'hetzner',name:'Hetzner Object Storage',asks:['region','bucket'],note:'Set the bucket to Public.'},
  {id:'other',name:'Other S3-compatible storage',asks:['endpoint','region','bucket','public_url'],note:'For MinIO.'},
 ];
 const connected={provider:'r2',provider_name:'Cloudflare R2',bucket:'my-models',public_url:'https://pub-abc.r2.dev',model_count:1,last_synced:2000000000,last_error:null};
@@ -152,6 +153,10 @@ test('choosing another provider asks only what that provider needs',async({page}
  await page.getByRole('radio',{name:/Backblaze B2/}).check();
  await expect(page.getByLabel('Account ID')).toHaveCount(0);
  await expect(page.getByLabel('Public address')).toHaveCount(0);
+ await expect(page.getByLabel('Region')).toHaveAttribute('placeholder','For example us-west-004');
+ await page.getByRole('radio',{name:/Hetzner Object Storage/}).check();
+ await expect(page.getByLabel('Region')).toHaveAttribute('placeholder','fsn1, nbg1 or hel1');
+ await page.getByRole('radio',{name:/Backblaze B2/}).check();
  await page.getByLabel('Region').fill('us-west-004');await page.getByLabel('Bucket name').fill('Bad Name');
  await page.getByLabel('Access key ID').fill('k');await page.getByLabel('Secret access key').fill('s');
  await page.getByRole('button',{name:'Check and connect',exact:true}).click();
