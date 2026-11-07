@@ -13,7 +13,9 @@ and [S3 pricing](https://aws.amazon.com/s3/pricing/) before you budget.
 
 - An AWS account you can sign in to as an administrator.
 - The Sovereign desktop app with **Help keep models available** and **Cloud
-  storage**: Library 0.24 or later (Mac build 10, Linux revision 5).
+  storage**: Library 0.24 or later (Mac build 10, Linux revision 5). A public
+  address on the Amazon S3 preset and **Export verification info** need a
+  later version; step 7 notes the setup for 0.24.
 - At least one backed-up model whose licence allows sharing.
 - For the final check: a second computer with the standalone tools.
 
@@ -128,25 +130,32 @@ dots.
    key pair it can keep in the keychain, so this key is limited to one bucket
    instead. Rotate it if you suspect it leaked.
 7. **Connect it in Sovereign.** Open **Sharing → Help keep models available →
-   Cloud storage → Set up cloud storage** and choose **Other S3-compatible
-   storage**. The **Amazon S3** preset does not ask for a public address; it
-   assumes a public bucket, which this guide avoids.
+   Cloud storage → Set up cloud storage** and choose **Amazon S3**:
 
    | Field | Value |
    | --- | --- |
-   | Endpoint | `https://s3.eu-central-1.amazonaws.com` (your Region) |
-   | Region | `eu-central-1` |
+   | Region | `eu-central-1` (your Region) |
    | Bucket name | `sovereign-mirror-example` |
-   | Public address | `https://d1234abcd.cloudfront.net` |
+   | Public address (optional) | `https://d1234abcd.cloudfront.net` |
    | Access key ID / Secret access key | paste from step 6 |
 
-   Sovereign uploads through the Region's S3 endpoint (path-style requests,
-   which S3 supports in all Regions) and tells recipients the CloudFront
-   address. Choose **Check and connect**. The check uploads a test file
-   through S3, then downloads it **through CloudFront**, so a **ready** result
-   proves the OAC path works end to end. If it reports that nobody could
-   download, wait until the distribution has finished deploying and check
-   step 4.
+   With a public address, Sovereign uploads through S3
+   (`https://sovereign-mirror-example.s3.eu-central-1.amazonaws.com`) and
+   tells recipients only the CloudFront address. Leaving it empty would make
+   the bucket's own S3 address the public one, which needs the public bucket
+   this guide avoids. The address must start with `https://`. Choose **Check
+   and connect**. The check uploads a test file through S3, then downloads it
+   **through CloudFront**, so a **ready** result proves the OAC path works end
+   to end. If it reports that nobody could download, wait until the
+   distribution has finished deploying and check step 4.
+
+   > **Older app versions** (Library 0.24 and earlier) have no public address
+   > on the Amazon S3 preset. There, choose **Other S3-compatible storage**
+   > with Endpoint `https://s3.eu-central-1.amazonaws.com`, Region
+   > `eu-central-1`, the bucket name and Public address
+   > `https://d1234abcd.cloudfront.net`. It uploads with path-style requests,
+   > which S3 supports in all Regions. A bucket connected that way keeps
+   > working after you update.
 8. **Set an AWS Budget alarm. Do not skip this.** CloudFront has no spending
    cap on pay-as-you-go. In **Billing and Cost Management → Budgets → Create
    budget**, choose **Use a template (simplified) → Monthly cost budget**.
@@ -159,20 +168,26 @@ dots.
    three times a day, so charges can run for hours before the email. If you
    get one, turn sharing off (see [How to stop](#how-to-stop)). AWS Budgets
    monitoring is free.
-9. **Confirm downloads work from another computer.** In the S3 console, open
-   the bucket's `manifests/` folder and copy one file name without `.json`. On
-   the second computer:
+9. **Confirm downloads work from another computer.** Once the panel lists a
+   model under **In the bucket now**, choose **Export verification info** and
+   save that model's sharing file. Copy the signing key shown there. On the
+   second computer:
 
    ```sh
    curl -fsS -o /dev/null -w '%{http_code}\n' \
      https://d1234abcd.cloudfront.net/manifests/MANIFEST_SHA256.json
-   model-preserve fetch MANIFEST_SHA256 --trust publisher-trust.json \
-     --mirror https://d1234abcd.cloudfront.net --store ./mirror-check
+   model-preserve handoff-inspect --handoff MODEL.foxhandoff
+   model-preserve handoff-fetch --handoff MODEL.foxhandoff \
+     --store ./mirror-check --accept-key ed25519:FINGERPRINT
    ```
 
-   `curl` should print `200`. `publisher-trust.json` is the trust snapshot for
-   the key that signed the model, enrolled independently as for any fetch.
-   Delete `./mirror-check` afterwards.
+   `MANIFEST_SHA256` is the manifest ID the panel shows. `curl` should print
+   `200`. The sharing file names the CloudFront address as its only mirror
+   and carries the signed manifest and its signer's public key; compare the
+   key with the one the app showed you before accepting it. Delete
+   `./mirror-check` afterwards. With a trust file you already hold, the plain
+   `model-preserve fetch MANIFEST_SHA256 --trust publisher-trust.json
+   --mirror https://d1234abcd.cloudfront.net --store ./mirror-check` works too.
 
 ## Caching and invalidation
 
