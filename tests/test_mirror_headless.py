@@ -1446,6 +1446,55 @@ def test_deploy_files_match_the_installer_and_proxy_model():
     assert not re.search(r"^\s*log\b", caddyfile, re.MULTILINE)
     dockerfile = (deploy / "Dockerfile").read_text()
     assert "USER" in dockerfile and "bittorrent" in dockerfile
+    # The optional system unit: a dedicated account, owner-only state, hardening.
+    system = (deploy / "sovereign-mirror@.service").read_text()
+    directives = {
+        line.partition("=")[0]: line.partition("=")[2]
+        for line in system.splitlines()
+        if "=" in line and not line.startswith("#")
+    }
+    run = "/opt/sovereign/current/bin/model-preserve mirror run"
+    assert directives["ExecStart"] == (
+        run + " --dir /var/lib/sovereign/mirrors/%i --resume"
+    )
+    assert directives["User"] == "sovereign"
+    assert directives["StateDirectory"] == "sovereign/mirrors/%i"
+    assert directives["StateDirectoryMode"] == "0700"
+    assert directives["ReadWritePaths"] == "/var/lib/sovereign/mirrors/%i"
+    for key, value in {
+        "NoNewPrivileges": "yes",
+        "CapabilityBoundingSet": "",
+        "UMask": "0077",
+        "ProtectSystem": "strict",
+        "ProtectHome": "yes",
+        "PrivateTmp": "yes",
+        "PrivateDevices": "yes",
+        "ProtectKernelTunables": "yes",
+        "ProtectKernelModules": "yes",
+        "ProtectKernelLogs": "yes",
+        "ProtectControlGroups": "yes",
+        "ProtectClock": "yes",
+        "ProtectHostname": "yes",
+        "RestrictNamespaces": "yes",
+        "RestrictRealtime": "yes",
+        "RestrictSUIDSGID": "yes",
+        "LockPersonality": "yes",
+        "MemoryDenyWriteExecute": "yes",
+        "PrivateUsers": "yes",
+        "SystemCallArchitectures": "native",
+        "Restart": "on-failure",
+        "KillSignal": "SIGTERM",
+    }.items():
+        assert directives[key] == value, key
+    assert "SystemCallFilter=@system-service" in system
+    families = set(directives["RestrictAddressFamilies"].split())
+    assert families <= {"AF_UNIX", "AF_INET", "AF_INET6", "AF_NETLINK"}
+    assert "%h" not in system and "WantedBy=multi-user.target" in system
+    # Its setup script refuses unauthenticated archives and is opt-in.
+    setup = (deploy / "install-system-service.sh").read_text()
+    assert "gh attestation verify" in setup and "--deny-self-hosted-runners" in setup
+    assert "refusing an unverified archive" in setup
+    assert "curl" not in setup and "runuser -u sovereign" in setup
 
 
 def test_no_anonymity_claims_in_mirror_text():
