@@ -1,8 +1,12 @@
+import {readFileSync} from 'node:fs';
 import {test,expect} from '@playwright/test';
+// The core's licence-family definition, exactly as the host sends it.
+const families=JSON.parse(readFileSync(new URL('../../src/foxlight_preservation_library/licence_families_v1.json',import.meta.url),'utf8')) as {families:{id:string;default:boolean;licences:{id:string}[]}[]};
+const familyIds=(id:string)=>families.families.find(family=>family.id===id)!.licences.map(item=>item.id);
 const id='a'.repeat(64),other='b'.repeat(64),none='c'.repeat(64);
 const copy={copy_id:id,manifest_id:id,name:'Open text model',size_bytes:1024,member_count:2};
-const defaults=['apache-2.0','mit','bsd-3-clause','openrail-m'];
-const policy={enabled:false,share:'eligible',licenses:defaults,chosen:[],withheld:[],daily_upload_bytes:20*1024**3,monthly_upload_bytes:300*1024**3,port:8743,consent_expires:null,public_url:null,announce_dht:true,publish_nostr:true,nostr_relays:['wss://relay.one.example','wss://relay.two.example']};
+const defaults=families.families.filter(family=>family.default).flatMap(family=>family.licences.map(item=>item.id));
+const policy={enabled:false,share:'eligible',licenses:defaults,chosen:[],withheld:[],daily_upload_bytes:null as number|null,monthly_upload_bytes:null as number|null,port:8743,consent_expires:null,public_url:null,announce_dht:true,publish_nostr:true,nostr_relays:['wss://relay.one.example','wss://relay.two.example']};
 const copies=[
  {copy_id:id,name:'Open text model',size_bytes:1024,status:'eligible',licenses:['Apache-2.0'],public_manifest_id:null},
  {copy_id:other,name:'Community image model',size_bytes:2048,status:'license_not_selected',licenses:['CC-BY-4.0'],public_manifest_id:null},
@@ -15,7 +19,7 @@ const providers=[
 ];
 const connected={provider:'r2',provider_name:'Cloudflare R2',bucket:'my-models',public_url:'https://pub-abc.r2.dev',model_count:1,last_synced:2000000000,last_error:null};
 const reach={status:'private_network',local_address:'192.168.1.20',port:8743,mirror_url:'http://192.168.1.20:8743'};
-function view(on:boolean,overrides:Record<string,unknown>={}){return {policy:{...policy,enabled:on,consent_expires:on?2000000000:null},consented:on,default_licenses:defaults,copies:on?copies.map(item=>item.status==='eligible'?{...item,status:'sharing',public_manifest_id:'d'.repeat(64)}:item):copies,sharing_count:on?1:0,running:on,http_port:on?8743:null,reachability:reach,last_error:null,bucket:null,bucket_providers:providers,uploaded_today_bytes:0,uploaded_this_month_bytes:0,dht_available:true,dht_announcing:false,nostr_publishing:false,announce_reasons:{dht:['no_reachable_address'],nostr:['no_reachable_address']},...overrides};}
+function view(on:boolean,overrides:Record<string,unknown>={}){return {policy:{...policy,enabled:on,consent_expires:on?2000000000:null},consented:on,default_licenses:defaults,licence_families:families,copies:on?copies.map(item=>item.status==='eligible'?{...item,status:'sharing',public_manifest_id:'d'.repeat(64)}:item):copies,sharing_count:on?1:0,running:on,http_port:on?8743:null,reachability:reach,last_error:null,bucket:null,bucket_providers:providers,uploaded_today_bytes:0,uploaded_this_month_bytes:0,dht_available:true,dht_announcing:false,nostr_publishing:false,announce_reasons:{dht:['no_reachable_address'],nostr:['no_reachable_address']},...overrides};}
 
 test.beforeEach(async({page})=>{
  await page.route('**/api/library*',r=>r.fulfill({json:{host_kind:'sovereign',copies:[copy],jobs:[],next_offset:null}}));
@@ -41,11 +45,25 @@ test('one switch shares every eligible backup after a single standing consent',a
  const start=page.getByRole('button',{name:'Start sharing',exact:true});
  await expect(start).toBeDisabled();
  await expect(page.getByText('will see this computer’s network address',{exact:false})).toBeVisible();
- // Widening the licence policy is one choice for every model, not a per-model review.
- await page.getByLabel('Add a licence').fill('CC-BY-4.0');await page.getByRole('button',{name:'Add',exact:true}).click();
+ // Licence families are one choice for every model, not a per-model review.
+ // Permissive, attribution, copyleft and responsible-AI licences start on.
+ await expect(page.getByText('2 of your 3 backups match.',{exact:false})).toBeVisible();
+ for(const name of ['Permissive','Attribution','Copyleft','Responsible AI'])await expect(page.getByRole('switch',{name:new RegExp('^'+name)})).toBeChecked();
+ const custom=page.getByRole('switch',{name:/^Custom model terms/});
+ await expect(custom).not.toBeChecked();
+ await page.getByRole('switch',{name:/^Copyleft/}).uncheck();
+ // One custom licence is turned on from its family's checklist, with its obligations noted.
+ await page.getByText('Custom model terms licences · 0 of',{exact:false}).click();
+ await expect(page.getByText('Requires attribution and the acceptable-use policy',{exact:false}).first()).toBeVisible();
+ await page.getByRole('checkbox',{name:/Llama 3\.1 Community License/}).check();
+ await expect(custom).not.toBeChecked();
+ // Upload limits are off unless the owner turns them on.
+ await expect(page.getByRole('switch',{name:/^Limit uploads/})).not.toBeChecked();
+ await expect(page.getByText('No upload limit. Uploads are counted',{exact:false})).toBeVisible();
  await page.getByRole('checkbox',{name:'Keep sharing these models from this computer until I turn it off, and announce it publicly on the BitTorrent DHT and 2 Nostr relays.'}).check();
  await start.click();
- expect(configured).toEqual({enabled:true,consent:true,share:'eligible',licenses:[...defaults,'CC-BY-4.0'],public_url:null,announce_dht:true,publish_nostr:true,announce_disclosure:1});
+ const copyleft=familyIds('copyleft');
+ expect(configured).toEqual({enabled:true,consent:true,share:'eligible',licenses:[...defaults.filter(item=>!copyleft.includes(item)),'llama3.1'],daily_upload_bytes:null,monthly_upload_bytes:null,public_url:null,announce_dht:true,publish_nostr:true,announce_disclosure:1});
  await expect(page.locator('#sovereign-main')).not.toHaveAttribute('inert','');
  await expect(panel.getByText('Sharing 1 model',{exact:true})).toBeVisible();
  // Reachability is stated plainly; the router is never changed.
@@ -212,7 +230,7 @@ test('each public announcement is disclosed before consent and named in it',asyn
  await nostr.uncheck();
  await expect(page.getByRole('checkbox',{name:'Keep sharing these models from this computer until I turn it off, without announcing it publicly.'})).toBeChecked();
  await start.click();
- expect(configured).toEqual({enabled:true,consent:true,share:'eligible',licenses:defaults,public_url:'https://models.example.org',announce_dht:false,publish_nostr:false,announce_disclosure:1});
+ expect(configured).toEqual({enabled:true,consent:true,share:'eligible',licenses:defaults,daily_upload_bytes:null,monthly_upload_bytes:null,public_url:'https://models.example.org',announce_dht:false,publish_nostr:false,announce_disclosure:1});
  expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
 });
 
@@ -292,4 +310,38 @@ test('an unusable saved address and a slow address are explained, not fatal',asy
  await panel.getByRole('button',{name:'Check address',exact:true}).click();
  await expect(panel.getByRole('status')).toContainText('answered too slowly, so the check stopped');
  await expect(panel.getByRole('status')).toContainText('best-effort check');
+});
+
+const screenshot=(name:string,info:{project:{name:string};outputPath:(name:string)=>string})=>process.env.LIBRARY_SCREENSHOTS?`${process.env.LIBRARY_SCREENSHOTS}/${info.project.name}-${name}.png`:info.outputPath(`${name}.png`);
+
+test('upload limits are opt-in and a custom licence id is checked before it is added',async({page},info)=>{
+ let configured:Record<string,unknown>|null=null;
+ await page.route('**/api/desktop-community-read',r=>r.fulfill({json:view(false)}));
+ await page.route('**/api/desktop-community-configure',r=>{configured=r.request().postDataJSON();return r.fulfill({json:view(true,{policy:{...policy,enabled:true,consent_expires:2000000000,daily_upload_bytes:5*1024**3,monthly_upload_bytes:300*1024**3}})});});
+ await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();
+ await page.getByRole('region',{name:'Help keep models available'}).getByRole('button',{name:'Turn on',exact:true}).click();
+ const field=page.getByLabel('Custom licence id');
+ await field.fill('Other');await page.getByRole('button',{name:'Add',exact:true}).click();
+ await expect(page.getByText('That doesn’t name a licence',{exact:false})).toBeVisible();
+ await field.fill('EUPL 1.2');await page.getByRole('button',{name:'Add',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Remove eupl-1.2'})).toBeVisible();
+ await page.getByText('Licences that allow sharing').scrollIntoViewIfNeeded();
+ await page.screenshot({path:screenshot('community-licences',info)});
+ const limit=page.getByRole('switch',{name:/^Limit uploads/});
+ await limit.check();
+ await expect(page.getByLabel('Upload limit per day (GB)')).toHaveValue('20');
+ await expect(page.getByLabel('Upload limit per month (GB)')).toHaveValue('300');
+ await page.getByLabel('Upload limit per day (GB)').fill('500');
+ await expect(page.getByText('the daily limit can’t be larger than the monthly one',{exact:false})).toBeVisible();
+ await page.getByRole('checkbox',{name:/Keep sharing these models from this computer/}).check();
+ await expect(page.getByRole('button',{name:'Start sharing',exact:true})).toBeDisabled();
+ await page.getByLabel('Upload limit per day (GB)').fill('5');
+ await limit.scrollIntoViewIfNeeded();
+ await page.screenshot({path:screenshot('community-limits',info)});
+ await page.getByRole('button',{name:'Start sharing',exact:true}).click();
+ expect(configured).toMatchObject({licenses:[...defaults,'eupl-1.2'],daily_upload_bytes:5*1024**3,monthly_upload_bytes:300*1024**3});
+ const panel=page.getByRole('region',{name:'Help keep models available'});
+ await expect(panel.getByText(/of 5(\.0)? GB/)).toBeVisible();
+ await expect(panel.getByText('Permissive, Attribution, Copyleft and Responsible AI',{exact:true})).toBeVisible();
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
 });

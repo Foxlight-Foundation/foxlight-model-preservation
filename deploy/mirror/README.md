@@ -38,6 +38,15 @@ paused), the reason is logged and the container idles; run
 `docker compose exec mirror model-preserve mirror resume --dir /data/mirror`
 or fix the collection, then restart.
 
+Upload caps are opt-in. With `SOVEREIGN_MIRROR_EGRESS_DAILY` and
+`SOVEREIGN_MIRROR_EGRESS_MONTHLY` unset, a new mirror has no upload cap: uploads
+are counted but never refused. Uncapped serving can use a lot of bandwidth, and
+on metered hosting that costs money, so set both (for example `50G` and `1T`) if
+your provider bills for traffic. An existing mirror keeps the caps it already
+has; set a value to `none` to remove one. The disk budget
+(`SOVEREIGN_MIRROR_BUDGET`) and the daily download budget
+(`SOVEREIGN_MIRROR_INGRESS_DAILY`) always stay bounded.
+
 The collection directory must hold `collection.json` and any source file it
 names with `"file"`; alternatively embed the source with `"inline"`.
 

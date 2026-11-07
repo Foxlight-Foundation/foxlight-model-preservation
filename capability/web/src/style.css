@@ -657,3 +657,12 @@ main[inert] .sk-scrim {opacity:0;}
 .sk-licence-add {display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;}
 .sk-licence-add .sk-field {flex:1 1 220px;margin:0;}
 .sk-section-title {margin:8px 0 12px;font-size:17px;}
+.sk-licence-families > ul {list-style:none;margin:0;padding:0;display:grid;gap:4px;}
+.sk-licence-family .sk-details {margin:0 0 8px 16px;}
+.sk-licence-count {margin:0 0 8px;}
+.sk-licence-checklist {list-style:none;margin:0;padding:0;display:grid;gap:8px;}
+.sk-licence-checklist label {display:flex;align-items:flex-start;gap:10px;color:var(--text-1);cursor:pointer;overflow-wrap:anywhere;}
+.sk-licence-checklist input {margin-top:3px;flex:none;}
+.sk-licence-checklist small {display:block;color:var(--muted);}
+.sk-licence-checklist code {font-size:12px;color:var(--text-2);}
+.sk-upload-fields {display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:0 16px;}

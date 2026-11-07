@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+- Licences come in one canonical, versioned family definition
+  (`foxlight_model_preservation.licences`, `licence_families_v1.json`):
+  Permissive, Attribution, Copyleft and Responsible AI are on by default;
+  makers' custom terms (Llama, Gemma, Qwen, non-commercial and similar) are
+  known but off, each with a note on its extra obligations. Unknown, "other"
+  and blank licences still never match. Policies saved earlier keep their
+  exact licence lists.
+
+- Upload caps are opt-in and off by default for the desktop community mirror,
+  the CLI persistent mirror, quickstart and the container. "No cap" is `None`
+  in the community policy (`sovereign.community-mirror.v2`) and the mirror
+  ledger (`foxlight.mirror-state.v6`); uploads are still counted, but never
+  refused or answered with 503 for volume. Pass `--egress-daily none` (or the
+  `none` environment value) to remove a cap. Stored policies and ledgers keep
+  the caps they have; older releases refuse the new formats rather than
+  misread them. The disk budget and the daily download budget stay bounded.
+
+- The persistent mirror can keep a standing intake policy (`mirror config
+  --share all|chosen --licence-families ... --licenses ...`, `mirror
+  withhold`/`release`). The restart grant covers the policy as a whole, so
+  retaining a newly matching public copy keeps the grant; changing the policy,
+  or adopting one on an existing mirror, clears it and needs fresh consent.
+  Withholding a copy only narrows and never clears the grant.
+
 - Publish Sovereign Mac build 10 (core 0.28 / Library 0.24): Developer ID
   signed and Apple notarized (app 088a3489…, DMG 995d3735…), DMG d02c319a… and
   ZIP c116c0f5…. Download pages now point at build 10.

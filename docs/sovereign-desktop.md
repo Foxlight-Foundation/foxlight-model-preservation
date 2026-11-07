@@ -283,17 +283,36 @@ long-lived mirror of its backups. There is one choice, not a step per model:
 
 - **Share every backed-up model whose licence allows it** (the default), or
   **only the models I choose**. With the first, new backups join on their own.
-- **One licence policy** covers every model. It starts with Apache-2.0, MIT,
-  BSD and the OpenRAIL-M family, and you can widen it. The licence comes from
-  the backup itself, or from its original model card for registry backups;
+- **One licence policy** covers every model. Licences come in families, each
+  with its own switch and a checklist of its exact identifiers:
+  **Permissive** (Apache-2.0, MIT, the BSD licences, 0BSD, ISC, zlib, the
+  Unlicense, CC0-1.0), **Attribution** (CC-BY-4.0, CC-BY-3.0), **Copyleft**
+  (GPL-2.0, GPL-3.0, LGPL-2.1, LGPL-3.0, AGPL-3.0, MPL-2.0, CC-BY-SA-4.0) and
+  **Responsible AI** (the OpenRAIL family). All four are on by default.
+  **Custom model terms** (Llama, Gemma, Qwen and similar makers' own licences,
+  and non-commercial ones) are listed but off: each says why, because each adds
+  obligations beyond a standard licence. A **custom licence id** field adds any
+  other identifier. The sheet shows how many of your backups match. Matching is
+  exact and case-insensitive on the licence identifier; the licence comes from
+  the backup itself, or from its original model card for registry backups, and
   common spelled-out names such as "MIT License" are recognized. Eligibility
   follows the licence, never whether the original download was gated. A backup
-  with no identifiable licence, or with any member outside the policy, stays
-  private. You can keep any single backup back.
+  with no identifiable licence ("unknown", "other" or blank), or with any member
+  outside the policy, always stays private. You can keep any single backup back.
+  A policy saved by an earlier version keeps exactly the licences it had.
 - **No hour limit.** Turning the switch on records one standing consent for a
   year; serving then resumes after a restart or reboot with no further step.
-  Turning it off revokes that consent at once. The daily and monthly upload caps
-  still apply (20 GiB and 300 GiB by default).
+  Turning it off revokes that consent at once.
+- **Upload limits are opt-in.** A new setup has no daily or monthly upload
+  limit: uploads are counted and shown, but never stopped. **Limit uploads**
+  reveals daily and monthly limits; sharing then pauses for the day or month
+  once one is reached. Serving popular models without a limit can use a lot of
+  bandwidth, and on a metered connection that can cost money. A policy saved by
+  an earlier version keeps the limits it had (20 GiB a day and 300 GiB a month
+  were the old defaults); turn **Limit uploads** off in **Change what's
+  shared** to remove them. The policy file is then saved in a new format
+  (`sovereign.community-mirror.v2`) that older versions refuse rather than
+  misread.
 
 Each eligible backup joins as a signed public network PMF, exactly as **Create
 public copy** would make it, and the same people sharing the same model and

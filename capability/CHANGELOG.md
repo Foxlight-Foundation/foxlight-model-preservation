@@ -6,6 +6,22 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Both sharing sheets (Sovereign and Library mode) show licence families with
+  a switch each, a per-licence checklist, a custom licence id field and how
+  many of your copies match. Copyleft licences are now on by default; makers'
+  custom terms stay off. The Library ships the core's licence definition byte
+  for byte instead of keeping its own list.
+
+- Upload limits are opt-in: **Limit uploads** is off for a new setup and
+  reveals daily and monthly limits when turned on. Existing limits stay. A
+  Skulk host whose Core can't store "no limit" keeps the switch on and says
+  why (`Uncapped uploads` feature check).
+
+- With a Core that keeps a standing intake policy (`Standing intake` feature
+  check), Turn on saves the share mode and licence list on Core as an `intake`
+  decision covered by the year's grant, and the card and sheet show the saved
+  choice after a reload. Older Cores get no intake decision.
+
 - Sharing in Library mode now opens on one "Help keep models available"
   switch, like Sovereign: choose what to share and a licence list, read what
   the HTTP and BitTorrent exposure reveals, then give one consent that lasts a

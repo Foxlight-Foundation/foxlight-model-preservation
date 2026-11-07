@@ -4,9 +4,10 @@ One switch and one licence policy cover every backup. Eligible backups join on
 their own; there is no per-model step and no hour limit. Serving resumes after a
 restart only under the owner's single standing consent, which is bounded and
 revocable. Upload limits are the owner's choice and off unless turned on;
-the storage allowance is always bounded. Only members whose licence is in the owner's
-selected set are ever published, and a backup with no identifiable licence stays
-private. Withholding or disabling blocks serving without deleting anything.
+the storage allowance is always bounded. Only members whose licence is in the
+owner's selected set are ever published, and a backup with no identifiable
+licence stays private. Withholding or disabling blocks serving without deleting
+anything.
 """
 
 from __future__ import annotations
@@ -931,9 +932,10 @@ class CommunityMirror:
         Unwanted models are withdrawn first, by removing only their manifest, so
         a failing upload can never keep a withheld model public. Turning sharing
         off withdraws them all. Each served model is then uploaded (only missing
-        objects travel, manifest last), charged to the same daily and monthly
-        upload limits as serving. One model's failure does not stop the others;
-        failures are recorded and retried later.
+        objects travel, manifest last), counted against the same daily and
+        monthly upload limits as serving when the owner set them. One model's
+        failure does not stop the others; failures are recorded and retried
+        later.
         """
         with self._bucket_sync_lock:
             return self._sync_bucket(control)
