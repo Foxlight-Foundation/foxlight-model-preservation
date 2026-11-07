@@ -166,6 +166,19 @@ the mirror writes only when one of them is chosen; older releases refuse a v6
 ledger outright instead of misreading it. Existing caps stay exactly as they
 were until you change them.
 
+## Licences travel with every copy
+
+Public intake requires each member to name its licence, a terms reference and
+at least one notice file (the upstream `LICENSE`/`NOTICE`), and a manifest whose
+notice files aren't among the member's files is refused. A mirror serves a
+model's notice files with its weights, so every copy downloaded from it carries
+its licence. A quantized or otherwise converted model is a *modified* work:
+licences that require marking changes (for example Llama's or the Apache
+licence's) apply to such conversions, and their notices must say so. The
+licence families describe common terms in plain words; they are not legal
+advice, and operators are responsible for the law where they run a mirror. A
+public mirror is not anonymous.
+
 ## Standing intake policy
 
 Without a standing policy, every local selection (`mirror retain`) is part of

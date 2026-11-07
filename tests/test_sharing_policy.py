@@ -98,7 +98,7 @@ def another(capture: Capture, name: str) -> str:
 # Licence families --------------------------------------------------------------
 
 
-def test_one_versioned_definition_with_copyleft_on_and_custom_terms_off():
+def test_one_versioned_definition_with_hugging_face_style_defaults():
     loaded = definition()
     assert loaded.version == 1
     families = {family.id: family for family in loaded.families}
@@ -107,10 +107,12 @@ def test_one_versioned_definition_with_copyleft_on_and_custom_terms_off():
         "attribution",
         "copyleft",
         "responsible-ai",
+        "non-commercial",
         "custom",
     ]
-    on = {family for family, value in families.items() if value.default}
-    assert on == {"permissive", "attribution", "copyleft", "responsible-ai"}
+    assert all(family.default for family in families.values())
+    gated = {family for family, value in families.items() if value.acceptance}
+    assert gated == {"responsible-ai", "non-commercial", "custom"}
     ids = {
         family: {licence.id for licence in value.licences}
         for family, value in families.items()
@@ -121,11 +123,34 @@ def test_one_versioned_definition_with_copyleft_on_and_custom_terms_off():
     assert {"gpl-3.0", "agpl-3.0", "lgpl-2.1", "mpl-2.0"} <= ids["copyleft"]
     assert "cc-by-sa-4.0" in ids["copyleft"]
     assert {"openrail", "openrail++", "bigcode-openrail-m"} <= ids["responsible-ai"]
-    assert {"llama3.1", "gemma", "llama4", "qwen"} <= ids["custom"]
-    # Each custom term says why it is off: extra obligations.
-    assert all(licence.note for licence in families["custom"].licences)
-    assert set(DEFAULT_LICENSES).isdisjoint(ids["custom"])
-    assert "gpl-3.0" in DEFAULT_LICENSES and "cc-by-4.0" in DEFAULT_LICENSES
+    assert {"qwen-research", "cc-by-nc-4.0", "cc-by-nc-sa-4.0"} <= ids["non-commercial"]
+    # Non-commercial says when to switch it off.
+    assert "commercially" in families["non-commercial"].summary
+    llama = {"llama2", "llama3", "llama3.1", "llama3.2", "llama3.3", "llama4"}
+    assert llama | {"gemma", "qwen", "tongyi-qianwen"} <= ids["custom"]
+    # Terms Hugging Face hosts and that allow redistribution are on by default.
+    assert llama | {"gemma", "qwen", "tongyi-qianwen"} <= set(DEFAULT_LICENSES)
+    assert "gpl-3.0" in DEFAULT_LICENSES and "cc-by-nc-4.0" in DEFAULT_LICENSES
+    # Terms not confirmed to allow redistribution stay off, and say why.
+    off = {
+        licence.id: licence
+        for family in loaded.families
+        for licence in family.licences
+        if licence.id not in DEFAULT_LICENSES
+    }
+    assert set(off) == {"grok2-community", "deepfloyd-if-license", "apple-amlr"}
+    assert all(item.note and "redistribute" in item.note for item in off.values())
+    # Every gated licence has a plain summary; EU and Gemma notes are explicit.
+    for family in loaded.families:
+        if family.acceptance:
+            assert all(licence.summary for licence in family.licences)
+    licences = {
+        licence.id: licence for family in loaded.families for licence in family.licences
+    }
+    for eu in ("llama3.2", "llama4"):
+        assert "EU" in (licences[eu].warning or "")
+    assert licences["llama3.1"].warning is None
+    assert "Gemma 4 is Apache-2.0" in (licences["gemma"].note or "")
     assert KNOWN_LICENSES.isdisjoint(UNIDENTIFIED)
 
 
@@ -152,8 +177,11 @@ def test_matching_is_exact_and_case_insensitive():
     assert licence_status(["gpl-3.0-or-later"], DEFAULT_LICENSES) == (
         "license_not_selected"
     )
-    assert licence_status(["Llama3.1"], DEFAULT_LICENSES) == "license_not_selected"
-    assert licence_status(["Llama3.1"], [*DEFAULT_LICENSES, "llama3.1"]) == "eligible"
+    assert licence_status(["Llama3.1"], DEFAULT_LICENSES) == "eligible"
+    assert licence_status(["Grok2-Community"], DEFAULT_LICENSES) == (
+        "license_not_selected"
+    )
+    assert licence_status(["llama3.1"], ["mit"]) == "license_not_selected"
 
 
 # Opt-in upload limits ------------------------------------------------------------
@@ -238,7 +266,8 @@ def test_community_policy_limits_are_opt_in_and_old_files_keep_theirs():
     fresh = CommunityPolicy()
     assert fresh.daily_upload_bytes is None and fresh.monthly_upload_bytes is None
     assert fresh.schema_version == "sovereign.community-mirror.v2"
-    assert "gpl-3.0" in fresh.licenses and "llama3" not in fresh.licenses
+    assert "gpl-3.0" in fresh.licenses and "llama3" in fresh.licenses
+    assert "grok2-community" not in fresh.licenses
     stored = CommunityPolicy.model_validate_json(
         json.dumps(
             {
@@ -422,6 +451,53 @@ def test_public_intake_only_still_applies(tmp_path, capture):
     with pytest.raises(PreservationError):
         retain_local(ledger, capture.store, identity, grant(capture))
     assert identity not in ledger.read().models
+
+
+def test_mirrors_serve_only_bundles_that_carry_their_licence_notices(tmp_path, capture):
+    """Public intake binds every member to notice files, and serving includes them."""
+    from foxlight_model_preservation.mirror import public_selection
+    from foxlight_model_preservation.models import Intake
+    from foxlight_model_preservation.operations import OperationControl
+    from foxlight_model_preservation.storage import manifest_path, object_path
+
+    with pytest.raises(ValueError):
+        Intake(
+            audience="public",
+            license_id="llama3.1",
+            terms_reference="LICENSE",
+            decision="fixture",
+            notice_paths=(),
+        )
+    # A notice that is not one of the member's files can't be packed.
+    missing = capture.recipe.model_copy(
+        update={
+            "name": "notice not carried",
+            "members": tuple(
+                member.model_copy(
+                    update={
+                        "intake": member.intake.model_copy(
+                            update={"notice_paths": ("NOT-CARRIED",)}
+                        )
+                    }
+                )
+                for member in capture.recipe.members
+            ),
+        }
+    )
+    with pytest.raises((ValueError, OSError)):
+        pack(missing, capture.sources, capture.store, (capture.key,))
+    ledger = mirror(tmp_path)
+    configure_intake(ledger, intake("test-only"))
+    manifest = retain_local(ledger, capture.store, capture.identity, grant(capture))
+    allowed, _owners = public_selection(ledger, OperationControl())
+    assert "/" + manifest_path(capture.identity) in allowed
+    for member in manifest.members:
+        notices = [
+            file for file in member.files if file.path in member.intake.notice_paths
+        ]
+        assert notices, member.member_id
+        for file in notices:
+            assert "/" + object_path(file.sha256) in allowed
 
 
 # Command line ----------------------------------------------------------------------

@@ -7,10 +7,19 @@ tagged `library-v*`; versions without a tag are source previews installed from
 ## Unreleased
 
 - Both sharing sheets (Sovereign and Library mode) show licence families with
-  a switch each, a per-licence checklist, a custom licence id field and how
-  many of your copies match. Copyleft licences are now on by default; makers'
-  custom terms stay off. The Library ships the core's licence definition byte
-  for byte instead of keeping its own list.
+  a switch each, a per-licence checklist (with summaries, notes and the EU
+  notice for Llama 3.2 and Llama 4), a custom licence id field and how many of
+  your copies match. Defaults follow Hugging Face: every family is on,
+  including Non-commercial and makers' terms that allow redistribution. The
+  Library ships the core's licence definition byte for byte instead of keeping
+  its own list.
+
+- Download reviews in Sovereign (registry and independent sources) and in
+  Library mode show each licence's name, a plain summary and a link to its
+  full text, and ask for "I accept these terms" before downloading a model
+  under use-restricted terms. In Library mode this needs a Core that reports
+  member licences on receive plans (`member_terms`); the acceptance is sent as
+  `accepted_terms`. Older Cores are unchanged.
 
 - Upload limits are opt-in: **Limit uploads** is off for a new setup and
   reveals daily and monthly limits when turned on. Existing limits stay. A

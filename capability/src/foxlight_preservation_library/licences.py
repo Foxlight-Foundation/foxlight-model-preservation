@@ -10,10 +10,12 @@ installed. Nothing here decides anything the core would decide differently.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterable
 from functools import cache
 from importlib.resources import files
 from typing import Final, Literal, cast
+from urllib.parse import quote
 
 from pydantic import JsonValue
 
@@ -49,13 +51,6 @@ def _families() -> list[dict[str, JsonValue]]:
     ]
 
 
-def _ids(family: dict[str, JsonValue]) -> tuple[str, ...]:
-    return tuple(
-        str(cast(dict[str, JsonValue], licence)["id"])
-        for licence in cast(list[JsonValue], family["licences"])
-    )
-
-
 LICENCE_DEFINITION_VERSION: Final = cast(int, definition_json()["version"])
 UNIDENTIFIED: Final = frozenset(
     str(item) for item in cast(list[JsonValue], definition_json()["unidentified"])
@@ -64,11 +59,26 @@ _ALIASES: Final = {
     str(key): str(value)
     for key, value in cast(dict[str, JsonValue], definition_json()["aliases"]).items()
 }
+
+
+def _licences(family: dict[str, JsonValue]) -> list[dict[str, JsonValue]]:
+    return [
+        cast(dict[str, JsonValue], licence)
+        for licence in cast(list[JsonValue], family["licences"])
+    ]
+
+
+# On for a new setup, as in the core: a licence's own default overrides its
+# family's (a maker's terms not known to allow redistribution stay off).
 DEFAULT_LICENSES: Final = tuple(
-    licence
+    str(licence["id"])
     for family in _families()
-    if family.get("default") is True
-    for licence in _ids(family)
+    for licence in _licences(family)
+    if (
+        family.get("default") is True
+        if licence.get("default") is None
+        else licence.get("default") is True
+    )
 )
 
 
@@ -89,3 +99,104 @@ def licence_status(
     if any(item not in selected for item in normalized):
         return "license_not_selected"
     return "eligible"
+
+
+_UNKNOWN_SUMMARY: Final = (
+    "The licence couldn't be identified. Read the terms that come with the "
+    "model before using it."
+)
+_HUB_REPOSITORY: Final = re.compile(r"[A-Za-z0-9][\w.-]{0,95}/[\w.-]{1,96}")
+_HUB_REVISION: Final = re.compile(r"[0-9a-f]{40}")
+
+
+def _text(value: JsonValue, limit: int) -> str | None:
+    return value[:limit] if isinstance(value, str) and value else None
+
+
+def _reference_url(item: dict[str, JsonValue]) -> str | None:
+    """The same rule as the core: link only a plain file at an exact revision."""
+    reference = _text(item.get("reference"), 2048) or ""
+    repository, revision = item.get("repository"), item.get("revision")
+    if reference.startswith("https://huggingface.co/") and not any(
+        character.isspace() for character in reference
+    ):
+        return reference
+    if (
+        not isinstance(repository, str)
+        or not isinstance(revision, str)
+        or _HUB_REPOSITORY.fullmatch(repository) is None
+        or _HUB_REVISION.fullmatch(revision) is None
+        or not reference
+        or reference.startswith(("/", "."))
+        or any(character.isspace() or character in "?#\\" for character in reference)
+        or ":" in reference
+    ):
+        return None
+    return f"https://huggingface.co/{repository}/blob/{revision}/{quote(reference)}"
+
+
+def terms_review(members: list[dict[str, JsonValue]]) -> dict[str, JsonValue]:
+    """The core's terms review, for members Core reports on a receive plan.
+
+    Each member is ``{member, license_id, reference, repository?, revision?}``.
+    Licences with use restrictions or conditions to pass on, and any that
+    can't be identified, need an explicit acceptance before the download.
+    """
+    known: dict[str, tuple[dict[str, JsonValue], dict[str, JsonValue]]] = {
+        str(licence["id"]): (family, licence)
+        for family in _families()
+        for licence in _licences(family)
+    }
+    grouped: dict[str, list[dict[str, JsonValue]]] = {}
+    for item in members:
+        licence = item.get("license_id")
+        grouped.setdefault(
+            normalize_license(licence if isinstance(licence, str) else ""), []
+        ).append(item)
+    rows: list[JsonValue] = []
+    accept: list[str] = []
+    for license_id, listed in grouped.items():
+        references: list[JsonValue] = []
+        for item in listed:
+            reference: dict[str, JsonValue] = {
+                "member": _text(item.get("member"), 200) or "member",
+                "reference": _text(item.get("reference"), 2048) or "not stated",
+                "url": _reference_url(item),
+            }
+            if reference not in references:
+                references.append(reference)
+        found = known.get(license_id)
+        if found is None:
+            unidentified = license_id in UNIDENTIFIED
+            first = listed[0].get("license_id")
+            row: dict[str, JsonValue] = {
+                "license_id": license_id,
+                "name": "No identified licence"
+                if unidentified or not isinstance(first, str)
+                else first.strip()[:200],
+                "family": None,
+                "summary": _UNKNOWN_SUMMARY
+                if unidentified
+                else "These terms aren't in Sovereign's licence list. Read them "
+                "before using the model.",
+                "requires_acceptance": True,
+                "references": references,
+            }
+        else:
+            family, licence = found
+            row = {
+                "license_id": license_id,
+                "name": licence["name"],
+                "family": family["id"],
+                "summary": licence.get("summary") or family["summary"],
+                "requires_acceptance": family.get("acceptance") is True,
+                "references": references,
+            }
+        rows.append(row)
+        if row["requires_acceptance"] is True:
+            accept.append(license_id)
+    return {
+        "definition": LICENCE_DEFINITION_VERSION,
+        "licences": rows,
+        "accept": cast(list[JsonValue], sorted(accept)),
+    }

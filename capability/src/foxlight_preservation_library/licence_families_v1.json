@@ -7,6 +7,7 @@
       "name": "Permissive",
       "summary": "Anyone may copy and share, keeping the licence and copyright notice.",
       "default": true,
+      "acceptance": false,
       "licences": [
         {"id": "apache-2.0", "name": "Apache License 2.0"},
         {"id": "mit", "name": "MIT"},
@@ -25,6 +26,7 @@
       "name": "Attribution",
       "summary": "Anyone may share, crediting the authors as the licence asks.",
       "default": true,
+      "acceptance": false,
       "licences": [
         {"id": "cc-by-4.0", "name": "Creative Commons Attribution 4.0"},
         {"id": "cc-by-3.0", "name": "Creative Commons Attribution 3.0"}
@@ -35,6 +37,7 @@
       "name": "Copyleft",
       "summary": "Anyone may share under the same licence, keeping its notices.",
       "default": true,
+      "acceptance": false,
       "licences": [
         {"id": "gpl-2.0", "name": "GNU GPL 2.0"},
         {"id": "gpl-3.0", "name": "GNU GPL 3.0"},
@@ -50,39 +53,50 @@
       "name": "Responsible AI",
       "summary": "Anyone may share, passing on the licence's use restrictions with every copy.",
       "default": true,
+      "acceptance": true,
       "licences": [
-        {"id": "openrail", "name": "OpenRAIL"},
-        {"id": "openrail-m", "name": "OpenRAIL-M"},
-        {"id": "openrail++", "name": "OpenRAIL++-M"},
-        {"id": "creativeml-openrail-m", "name": "CreativeML OpenRAIL-M"},
-        {"id": "bigscience-openrail-m", "name": "BigScience OpenRAIL-M"},
-        {"id": "bigcode-openrail-m", "name": "BigCode OpenRAIL-M"}
+        {"id": "openrail", "name": "OpenRAIL", "summary": "The licence's use restrictions apply, and must go with every copy."},
+        {"id": "openrail-m", "name": "OpenRAIL-M", "summary": "The licence's use restrictions apply, and must go with every copy."},
+        {"id": "openrail++", "name": "OpenRAIL++-M", "summary": "The licence's use restrictions apply, and must go with every copy."},
+        {"id": "creativeml-openrail-m", "name": "CreativeML OpenRAIL-M", "summary": "The licence's use restrictions apply, and must go with every copy."},
+        {"id": "bigscience-openrail-m", "name": "BigScience OpenRAIL-M", "summary": "The licence's use restrictions apply, and must go with every copy."},
+        {"id": "bigcode-openrail-m", "name": "BigCode OpenRAIL-M", "summary": "The licence's use restrictions apply, and must go with every copy."},
+        {"id": "bigscience-bloom-rail-1.0", "name": "BigScience BLOOM RAIL 1.0", "summary": "BLOOM's use restrictions apply, and must go with every copy."}
+      ]
+    },
+    {
+      "id": "non-commercial",
+      "name": "Non-commercial",
+      "summary": "Anyone may share for non-commercial use only. Switch this off if you run the mirror commercially.",
+      "default": true,
+      "acceptance": true,
+      "licences": [
+        {"id": "cc-by-nc-4.0", "name": "Creative Commons Attribution-NonCommercial 4.0", "summary": "Non-commercial use only; credit the authors."},
+        {"id": "cc-by-nc-sa-4.0", "name": "Creative Commons Attribution-NonCommercial-ShareAlike 4.0", "summary": "Non-commercial use only; credit the authors and share changes under the same licence."},
+        {"id": "qwen-research", "name": "Qwen Research License", "summary": "Research and non-commercial use only, under Alibaba's terms."},
+        {"id": "tongyi-qianwen-research", "name": "Tongyi Qianwen Research License", "summary": "Research and non-commercial use only, under Alibaba's terms."},
+        {"id": "fair-noncommercial-research-license", "name": "FAIR Noncommercial Research License", "summary": "Non-commercial research use only, under Meta's terms."}
       ]
     },
     {
       "id": "custom",
       "name": "Custom model terms",
-      "summary": "A model maker's own terms. Each adds obligations beyond a standard licence, so read them before turning one on.",
-      "default": false,
+      "summary": "A model maker's own terms. Hugging Face hosts these models, often behind a click-through; the conditions go with every copy.",
+      "default": true,
+      "acceptance": true,
       "licences": [
-        {"id": "llama2", "name": "Llama 2 Community License", "note": "Requires the licence and an acceptable-use policy to go with every copy, and limits very large services."},
-        {"id": "llama3", "name": "Llama 3 Community License", "note": "Requires attribution and the acceptable-use policy with every copy, and limits very large services."},
-        {"id": "llama3.1", "name": "Llama 3.1 Community License", "note": "Requires attribution and the acceptable-use policy with every copy, and limits very large services."},
-        {"id": "llama3.2", "name": "Llama 3.2 Community License", "note": "Requires attribution and the acceptable-use policy with every copy, and limits very large services."},
-        {"id": "llama3.3", "name": "Llama 3.3 Community License", "note": "Requires attribution and the acceptable-use policy with every copy, and limits very large services."},
-        {"id": "llama4", "name": "Llama 4 Community License", "note": "Requires attribution and the acceptable-use policy with every copy, and limits very large services."},
-        {"id": "gemma", "name": "Gemma Terms of Use", "note": "Requires passing on the use restrictions and terms with every copy."},
-        {"id": "grok2-community", "name": "Grok 2 Community License", "note": "The maker's own terms add use and redistribution conditions."},
-        {"id": "qwen", "name": "Qwen License", "note": "The maker's own terms add conditions, including for large services."},
-        {"id": "qwen-research", "name": "Qwen Research License", "note": "Research and non-commercial use only."},
-        {"id": "tongyi-qianwen", "name": "Tongyi Qianwen License", "note": "The maker's own terms add conditions, including for large services."},
-        {"id": "tongyi-qianwen-research", "name": "Tongyi Qianwen Research License", "note": "Research and non-commercial use only."},
-        {"id": "bigscience-bloom-rail-1.0", "name": "BigScience BLOOM RAIL 1.0", "note": "Use restrictions differ from OpenRAIL and must go with every copy."},
-        {"id": "deepfloyd-if-license", "name": "DeepFloyd IF Research License", "note": "Research use only, under the maker's own terms."},
-        {"id": "fair-noncommercial-research-license", "name": "FAIR Noncommercial Research License", "note": "Non-commercial research use only."},
-        {"id": "apple-amlr", "name": "Apple Model License for Research", "note": "Research use only, under the maker's own terms."},
-        {"id": "cc-by-nc-4.0", "name": "Creative Commons Attribution-NonCommercial 4.0", "note": "Non-commercial use only."},
-        {"id": "cc-by-nc-sa-4.0", "name": "Creative Commons Attribution-NonCommercial-ShareAlike 4.0", "note": "Non-commercial use only, under the same licence."}
+        {"id": "llama2", "name": "Llama 2 Community License", "summary": "Meta's acceptable use policy applies; copies must include the licence; services with over 700 million monthly users need Meta's permission."},
+        {"id": "llama3", "name": "Llama 3 Community License", "summary": "Meta's acceptable use policy applies; attribution “Built with Meta Llama 3” required; copies must include the licence."},
+        {"id": "llama3.1", "name": "Llama 3.1 Community License", "summary": "Meta's acceptable use policy applies; attribution “Built with Llama” required; copies must include the licence."},
+        {"id": "llama3.2", "name": "Llama 3.2 Community License", "summary": "Meta's acceptable use policy applies; attribution “Built with Llama” required; copies must include the licence.", "warning": "Meta's terms don't license the Llama 3.2 vision models to people or companies based in the EU. If you are in the EU, switch Llama 3.2 off."},
+        {"id": "llama3.3", "name": "Llama 3.3 Community License", "summary": "Meta's acceptable use policy applies; attribution “Built with Llama” required; copies must include the licence."},
+        {"id": "llama4", "name": "Llama 4 Community License", "summary": "Meta's acceptable use policy applies; attribution “Built with Llama” required; copies must include the licence.", "warning": "Meta's terms don't license Llama 4 to people or companies based in the EU. If you are in the EU, switch Llama 4 off."},
+        {"id": "gemma", "name": "Gemma Terms of Use", "summary": "Google's terms and prohibited use policy apply, and must go with every copy.", "note": "Covers Gemma 1 to 3. Gemma 4 is Apache-2.0, so it counts as permissive."},
+        {"id": "qwen", "name": "Qwen License", "summary": "Alibaba's terms go with every copy; services with over 100 million monthly users need Alibaba's permission."},
+        {"id": "tongyi-qianwen", "name": "Tongyi Qianwen License", "summary": "Alibaba's terms go with every copy; services with over 100 million monthly users need Alibaba's permission."},
+        {"id": "grok2-community", "name": "Grok 2 Community License", "summary": "xAI's own terms apply, and must go with every copy.", "default": false, "note": "Off: we couldn't confirm these terms allow anyone to redistribute the model. Read them before turning this on."},
+        {"id": "deepfloyd-if-license", "name": "DeepFloyd IF Research License", "summary": "Research use only, under the maker's terms.", "default": false, "note": "Off: we couldn't confirm these terms allow anyone to redistribute the model. Read them before turning this on."},
+        {"id": "apple-amlr", "name": "Apple Model License for Research", "summary": "Research use only, under Apple's terms.", "default": false, "note": "Off: we couldn't confirm these terms allow anyone to redistribute the model. Read them before turning this on."}
       ]
     }
   ],

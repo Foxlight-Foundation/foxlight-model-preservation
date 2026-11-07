@@ -25,6 +25,12 @@ from pydantic import Field, JsonValue
 from ..archives import ArchiveManifest, verify_archive
 from ..cards import identity_json
 from ..kits import export_kit, import_kit, inspect_kit, read_kit_envelope
+from ..licences import (
+    LICENCE_DEFINITION_VERSION,
+    TermsAcceptance,
+    member_terms,
+    terms_review,
+)
 from ..mirror_directory import fetch_with_mirrors, load_seeds
 from ..mirror_models import MirrorObservation
 from ..models import Manifest, PreservationError, Record, TrustProfile
@@ -476,6 +482,54 @@ class LocalOwner:
     def _missing() -> Copy:
         raise PreservationError("sovereign_copy_unavailable")
 
+    def _accept_terms(
+        self,
+        plan: dict[str, JsonValue],
+        plan_id: str,
+        operation_id: str,
+        accepted: JsonValue,
+    ) -> None:
+        """Require the reviewed terms to be accepted, and record it before work.
+
+        Mirrors the Hugging Face gate: a model whose licence has use
+        restrictions or conditions to pass on is kept only after the person
+        ticks "I accept these terms" for exactly those licences. The record is
+        written before the job starts, beside the job it belongs to.
+        """
+        terms = plan.get("terms")
+        required = terms.get("accept") if isinstance(terms, dict) else None
+        wanted = (
+            sorted(str(item) for item in required) if isinstance(required, list) else []
+        )
+        job_id = digest(
+            identity_json({"operation_id": operation_id, "plan_id": plan_id})
+        )
+        if any(job.job_id == job_id for job in self._journal.jobs):
+            return  # A replay of a started job; its acceptance is on record.
+        if accepted is None:
+            if wanted:
+                raise PreservationError("terms_acceptance_required")
+            return
+        if (
+            not isinstance(accepted, list)
+            or not all(isinstance(item, str) for item in accepted)
+            or sorted(cast(list[str], accepted)) != wanted
+        ):
+            raise PreservationError("terms_acceptance_required")
+        if not wanted or not isinstance(terms, dict):
+            return
+        record = TermsAcceptance(
+            plan_id=plan_id,
+            job_id=job_id,
+            name=str(plan.get("name", ""))[:1000] or "model",
+            definition=cast(int, terms.get("definition", LICENCE_DEFINITION_VERSION)),
+            accepted=tuple(wanted),
+            accepted_at=int(time.time()),
+        )
+        atomic_bytes(
+            self._root, "terms-acceptance/" + job_id + ".json", encode_record(record)
+        )
+
     def _plan(self, value: dict[str, JsonValue]) -> dict[str, JsonValue]:
         if value.get("kind") in {"receive", "source_receive"}:
             # This is the same conservative reserve enforced again by the
@@ -768,6 +822,20 @@ class LocalOwner:
                         historical = False
                     except PreservationError:
                         historical = True
+                    details = card_summary(
+                        card,
+                        metadata=captured_card_metadata(proof, card),
+                        selected_files=(
+                            path
+                            for repository, revision, path in selected_files
+                            if (repository, revision)
+                            == (
+                                card.artifact.repository,
+                                card.artifact.revision,
+                            )
+                        ),
+                    )
+                    card_license = details.get("license")
                     return self._plan(
                         {
                             "kind": "receive",
@@ -775,18 +843,14 @@ class LocalOwner:
                             "catalog_id": body["catalog_id"],
                             "card_id": card.card_id,
                             "recipe": recipe.model_dump(mode="json"),
-                            "details": card_summary(
-                                card,
-                                metadata=captured_card_metadata(proof, card),
-                                selected_files=(
-                                    path
-                                    for repository, revision, path in selected_files
-                                    if (repository, revision)
-                                    == (
-                                        card.artifact.repository,
-                                        card.artifact.revision,
-                                    )
-                                ),
+                            "details": details,
+                            "terms": terms_review(
+                                member_terms(
+                                    recipe.members,
+                                    fallback=card_license
+                                    if isinstance(card_license, str)
+                                    else "",
+                                )
                             ),
                             "historical": historical,
                             "file_count": len(selected_files),
@@ -880,7 +944,8 @@ class LocalOwner:
                 raise PreservationError("invalid_control")
             if (
                 action == "start"
-                and set(body) == {"plan_id", "operation_id", "confirmed"}
+                and set(body) - {"accepted_terms"}
+                == {"plan_id", "operation_id", "confirmed"}
                 and body["confirmed"] is True
             ):
                 plan_id = str(body["plan_id"])
@@ -891,6 +956,9 @@ class LocalOwner:
                 )
                 if not isinstance(plan, dict) or digest(identity_json(plan)) != plan_id:
                     raise PreservationError("plan_changed")
+                self._accept_terms(
+                    plan, plan_id, str(body["operation_id"]), body.get("accepted_terms")
+                )
                 return self._start(
                     {**plan, "plan_id": plan_id}, str(body["operation_id"])
                 )

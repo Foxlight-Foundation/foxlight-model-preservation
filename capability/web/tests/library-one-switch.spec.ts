@@ -3,8 +3,8 @@ import {test,expect,type Locator,type Page} from '@playwright/test';
 
 const gib=1024**3;
 // The core's licence-family definition, exactly as the Library server sends it.
-const families=JSON.parse(readFileSync(new URL('../../src/foxlight_preservation_library/licence_families_v1.json',import.meta.url),'utf8')) as {families:{id:string;default:boolean;licences:{id:string}[]}[]};
-const defaultLicences=families.families.filter(family=>family.default).flatMap(family=>family.licences.map(item=>item.id));
+const families=JSON.parse(readFileSync(new URL('../../src/foxlight_preservation_library/licence_families_v1.json',import.meta.url),'utf8')) as {families:{id:string;default:boolean;licences:{id:string;default?:boolean}[]}[]};
+const defaultLicences=families.families.flatMap(family=>family.licences.filter(item=>item.default??family.default).map(item=>item.id));
 const copyleft=families.families.find(family=>family.id==='copyleft')!.licences.map(item=>item.id);
 const defaults={name:'Library community mirror',disk_bytes:50*gib,ingress_daily:20*gib,egress_daily:null as number|null,egress_monthly:null as number|null,http:true,exposure:'network',port:8743,ipfs:false,torrent:false,peer_setup_id:null,max_active:2,session_seconds:3600,session_bytes:64*1024**2,upload_rate:1024**2};
 const publicCopy=(n:string,model:string)=>({copy_id:n.repeat(64),model_id:model,location_id:'public-copy',manifest_id:String.fromCharCode(n.charCodeAt(0)+1).repeat(64),audience:'public',size_bytes:4*gib,checked_at:1,member_count:1,publisher_key_ids:['ed25519:'+'f'.repeat(64)]});
@@ -146,7 +146,7 @@ test('one consent after the disclosures shares only public-licence copies for a 
   await expect(card(page).getByText(/including after restarts, then asks again/)).toBeVisible();
   await expect(card(page).getByText('No limit · uploads are counted, never stopped',{exact:true})).toBeVisible();
   // The saved choice comes back from the host, not from defaults.
-  await expect(card(page).getByText('Permissive, Attribution and Responsible AI',{exact:true})).toBeVisible();
+  await expect(card(page).getByText('Permissive, Attribution, Responsible AI, Non-commercial and some custom model terms',{exact:true})).toBeVisible();
   expect(state.starts).toEqual([]);
   await stableView(page,shots('sharing-on',info));
 });

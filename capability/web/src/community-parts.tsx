@@ -30,7 +30,7 @@ export function LicenceList({licenses,onChange,defaults}:{licenses:string[];onCh
 }
 
 /** The core's versioned licence-family definition, as the host sends it. */
-export interface LicenceFamily {id:string;name:string;summary:string;default:boolean;licences:{id:string;name:string;note?:string}[]}
+export interface LicenceFamily {id:string;name:string;summary:string;default:boolean;acceptance?:boolean;licences:{id:string;name:string;summary?:string;note?:string;warning?:string;default?:boolean}[]}
 export interface LicenceDefinition {schema_version:string;version:number;families:LicenceFamily[];unidentified:string[];aliases:Record<string,string>}
 
 /** Compare identifiers as the core does: case-insensitive, spaces as dashes, a few aliases. */
@@ -60,7 +60,9 @@ export function LicenceFamilies({definition,licenses,onChange,copies,noun}:{defi
  const chosen=new Set(licenses.map(item=>normalizeLicence(item,definition)));
  const known=new Set(definition.families.flatMap(family=>family.licences.map(item=>item.id)));
  const custom=[...chosen].filter(item=>!known.has(item));
- const defaults=definition.families.filter(family=>family.default).flatMap(family=>family.licences.map(item=>item.id));
+ // A licence's own default overrides its family's, as in the core definition.
+ const defaults=definition.families.flatMap(family=>family.licences.filter(item=>item.default??family.default).map(item=>item.id));
+ const warnings=definition.families.flatMap(family=>family.licences.filter(item=>item.warning&&chosen.has(item.id)).map(item=>item.warning as string));
  const order=(next:Set<string>)=>[...definition.families.flatMap(family=>family.licences.map(item=>item.id)).filter(item=>next.has(item)),...[...next].filter(item=>!known.has(item))];
  const set=(ids:string[],on:boolean)=>{const next=new Set(chosen);for(const id of ids){if(on)next.add(id);else next.delete(id);}onChange(order(next));};
  const matching=copies.filter(item=>licenceMatches(item.licenses,licenses,definition)).length;
@@ -73,12 +75,14 @@ export function LicenceFamilies({definition,licenses,onChange,copies,noun}:{defi
    return <li key={family.id} className="sk-licence-family">
     <label className="sk-consent"><input type="checkbox" role="switch" aria-checked={all} checked={all} ref={node=>{if(node)node.indeterminate=some;}} onChange={event=>set(ids,event.target.checked)}/><span><strong>{family.name}</strong>{some&&<> · {count} of {ids.length}</>}<small>{family.summary}{uses>0&&` ${familyUse(uses,noun)}`}</small></span></label>
     <Details summary={`${family.name} licences · ${count} of ${ids.length} on`}>
-     <ul className="sk-licence-checklist">{family.licences.map(item=><li key={item.id}><label><input type="checkbox" checked={chosen.has(item.id)} onChange={event=>set([item.id],event.target.checked)}/> <span>{item.name} <code>{item.id}</code>{item.note&&<small>{item.note}</small>}</span></label></li>)}</ul>
+     <ul className="sk-licence-checklist">{family.licences.map(item=><li key={item.id}><label><input type="checkbox" checked={chosen.has(item.id)} onChange={event=>set([item.id],event.target.checked)}/> <span>{item.name} <code>{item.id}</code>{item.summary&&<small>{item.summary}</small>}{item.note&&<small>{item.note}</small>}{item.warning&&<small className="sk-licence-warning">{item.warning}</small>}</span></label></li>)}</ul>
     </Details>
    </li>;})}</ul>
   {custom.length>0&&<ul className="sk-community-licences" aria-label="Custom licence identifiers">{custom.map(item=><li key={item} className="sk-licence-chip">{item}<button type="button" aria-label={`Remove ${item}`} onClick={()=>set([item],false)}>×</button></li>)}</ul>}
   <div className="sk-licence-add"><label className="sk-field">Custom licence id<input className="sk-input" value={extra} maxLength={200} placeholder="For example eupl-1.2" aria-invalid={invalid||undefined} onChange={event=>{setExtra(event.target.value);setInvalid(false);}} onKeyDown={event=>{if(event.key==='Enter'){event.preventDefault();add();}}}/></label><button type="button" className="sk-btn sk-outline" disabled={!extra.trim()} onClick={add}>Add</button></div>
   {invalid&&<p className="sk-hint" role="alert">That doesn’t name a licence, so it can’t be added. Copies with it stay private.</p>}
+  {warnings.length>0&&<Callout tone="warn">{warnings.map(item=><p key={item}>{item}</p>)}</Callout>}
+  <p className="sk-hint">Licence families describe common terms in plain words; this isn’t legal advice. You’re responsible for the terms that apply where you run this.</p>
   {(defaults.some(id=>!chosen.has(id))||[...chosen].some(id=>!defaults.includes(id)))&&<button type="button" className="sk-btn sk-outline" onClick={()=>onChange(defaults)}>Use the default licences</button>}
  </div>;
 }

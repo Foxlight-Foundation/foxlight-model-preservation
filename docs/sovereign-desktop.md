@@ -287,19 +287,36 @@ long-lived mirror of its backups. There is one choice, not a step per model:
   with its own switch and a checklist of its exact identifiers:
   **Permissive** (Apache-2.0, MIT, the BSD licences, 0BSD, ISC, zlib, the
   Unlicense, CC0-1.0), **Attribution** (CC-BY-4.0, CC-BY-3.0), **Copyleft**
-  (GPL-2.0, GPL-3.0, LGPL-2.1, LGPL-3.0, AGPL-3.0, MPL-2.0, CC-BY-SA-4.0) and
-  **Responsible AI** (the OpenRAIL family). All four are on by default.
-  **Custom model terms** (Llama, Gemma, Qwen and similar makers' own licences,
-  and non-commercial ones) are listed but off: each says why, because each adds
-  obligations beyond a standard licence. A **custom licence id** field adds any
-  other identifier. The sheet shows how many of your backups match. Matching is
-  exact and case-insensitive on the licence identifier; the licence comes from
-  the backup itself, or from its original model card for registry backups, and
-  common spelled-out names such as "MIT License" are recognized. Eligibility
-  follows the licence, never whether the original download was gated. A backup
-  with no identifiable licence ("unknown", "other" or blank), or with any member
-  outside the policy, always stays private. You can keep any single backup back.
-  A policy saved by an earlier version keeps exactly the licences it had.
+  (GPL-2.0, GPL-3.0, LGPL-2.1, LGPL-3.0, AGPL-3.0, MPL-2.0, CC-BY-SA-4.0),
+  **Responsible AI** (the OpenRAIL family and BLOOM RAIL), **Non-commercial**
+  (CC-BY-NC-4.0, CC-BY-NC-SA-4.0, the Qwen and Tongyi Qianwen research licences
+  and the FAIR non-commercial research licence) and **Custom model terms**
+  (Llama 2, 3, 3.1, 3.2, 3.3 and 4, Gemma, Qwen and Tongyi Qianwen).
+  - The defaults follow Hugging Face: a model Hugging Face hosts publicly, gated
+    behind a licence acceptance or not, is not restricted further here. Every
+    family is on, including makers' own terms that allow redistribution.
+  - Switch **Non-commercial** off if you run the mirror commercially.
+  - Grok 2, DeepFloyd IF and Apple's research licence are listed but off: we
+    couldn't confirm their terms let anyone redistribute the model, and each says
+    so.
+  - Llama 3.2 and Llama 4 have their own switches. Meta's terms don't license
+    the Llama 3.2 vision models or Llama 4 to people or companies based in the
+    EU, so the sheet shows that notice while either is on; operators in the EU
+    should switch them off.
+  - The `gemma` identifier covers Gemma 1 to 3. Gemma 4 is Apache-2.0, so it
+    counts as permissive.
+  - A **custom licence id** field adds any other identifier, and the sheet shows
+    how many of your backups match. Matching is exact and case-insensitive on the
+    licence identifier; the licence comes from the backup itself, or from its
+    original model card for registry backups, and common spelled-out names such
+    as "MIT License" are recognized. Eligibility follows the licence, never
+    whether the original download was gated. A backup with no identifiable
+    licence ("unknown", "other" or blank), or with any member outside the policy,
+    always stays private. You can keep any single backup back. A policy saved by
+    an earlier version keeps exactly the licences it had.
+  - The families describe common terms in plain words. This is not legal
+    advice: operators are responsible for the terms that apply where they run a
+    mirror.
 - **No hour limit.** Turning the switch on records one standing consent for a
   year; serving then resumes after a restart or reboot with no further step.
   Turning it off revokes that consent at once.
@@ -313,6 +330,25 @@ long-lived mirror of its backups. There is one choice, not a step per model:
   shared** to remove them. The policy file is then saved in a new format
   (`sovereign.community-mirror.v2`) that older versions refuse rather than
   misread.
+
+### Accepting a model's terms
+
+Keeping or downloading a model works like Hugging Face's gated models. When a
+model's licence has use restrictions or conditions to pass on (responsible-AI,
+non-commercial or a maker's own terms), or its licence can't be identified, the
+download review lists each licence with:
+
+- its name;
+- a short plain summary, such as "Non-commercial use only" or "Meta's
+  acceptable use policy applies; attribution 'Built with Llama' required";
+- a link to its full text, which is also carried in the bundle.
+
+**Download & preserve** stays disabled until you tick **I accept these terms**,
+separately from the selection consent. Sovereign records the acceptance
+(`terms-acceptance/<job>.json`: the licences, the definition version and when)
+before any byte is fetched; the job links it to the copy it creates. Plain
+permissive, attribution and copyleft licences are listed but need no tick. This
+describes the terms; it is not legal advice.
 
 Each eligible backup joins as a signed public network PMF, exactly as **Create
 public copy** would make it, and the same people sharing the same model and

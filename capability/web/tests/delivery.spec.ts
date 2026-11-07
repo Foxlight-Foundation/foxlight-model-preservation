@@ -73,3 +73,22 @@ test('changing mirror hints during invitation export cannot mark the new handoff
 test('another invitation signed by the same candidate key resets identity and threshold confirmations',async({page})=>{
  await inventory(page,{locations:[],copies:[]});await upload(page);let inspections=0;await page.route('**/api/invitation-inspect',route=>route.fulfill({json:{...preview,manifest_id:inspections++===0?manifest:'9'.repeat(64)}}));await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();await page.getByRole('button',{name:'Receive shared model'}).click();const file={name:'first.json',mimeType:'application/json',buffer:Buffer.from('first invitation')};await page.getByLabel('Invitation file',{exact:true}).setInputFiles(file);await page.getByLabel('I independently checked this fingerprint').check();await page.getByLabel('I independently authenticated the exact bundle identity').check();await page.getByLabel('I independently authenticated the required signature threshold').check();await expect(page.getByRole('button',{name:'Review download',exact:true})).toBeEnabled();await page.getByLabel('Invitation file',{exact:true}).setInputFiles({...file,name:'another.json'});await expect(page.getByText('9'.repeat(64),{exact:true})).toBeVisible();await expect(page.getByLabel('I independently authenticated the exact bundle identity')).not.toBeChecked();await expect(page.getByLabel('I independently authenticated the required signature threshold')).not.toBeChecked();await page.getByLabel('I independently checked this fingerprint').check();await expect(page.getByRole('button',{name:'Review download',exact:true})).toBeDisabled();
 });
+
+test('a received model under use-restricted terms needs I accept these terms',async({page})=>{
+  await inventory(page,{locations:[],copies:[]});await upload(page);
+  let started:Record<string,unknown>|null=null;
+  await page.route('**/api/invitation-inspect',route=>route.fulfill({json:preview}));
+  await page.route('**/api/delivery-plan',route=>route.fulfill({json:{...basePlan,kind:'receive',location_id:'invitation',terms:{definition:1,accept:['llama3.1'],licences:[{license_id:'llama3.1',name:'Llama 3.1 Community License',family:'custom',summary:'Meta’s acceptable use policy applies; attribution “Built with Llama” required; copies must include the licence.',requires_acceptance:true,references:[{member:'weights',reference:'LICENSE',url:'https://huggingface.co/meta-llama/Llama-3.1-8B/blob/'+'b'.repeat(40)+'/LICENSE'}]},{license_id:'mit',name:'MIT',family:'permissive',summary:'Anyone may copy and share, keeping the licence and copyright notice.',requires_acceptance:false,references:[{member:'tokenizer',reference:'LICENSE',url:null}]}]},receiving:{mirrors:preview.mirrors,max_bytes:3*preview.size_bytes+8*1024**2,deadline_seconds:86400,allow_http:false,allow_private:false}}}));
+  await page.route('**/api/start',route=>{started=route.request().postDataJSON();return route.fulfill({json:{}});});
+  await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();await page.getByRole('button',{name:'Receive shared model'}).click();await page.getByLabel('Invitation file',{exact:true}).setInputFiles({name:'model.invitation.json',mimeType:'application/json',buffer:Buffer.from('candidate invitation')});
+  await page.getByLabel('I independently checked this fingerprint').check();await page.getByLabel('I independently authenticated the exact bundle identity').check();await page.getByLabel('I independently authenticated the required signature threshold').check();await page.getByRole('button',{name:'Review download',exact:true}).click();
+  const terms=page.getByLabel('Licence terms');
+  await expect(terms.getByText('Llama 3.1 Community License',{exact:true})).toBeVisible();
+  await expect(terms.getByRole('link',{name:/Read the full terms/})).toHaveAttribute('href',/\/LICENSE$/);
+  await page.getByLabel('I accept this exact signed copy').check();
+  const download=page.getByRole('button',{name:'Download model',exact:true});
+  await expect(download).toBeDisabled();
+  await terms.getByRole('checkbox',{name:/I accept these terms/}).check();
+  await download.click();
+  expect(started).toMatchObject({plan_id:basePlan.plan_id,accept_owner_capture:true,accepted_terms:['llama3.1']});
+});

@@ -291,6 +291,7 @@ async def test_reading_and_reviewing_is_receive_only(core: Any) -> None:
         "attribution",
         "copyleft",
         "responsible-ai",
+        "non-commercial",
         "custom",
     ]
     assert state["licence_definition"] == families["version"] == 1
