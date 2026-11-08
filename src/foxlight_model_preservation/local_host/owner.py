@@ -1539,8 +1539,18 @@ class LocalOwner:
                 )
                 self._gossip_thread.start()
 
+    # Seconds before retrying a bucket sync that failed; doubles up to a round.
+    _bucket_retry = 30.0
+
     def _gossip_loop(self) -> None:
-        """Every 15 minutes while sharing: announce, find and check mirrors."""
+        """Every 15 minutes while sharing: announce, find and check mirrors.
+
+        A round whose bucket upload or withdrawal failed (other than at the
+        owner's upload limit, which renews by itself) comes back sooner, backing
+        off from ``_bucket_retry`` seconds, so one refused request does not keep
+        a model off the bucket until the next discovery round.
+        """
+        retry = self._bucket_retry
         try:
             while not self._stopping.is_set() and self.community.consented():
                 control = OperationControl()
@@ -1559,7 +1569,20 @@ class LocalOwner:
                 # DHT entries expire after about half an hour; re-announce sooner.
                 # A policy change wakes this worker at once, so opting out or
                 # turning the DHT off takes effect immediately.
-                self._gossip_wake.wait(900)
+                delay = 900.0
+                try:
+                    bucket = self.community.bucket()
+                except (ValueError, OSError):
+                    bucket = None
+                if (
+                    bucket is not None
+                    and bucket.last_error is not None
+                    and bucket.last_error != "bucket_upload_limit_reached"
+                ):
+                    delay, retry = retry, min(retry * 2, 900.0)
+                else:
+                    retry = self._bucket_retry
+                self._gossip_wake.wait(delay)
                 self._gossip_wake.clear()
         finally:
             self.community.close_rendezvous()

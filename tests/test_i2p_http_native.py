@@ -143,13 +143,20 @@ def test_stock_i2p_http_updates_and_full_recovery(capture, native_network, tmp_p
                     stderr=subprocess.STDOUT,
                 )
             )
-        wait_until(
-            lambda: all(
+
+        def helpers_ready():
+            # A helper that exited never becomes ready: say so now, not later.
+            for mode, process in zip(("server", "client"), processes, strict=True):
+                if process.poll() is not None:
+                    raise AssertionError(f"I2P {mode} helper exited")
+            return all(
                 (tmp_path / mode / "ready.txt").exists()
                 for mode in ("server", "client")
-            ),
-            seconds=90,
-        )
+            )
+
+        # Building tunnels in the private network takes as long as the routers'
+        # own readiness (up to 125 s in the fixture) on a loaded runner.
+        wait_until(helpers_ready, seconds=150)
         base = "http://" + (tmp_path / "server/destination.txt").read_text()
         publisher.mirrors = (base + "/model",)
         publisher.publish()
@@ -174,7 +181,10 @@ def test_stock_i2p_http_updates_and_full_recovery(capture, native_network, tmp_p
                 return False
 
         # A local listener/session is not proof that the remote lease is routable.
-        wait_until(reachable, seconds=90)
+        # In the private network a fresh lease set can take over two minutes to
+        # become findable (CI artifacts show first replies after ~130 s), so wait
+        # on actual reachability with room for that, not a fixed sleep.
+        wait_until(reachable, seconds=240)
         status = refresh_source_i2p(
             cache, source_identity(bootstrap), proxy=proxy, allow_i2p=True
         )
