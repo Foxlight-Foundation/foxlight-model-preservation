@@ -380,6 +380,7 @@ async def test_bucket_contents_is_an_allowed_control(tmp_path):
                 "models": [],
                 "total": 0,
                 "offset": 0,
+                "next_offset": None,
                 "public_url": None,
             }
     finally:

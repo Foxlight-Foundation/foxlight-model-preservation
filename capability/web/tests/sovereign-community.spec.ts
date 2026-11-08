@@ -432,7 +432,7 @@ async function sent_(page:Page,button:Locator){await sent(page,button,'desktop-c
 test('an R2 bucket in a jurisdiction is connected at that jurisdiction',async({page},info)=>{
  let bucket:Record<string,unknown>|null=null;const sentBodies:Record<string,unknown>[]=[];
  await page.route('**/api/desktop-community-read',r=>r.fulfill({json:view(true,{bucket})}));
- await page.route('**/api/desktop-community-bucket-contents',r=>r.fulfill({json:{models:[],total:0,offset:0,public_url:'https://mirror.example.org'}}));
+ await page.route('**/api/desktop-community-bucket-contents',r=>r.fulfill({json:{models:[],total:0,offset:0,next_offset:null,public_url:'https://mirror.example.org'}}));
  await page.route('**/api/desktop-community-bucket-connect',r=>{sentBodies.push(r.request().postDataJSON());bucket={...connected,public_url:'https://mirror.example.org',jurisdiction:'eu',model_count:0};return r.fulfill({json:{...view(true,{bucket}),status:'ready'}});});
  await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();
  const panel=page.getByRole('region',{name:'Help keep models available'});
@@ -453,13 +453,16 @@ test('an R2 bucket in a jurisdiction is connected at that jurisdiction',async({p
 test('the bucket lists what it serves and exports verification info for recipients',async({page},info)=>{
  const first='e'.repeat(64),second='f'.repeat(64),key='ed25519:'+'1'.repeat(64);
  const models=[
-  {manifest_id:first,name:'Open text model',size_bytes:3*1024**3,synced_at:1999990000,keys:[key]},
-  {manifest_id:second,name:null,size_bytes:null,synced_at:null,keys:[]},
+  {manifest_id:first,name:'Open text model',size_bytes:3*1024**3,synced_at:1999990000},
+  {manifest_id:second,name:null,size_bytes:null,synced_at:null},
  ];
  const offsets:number[]=[];
  await page.route('**/api/desktop-community-read',r=>r.fulfill({json:view(true,{bucket:{...connected,model_count:3}})}));
  await page.route('**/api/desktop-community-bucket-contents',r=>{const {offset}=r.request().postDataJSON();offsets.push(offset);
-  return r.fulfill({json:offset===0?{models,total:3,offset:0,public_url:connected.public_url}:{models:[{manifest_id:'9'.repeat(64),name:'Third model',size_bytes:1024,synced_at:1999999000,keys:[key]}],total:3,offset:2,public_url:connected.public_url}});});
+  return r.fulfill({json:offset===0?{models,total:3,offset:0,next_offset:2,public_url:connected.public_url}:{models:[{manifest_id:'9'.repeat(64),name:'Third model',size_bytes:1024,synced_at:1999999000}],total:3,offset:2,next_offset:null,public_url:connected.public_url}});});
+ // Signing keys are read per model, only for the export.
+ const asked:string[]=[];
+ await page.route('**/api/desktop-community-bucket-keys',r=>{const {manifest_id}=r.request().postDataJSON();asked.push(manifest_id);return r.fulfill({json:{manifest_id,keys:manifest_id===second?[]:[key],threshold:1}});});
  await page.route('**/api/desktop-bucket-handoff/*',r=>r.fulfill({body:'{"schema_version":"foxlight.model-preservation.handoff.v1"}',headers:{'Content-Type':'application/octet-stream','Content-Disposition':'attachment; filename="Sovereign-bucket-eeeeeeeeeeee.foxhandoff"'}}));
  await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();
  const panel=page.getByRole('region',{name:'Help keep models available'});
@@ -475,10 +478,12 @@ test('the bucket lists what it serves and exports verification info for recipien
  await expect(list.getByRole('listitem')).toHaveCount(3);
  expect(offsets).toEqual([0,2]);
  if(shots&&info.project.name==='desktop'){await page.setViewportSize({width:1280,height:1500});await panel.getByText('Cloud storage',{exact:true}).scrollIntoViewIfNeeded();await page.screenshot({path:`${shots}/bucket-contents-list.png`});}
+ expect(asked).toEqual([]);
  await panel.getByRole('button',{name:'Export verification info',exact:true}).click();
  const sheet=page.getByRole('dialog');
  await expect(sheet.getByText('https://pub-abc.r2.dev',{exact:true})).toBeVisible();
  await expect(sheet.getByText(key,{exact:true})).toHaveCount(1);
+ expect(asked.sort()).toEqual([first,second,'9'.repeat(64)].sort());
  const links=sheet.getByRole('link',{name:/Save sharing file for/});
  await expect(links).toHaveCount(3);
  const hrefs=await links.evaluateAll(items=>items.map(item=>new URL((item as HTMLAnchorElement).href).pathname.replace(/^\//,'')));

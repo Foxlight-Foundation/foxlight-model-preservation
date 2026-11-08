@@ -631,6 +631,11 @@ class LocalOwner:
                 if type(offset) is not int or not 0 <= offset <= 1000:
                     raise PreservationError("invalid_control")
                 return self.community.bucket_contents(offset)
+            if action == "community-bucket-keys" and set(body) == {"manifest_id"}:
+                manifest_id = body["manifest_id"]
+                if not isinstance(manifest_id, str):
+                    raise PreservationError("invalid_control")
+                return self.community.bucket_model_keys(manifest_id)
             if action == "community-configure":
                 try:
                     policy = self.community.configure(body)

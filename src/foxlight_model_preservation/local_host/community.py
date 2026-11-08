@@ -37,7 +37,7 @@ from pydantic import (
     model_validator,
 )
 
-from ..archives import verify_archive_manifest
+from ..archives import ArchiveManifest, verify_archive_manifest
 from ..assurance import load_retained_card
 from ..bucket import (
     PRESETS,
@@ -77,7 +77,7 @@ from ..mirror_cards import (
 )
 from ..mirror_directory import MirrorDirectory
 from ..mirror_intake import retain_local
-from ..mirror_models import MirrorObservation, SourceGrant, Terms
+from ..mirror_models import HeldModel, MirrorObservation, SourceGrant, Terms
 from ..mirror_rendezvous import Rendezvous, rendezvous_available
 from ..mirror_state import MirrorLedger, grant_restart
 from ..models import (
@@ -971,60 +971,107 @@ class CommunityMirror:
             delete_credentials(previous.target.key_name)
         return {"status": "ready", "public_url": target.public_url}
 
-    # How many bucket models one contents read returns; replies stay small.
+    # One contents read returns at most this many models, and its reply (as the
+    # app's control server encodes it) stays within this many bytes, well under
+    # the 64 KiB control limit whatever the names are.
     BUCKET_PAGE = 50
+    BUCKET_PAGE_BYTES = 48 * 1024
+
+    def _bucket_held(self) -> dict[str, HeldModel]:
+        try:
+            return dict(MirrorLedger(self.path / "mirror").read().models)
+        except FileNotFoundError:
+            return {}
 
     def bucket_contents(self, offset: int = 0) -> dict[str, JsonValue]:
         """List the models the bucket serves, from this app's own records.
 
         Nothing is listed remotely: the bucket holds exactly the manifests this
-        app confirmed uploading (``synced``), and each one's name, size and
-        signing keys come from the verified copy this mirror retains.
+        app confirmed uploading (``synced``), and each one's name and size come
+        from the verified copy this mirror retains. Pages are bounded by count
+        and by encoded size; ``next_offset`` continues the list, or is None at
+        its end. Signing keys are read per model (``bucket_model_keys``).
         """
         state = self.bucket()
         if state is None:
-            return {"models": [], "total": 0, "offset": 0, "public_url": None}
-        try:
-            models = MirrorLedger(self.path / "mirror").read().models
-        except FileNotFoundError:
-            models = {}
-        rows: list[JsonValue] = []
-        for identity in state.synced[offset : offset + self.BUCKET_PAGE]:
-            name: str | None = None
-            size: int | None = None
-            keys: list[JsonValue] = []
-            held = models.get(identity)
-            if held is not None:
-                trust = held.grant.trust
-                keys = [
-                    key.key_id
-                    for key in trust.keys
-                    if key.key_id not in trust.revoked_keys
-                ]
-                try:
-                    with directory(self.path / "mirror/store") as root:
-                        manifest = verify_archive_manifest(
-                            read_metadata(root, manifest_path(identity)),
-                            trust,
-                            identity,
-                        )
-                    name, size = manifest.name, manifest.total_bytes
-                except (ValueError, OSError):
-                    pass  # Shown by its identity alone; the bucket copy is intact.
-            rows.append(
-                {
-                    "manifest_id": identity,
-                    "name": name,
-                    "size_bytes": size,
-                    "synced_at": state.synced_at.get(identity),
-                    "keys": keys,
-                }
-            )
-        return {
-            "models": rows,
+            return {
+                "models": [],
+                "total": 0,
+                "offset": 0,
+                "next_offset": None,
+                "public_url": None,
+            }
+        held = self._bucket_held()
+        page: dict[str, JsonValue] = {
+            "models": [],
             "total": len(state.synced),
             "offset": offset,
+            "next_offset": None,
             "public_url": state.target.public_url,
+        }
+        rows: list[JsonValue] = []
+        position = offset
+        for identity in state.synced[offset : offset + self.BUCKET_PAGE]:
+            row = self._bucket_row(identity, held.get(identity), state)
+            candidate = {
+                **page,
+                "models": [*rows, row],
+                "next_offset": len(state.synced),
+            }
+            # Measured as the control server sends it (ASCII-escaped JSON).
+            size = len(json.dumps(candidate, separators=(",", ":")))
+            if rows and size > self.BUCKET_PAGE_BYTES:
+                break
+            rows.append(row)
+            position += 1
+        page["models"] = rows
+        page["next_offset"] = position if position < len(state.synced) else None
+        return page
+
+    def _bucket_row(
+        self, identity: str, held: HeldModel | None, state: BucketState
+    ) -> dict[str, JsonValue]:
+        name: str | None = None
+        size: int | None = None
+        if held is not None:
+            try:
+                manifest = self._bucket_manifest(identity, held.grant.trust)
+                name, size = manifest.name, manifest.total_bytes
+            except (ValueError, OSError):
+                pass  # Shown by its identity alone; the bucket copy is intact.
+        return {
+            "manifest_id": identity,
+            "name": name,
+            "size_bytes": size,
+            "synced_at": state.synced_at.get(identity),
+        }
+
+    def _bucket_manifest(self, identity: str, trust: TrustProfile) -> ArchiveManifest:
+        """Verify the retained signed manifest of one model the bucket serves."""
+        with directory(self.path / "mirror/store") as root:
+            return verify_archive_manifest(
+                read_metadata(root, manifest_path(identity)), trust, identity
+            )
+
+    def bucket_model_keys(self, manifest_id: str) -> dict[str, JsonValue]:
+        """The public signing keys of one model the bucket serves.
+
+        These are the keys of the trust profile its handoff carries, for the
+        owner to confirm with recipients through a separate channel.
+        """
+        if re.fullmatch(r"[0-9a-f]{64}", manifest_id) is None:
+            raise PreservationError("invalid_control")
+        state = self.bucket()
+        held = self._bucket_held().get(manifest_id)
+        if state is None or manifest_id not in state.synced or held is None:
+            raise PreservationError("bucket_model_unavailable")
+        trust = held.grant.trust
+        return {
+            "manifest_id": manifest_id,
+            "keys": [
+                key.key_id for key in trust.keys if key.key_id not in trust.revoked_keys
+            ],
+            "threshold": trust.threshold,
         }
 
     def bucket_handoff(self, manifest_id: str) -> bytes:
@@ -1041,10 +1088,7 @@ class CommunityMirror:
         state = self.bucket()
         if state is None or manifest_id not in state.synced:
             raise PreservationError("bucket_model_unavailable")
-        try:
-            held = MirrorLedger(self.path / "mirror").read().models.get(manifest_id)
-        except FileNotFoundError:
-            held = None
+        held = self._bucket_held().get(manifest_id)
         if held is None:
             raise PreservationError("bucket_model_unavailable")
         try:

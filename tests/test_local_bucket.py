@@ -337,8 +337,12 @@ def test_a_withdrawal_the_bucket_refused_is_retried_while_sharing_is_off(
         with bucket() as (server, client):
             enable(owner, free_port())
             identity = _shared(owner, server, client)
-            wait_for(lambda: manifest_path(identity) in server.objects)
-            wait_for(lambda: owner.community.bucket().synced == (identity,))
+            # The first upload waits for a discovery round; slow runners need
+            # as long as the other upload tests allow.
+            wait_for(lambda: manifest_path(identity) in server.objects, seconds=120)
+            wait_for(
+                lambda: owner.community.bucket().synced == (identity,), seconds=120
+            )
             server.fail_deletes = 3
             owner.control("community-configure", {"enabled": False})
             wait_for(lambda: owner.community.bucket().synced == ())
@@ -593,8 +597,20 @@ def test_the_bucket_lists_its_models_and_exports_a_handoff_for_each(
                 "name": manifest.name,
                 "size_bytes": manifest.total_bytes,
                 "synced_at": owner.community.bucket().synced_at[identity],
-                "keys": [key.key_id for key in trust.keys],
             }
+            assert contents["next_offset"] is None
+            # Signing keys are read per model, for the export.
+            assert owner.control(
+                "community-bucket-keys", {"manifest_id": identity}
+            ) == {
+                "manifest_id": identity,
+                "keys": [key.key_id for key in trust.keys],
+                "threshold": trust.threshold,
+            }
+            with pytest.raises(
+                module.PreservationError, match="bucket_model_unavailable"
+            ):
+                owner.control("community-bucket-keys", {"manifest_id": "f" * 64})
             assert (
                 owner.control("community-bucket-contents", {"offset": 1})["models"]
                 == []
@@ -894,5 +910,81 @@ def test_a_cloudfront_address_is_what_the_owner_sees_and_recipients_get(
         assert r2["bucket"]["jurisdiction"] == "eu"
         # The replaced bucket's keys are forgotten.
         assert len(keychain) == 1
+    finally:
+        owner.close()
+
+
+def test_contents_pages_stay_small_whatever_the_names_and_keys(
+    tmp_path: Path, keychain: dict[str, BucketCredentials], monkeypatch
+) -> None:
+    """Fifty 200-character CJK names and 32-key trust profiles still fit."""
+    from types import SimpleNamespace
+
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    from foxlight_model_preservation.models import TrustProfile
+    from foxlight_model_preservation.signing import public_record
+
+    keys = [public_record(Ed25519PrivateKey.generate()) for _ in range(32)]
+    trust = TrustProfile(
+        schema_version="foxlight.model-preservation.trust.v1",
+        keys=tuple(keys),
+        threshold=1,
+        as_of="2026-11-07",
+    )
+    identities = [f"{index:064x}" for index in range(1, 51)]
+    held = {
+        identity: SimpleNamespace(grant=SimpleNamespace(trust=trust))
+        for identity in identities
+    }
+    names = {
+        identity: "".join(
+            chr(0x4E00 + (index * 7 + offset) % 20000) for offset in range(200)
+        )
+        for index, identity in enumerate(identities)
+    }
+
+    def manifest(identity, _trust):
+        return SimpleNamespace(name=names[identity], total_bytes=2**40)
+
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        state = module.BucketState.model_validate_json(canonical_bytes(_V1_STATE))
+        owner.community._save_bucket(
+            module.BucketState.model_validate(
+                {
+                    **dict(state),
+                    "schema_version": "sovereign.community-bucket.v2",
+                    "synced": tuple(identities),
+                    "synced_at": dict.fromkeys(identities, 1700000000),
+                }
+            ),
+            replacing=True,
+        )
+        monkeypatch.setattr(owner.community, "_bucket_held", lambda: held)
+        monkeypatch.setattr(owner.community, "_bucket_manifest", manifest)
+        seen: list[str] = []
+        offset: int | None = 0
+        pages = 0
+        while offset is not None:
+            page = owner.control("community-bucket-contents", {"offset": offset})
+            # Encoded exactly as the app's control server sends it.
+            encoded = json.dumps(page, separators=(",", ":")).encode()
+            assert len(encoded) <= module.CommunityMirror.BUCKET_PAGE_BYTES < 65536
+            assert 1 <= len(page["models"]) <= 50
+            assert page["offset"] == offset and page["total"] == 50
+            assert all("keys" not in row for row in page["models"])
+            seen += [row["manifest_id"] for row in page["models"]]
+            assert all(
+                row["name"] == names[row["manifest_id"]] for row in page["models"]
+            )
+            offset = page["next_offset"]
+            pages += 1
+        # Every model exactly once, in order, over more than one page.
+        assert seen == identities and pages > 1
+        # All 32 keys come back for one model, well within the limit.
+        found = owner.control("community-bucket-keys", {"manifest_id": identities[0]})
+        assert found["keys"] == [key.key_id for key in keys]
+        assert len(json.dumps(found, separators=(",", ":"))) < 8192
     finally:
         owner.close()

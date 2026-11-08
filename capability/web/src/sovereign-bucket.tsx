@@ -7,8 +7,10 @@ type Field='account_id'|'jurisdiction'|'region'|'bucket'|'endpoint'|'public_url'
 export interface BucketProvider {id:string;name:string;asks:Field[];optional?:Field[];choices?:Partial<Record<Field,{value:string;label:string}[]>>;note:string}
 export interface BucketSummary {provider:string;provider_name:string;jurisdiction?:string|null;bucket:string;public_url:string;model_count:number;withdraw_count?:number;last_synced:number|null;last_error:string|null}
 /** One model the bucket serves, from the app's own upload records. */
-export interface BucketModel {manifest_id:string;name:string|null;size_bytes:number|null;synced_at:number|null;keys:string[]}
-interface BucketContents {models:BucketModel[];total:number;offset:number;public_url:string|null}
+export interface BucketModel {manifest_id:string;name:string|null;size_bytes:number|null;synced_at:number|null}
+// Pages are bounded by count and size; next_offset continues the list.
+interface BucketContents {models:BucketModel[];total:number;offset:number;next_offset:number|null;public_url:string|null}
+interface BucketKeys {manifest_id:string;keys:string[];threshold:number}
 type Connected<T>=T&{status:'ready'|'upload'|'public'|'disconnected'};
 
 const fieldLabel:Record<Field,[string,string]>={
@@ -89,9 +91,8 @@ function BucketContentsList({bucket}:{bucket:BucketSummary}) {
  const [contents,setContents]=useState<BucketContents|null>(null),[error,setError]=useState(''),[exporting,setExporting]=useState(false);
  // Re-read when the bucket changes: a model uploaded, withdrawn or re-checked.
  useEffect(()=>{let live=true;setError('');void api<BucketContents>('desktop-community-bucket-contents',{offset:0}).then(value=>{if(live)setContents(value);}).catch(err=>{if(live)setError(err instanceof Error?err.message:'host_unavailable');});return()=>{live=false;};},[bucket.model_count,bucket.last_synced,bucket.public_url]);
- async function more(){if(!contents)return;try{const next=await api<BucketContents>('desktop-community-bucket-contents',{offset:contents.models.length});setContents({...next,models:[...contents.models,...next.models]});}catch(err){setError(err instanceof Error?err.message:'host_unavailable');}}
+ async function more(){if(contents?.next_offset==null)return;try{const next=await api<BucketContents>('desktop-community-bucket-contents',{offset:contents.next_offset});setContents({...next,models:[...contents.models,...next.models]});}catch(err){setError(err instanceof Error?err.message:'host_unavailable');}}
  const models=contents?.models??[];
- const keys=[...new Set(models.flatMap(item=>item.keys))];
  return <div className="sk-bucket-contents">
   <h4>In the bucket now</h4>
   {error&&<Callout tone="warn">{bucketError(error)}</Callout>}
@@ -99,9 +100,18 @@ function BucketContentsList({bucket}:{bucket:BucketSummary}) {
    <div className="sk-bucket-model-head"><strong>{item.name??'Unnamed model'}</strong><span className="sk-meta">{item.size_bytes!==null&&<span className="sk-num">{bytes(item.size_bytes)}</span>}{item.synced_at!==null?<span title={new Date(item.synced_at*1000).toLocaleString()}> · uploaded {ago(item.synced_at)}</span>:bucket.last_synced?<span title={new Date(bucket.last_synced*1000).toLocaleString()}> · checked {ago(bucket.last_synced)}</span>:null}</span></div>
    <Mono value={item.manifest_id} label={`manifest ID of ${item.name??'this model'}`}/>
   </li>)}</ul>}
-  {contents&&contents.total>models.length&&<button className="sk-btn sk-quiet" onClick={()=>void more()}>Show more ({contents.total-models.length} left)</button>}
+  {contents&&contents.next_offset!=null&&<button className="sk-btn sk-quiet" onClick={()=>void more()}>Show more ({contents.total-models.length} left)</button>}
   <div className="sk-actions"><button className="sk-btn sk-outline" disabled={!contents||models.length===0} onClick={()=>setExporting(true)}>Export verification info</button></div>
-  {exporting&&contents&&createPortal(<Sheet kicker="Cloud storage" title="Verification info for recipients" back="Close verification info" onClose={()=>setExporting(false)}>
+  {exporting&&contents&&<ExportSheet bucket={bucket} contents={contents} onClose={()=>setExporting(false)}/>}
+ </div>;
+}
+
+/** What a recipient needs, per model; signing keys are read one model at a time. */
+function ExportSheet({bucket,contents,onClose}:{bucket:BucketSummary;contents:BucketContents;onClose:()=>void}) {
+ const models=contents.models;
+ const [keys,setKeys]=useState<string[]|null>(null),[error,setError]=useState('');
+ useEffect(()=>{let live=true;void Promise.all(models.map(item=>api<BucketKeys>('desktop-community-bucket-keys',{manifest_id:item.manifest_id}).then(value=>value.keys,()=>[] as string[]))).then(found=>{if(live)setKeys([...new Set(found.flat())]);}).catch(err=>{if(live)setError(err instanceof Error?err.message:'host_unavailable');});return()=>{live=false;};},[models]);
+ return createPortal(<Sheet kicker="Cloud storage" title="Verification info for recipients" back="Close verification info" onClose={onClose}>
    <p>Recipients need three things to download from this bucket and check every byte: its public address, the exact manifest ID, and the public key that signed the model. Each model’s sharing file below carries all three, together with the signed manifest. It holds no bucket keys and nothing private.</p>
    <Step n={1} title="Save a sharing file for each model">
     <Row k="Public address"><Mono value={contents.public_url??bucket.public_url} label="bucket public address"/></Row>
@@ -109,11 +119,11 @@ function BucketContentsList({bucket}:{bucket:BucketSummary}) {
    </Step>
    <Step n={2} title="Confirm the signing key separately">
     <p>A file alone can’t prove who sent it. Tell recipients this verification key through a channel they already trust, such as a call or your website, so they can compare it before accepting.</p>
-    {keys.map(key=><Mono key={key} value={key} label="signing key"/>)}
+    {error&&<Callout tone="warn">{bucketError(error)}</Callout>}
+    {keys===null?<p className="sk-meta" role="status">Reading the signing keys…</p>:keys.map(key=><Mono key={key} value={key} label="signing key"/>)}
    </Step>
    <Step n={3} title="What recipients do">
     <p>In Sovereign: <strong>Find → Independent sources → Open sharing file</strong>, compare the key, then download. With the command-line tools: <code>model-preserve handoff-inspect --handoff FILE</code>, then <code>handoff-fetch --handoff FILE --store DIR --accept-key KEY</code>.</p>
    </Step>
-  </Sheet>,document.body)}
- </div>;
+  </Sheet>,document.body);
 }

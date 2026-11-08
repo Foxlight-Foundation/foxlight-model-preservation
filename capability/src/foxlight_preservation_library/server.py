@@ -530,12 +530,24 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         data: bytes,
         content_type: str = "application/json",
         *,
-        disposition: str | None = None,
+        attachment: int | None = None,
     ) -> None:
+        """Send a bounded reply with fixed security headers.
+
+        ``attachment`` makes the browser save the reply as
+        ``Sovereign-bucket-<12 hex digits>.foxhandoff``. The name is formatted
+        from a 48-bit integer under a fixed template, so no request text can
+        reach the header (no CR/LF, quotes or other separators).
+        """
         self.send_response(status)
         self.send_header("Content-Type", content_type)
-        if disposition is not None:
-            self.send_header("Content-Disposition", disposition)
+        if attachment is not None:
+            if not 0 <= attachment < 1 << 48:
+                raise ValueError("attachment name out of range")
+            self.send_header(
+                "Content-Disposition",
+                f'attachment; filename="Sovereign-bucket-{attachment:012x}.foxhandoff"',
+            )
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("Referrer-Policy", "no-referrer")
@@ -585,15 +597,21 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         if re.fullmatch(r"api/desktop-handoff/[0-9a-f]{64}", relative):
             self._local_download(app, relative.rsplit("/", 1)[1], handoff=True)
             return
-        if re.fullmatch(r"api/desktop-bucket-handoff/[0-9a-f]{64}", relative):
+        bucket_handoff = re.fullmatch(
+            r"api/desktop-bucket-handoff/([0-9a-f]{64})", relative
+        )
+        if bucket_handoff is not None:
             if app.startup is not None:
                 self._reply(403, b'{"error":"operator_screen_required"}')
             else:
+                identity = bucket_handoff[1]
                 self._metadata(
                     app,
                     "GET",
-                    relative[4:],
-                    attachment="Sovereign-bucket-" + relative[-64:-52] + ".foxhandoff",
+                    "desktop-bucket-handoff/" + identity,
+                    # Only a number derived from the validated identity names
+                    # the file; the request text never reaches a header.
+                    attachment=int(identity[:12], 16),
                 )
             return
         if re.fullmatch(r"api/desktop-public-review/[0-9a-f]{64}", relative):
@@ -692,6 +710,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                         "api/desktop-community-bucket-connect",
                         "api/desktop-community-bucket-disconnect",
                         "api/desktop-community-bucket-contents",
+                        "api/desktop-community-bucket-keys",
                         "api/desktop-community-check-address",
                         "api/desktop-source-follow",
                         "api/desktop-source-remove",
@@ -798,11 +817,11 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         path: str,
         body: dict[str, JsonValue] | None = None,
         *,
-        attachment: str | None = None,
+        attachment: int | None = None,
     ) -> None:
         """Serve bounded public metadata; the private screen URL is never shared.
 
-        ``attachment`` names a file the browser saves instead of showing.
+        ``attachment`` makes the browser save the reply (see ``_reply``).
         """
         future = asyncio.run_coroutine_threadsafe(
             app.client.metadata(method, path, body), app.loop
@@ -811,10 +830,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             data = future.result(timeout=12)
             if attachment is not None:
                 self._reply(
-                    200,
-                    data,
-                    "application/octet-stream",
-                    disposition=f'attachment; filename="{attachment}"',
+                    200, data, "application/octet-stream", attachment=attachment
                 )
                 return
             self._reply(200, data, "application/json")
