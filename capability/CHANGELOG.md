@@ -6,6 +6,8 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+## 0.25.0
+
 - Both sharing sheets (Sovereign and Library mode) show licence families with
   a switch each, a per-licence checklist (with summaries, notes and the EU
   notice for Llama 3.2 and Llama 4), a custom licence id field and how many of
