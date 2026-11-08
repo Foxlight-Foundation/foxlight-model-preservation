@@ -61,7 +61,13 @@ from .signing import (
     strict_json,
     verify_payload,
 )
-from .storage import atomic_bytes, object_path, read_metadata
+from .storage import (
+    atomic_bytes,
+    directory,
+    object_path,
+    parent_directory,
+    read_metadata,
+)
 from .transfer import TransferPolicy, fetch, inspect_envelope
 
 STARTER_LIST_TYPE = "application/vnd.foxlight.sovereign.starter-list.v1+json"
@@ -454,6 +460,18 @@ def plan_import(
     )
 
 
+def _intent_envelope(ledger: MirrorLedger, entry: StarterEntry) -> bytes | None:
+    """The signed wrapper a pending local selection persisted, if any."""
+    held = ledger.read().models.get(entry.manifest)
+    if held is None or held.state != "pending":
+        return None
+    try:
+        with ledger.child("scratch") as scratch:
+            return read_metadata(scratch, f"local-intake/{entry.manifest}.json")
+    except OSError:
+        return None
+
+
 def _intent(
     ledger: MirrorLedger, starter: StarterList, entry: StarterEntry
 ) -> ArchiveManifest | None:
@@ -462,12 +480,53 @@ def _intent(
     ``retain_local`` persists the signed wrapper privately before copying, so
     an interrupted copy can be measured without the network.
     """
-    try:
-        with ledger.child("scratch") as scratch:
-            envelope = read_metadata(scratch, f"local-intake/{entry.manifest}.json")
-        return verify_archive_manifest(envelope, starter.bundle_trust, entry.manifest)
-    except (OSError, ValueError):
+    envelope = _intent_envelope(ledger, entry)
+    if envelope is None:
         return None
+    try:
+        return verify_archive_manifest(envelope, starter.bundle_trust, entry.manifest)
+    except ValueError:
+        return None
+
+
+def seed_staging(ledger: MirrorLedger, store: Path, manifest: ArchiveManifest) -> int:
+    """Hard-link objects the mirror store already holds into a staging store.
+
+    ``fetch`` then hashes each linked object and requests only what is
+    missing, so files shared with retained models are neither downloaded nor
+    stored twice. Only regular files of the right size are linked; ``fetch``
+    still verifies every one, and it publishes replacements by renaming a new
+    file, never by writing into a linked one. A link that fails (another
+    volume) is skipped and that object is fetched. Returns the bytes linked.
+    """
+    linked = 0
+    with ledger.child("store") as source, directory(store, create=True) as target:
+        for file in archive_objects(manifest):
+            path = object_path(file.sha256)
+            try:
+                info = os.stat(path, dir_fd=source, follow_symlinks=False)
+            except FileNotFoundError:
+                continue
+            if not stat.S_ISREG(info.st_mode) or info.st_size != file.size:
+                continue
+            try:
+                with (
+                    parent_directory(source, path) as (from_dir, name),
+                    parent_directory(target, path, create=True) as (to_dir, _name),
+                ):
+                    os.link(
+                        name,
+                        name,
+                        src_dir_fd=from_dir,
+                        dst_dir_fd=to_dir,
+                        follow_symlinks=False,
+                    )
+            except FileExistsError:
+                continue
+            except OSError:
+                continue
+            linked += file.size
+    return linked
 
 
 def missing_bytes(ledger: MirrorLedger, manifests: Iterable[ArchiveManifest]) -> int:
@@ -718,56 +777,78 @@ def import_starter(
         raise PreservationError("this mirror has left; it does not import")
     plan = plan_import(ledger, starter, list_id, tier, formats)
     required = plan.check_acceptance(accepted)
-    envelopes: dict[str, bytes] = {}
-    if not plan.fits:
-        # The upper bound counts new bundles in full. Before refusing, fetch
-        # only their signed file tables and count each missing object once:
-        # files shared between bundles or already in the store cost nothing.
-        manifests: list[ArchiveManifest] = []
-        for entry in plan.new_entries:
-            intent = _intent(ledger, starter, entry)
-            if intent is not None:
-                manifests.append(intent)
-                continue
-            envelope = inspect_envelope(
+    staging = chosen.staging or ledger.path.parent / (
+        ledger.path.name + ".starter-import"
+    )
+    grant_before = state.restart is not None
+    imported: list[JsonValue] = []
+    skipped: list[JsonValue] = [
+        {"entry_id": entry.entry_id, "reason": plan.status[entry.entry_id]}
+        for entry in plan.entries
+        if plan.status[entry.entry_id] not in TO_FETCH
+    ]
+    failed: list[JsonValue] = []
+
+    def failure(entry: StarterEntry, error: BaseException | str) -> None:
+        if not chosen.keep_going:
+            if isinstance(error, BaseException):
+                raise error
+            raise PreservationError(error)
+        failed.append(
+            {
+                "entry_id": entry.entry_id,
+                "error": error if isinstance(error, str) else failure_code(error),
+            }
+        )
+
+    # Phase 1, metadata only: each entry's signed file table (a resumed
+    # copy's persisted one, otherwise fetched without weights). With
+    # keep_going, an unavailable bundle is reported and the rest continue.
+    tables: dict[str, tuple[bytes, ArchiveManifest]] = {}
+    for entry in plan.new_entries:
+        try:
+            envelope = _intent_envelope(ledger, entry) or inspect_envelope(
                 entry.manifest,
                 starter.bundle_trust,
                 (*chosen.mirrors, *entry.mirrors)[:16],
                 _policy(entry, chosen),
                 control=control.fork() if control is not None else None,
             )
-            envelopes[entry.manifest] = envelope
-            manifests.append(
-                verify_archive_manifest(envelope, starter.bundle_trust, entry.manifest)
+            manifest = verify_archive_manifest(
+                envelope, starter.bundle_trust, entry.manifest
             )
-        exact = missing_bytes(ledger, manifests)
-        if plan.usage + exact + HEADROOM > plan.disk_bytes:
-            if not chosen.keep_going:
-                raise PreservationError(
-                    "starter import exceeds the mirror disk budget; raise it or "
-                    "choose a smaller tier"
-                )
-            # Quickstart keeps the mirror running and reports it instead.
-            return {
-                "list_id": list_id,
-                "tier": tier,
-                "formats": list(plan.formats),
-                "imported": [],
-                "skipped": [],
-                "failed": [
-                    {"entry_id": entry.entry_id, "error": "budget_exceeded"}
-                    for entry in plan.new_entries
-                ],
-                "accepted_terms": list(required),
-                "follows_publisher": False,
-                "restart_grant_invalidated": False,
-                "recorded_at": int(time.time()),
-            }
-    if required:
+            if manifest.total_bytes != entry.size_bytes:
+                raise PreservationError("starter bundle size differs from its list")
+            tables[entry.entry_id] = envelope, manifest
+        except (ValueError, OSError) as error:
+            failure(entry, error)
+    ready = [entry for entry in plan.new_entries if entry.entry_id in tables]
+
+    # Phase 2, exact admission. Each missing object counts once, against the
+    # mirror's logical budget and the staging volume's free space. The peak is
+    # one copy: staging receives only missing objects (the rest are hard links
+    # to the store), retaining hard-links them in, and each entry's staging is
+    # removed once it is retained.
+    exact = missing_bytes(ledger, [tables[e.entry_id][1] for e in ready])
+    staging.parent.mkdir(parents=True, exist_ok=True)
+    free = shutil.disk_usage(staging.parent).free
+    if ready and (
+        plan.usage + exact + HEADROOM > plan.disk_bytes or exact + HEADROOM > free
+    ):
+        for entry in ready:
+            failure(
+                entry,
+                "budget_exceeded"
+                if chosen.keep_going
+                else "starter import exceeds the mirror disk budget (or the free "
+                "space on its volume); raise it or choose a smaller tier",
+            )
+        ready = []
+    if required and ready:
         record = StarterAcceptance(
             list_id=list_id,
             tier=tier,
-            entries=tuple(entry.entry_id for entry in plan.new_entries),
+            entries=tuple(entry.entry_id for entry in ready),
             definition=LICENCE_DEFINITION_VERSION,
             accepted=tuple(sorted(required)),
             accepted_at=int(time.time()),
@@ -778,33 +859,24 @@ def import_starter(
                 "starter-acceptance/" + digest(encode_record(record)) + ".json",
                 encode_record(record),
             )
-    staging = chosen.staging or ledger.path.parent / (
-        ledger.path.name + ".starter-import"
-    )
-    grant_before = state.restart is not None
-    imported: list[JsonValue] = []
-    skipped: list[JsonValue] = []
-    failed: list[JsonValue] = []
-    for entry in plan.entries:
-        status = plan.status[entry.entry_id]
-        if status not in TO_FETCH:
-            skipped.append({"entry_id": entry.entry_id, "reason": status})
-            continue
+
+    # Phase 3, transfer: seed staging from the store, fetch the rest, retain.
+    for entry in ready:
         if chosen.progress is not None:
             chosen.progress(entry.entry_id, "fetching")
+        envelope, table = tables[entry.entry_id]
         store = staging / entry.manifest
         try:
-            manifest = fetch(
+            seed_staging(ledger, store, table)
+            fetch(
                 entry.manifest,
                 starter.bundle_trust,
                 (*chosen.mirrors, *entry.mirrors)[:16],
                 store,
                 _policy(entry, chosen),
                 control=control.fork() if control is not None else None,
-                envelope=envelopes.get(entry.manifest),
+                envelope=envelope,
             )
-            if manifest.total_bytes != entry.size_bytes:
-                raise PreservationError("starter bundle size differs from its list")
             retain_local(
                 ledger,
                 store,
@@ -814,9 +886,7 @@ def import_starter(
                 link_objects=True,
             )
         except (ValueError, OSError) as error:
-            if not chosen.keep_going:
-                raise
-            failed.append({"entry_id": entry.entry_id, "error": failure_code(error)})
+            failure(entry, error)
             continue
         shutil.rmtree(store, ignore_errors=True)
         imported.append(entry.entry_id)

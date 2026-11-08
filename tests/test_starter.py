@@ -61,7 +61,7 @@ from foxlight_model_preservation.starter import (
     sign_starter_list,
     verify_starter_list,
 )
-from foxlight_model_preservation.storage import manifest_path, pack
+from foxlight_model_preservation.storage import manifest_path, object_path, pack
 
 
 def _script(name: str):
@@ -1593,3 +1593,117 @@ def test_quickstart_import_reports_an_exact_budget_refusal(tmp_path, collection)
     assert receipt["imported"] == []
     assert {item["error"] for item in receipt["failed"]} == {"budget_exceeded"}
     assert not ledger.read().models
+
+
+def test_shared_objects_are_linked_from_the_store_not_fetched_again(tmp_path):
+    shared = b"Q" * 300_000
+    collection = Collection(
+        tmp_path, ("one", "two"), payloads={"one": shared, "two": shared}
+    )
+    starter = collection.listing("one", "two")
+    list_id = list_identity(starter)
+    ledger = mirror(tmp_path)
+    first = collection.listing("one")
+    import_starter(
+        ledger,
+        first,
+        list_identity(first),
+        "small",
+        consented=True,
+        options=collection.options(),
+    )
+    # The source no longer has the shared object: only the store does.
+    shared_sha = hashlib.sha256(shared).hexdigest()
+    (collection.store / object_path(shared_sha)).unlink()
+    # No room for a second copy of the shared weights.
+    budget = ledger.usage() + HEADROOM + 64 * 1024
+    ledger.update(lambda state: state.model_copy(update={"disk_bytes": budget}))
+    receipt = import_starter(
+        ledger,
+        starter,
+        list_id,
+        "standard",
+        consented=True,
+        options=collection.options(),
+    )
+    assert receipt["imported"] == ["two"], receipt
+    assert ledger.usage() <= budget - HEADROOM
+    assert not (tmp_path / "mirror.starter-import").exists()
+
+
+def test_keep_going_reports_an_unavailable_bundle_and_imports_the_rest(
+    tmp_path, collection
+):
+    ledger = mirror(tmp_path)
+    starter = collection.listing("alpha", "beta")
+    (collection.store / manifest_path(collection.entries["beta"].manifest)).unlink()
+    receipt = import_starter(
+        ledger,
+        starter,
+        list_identity(starter),
+        "standard",
+        consented=True,
+        options=collection.options(keep_going=True),
+    )
+    assert receipt["imported"] == ["alpha"]
+    assert [item["entry_id"] for item in receipt["failed"]] == ["beta"]
+    with pytest.raises(ValueError):
+        import_starter(
+            ledger,
+            starter,
+            list_identity(starter),
+            "standard",
+            consented=True,
+            options=collection.options(),
+        )
+
+
+def test_container_serves_what_it_holds_when_one_bundle_is_unavailable(
+    tmp_path, collection
+):
+    data, list_id = collection.signed(collection.listing("alpha", "beta"))
+    (collection.store / manifest_path(collection.entries["beta"].manifest)).unlink()
+    config = tmp_path / "config"
+    config.mkdir()
+    (config / "starter-list.json").write_bytes(data)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    wrapper = bin_dir / "model-preserve"
+    wrapper.write_text(
+        "#!/bin/sh\n"
+        'if [ "$1 $2" = "mirror run" ]; then echo "would serve"; exit 0; fi\n'
+        f'exec "{sys.executable}" -m foxlight_model_preservation.cli "$@"\n'
+    )
+    wrapper.chmod(0o755)
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(mode=0o700)
+    environment = {
+        "PATH": f"{bin_dir}:/usr/bin:/bin",
+        "HOME": str(tmp_path),
+        "SOVEREIGN_MIRROR_DIR": str(data_dir / "mirror"),
+        "SOVEREIGN_MIRROR_COLLECTION": str(config / "collection.json"),
+        "SOVEREIGN_MIRROR_BUDGET": "2G",
+        "SOVEREIGN_MIRROR_IDLE": "0",
+        "SOVEREIGN_MIRROR_CONSENT": "yes-i-consent-to-public-serving",
+        "SOVEREIGN_MIRROR_STARTER_LIST": str(config / "starter-list.json"),
+        "SOVEREIGN_MIRROR_STARTER_LIST_ID": list_id,
+        "SOVEREIGN_MIRROR_STARTER_TIER": "standard",
+        "SOVEREIGN_MIRROR_STARTER_MIRROR": str(collection.store),
+    }
+    script = Path(__file__).parents[1] / "deploy/mirror/entrypoint.sh"
+    started = subprocess.run(  # noqa: S603 - repository script
+        ["/bin/sh", str(script)],
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert started.returncode == 0, started.stderr
+    assert "Setup refused" not in started.stderr, started.stderr
+    assert "would serve" in started.stdout
+    receipt = json.loads(started.stdout[: started.stdout.rindex("would serve")])
+    assert receipt["starter"]["imported"] == ["alpha"]
+    assert [f["entry_id"] for f in receipt["starter"]["failed"]] == ["beta"]
+    state = MirrorLedger(data_dir / "mirror").read()
+    assert list(state.models) == [collection.entries["alpha"].manifest]
+    assert restart_allowed(state)

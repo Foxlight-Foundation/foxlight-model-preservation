@@ -202,9 +202,17 @@ Import refuses before it downloads anything unless:
   file counts once: files shared between bundles, already in the mirror for
   models you hold, or already copied by an interrupted import cost nothing.
   The review shows the download size and an upper estimate of the disk
-  needed; when that estimate does not fit, the import fetches only the signed
-  file lists and decides exactly, before any weights download (quickstart
-  reports such a refusal in its receipt and keeps the mirror running);
+  needed. After consent the import fetches only the signed file lists and
+  decides exactly, before any weights download, against both the mirror's
+  budget and the free space on the staging volume. The peak is one copy of
+  each missing file: staging starts with hard links to files the mirror
+  already holds (so they are neither downloaded nor stored again), downloads
+  are renamed into place rather than copied, retaining hard-links them into
+  the mirror, and each model's staging is removed once it is kept. A
+  `--staging` directory on another volume cannot be hard-linked, so it needs
+  a second copy's worth of space there. With quickstart (and the container),
+  a bundle whose file list can't be fetched, or a budget refusal, is reported
+  in the receipt and the mirror starts serving what it holds;
 - the mirror controller is stopped;
 - you consent. The review lists every model with its licence, base model and
   size, the signing keys, the total download and the disk budget. Type
