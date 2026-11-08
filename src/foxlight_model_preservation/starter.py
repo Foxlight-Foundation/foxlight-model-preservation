@@ -17,7 +17,9 @@ to import. Removed selections are never re-imported.
 
 from __future__ import annotations
 
+import os
 import shutil
+import stat
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
@@ -27,6 +29,7 @@ from typing import Literal
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from pydantic import Field, JsonValue, field_validator, model_validator
 
+from .archives import ArchiveManifest, archive_objects, verify_archive_manifest
 from .licences import (
     LICENCE_DEFINITION_VERSION,
     MemberTerms,
@@ -58,8 +61,8 @@ from .signing import (
     strict_json,
     verify_payload,
 )
-from .storage import atomic_bytes
-from .transfer import TransferPolicy, fetch
+from .storage import atomic_bytes, object_path, read_metadata
+from .transfer import TransferPolicy, fetch, inspect_envelope
 
 STARTER_LIST_TYPE = "application/vnd.foxlight.sovereign.starter-list.v1+json"
 STARTER_LIST_VERSION = "sovereign.starter-list.v1"
@@ -330,6 +333,10 @@ class StarterPlan:
     disk_bytes: int
     formats: tuple[Format, ...] = DEFAULT_FORMATS
     addon_bytes: int = 0
+    # Disk the import still needs: missing objects of resumed copies (exact,
+    # deduplicated against the store) plus new bundles' full size (an upper
+    # bound until their signed file tables are fetched). None: new_bytes.
+    disk_needed: int | None = None
 
     @property
     def new_entries(self) -> tuple[StarterEntry, ...]:
@@ -379,9 +386,14 @@ class StarterPlan:
         return tuple(sorted(required))
 
     @property
+    def needed(self) -> int:
+        """Disk this import needs at most (new bundles counted in full)."""
+        return self.new_bytes if self.disk_needed is None else self.disk_needed
+
+    @property
     def fits(self) -> bool:
-        """The new bytes fit the mirror's disk budget, with headroom."""
-        return self.usage + self.new_bytes + HEADROOM <= self.disk_bytes
+        """The upper estimate fits the mirror's disk budget, with headroom."""
+        return self.usage + self.needed + HEADROOM <= self.disk_bytes
 
 
 def plan_import(
@@ -410,6 +422,22 @@ def plan_import(
             status[entry.entry_id] = "resume"
         else:
             status[entry.entry_id] = "held"
+    # Resumed copies are measured exactly from their persisted file tables;
+    # new bundles (and a resume whose table is missing) count in full.
+    resumed: list[ArchiveManifest] = []
+    unknown = 0
+    for entry in entries:
+        if status[entry.entry_id] not in TO_FETCH:
+            continue
+        intent = (
+            _intent(ledger, starter, entry)
+            if status[entry.entry_id] == "resume"
+            else None
+        )
+        if intent is None:
+            unknown += entry.size_bytes
+        else:
+            resumed.append(intent)
     return StarterPlan(
         list_id=list_id,
         tier=tier,
@@ -418,11 +446,55 @@ def plan_import(
         new_bytes=sum(
             entry.size_bytes for entry in entries if status[entry.entry_id] in TO_FETCH
         ),
+        disk_needed=unknown + missing_bytes(ledger, resumed),
         usage=ledger.usage(),
         disk_bytes=state.disk_bytes,
         formats=chosen,
         addon_bytes=addon_bytes(starter, tier),
     )
+
+
+def _intent(
+    ledger: MirrorLedger, starter: StarterList, entry: StarterEntry
+) -> ArchiveManifest | None:
+    """A pending local selection's authenticated file table, offline.
+
+    ``retain_local`` persists the signed wrapper privately before copying, so
+    an interrupted copy can be measured without the network.
+    """
+    try:
+        with ledger.child("scratch") as scratch:
+            envelope = read_metadata(scratch, f"local-intake/{entry.manifest}.json")
+        return verify_archive_manifest(envelope, starter.bundle_trust, entry.manifest)
+    except (OSError, ValueError):
+        return None
+
+
+def missing_bytes(ledger: MirrorLedger, manifests: Iterable[ArchiveManifest]) -> int:
+    """Bytes of objects the mirror store lacks, each distinct object once.
+
+    Objects shared between bundles, or already present for models the mirror
+    holds (or for an interrupted copy), are not counted again. Presence is a
+    size check only; every object is still verified when it is retained.
+    """
+    seen: set[str] = set()
+    total = 0
+    with ledger.child("store") as root:
+        for manifest in manifests:
+            for file in archive_objects(manifest):
+                if file.sha256 in seen:
+                    continue
+                seen.add(file.sha256)
+                try:
+                    info = os.stat(
+                        object_path(file.sha256), dir_fd=root, follow_symlinks=False
+                    )
+                except FileNotFoundError:
+                    total += file.size
+                    continue
+                if not stat.S_ISREG(info.st_mode) or info.st_size != file.size:
+                    total += file.size
+    return total
 
 
 def review_import(
@@ -518,8 +590,19 @@ def review_import(
             )
         ),
         f"Disk budget:   {_size(plan.disk_bytes)} ({_size(plan.usage)} already used)",
+        f"Disk needed:   at most {_size(plan.needed)}"
+        + (
+            " (files already held or shared count once)"
+            if plan.needed < plan.new_bytes
+            else ""
+        ),
         "Fits:          "
-        + ("yes" if plan.fits else "NO: raise --disk-bytes or choose a smaller tier"),
+        + (
+            "yes"
+            if plan.fits
+            else "not by the upper estimate; the exact check (each missing file "
+            "counted once) runs after consent, before any weights download"
+        ),
         "",
         "This is a one-time import. Each model becomes your own local selection:",
         "  nothing Foxlight publishes later can stop, change or remove it. A later",
@@ -552,6 +635,7 @@ def review_import(
         "new_bytes": plan.new_bytes,
         "disk_bytes": plan.disk_bytes,
         "usage_bytes": plan.usage,
+        "disk_needed_bytes": plan.needed,
         "fits": plan.fits,
         "follows_publisher": False,
         "anonymous": False,
@@ -569,6 +653,15 @@ class ImportOptions:
     staging: Path | None = None
     keep_going: bool = False
     progress: Callable[[str, str], None] | None = field(default=None)
+
+
+def _policy(entry: StarterEntry, chosen: ImportOptions) -> TransferPolicy:
+    return TransferPolicy(
+        max_bytes=entry.size_bytes,
+        deadline_seconds=FETCH_DEADLINE_SECONDS,
+        allow_http=chosen.allow_http,
+        allow_private=chosen.allow_private,
+    )
 
 
 def entry_grant(starter: StarterList, entry: StarterEntry) -> SourceGrant:
@@ -624,12 +717,52 @@ def import_starter(
     if state.left:
         raise PreservationError("this mirror has left; it does not import")
     plan = plan_import(ledger, starter, list_id, tier, formats)
-    if not plan.fits:
-        raise PreservationError(
-            "starter import exceeds the mirror disk budget; raise it or choose "
-            "a smaller tier"
-        )
     required = plan.check_acceptance(accepted)
+    envelopes: dict[str, bytes] = {}
+    if not plan.fits:
+        # The upper bound counts new bundles in full. Before refusing, fetch
+        # only their signed file tables and count each missing object once:
+        # files shared between bundles or already in the store cost nothing.
+        manifests: list[ArchiveManifest] = []
+        for entry in plan.new_entries:
+            intent = _intent(ledger, starter, entry)
+            if intent is not None:
+                manifests.append(intent)
+                continue
+            envelope = inspect_envelope(
+                entry.manifest,
+                starter.bundle_trust,
+                (*chosen.mirrors, *entry.mirrors)[:16],
+                _policy(entry, chosen),
+                control=control.fork() if control is not None else None,
+            )
+            envelopes[entry.manifest] = envelope
+            manifests.append(
+                verify_archive_manifest(envelope, starter.bundle_trust, entry.manifest)
+            )
+        exact = missing_bytes(ledger, manifests)
+        if plan.usage + exact + HEADROOM > plan.disk_bytes:
+            if not chosen.keep_going:
+                raise PreservationError(
+                    "starter import exceeds the mirror disk budget; raise it or "
+                    "choose a smaller tier"
+                )
+            # Quickstart keeps the mirror running and reports it instead.
+            return {
+                "list_id": list_id,
+                "tier": tier,
+                "formats": list(plan.formats),
+                "imported": [],
+                "skipped": [],
+                "failed": [
+                    {"entry_id": entry.entry_id, "error": "budget_exceeded"}
+                    for entry in plan.new_entries
+                ],
+                "accepted_terms": list(required),
+                "follows_publisher": False,
+                "restart_grant_invalidated": False,
+                "recorded_at": int(time.time()),
+            }
     if required:
         record = StarterAcceptance(
             list_id=list_id,
@@ -666,13 +799,9 @@ def import_starter(
                 starter.bundle_trust,
                 (*chosen.mirrors, *entry.mirrors)[:16],
                 store,
-                TransferPolicy(
-                    max_bytes=entry.size_bytes,
-                    deadline_seconds=FETCH_DEADLINE_SECONDS,
-                    allow_http=chosen.allow_http,
-                    allow_private=chosen.allow_private,
-                ),
+                _policy(entry, chosen),
                 control=control.fork() if control is not None else None,
+                envelope=envelopes.get(entry.manifest),
             )
             if manifest.total_bytes != entry.size_bytes:
                 raise PreservationError("starter bundle size differs from its list")

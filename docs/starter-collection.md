@@ -198,7 +198,13 @@ Import refuses before it downloads anything unless:
 - the list is exactly the one the ID names, and its signature meets the
   threshold of the signing keys inside it (add `--list-trust keys.json` to also
   require keys you enrolled independently);
-- the new models fit the mirror's disk budget, with headroom;
+- the new models fit the mirror's disk budget, with headroom. Each missing
+  file counts once: files shared between bundles, already in the mirror for
+  models you hold, or already copied by an interrupted import cost nothing.
+  The review shows the download size and an upper estimate of the disk
+  needed; when that estimate does not fit, the import fetches only the signed
+  file lists and decides exactly, before any weights download (quickstart
+  reports such a refusal in its receipt and keeps the mirror running);
 - the mirror controller is stopped;
 - you consent. The review lists every model with its licence, base model and
   size, the signing keys, the total download and the disk budget. Type

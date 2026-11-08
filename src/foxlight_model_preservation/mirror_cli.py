@@ -1009,11 +1009,8 @@ def _starter_review(
             formats=formats,
             addon_bytes=addon_bytes(starter[0], arguments.starter_tier),
         )
-    if not plan.fits:
-        raise PreservationError(
-            "starter import exceeds the disk budget; raise --disk-bytes or "
-            "choose a smaller tier"
-        )
+    # An upper estimate that does not fit is not a refusal: the import's exact
+    # check (each missing file once) decides after setup and reports it.
     given = _accepted(arguments)
     if not arguments.plan_only and (given or not sys.stdin.isatty()):
         # Refuse before quickstart changes anything, not after setup. An

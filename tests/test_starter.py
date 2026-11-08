@@ -29,6 +29,7 @@ from foxlight_model_preservation.mirror import (
 )
 from foxlight_model_preservation.mirror_models import Terms
 from foxlight_model_preservation.mirror_state import (
+    HEADROOM,
     MirrorLedger,
     restart_allowed,
     withdrawal_withholds,
@@ -140,6 +141,7 @@ class Collection:
         names: tuple[str, ...],
         licences: dict[str, str] | None = None,
         formats: dict[str, str] | None = None,
+        payloads: dict[str, bytes] | None = None,
     ):
         self.key = Ed25519PrivateKey.generate()
         self.trust = TrustProfile(
@@ -159,7 +161,9 @@ class Collection:
             notices = tmp_path / "inputs" / name / "notices"
             weights.mkdir(parents=True)
             notices.mkdir(parents=True)
-            (weights / "model.bin").write_bytes(name.encode() * (1000 + index))
+            (weights / "model.bin").write_bytes(
+                (payloads or {}).get(name, name.encode() * (1000 + index))
+            )
             (weights / "README.md").write_text(f"{name} conversion card\n")
             (notices / "LICENSE").write_text("Apache License fixture text\n")
             identity = pack(
@@ -417,31 +421,101 @@ def test_removed_selection_is_never_reimported(tmp_path, collection):
 
 
 def test_disk_budget_is_enforced_before_any_download(tmp_path, collection):
-    ledger = mirror(tmp_path, disk=300 * 1024**2)
     starter = collection.listing("alpha", "beta")
     list_id = list_identity(starter)
+    (tmp_path / "roomy").mkdir(mode=0o700)
+    roomy = mirror(tmp_path / "roomy")
+    assert plan_import(roomy, starter, list_id, "standard").fits
+    # A budget the two small bundles cannot fit, even counted exactly.
+    ledger = mirror(tmp_path, disk=HEADROOM + 4096)
     plan = plan_import(ledger, starter, list_id, "standard")
-    big = starter.model_copy(
-        update={
-            "entries": tuple(
-                entry.model_copy(update={"size_bytes": 200 * 1024**2})
-                for entry in starter.entries
-            )
-        }
-    )
-    assert plan.fits
-    assert not plan_import(ledger, big, list_identity(big), "standard").fits
+    assert not plan.fits
     with pytest.raises(PreservationError, match="disk budget"):
         import_starter(
             ledger,
-            big,
-            list_identity(big),
+            starter,
+            list_id,
             "standard",
             consented=True,
             options=collection.options(),
         )
     assert not ledger.read().models
     assert not (tmp_path / "mirror.starter-import").exists()
+
+
+def test_shared_objects_count_once_in_disk_admission(tmp_path):
+    shared = b"S" * 200_000
+    collection = Collection(
+        tmp_path, ("one", "two"), payloads={"one": shared, "two": shared}
+    )
+    starter = collection.listing("one", "two")
+    list_id = list_identity(starter)
+    ledger = mirror(tmp_path, disk=HEADROOM + 2 * 1024**2)
+    # Fit one copy of the shared weights (plus metadata), not two.
+    budget = ledger.usage() + HEADROOM + 200_000 + 64 * 1024
+    ledger.update(lambda state: state.model_copy(update={"disk_bytes": budget}))
+    plan = plan_import(ledger, starter, list_id, "standard")
+    assert plan.new_bytes > 400_000 and not plan.fits  # the upper bound
+    receipt = import_starter(
+        ledger,
+        starter,
+        list_id,
+        "standard",
+        consented=True,
+        options=collection.options(),
+    )
+    assert receipt["imported"] == ["one", "two"]
+    assert ledger.usage() <= budget - HEADROOM
+
+
+def test_resume_needs_disk_only_for_the_missing_objects(tmp_path, monkeypatch):
+    big = "resume" + "x" * 54
+    collection = Collection(tmp_path, (big,))
+    starter = collection.listing(big)
+    list_id = list_identity(starter)
+    manifest = starter.entries[0].manifest
+    ledger = mirror(tmp_path)
+    real_copy = intake_module.copy_verified_object
+    copied: list[str] = []
+
+    def interrupted(source, path, target, file, *args, **kwargs):
+        if copied:
+            raise OSError("interrupted after the first object")
+        copied.append(file.path)
+        return real_copy(source, path, target, file, *args, **kwargs)
+
+    with monkeypatch.context() as broken:
+        broken.setattr(intake_module, "copy_verified_object", interrupted)
+        with pytest.raises(OSError):
+            import_starter(
+                ledger,
+                starter,
+                list_id,
+                "small",
+                consented=True,
+                options=collection.options(),
+            )
+    retry_selection(ledger, manifest)
+    size = starter.entries[0].size_bytes
+    plan = plan_import(ledger, starter, list_id, "small")
+    assert plan.status[big] == "resume"
+    remainder = plan.disk_needed
+    assert remainder is not None and remainder < size
+    # A budget that fits the remainder (plus metadata) but not the whole bundle.
+    budget = ledger.usage() + HEADROOM + remainder + 32 * 1024
+    assert ledger.usage() + size + HEADROOM > budget
+    ledger.update(lambda state: state.model_copy(update={"disk_bytes": budget}))
+    assert plan_import(ledger, starter, list_id, "small").fits
+    resumed = import_starter(
+        ledger,
+        starter,
+        list_id,
+        "small",
+        consented=True,
+        options=collection.options(),
+    )
+    assert resumed["imported"] == [big]
+    assert ledger.read().models[manifest].state == "retained"
 
 
 def test_size_mismatch_with_the_list_refuses(tmp_path, collection):
@@ -625,7 +699,9 @@ def test_quickstart_with_only_a_starter_list_grants_over_the_import(
     assert json.loads(rerun.stdout)["starter"]["imported"] == []
     assert restart_allowed(MirrorLedger(directory).read())
     too_small = _cli(*[*base[:4], "--disk-bytes", "1M", *base[6:]], "--plan-only")
-    assert too_small.returncode != 0
+    # The upper estimate does not fit; the exact check decides after consent.
+    assert too_small.returncode == 0, too_small.stderr.decode()
+    assert "not by the upper estimate" in too_small.stderr.decode()
 
 
 # Licence resolution and the packing pipeline ---------------------------------
@@ -1501,3 +1577,19 @@ def test_interrupted_import_resumes_after_an_explicit_retry(
     )
     assert resumed["imported"] == ["alpha"]
     assert ledger.read().models[manifest].state == "retained"
+
+
+def test_quickstart_import_reports_an_exact_budget_refusal(tmp_path, collection):
+    ledger = mirror(tmp_path, disk=HEADROOM + 4096)
+    starter = collection.listing("alpha", "beta")
+    receipt = import_starter(
+        ledger,
+        starter,
+        list_identity(starter),
+        "standard",
+        consented=True,
+        options=collection.options(keep_going=True),
+    )
+    assert receipt["imported"] == []
+    assert {item["error"] for item in receipt["failed"]} == {"budget_exceeded"}
+    assert not ledger.read().models
