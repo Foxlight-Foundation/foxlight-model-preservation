@@ -8,11 +8,12 @@ sampled at random, every byte is verified, and a local score remembers which
 mirrors actually delivered correct bytes. A fake or dead mirror is dropped after
 a few failures; a flood of them costs bounded attempts.
 
-Receiving uses the directory through :func:`plan_sources` and
-:func:`fetch_with_mirrors`: discovered mirrors are appended after the explicit
-or signed hints, filtered by the receiver's own policy, and scored afterwards.
-Receiving never announces, listens, seeds or publishes, and by default never
-contacts the DHT or Nostr relays.
+Receiving uses the directory through :func:`plan_sources`,
+:func:`plan_fallback` and :func:`fetch_with_mirrors`: discovered mirrors are
+appended after the explicit or signed hints, filtered by the receiver's own
+policy, and scored afterwards. Starter (seed) mirrors are a fallback stage,
+contacted only after those sources failed. Receiving never announces, listens,
+seeds or publishes, and by default never contacts the DHT or Nostr relays.
 """
 
 from __future__ import annotations
@@ -79,6 +80,7 @@ from .storage import (
 from .transfer import (
     DEFAULT_POLICY,
     I2PTransferPolicy,
+    SourcesExhausted,
     TransferPolicy,
     fetch,
     inspect_envelope,
@@ -98,6 +100,8 @@ SEED_TRIES = 4
 MAX_SEEDS = 256
 MAX_SEED_SCORES = 1024
 MAX_OPERATIONS = 256
+# The private record of receives that fell back to starter mirrors.
+MAX_FALLBACKS = 64
 # Learning from hint and seed mirrors before a receive is short and bounded.
 RECEIVE_CRAWL_SECONDS = 20.0
 RECEIVE_CRAWL_TIMEOUT = 5.0
@@ -166,6 +170,37 @@ class RememberedSources(Record):
 
     key: Digest
     sources: tuple[str, ...] = Field(max_length=64)
+
+
+class RememberedFallback(Record):
+    """The starter-mirror stage of one resumable receive, fixed when first used.
+
+    ``sources`` follow the primary stage's sources, ``seeds`` are those of
+    them scored as seed addresses, and ``asked`` are the starter mirrors this
+    stage contacted or offered.
+    """
+
+    key: Digest
+    sources: tuple[str, ...] = Field(max_length=64)
+    seeds: tuple[str, ...] = Field(max_length=64)
+    asked: tuple[str, ...] = Field(max_length=SEED_TRIES)
+
+
+class StarterFallback(Record):
+    """One receive whose own sources failed, so it asked starter mirrors."""
+
+    at: int = Field(ge=0)
+    manifest_id: Digest
+    asked: tuple[str, ...] = Field(max_length=SEED_TRIES)
+
+
+class FallbackLog(Record):
+    """Owner-private, bounded record of when starter mirrors were contacted."""
+
+    schema_version: Literal["sovereign.starter-fallbacks.v1"] = (
+        "sovereign.starter-fallbacks.v1"
+    )
+    entries: tuple[StarterFallback, ...] = Field(default=(), max_length=MAX_FALLBACKS)
 
 
 class OperationState(Record):
@@ -603,6 +638,33 @@ class MirrorDirectory:
             state = OperationState(entries=tuple(entries[-MAX_OPERATIONS:]))
             atomic_bytes(root, "operations.json", encode_record(state))
 
+    def read_fallbacks(self) -> FallbackLog:
+        """Read the private record of receives that fell back to starter mirrors."""
+        try:
+            with directory(self.path) as root:
+                return FallbackLog.model_validate_json(
+                    read_metadata(root, "fallbacks.json")
+                )
+        except FileNotFoundError:
+            return FallbackLog()
+
+    def note_fallback(
+        self, manifest_id: str, asked: tuple[str, ...], *, now: int | None = None
+    ) -> None:
+        """Record that a receive fell back to starter mirrors, keeping the latest."""
+        entry = StarterFallback(
+            at=int(time.time()) if now is None else now,
+            manifest_id=manifest_id,
+            asked=asked,
+        )
+        with self._exclusive() as root:
+            try:
+                entries = self.read_fallbacks().entries
+            except (OSError, ValueError):
+                entries = ()  # A damaged record is replaced, never blocking.
+            state = FallbackLog(entries=(*entries, entry)[-MAX_FALLBACKS:])
+            atomic_bytes(root, "fallbacks.json", encode_record(state))
+
     def record(self, address: str, *, delivered: bool) -> None:
         """Remember whether a mirror delivered correct bytes."""
         self.record_many({address: delivered})
@@ -870,11 +932,14 @@ class SourcePlan:
 
     ``discovered`` lists what was appended after the hints, and ``seeds`` the
     subset of those that came from a seed list rather than a mirror card.
+    ``starters`` are the starter (seed) mirrors a fallback stage contacted or
+    offered; a primary stage has none.
     """
 
     sources: tuple[str, ...]
     discovered: tuple[str, ...] = ()
     seeds: tuple[str, ...] = ()
+    starters: tuple[str, ...] = ()
 
 
 def _operation_key(operation_id: str, manifest_id: str, hints: tuple[str, ...]) -> str:
@@ -885,9 +950,19 @@ def _operation_key(operation_id: str, manifest_id: str, hints: tuple[str, ...]) 
     )
 
 
+def _fallback_key(key: str) -> str:
+    """Name an operation's fallback stage in the directory's bounded history."""
+    return digest(canonical_bytes({"fallback": key}))
+
+
 def _sources_path(operation_id: str) -> str:
     """Keep a receive's chosen sources next to its transfer receipt."""
     return receipt_path(operation_id).removesuffix(".json") + ".sources.json"
+
+
+def _fallback_path(operation_id: str) -> str:
+    """Keep a receive's starter-mirror stage next to its primary plan."""
+    return receipt_path(operation_id).removesuffix(".json") + ".fallback.json"
 
 
 def _read_plan(destination: Path, operation_id: str) -> RememberedSources | None:
@@ -900,24 +975,30 @@ def _read_plan(destination: Path, operation_id: str) -> RememberedSources | None
         return None
 
 
+def _read_fallback(destination: Path, operation_id: str) -> RememberedFallback | None:
+    try:
+        with directory(destination) as root:
+            return RememberedFallback.model_validate_json(
+                read_metadata(root, _fallback_path(operation_id))
+            )
+    except FileNotFoundError:
+        return None
+
+
 def _bound(stored: RememberedSources, key: str) -> tuple[str, ...]:
     if stored.key != key:
         raise RequestChanged("operation ID belongs to different transfer inputs")
     return stored.sources
 
 
-def _claim_plan(
-    destination: Path, operation_id: str, key: str, sources: tuple[str, ...]
-) -> tuple[str, ...]:
-    """Durably create the plan only if none exists; return whichever plan won.
+def _claim(destination: Path, path: str, data: bytes) -> bytes:
+    """Durably create one record only if none exists; return whichever won.
 
-    The plan is written to a private temporary file, fsynced and then hard
+    The record is written to a private temporary file, fsynced and then hard
     linked into place, which fails rather than replaces when another attempt
-    got there first. A plan is therefore never overwritten, never partial, and
-    two concurrent first attempts end up using the same one.
+    got there first. A record is therefore never overwritten, never partial,
+    and two concurrent first attempts end up using the same one.
     """
-    data = encode_record(RememberedSources(key=key, sources=sources))
-    path = _sources_path(operation_id)
     with directory(destination, create=True) as root:
         with parent_directory(root, path, create=True) as (parent, name):
             temporary = ".pending-" + uuid.uuid4().hex
@@ -942,8 +1023,33 @@ def _claim_plan(
                     os.unlink(temporary, dir_fd=parent)
                 except FileNotFoundError:
                     pass
-        stored = RememberedSources.model_validate_json(read_metadata(root, path))
+        return read_metadata(root, path)
+
+
+def _claim_plan(
+    destination: Path, operation_id: str, key: str, sources: tuple[str, ...]
+) -> tuple[str, ...]:
+    """Create the primary plan once beside the receipt; return the plan that won."""
+    stored = RememberedSources.model_validate_json(
+        _claim(
+            destination,
+            _sources_path(operation_id),
+            encode_record(RememberedSources(key=key, sources=sources)),
+        )
+    )
     return _bound(stored, key)
+
+
+def _claim_fallback(
+    destination: Path, operation_id: str, record: RememberedFallback
+) -> RememberedFallback:
+    """Create the fallback stage once beside the plan; return the stage that won."""
+    stored = RememberedFallback.model_validate_json(
+        _claim(destination, _fallback_path(operation_id), encode_record(record))
+    )
+    if stored.key != record.key:
+        raise RequestChanged("operation ID belongs to different transfer inputs")
+    return stored
 
 
 def _plain(value: str) -> bool:
@@ -952,6 +1058,34 @@ def _plain(value: str) -> bool:
     except PreservationError:
         return False
     return True
+
+
+def _learn(
+    mirrors: MirrorDirectory,
+    targets: tuple[str, ...],
+    policy: TransferPolicy,
+    control: OperationControl | None,
+) -> None:
+    """Read only these hosts' peers documents, briefly; learning is optional."""
+    if not targets or isinstance(policy, I2PTransferPolicy):
+        return
+    bounded = replace(
+        policy,
+        timeout=min(policy.timeout, RECEIVE_CRAWL_TIMEOUT),
+        deadline_seconds=min(policy.deadline_seconds, RECEIVE_CRAWL_SECONDS),
+    )
+    try:
+        mirrors.crawl(
+            targets,
+            bounded,
+            max_documents=len(targets),
+            expand=False,
+            control=control,
+        )
+    except OperationError:
+        raise
+    except (OSError, ValueError, http.client.HTTPException):
+        pass  # The receive proceeds with what it already has.
 
 
 def plan_sources(
@@ -967,20 +1101,22 @@ def plan_sources(
     destination: Path | None = None,
     control: OperationControl | None = None,
 ) -> SourcePlan:
-    """Return the hints followed by bounded extra sources for one manifest.
+    """Return the primary stage: the hints, then bounded known mirrors.
 
-    The extras are, in order: mirrors whose card Bloom filter claims the
-    manifest (random within score bands), then not-yet-scored seeds that no
-    card speaks for yet. Every extra must pass the receiver's own policy
-    (:func:`permitted`), and hints plus extras never exceed
-    ``policy.max_sources``. Hints are kept exactly as given, in front.
+    The extras are mirrors whose card Bloom filter claims the manifest, random
+    within score bands. Every extra must pass the receiver's own policy
+    (:func:`permitted`), at most ``limit`` are added, and hints plus extras
+    never exceed ``policy.max_sources``. Hints are kept exactly as given, in
+    front. Starter (seed) mirrors are never contacted or offered here; they
+    form :func:`plan_fallback`'s stage. ``seeds`` only marks seed entries in a
+    plan stored by an earlier release, which offered them up front.
 
-    With ``learn``, the peers documents of the remote hints and the offered
-    seeds are read first (no outward expansion, short deadline), so mirrors
-    those already-used hosts vouch for can be offered. Nothing else is
-    contacted: no DHT, no relay, no announcement. A resumed ``operation_id``
-    reuses the sources chosen the first time, so its allowance still binds.
-    With a ``destination``, that choice is created once, durably, beside the
+    With ``learn``, the peers documents of the remote hints are read first (no
+    outward expansion, short deadline), so mirrors those already-used hosts
+    vouch for can be offered. Nothing else is contacted: no seed, no DHT, no
+    relay, no announcement. A resumed ``operation_id`` reuses the sources
+    chosen the first time, so its allowance still binds. With a
+    ``destination``, that choice is created once, durably, beside the
     operation's transfer receipt and never replaced, so it lasts exactly as
     long as the receipt; reusing the operation ID with other hints or another
     manifest raises :class:`RequestChanged` before anything is written.
@@ -1017,12 +1153,11 @@ def plan_sources(
             if earlier is not None:
                 return result(earlier)
     extras = (
-        _choose_extras(
+        _choose_primary(
             manifest_id,
             hints,
             mirrors,
             policy,
-            offered_seeds=seeds,
             room=room,
             learn=learn,
             control=control,
@@ -1041,9 +1176,174 @@ def plan_sources(
     return result(extras)
 
 
-def _choose_extras(
+def _choose_primary(
     manifest_id: str,
     hints: tuple[str, ...],
+    mirrors: MirrorDirectory,
+    policy: TransferPolicy,
+    *,
+    room: int,
+    learn: bool,
+    control: OperationControl | None,
+) -> tuple[str, ...]:
+    """Sample known mirrors; a damaged directory yields none, not an error."""
+    if learn:
+        _learn(
+            mirrors,
+            tuple(dict.fromkeys(h for h in hints if "://" in h and _plain(h))),
+            policy,
+            control,
+        )
+    try:
+        # Ask for enough that hints already in the directory cannot crowd out
+        # usable fallbacks, then drop them before taking ``room``.
+        found = mirrors.candidates(manifest_id, limit=room + len(hints), policy=policy)
+    except (OSError, ValueError):
+        return ()
+    return tuple(item for item in found if item not in hints)[:room]
+
+
+def _staged(
+    primary: SourcePlan,
+    extras: tuple[str, ...],
+    seeds: tuple[str, ...],
+    starters: tuple[str, ...],
+) -> SourcePlan:
+    extras = tuple(
+        item for item in dict.fromkeys(extras) if item not in primary.sources
+    )
+    return SourcePlan(
+        primary.sources + extras,
+        primary.discovered + extras,
+        tuple(dict.fromkeys((*primary.seeds, *(s for s in seeds if s in extras)))),
+        starters,
+    )
+
+
+def _fallback_room(primary: SourcePlan, policy: TransferPolicy, limit: int) -> int:
+    """Discovered sources across both stages stay within one receive's bounds."""
+    return max(
+        0,
+        min(
+            limit - len(primary.discovered),
+            policy.max_sources - len(primary.sources),
+        ),
+    )
+
+
+def _recorded_fallback(
+    primary: SourcePlan,
+    mirrors: MirrorDirectory,
+    seed_set: frozenset[str],
+    key: str | None,
+    operation_id: str | None,
+    destination: Path | None,
+) -> SourcePlan | None:
+    """Return a resumed operation's fallback stage, if one was ever fixed."""
+    if key is None or operation_id is None:
+        return None
+    if destination is not None:
+        stored = _read_fallback(destination, operation_id)
+        if stored is None:
+            return None
+        if stored.key != key:
+            raise RequestChanged("operation ID belongs to different transfer inputs")
+        return _staged(primary, stored.sources, stored.seeds, stored.asked)
+    try:
+        earlier = mirrors.remembered(_fallback_key(key))
+    except (OSError, ValueError):
+        earlier = None
+    if earlier is None:
+        return None
+    return _staged(primary, earlier, tuple(i for i in earlier if i in seed_set), ())
+
+
+def plan_fallback(
+    manifest_id: str,
+    hints: tuple[str, ...],
+    primary: SourcePlan,
+    mirrors: MirrorDirectory,
+    policy: TransferPolicy = DEFAULT_POLICY,
+    *,
+    seeds: tuple[str, ...] = (),
+    limit: int = DISCOVERED_LIMIT,
+    learn: bool = True,
+    operation_id: str | None = None,
+    destination: Path | None = None,
+    control: OperationControl | None = None,
+) -> SourcePlan:
+    """Return the fallback stage, for when the primary stage's sources failed.
+
+    ``primary`` is what :func:`plan_sources` returned for the same inputs. The
+    stage is the primary sources again, followed by mirrors that now claim
+    the manifest and were not offered before (typically learned from starter
+    mirrors), then not-yet-scored seeds that no card speaks for (at most
+    ``SEED_TRIES``, sampled at random). With ``learn``, only those starter
+    mirrors' peers documents are read first, briefly and without expansion.
+    Every extra passes the receiver's policy, discovered sources across both
+    stages stay within ``limit``, and all sources within
+    ``policy.max_sources``. With no room left or no starter mirror to offer,
+    the stage adds nothing and contacts nobody.
+
+    A resumed ``operation_id`` reuses the stage fixed the first time. With a
+    ``destination`` it is created once, durably, beside the primary plan
+    (``<operation-id>.fallback.json``) and never replaced, so the resume binds
+    the same sources; other inputs raise :class:`RequestChanged`. A newly
+    planned stage that asks starter mirrors is noted in the directory's
+    private fallback record (:meth:`MirrorDirectory.read_fallbacks`).
+    """
+    hints = tuple(dict.fromkeys(hints))
+    seed_set = frozenset(seeds)
+    key = (
+        _operation_key(operation_id, manifest_id, hints)
+        if operation_id is not None
+        else None
+    )
+    recorded = _recorded_fallback(
+        primary, mirrors, seed_set, key, operation_id, destination
+    )
+    if recorded is not None:
+        return recorded
+    room = _fallback_room(primary, policy, limit)
+    extras, asked = (
+        _choose_fallback(
+            manifest_id,
+            primary,
+            mirrors,
+            policy,
+            offered_seeds=seeds,
+            room=room,
+            learn=learn,
+            control=control,
+        )
+        if room > 0
+        else ((), ())
+    )
+    chosen = tuple(item for item in extras if item in seed_set)
+    if key is not None and operation_id is not None:
+        if destination is not None:
+            record = RememberedFallback(
+                key=key, sources=extras, seeds=chosen, asked=asked
+            )
+            stored = _claim_fallback(destination, operation_id, record)
+            # A concurrent first attempt may have fixed the stage first; adopt it.
+            extras, chosen = stored.sources, stored.seeds
+        else:
+            try:
+                mirrors.remember(_fallback_key(key), extras)
+            except (OSError, ValueError):
+                pass
+    if asked:
+        try:
+            mirrors.note_fallback(manifest_id, asked)
+        except (OSError, ValueError):
+            pass  # The record is informative; it never changes the receive.
+    return _staged(primary, extras, chosen, asked)
+
+
+def _choose_fallback(
+    manifest_id: str,
+    primary: SourcePlan,
     mirrors: MirrorDirectory,
     policy: TransferPolicy,
     *,
@@ -1051,59 +1351,38 @@ def _choose_extras(
     room: int,
     learn: bool,
     control: OperationControl | None,
-) -> tuple[str, ...]:
-    """Sample discovered sources; a damaged directory yields none, not an error."""
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Sample the starter stage; return its extras and the starters it asks."""
+    used = frozenset(primary.sources)
     try:
         offered = [
             seed
             for seed in mirrors.unscored_seeds(offered_seeds)
-            if seed not in hints and permitted(seed, policy)
+            if seed not in used and permitted(seed, policy)
         ]
     except (OSError, ValueError):
-        return ()
+        return (), ()
+    if not offered:
+        return (), ()
     mirrors.shuffle(offered)
-    offered = offered[:SEED_TRIES]
-    if learn and not isinstance(policy, I2PTransferPolicy):
-        targets = tuple(
-            dict.fromkeys(
-                [hint for hint in hints if "://" in hint and _plain(hint)] + offered
-            )
-        )
-        if targets:
-            bounded = replace(
-                policy,
-                timeout=min(policy.timeout, RECEIVE_CRAWL_TIMEOUT),
-                deadline_seconds=min(policy.deadline_seconds, RECEIVE_CRAWL_SECONDS),
-            )
-            try:
-                mirrors.crawl(
-                    targets,
-                    bounded,
-                    max_documents=len(targets),
-                    expand=False,
-                    control=control,
-                )
-            except OperationError:
-                raise
-            except (OSError, ValueError, http.client.HTTPException):
-                pass  # Learning is optional; the receive proceeds with hints.
+    starters = tuple(offered[:SEED_TRIES])
+    if learn:
+        _learn(mirrors, starters, policy, control)
     try:
-        # Ask for enough that hints already in the directory cannot crowd out
-        # usable fallbacks, then drop them before taking ``room``.
         found = tuple(
             item
             for item in mirrors.candidates(
-                manifest_id, limit=room + len(hints), policy=policy
+                manifest_id, limit=room + len(used), policy=policy
             )
-            if item not in hints
+            if item not in used
         )
         carded = mirrors.card_addresses()
     except (OSError, ValueError):
-        return ()
-    fresh = tuple(seed for seed in offered if seed not in carded)
-    return tuple(item for item in dict.fromkeys((*found, *fresh)) if item not in hints)[
-        :room
-    ]
+        found, carded = (), frozenset[str]()
+    fresh = tuple(seed for seed in starters if seed not in carded)
+    extras = tuple(dict.fromkeys((*found, *fresh)))[:room]
+    asked = starters if learn else tuple(s for s in starters if s in extras)
+    return extras, asked
 
 
 def fetch_with_mirrors(
@@ -1119,11 +1398,23 @@ def fetch_with_mirrors(
     operation_id: str | None = None,
     envelope: bytes | None = None,
 ) -> ArchiveManifest:
-    """Fetch exact trusted content from hints, then discovered mirrors.
+    """Fetch exact trusted content from hints, known mirrors, then starters.
 
     Without a directory this is exactly :func:`transfer.fetch`. With one, the
-    sources come from :func:`plan_sources` and each remote source's outcome is
-    recorded afterwards, success or failure, even when the fetch fails. The
+    receive has up to two stages. The primary stage (:func:`plan_sources`) is
+    the hints and the mirrors this client already knows. Only when every one
+    of those failed for this manifest
+    (:class:`~foxlight_model_preservation.transfer.SourcesExhausted`), or there
+    were none, does the fallback stage (:func:`plan_fallback`) contact starter
+    (seed) mirrors, and then the primary sources are tried again ahead of what
+    the starters offered. Cancellation, deadlines, budgets and local failures
+    never fall back. One deadline covers both stages.
+
+    With ``operation_id`` the receipt binds the primary stage's sources, and a
+    fallback stage, fixed beside the receipt when first used, extends that
+    same request: a resume after it goes straight to the recorded fallback
+    stage and never trips :class:`RequestChanged`. Each remote source's outcome
+    is recorded afterwards, success or failure, even when the fetch fails. The
     manifest and every object are still verified against ``trust``, which the
     caller chose independently; no discovered mirror can change it.
     """
@@ -1138,10 +1429,11 @@ def fetch_with_mirrors(
             operation_id=operation_id,
             envelope=envelope,
         )
+    active = control or OperationControl()
     # A damaged directory yields no discovered sources rather than an error;
     # a plan that cannot be read or kept beside the receipt fails the receive,
     # as the receipt itself would.
-    plan = plan_sources(
+    primary = plan_sources(
         manifest_id,
         hints,
         mirrors,
@@ -1149,16 +1441,16 @@ def fetch_with_mirrors(
         seeds=seeds,
         operation_id=operation_id,
         destination=destination,
-        control=control,
+        control=active,
     )
     delivered: dict[str, bool] = {}
+    discovered = set(primary.discovered)
+    scored_seeds = list(primary.seeds)
 
     def observe(source: str, ok: bool) -> None:
         # Any failed object marks the source down; only clean delivery counts.
         if "://" in source:
             delivered[source] = delivered.get(source, True) and ok
-
-    discovered = frozenset(plan.discovered)
 
     def refused(source: str) -> None:
         # A discovered mirror or seed that was asked for the manifest and could
@@ -1167,22 +1459,63 @@ def fetch_with_mirrors(
         if source in discovered:
             observe(source, False)
 
-    try:
+    def attempt(
+        plan: SourcePlan, stage: OperationControl, request: tuple[str, ...] | None
+    ) -> ArchiveManifest:
         return fetch(
             manifest_id,
             trust,
             plan.sources,
             destination,
             policy,
-            control=control,
+            control=stage,
             operation_id=operation_id,
             envelope=envelope,
             source_outcome=observe,
             manifest_failure=refused,
+            request_sources=request,
         )
+
+    key = (
+        _operation_key(operation_id, manifest_id, tuple(dict.fromkeys(hints)))
+        if operation_id is not None
+        else None
+    )
+    try:
+        staged = _recorded_fallback(
+            primary, mirrors, frozenset(seeds), key, operation_id, destination
+        )
+        if staged is None:
+            exhausted: SourcesExhausted | None = None
+            if primary.sources:
+                if not seeds or _fallback_room(primary, policy, DISCOVERED_LIMIT) < 1:
+                    return attempt(primary, active, None)  # Nothing to fall back to.
+                # One deadline covers both stages; the first runs on a child
+                # control so the fallback stage can still own this one.
+                active.limit_deadline(time.monotonic() + policy.deadline_seconds)
+                try:
+                    return attempt(primary, active.fork(), None)
+                except SourcesExhausted as error:
+                    exhausted = error
+            staged = plan_fallback(
+                manifest_id,
+                hints,
+                primary,
+                mirrors,
+                policy,
+                seeds=seeds,
+                operation_id=operation_id,
+                destination=destination,
+                control=active,
+            )
+            if exhausted is not None and staged.sources == primary.sources:
+                raise exhausted
+        discovered.update(staged.discovered)
+        scored_seeds.extend(staged.seeds)
+        return attempt(staged, active, primary.sources)
     finally:
         try:
-            mirrors.record_many(delivered, seeds=plan.seeds)
+            mirrors.record_many(delivered, seeds=tuple(dict.fromkeys(scored_seeds)))
         except (OSError, ValueError):
             pass  # Scoring is advisory; it never changes the receive's result.
 

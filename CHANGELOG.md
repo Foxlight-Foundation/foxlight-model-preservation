@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- Starter (seed) mirrors are now only a fallback. A receive first contacts
+  just its approved or signed hints and the mirrors its private directory
+  already knows; it reads seeds' peers documents, or tries seeds as sources,
+  only after all of those failed for that manifest (or there were none). Before,
+  unscored seeds were offered and asked up front, showing every receiver's IP
+  address to seed operators even when the named mirrors worked. The CLI
+  receives and the app's Library receive follow the same rule. Bounds are
+  unchanged (`max_sources`, the HTTPS policy, crawl caps and one deadline for
+  the whole receive). With `--operation-id`, the fallback stage is fixed once
+  beside the receipt (`.operations/<id>.fallback.json`) and extends the same
+  bound request, so a resume reuses it and never trips the changed-request
+  check. Each fallback is noted in the private directory's `fallbacks.json`
+  and listed by `mirrors list` as `starter_fallbacks`. `--look-further` is
+  unchanged. New API: `mirror_directory.plan_fallback`,
+  `MirrorDirectory.read_fallbacks`/`note_fallback`,
+  `transfer.SourcesExhausted` and `fetch(..., request_sources=...)`.
+
 - Catalog withdrawal is now advisory: no catalog publisher, Foxlight
   included, can take down a mirror's copies. Catalogs are discovery, not
   authority. When a followed catalog stops listing a retained copy, the mirror

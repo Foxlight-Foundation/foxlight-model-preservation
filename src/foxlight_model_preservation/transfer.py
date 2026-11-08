@@ -119,6 +119,15 @@ class MirrorProtocolError(PreservationError):
     """An invalid or truncated HTTP response; callers may try another supplier."""
 
 
+class SourcesExhausted(PreservationError):
+    """Every given source was tried and none supplied the manifest or an object.
+
+    Only this failure means the sources themselves ran out; a caller with a
+    further stage of sources may try it. Local, policy and operation failures
+    are never this.
+    """
+
+
 class PinnedConnection(http.client.HTTPConnection):
     """Connect to a validated resolved address, preserving TLS hostname checks."""
 
@@ -441,7 +450,7 @@ def _load_manifest(
             failures.append(f"source {index + 1}: {type(error).__name__}")
             if failure is not None:
                 failure(source)
-    raise PreservationError(
+    raise SourcesExhausted(
         "no authenticated manifest available; " + "; ".join(failures)
     )
 
@@ -504,6 +513,7 @@ def fetch(
     envelope: bytes | None = None,
     source_outcome: Callable[[str, bool], None] | None = None,
     manifest_failure: Callable[[str], None] | None = None,
+    request_sources: tuple[str, ...] | None = None,
 ) -> ArchiveManifest:
     """Receive exact trusted content with optional control and persistent allowance.
 
@@ -520,7 +530,16 @@ def fetch(
     source delivered verified bytes, so callers can score mirrors honestly. An
     optional manifest_failure callback learns each source that was asked for the
     signed manifest and could not supply an authentic one.
+
+    ``request_sources`` is for a caller that receives in recorded stages: it
+    names the leading sources an operation's receipt binds, and must be a
+    prefix of ``sources``. A later stage then extends the same bound request
+    with sources the caller fixed durably when it first used them, so a resume
+    keeps one allowance. By default the receipt binds ``sources`` exactly.
     """
+    bound = sources if request_sources is None else request_sources
+    if sources[: len(bound)] != bound:
+        raise PreservationError("a staged request must extend its bound sources")
     with (control or OperationControl()).operation("fetch") as active:
         policy.validate()
         if operation_id is not None:
@@ -580,7 +599,7 @@ def fetch(
                     canonical_bytes(
                         {
                             "request": request_digest(
-                                manifest_id, trust, sources, destination, policy
+                                manifest_id, trust, bound, destination, policy
                             ),
                             "device": str(pinned.st_dev),
                             "inode": str(pinned.st_ino),
@@ -648,7 +667,7 @@ def fetch(
                         if complete:
                             break
                     if not complete:
-                        raise PreservationError(
+                        raise SourcesExhausted(
                             "no mirror supplied a complete verified object"
                         )
                 active.phase("checking")

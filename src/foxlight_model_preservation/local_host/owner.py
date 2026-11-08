@@ -1330,7 +1330,8 @@ class LocalOwner:
         # The approved hints are bound above; discovered mirrors are only ever
         # appended after them, under the same receive policy, and never change
         # which keys are trusted. Learning reads only the approved mirrors' own
-        # peers documents: no DHT, relay or announcement.
+        # peers documents: no DHT, relay or announcement. Starter mirrors are
+        # asked only after the approved and known mirrors all failed.
         approved = tuple(cast(list[str], plan["mirrors"]))
         policy = TransferPolicy(
             max_bytes=cast(int, plan["max_bytes"]),
@@ -1418,7 +1419,7 @@ class LocalOwner:
         operation_id: str,
         envelope: bytes,
     ) -> ArchiveManifest:
-        """Receive from the approved hints, then discovered mirrors, and score them."""
+        """Receive from approved hints and known mirrors, then starters; score them."""
         try:
             seeds = load_seeds()
         except (OSError, ValueError):

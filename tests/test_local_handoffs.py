@@ -181,3 +181,55 @@ def test_library_receive_never_contacts_the_dht_or_relays(
         assert received["state"] == "succeeded", received
     finally:
         owner.close()
+
+
+def _seed_list(path, *addresses):
+    path.write_text(
+        json.dumps(
+            {"schema_version": "sovereign.seed-mirrors.v1", "mirrors": list(addresses)}
+        )
+    )
+    return path
+
+
+def test_library_receive_contacts_seeds_only_after_the_approved_mirrors_fail(
+    tmp_path, capture, monkeypatch
+):
+    """The app's receive asks starter mirrors only as a fallback, like the CLI."""
+    forbid_lookups(monkeypatch)
+    vouched = tmp_path / "seed-peers.json"
+    owner = LocalOwner(tmp_path / "recipient")
+    try:
+        with (
+            holding(capture.store, capture) as holder,
+            peers_only(tmp_path / "absent.json") as (failing, _failing_requests),
+            peers_only(vouched) as (seed, seed_requests),
+        ):
+            monkeypatch.setenv(
+                "SOVEREIGN_SEED_MIRRORS", str(_seed_list(tmp_path / "seeds.json", seed))
+            )
+            vouched.write_bytes(
+                build_peers(
+                    None,
+                    (
+                        issue_card(
+                            Ed25519PrivateKey.generate(), (holder,), {capture.identity}
+                        ),
+                    ),
+                )
+            )
+            # The approved mirror works: no starter mirror is contacted.
+            received = _handoff_receive(owner, capture, (holder,))
+            assert received["state"] == "succeeded", received
+            assert seed_requests == []
+            assert owner.community.directory.read_fallbacks().entries == ()
+            # The approved mirror holds nothing: only now is the seed asked,
+            # and the mirror it vouches for delivers.
+            received = _handoff_receive(owner, capture, (failing,))
+            assert received["state"] == "succeeded", received
+            assert seed_requests[0] == PEERS
+        [entry] = owner.community.directory.read_fallbacks().entries
+        assert entry.asked == (seed,) and entry.manifest_id == capture.identity
+        assert len(owner.read()["copies"]) == 2
+    finally:
+        owner.close()

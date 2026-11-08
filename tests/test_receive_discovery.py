@@ -28,6 +28,7 @@ from foxlight_model_preservation.mirror_directory import (
     fetch_with_mirrors,
     load_seeds,
     permitted,
+    plan_fallback,
     plan_sources,
     read_seed_list,
 )
@@ -311,9 +312,12 @@ def test_receiver_policy_holds_for_discovered_candidates(tmp_path: Path) -> None
 def test_http_seeds_are_refused_by_default(tmp_path: Path) -> None:
     directory = MirrorDirectory(tmp_path / "d")
     seeds = ("http://seed.example", "https://seed.example")
-    found = plan_sources(
-        "a" * 64, ("https://hint.example",), directory, learn=False, seeds=seeds
-    )
+    hints = ("https://hint.example",)
+    primary = plan_sources("a" * 64, hints, directory, learn=False, seeds=seeds)
+    # Seeds are never part of the primary stage.
+    assert primary.discovered == () and primary.seeds == ()
+    found = plan_fallback("a" * 64, hints, primary, directory, learn=False, seeds=seeds)
+    assert found.sources == (*hints, "https://seed.example")
     assert found.discovered == ("https://seed.example",)
     assert found.seeds == ("https://seed.example",)
 
@@ -677,3 +681,168 @@ def test_a_damaged_directory_still_receives_and_binds_a_hints_only_plan(
             )
     assert verify_store(store, capture.identity, capture.trust)
     assert b'"sources":[]' in (store / ".operations/damaged.sources.json").read_bytes()
+
+
+def test_a_receive_that_succeeds_from_its_hints_never_contacts_a_seed(
+    tmp_path: Path, capture: Capture
+) -> None:
+    """Starter mirrors see nobody whose named mirrors work."""
+    directory = MirrorDirectory(tmp_path / "d")
+    vouched = tmp_path / "seed-peers.json"
+    with (
+        holding(capture.store, capture) as hint,
+        peers_only(vouched) as (seed, seed_requests),
+    ):
+        vouched.write_bytes(build_peers(None, ()))
+        for operation_id in (None, "op"):
+            fetch_with_mirrors(
+                capture.identity,
+                capture.trust,
+                (hint,),
+                tmp_path / f"received-{operation_id}",
+                LAB,
+                mirrors=directory,
+                seeds=(seed,),
+                operation_id=operation_id,
+            )
+    assert seed_requests == []
+    assert directory.read_fallbacks().entries == ()
+    assert directory.unscored_seeds((seed,)) == (seed,)  # Still never asked.
+    assert not (tmp_path / "received-op/.operations/op.fallback.json").exists()
+
+
+def test_a_receive_whose_hints_fail_falls_back_to_seeds_and_succeeds(
+    tmp_path: Path, capture: Capture
+) -> None:
+    """Only after the hint fails is the seed asked, and what it vouches for works."""
+    directory = MirrorDirectory(tmp_path / "d")
+    vouched = tmp_path / "seed-peers.json"
+    store = tmp_path / "received"
+    with (
+        holding(capture.store, capture) as holder,
+        peers_only(tmp_path / "absent.json") as (hint, hint_requests),
+        peers_only(vouched) as (seed, seed_requests),
+    ):
+        vouched.write_bytes(build_peers(None, (_card_for(capture.identity, holder),)))
+        manifest = fetch_with_mirrors(
+            capture.identity,
+            capture.trust,
+            (hint,),
+            store,
+            LAB,
+            mirrors=directory,
+            seeds=(seed,),
+            operation_id="op",
+        )
+    assert manifest == verify_store(store, capture.identity, capture.trust)
+    # The hint was learned from and asked first; the seed only afterwards.
+    assert hint_requests[0] == PEERS and len(hint_requests) > 1
+    assert seed_requests[0] == PEERS
+    assert scores(directory)[holder] == (1, 0)
+    # Contacting starter mirrors is visible: in the private directory record
+    # and in the stage fixed beside the receipt.
+    [entry] = directory.read_fallbacks().entries
+    assert entry.manifest_id == capture.identity and entry.asked == (seed,)
+    stage = (store / ".operations/op.fallback.json").read_bytes()
+    assert holder.encode() in stage and seed.encode() in stage
+    listed = run(arguments("mirrors", "list", "--mirror-directory", directory.path))
+    assert listed["starter_fallbacks"] == [entry.model_dump(mode="json")]
+
+
+def test_a_receive_with_no_room_or_no_seeds_does_not_fall_back(
+    tmp_path: Path, capture: Capture
+) -> None:
+    directory = MirrorDirectory(tmp_path / "d")
+    with (
+        peers_only(tmp_path / "absent.json") as (hint, _hint_requests),
+        peers_only(tmp_path / "seed.json") as (seed, seed_requests),
+    ):
+        for seeds, policy in (
+            ((), LAB),
+            (
+                (seed,),
+                TransferPolicy(allow_http=True, allow_private=True, max_sources=1),
+            ),
+        ):
+            with pytest.raises(PreservationError, match="manifest"):
+                fetch_with_mirrors(
+                    capture.identity,
+                    capture.trust,
+                    (hint,),
+                    tmp_path / "never",
+                    policy,
+                    mirrors=directory,
+                    seeds=seeds,
+                )
+    assert seed_requests == []
+    assert directory.read_fallbacks().entries == ()
+
+
+def test_a_resume_after_an_interrupted_fallback_reuses_the_same_stage(
+    tmp_path: Path, capture: Capture
+) -> None:
+    """The fallback stage is fixed when first used, so a resume binds it."""
+    from foxlight_model_preservation.operations import (
+        OperationCancelled,
+        OperationControl,
+        Progress,
+    )
+
+    corrupt = tmp_path / "corrupt"
+    shutil.copytree(capture.store, corrupt)
+    weights = verify_store(capture.store, capture.identity, capture.trust).members[0]
+    directory = MirrorDirectory(tmp_path / "d")
+    store = tmp_path / "received"
+    stage_file = store / ".operations/op.fallback.json"
+    vouched = tmp_path / "seed-peers.json"
+    with (
+        holding(corrupt, capture) as hint,
+        holding(capture.store, capture) as holder,
+        peers_only(vouched) as (seed, seed_requests),
+        peers_only(tmp_path / "late.json") as (late, late_requests),
+    ):
+        target = corrupt / object_path(weights.files[0].sha256)
+        target.chmod(0o600)
+        target.write_bytes(b"x" * weights.files[0].size)
+        vouched.write_bytes(build_peers(None, (_card_for(capture.identity, holder),)))
+
+        def interrupt(progress: Progress) -> None:
+            # Stop as soon as the fallback stage starts moving objects.
+            if progress.stage == "downloading" and stage_file.exists():
+                control.cancel()
+
+        control = OperationControl(interrupt)
+        # The hint serves the signed manifest but a corrupt object, so the
+        # first stage creates the receipt before it fails.
+        with pytest.raises(OperationCancelled):
+            fetch_with_mirrors(
+                capture.identity,
+                capture.trust,
+                (hint,),
+                store,
+                LAB,
+                mirrors=directory,
+                seeds=(seed,),
+                control=control,
+                operation_id="op",
+            )
+        assert (store / ".operations/op.json").is_file()
+        fixed = stage_file.read_bytes()
+        assert seed_requests == [PEERS]
+        # Meanwhile the client learns of other mirrors and another seed.
+        directory.ingest((_card_for(capture.identity, "http://127.0.0.1:9"),))
+        manifest = fetch_with_mirrors(
+            capture.identity,
+            capture.trust,
+            (hint,),
+            store,
+            LAB,
+            mirrors=directory,
+            seeds=(late, seed),
+            operation_id="op",
+        )
+    assert manifest == verify_store(store, capture.identity, capture.trust)
+    # The same stage was resumed: nothing re-planned, no new seed asked.
+    assert stage_file.read_bytes() == fixed
+    assert PEERS not in seed_requests[1:] and late_requests == []
+    assert len(directory.read_fallbacks().entries) == 1
