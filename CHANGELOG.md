@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Catalog browsing without a search or chosen use lists saveable chat models
+  first (`result_order`), then the rest smallest first.
 - The shipped starter (seed) mirror list now names `https://starter.foxlight.ai`,
   Foxlight's R2 bucket mirror of the starter collection. It is contacted only
   after a receive's own and discovered mirrors fail.

@@ -79,6 +79,26 @@ class RegistryFetcher(FetcherInterface):
             ) from error
 
 
+def result_order(
+    row: dict[str, JsonValue], *, browsing: bool
+) -> tuple[bool, bool, int, str]:
+    """Order search results: saveable models first, then smallest first.
+
+    When browsing without a search or a chosen use, chat models come before
+    the rest, since that is what most newcomers look for first.
+    """
+    details = row.get("details")
+    purposes: JsonValue = details.get("purposes") if isinstance(details, dict) else None
+    chat = isinstance(purposes, list) and "chat" in purposes
+    size = row.get("size_bytes")
+    return (
+        row.get("download_support") != "ready",
+        browsing and not chat,
+        size if type(size) is int else 2**53,
+        str(row.get("name")),
+    )
+
+
 class RegistryCatalog:
     """One optional preset with authenticated updates and retained offline browse."""
 
@@ -359,13 +379,8 @@ class RegistryCatalog:
                     else False,
                 }
             )
-        rows.sort(
-            key=lambda row: (
-                row["download_support"] != "ready",
-                cast(int | None, row["size_bytes"]) or 2**53,
-                str(row["name"]),
-            )
-        )
+        browsing = not terms and not purpose
+        rows.sort(key=lambda row: result_order(row, browsing=browsing))
         matching_total = len(rows)
         ready_total = sum(row["download_support"] == "ready" for row in rows)
         if ready_only:

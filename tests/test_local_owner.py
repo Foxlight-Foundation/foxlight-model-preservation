@@ -780,3 +780,34 @@ def test_ready_catalog_filter_counts_matching_versions_without_network(tmp_path)
             owner.control("search", {"ready_only": "true"})
     finally:
         owner.close()
+
+
+def test_browsing_shows_saveable_chat_models_first():
+    from foxlight_model_preservation.local_host.catalog import result_order
+
+    def row(name, purposes, size, support="ready"):
+        return {
+            "name": name,
+            "details": {"purposes": purposes},
+            "size_bytes": size,
+            "download_support": support,
+        }
+
+    rows = [
+        row("tiny embeddings", ["search"], 10),
+        row("small chat", ["chat"], 300),
+        row(
+            "unsaveable chat", ["chat"], 5, support="complete_signed_file_map_required"
+        ),
+        row("big chat", ["chat", "images"], 900),
+    ]
+    browsing = sorted(rows, key=lambda item: result_order(item, browsing=True))
+    assert [item["name"] for item in browsing] == [
+        "small chat",
+        "big chat",
+        "tiny embeddings",
+        "unsaveable chat",
+    ]
+    # A search or a chosen use keeps the plain smallest-first order.
+    searching = sorted(rows, key=lambda item: result_order(item, browsing=False))
+    assert [item["name"] for item in searching][:2] == ["tiny embeddings", "small chat"]

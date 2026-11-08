@@ -135,9 +135,9 @@ test('size-bounded catalog pages return to their actual previous offset',async({
  const offsets:number[]=[];
  await page.route('**/api/desktop-search',route=>{const offset=route.request().postDataJSON().offset;offsets.push(offset);return route.fulfill({json:{catalog_id:id,results:[cards[0]],total:60,next_offset:offset<26?offset+13:null}});});
  await page.goto('/');await page.getByRole('button',{name:'Find',exact:true}).click();
- await page.getByRole('button',{name:'More matching versions',exact:true}).click();
+ await page.getByRole('button',{name:'More models',exact:true}).click();
  await expect.poll(()=>offsets.at(-1)).toBe(13);
- await page.getByRole('button',{name:'More matching versions',exact:true}).click();
+ await page.getByRole('button',{name:'More models',exact:true}).click();
  await expect.poll(()=>offsets.at(-1)).toBe(26);
  await page.getByRole('button',{name:'Previous',exact:true}).click();
  await expect.poll(()=>offsets.at(-1)).toBe(13);

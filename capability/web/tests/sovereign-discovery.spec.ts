@@ -13,14 +13,15 @@ test('Find defaults to complete-map review and keeps unsupported signed listings
  const unavailable={...ready,card_id:'b'.repeat(64),name:'Listing without a complete map',complete_file_map:false,download_support:'complete_signed_file_map_required'};
  await page.route('**/api/desktop-search',r=>{const only=r.request().postDataJSON().ready_only;return r.fulfill({json:{catalog_id:id,results:only?[ready]:[ready,unavailable],total:only?1:2,ready_total:1,matching_total:2,next_offset:null}});});
  await page.goto('/');await expect(page.getByRole('heading',{name:ready.name,exact:true})).toBeVisible();
- await expect(page.getByLabel('Preservation support',{exact:true})).toHaveValue('ready');
+ const showAll=page.getByRole('checkbox',{name:/Also show listings Sovereign can’t save yet/});
+ await expect(showAll).not.toBeChecked();
  await expect(page.getByRole('heading',{name:unavailable.name,exact:true})).toHaveCount(0);
- await page.getByLabel('Preservation support',{exact:true}).selectOption('all');
+ await showAll.check();
  const card=page.getByRole('article').filter({has:page.getByRole('heading',{name:unavailable.name,exact:true})});
  await expect(card.getByRole('button',{name:'Keep a copy',exact:true})).toBeDisabled();
  await expect(card).toContainText('verification details for every required file');
- await page.getByRole('button',{name:'About preservation support',exact:true}).click();
- await expect(page.getByRole('tooltip')).toContainText('does not test host availability');
+ await page.getByRole('button',{name:'About listings Sovereign can’t save yet',exact:true}).click();
+ await expect(page.getByRole('tooltip')).toContainText('hidden unless you ask to see them');
  expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
 });
 
