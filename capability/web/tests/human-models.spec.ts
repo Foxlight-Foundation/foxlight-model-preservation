@@ -100,15 +100,15 @@ test('matching file variants share a description but retain their own exact revi
  await expect(page.getByText('writing-Q8.gguf',{exact:true})).toBeVisible();
  await page.getByRole('button',{name:'Keep a copy',exact:true}).nth(1).click();
  expect(selected).toBe(versions[1].card_id);
- await expect(page.getByRole('button',{name:'Download & preserve',exact:true})).toBeDisabled();
+ await expect(page.getByRole('dialog').getByRole('button',{name:'Keep a copy',exact:true})).toBeVisible();
  const dialog=page.getByRole('dialog'),help=dialog.getByRole('button',{name:'About digital fingerprints',exact:true});
  await expect(help).not.toBeVisible();
- await dialog.getByText('Original card verification details',{exact:true}).click();
+ await dialog.getByText('Verification details',{exact:true}).click();
  await expect.poll(()=>page.evaluate(()=>(window as Window&{testFocusFrames:{count:()=>number}}).testFocusFrames.count())).toBeGreaterThan(0);
  await help.focus();await page.evaluate(()=>(window as Window&{testFocusFrames:{flush:()=>void}}).testFocusFrames.flush());await expect(help).toBeFocused();await expect(page.getByRole('tooltip')).toBeVisible();
  await help.press('Escape');await expect(dialog).toBeVisible();await expect(page.getByRole('tooltip')).toHaveCount(0);
  // Hover does not move focus. Escape dismisses the viewport-level help first.
- await dialog.getByRole('heading',{name:'Download & preserve',exact:true}).focus();
+ await dialog.getByRole('heading',{name:'Keep a copy',exact:true}).focus();
  await help.hover();await expect(page.getByRole('tooltip')).toBeVisible();
  const tip=await page.getByRole('tooltip').boundingBox(),viewport=page.viewportSize()!;
  expect(tip!.x).toBeGreaterThanOrEqual(0);expect(tip!.x+tip!.width).toBeLessThanOrEqual(viewport.width);expect(tip!.y+tip!.height).toBeLessThanOrEqual(viewport.height);
@@ -121,14 +121,14 @@ test('all saved models remain searchable across size-bounded Library pages',asyn
  await page.route('**/api/library*',route=>route.fulfill({json:{host_kind:'sovereign',copy_count:256,copies:[copies[0]],jobs:[],next_offset:null}}));
  await page.route('**/api/desktop-copy-search',route=>{const body=route.request().postDataJSON();offsets.push(body.offset);const filtered=Boolean(body.query);return route.fulfill({json:{results:[filtered?{...copies[1],name:'Copy255'}:copies[0]],total:filtered?1:256,stored_total:256,next_offset:filtered?null:body.offset<26?body.offset+13:null}});});
  await page.goto('/');
- await expect(page.getByText('256 matches among 256 saved models',{exact:false})).toBeVisible();
+ await expect(page.getByText('256 saved models · search stays on this device',{exact:true})).toBeVisible();
  await page.getByRole('button',{name:'More saved models',exact:true}).click();await expect.poll(()=>offsets.at(-1)).toBe(13);
  await page.getByRole('button',{name:'More saved models',exact:true}).click();await expect.poll(()=>offsets.at(-1)).toBe(26);
  await page.getByRole('button',{name:'Previous saved models',exact:true}).click();await expect.poll(()=>offsets.at(-1)).toBe(13);
  await page.getByLabel('Search your saved models',{exact:true}).fill('Copy255');
  await expect(page.getByRole('heading',{name:'Copy255',exact:true})).toBeVisible();await expect.poll(()=>offsets.at(-1)).toBe(0);
  await expect(page.getByRole('button',{name:'Restore files',exact:true})).toBeVisible();
- await expect(page.getByText('1 matches among 256 saved models',{exact:false})).toBeVisible();
+ await expect(page.getByText('1 of 256 saved models match',{exact:true})).toBeVisible();
 });
 
 test('size-bounded catalog pages return to their actual previous offset',async({page})=>{
@@ -155,7 +155,7 @@ test('Activity describes the actual stage without inventing a percentage',async(
 test('other model sources are one visible jump away without any network enrollment',async({page})=>{
  const effects:string[]=[];page.on('request',request=>{if(/desktop-(source-follow|source-plan|refresh|start)/.test(request.url()))effects.push(request.url());});
  await page.goto('/');await page.getByRole('button',{name:'Find',exact:true}).click();
- await page.getByRole('link',{name:'Open sharing file or source',exact:true}).click();
+ await page.getByRole('link',{name:'Open a sharing file',exact:true}).click();
  await expect(page.getByRole('region',{name:'Independent model sources',exact:true})).toBeInViewport();
  await expect(page.getByRole('region',{name:'Independent model sources',exact:true})).toBeFocused();
  expect(effects).toEqual([]);

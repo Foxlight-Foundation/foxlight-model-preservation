@@ -11,5 +11,5 @@ export function insufficientWorkingSpace(value:WorkingSpace):boolean {
 /** Explain temporary storage equally for registry and independent-source copies. */
 export function WorkingSpaceReview({value}:{value:WorkingSpace}) {
   if(value.required_free_bytes==null||value.free_bytes==null)return null;
-  return <><Row k="Free space needed during download">{bytes(value.required_free_bytes)}</Row><Row k="Available on this device at review">{bytes(value.free_bytes)}</Row><p className="sk-hint">Extra space keeps working copies separate while Sovereign checks the complete model. Space is checked again before work starts.</p>{insufficientWorkingSpace(value)&&<Callout tone="warn">There is not enough working space on this device. Free space or choose a smaller complete model, then review again. No download has started.</Callout>}</>;
+  return <><Row k="Free space needed while saving">{bytes(value.required_free_bytes)}</Row><Row k="Free space on this computer">{bytes(value.free_bytes)}</Row><p className="sk-hint">While saving, Sovereign keeps a temporary copy so it can check the download before it replaces anything. The extra room is freed when it finishes.</p>{insufficientWorkingSpace(value)&&<Callout tone="warn">There is not enough working space on this device. Free space or choose a smaller complete model, then review again. No download has started.</Callout>}</>;
 }

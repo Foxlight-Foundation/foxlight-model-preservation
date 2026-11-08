@@ -10,8 +10,8 @@ export function NewcomerChoices({busy,onBrowse,onRecover,onReceive}:{busy:boolea
     <div className="sk-start-intro"><h2>What would you like to do?</h2><p>Keep a complete model, including its companion files and original documents. No account or Skulk needed.</p></div>
     <div className="sk-start-options">
       <article className="sk-card"><Icon name="search" size={24}/><h3>Find something useful</h3><p>Browse descriptions for writing, images, voice and more. Choose a model before any model files download.</p><button className="sk-btn sk-solid" disabled={busy} onClick={onBrowse}>Browse public models</button><p className="sk-hint">No account or source-file setup. This contacts Foxlight for signed listings only.</p></article>
-      <article className="sk-card"><Icon name="restore" size={24}/><h3>Recover a saved model</h3><p>Have a .foxkit file? Open it to review the model, companions and sender’s verification key. You can recover offline.</p><button className="sk-btn sk-outline" disabled={busy} onClick={onRecover}>Choose a recovery kit</button></article>
-      <article className="sk-card"><Icon name="send" size={24}/><h3>Receive from someone</h3><p>Have a .foxhandoff sharing file? Review the sender and connection before downloading. Opening it starts no connection.</p><button className="sk-btn sk-outline" disabled={busy} onClick={onReceive}>Choose a sharing file</button></article>
+      <article className="sk-card"><Icon name="restore" size={24}/><h3>Recover a saved model</h3><p>Have a .foxkit file? Open it to review the model, companions and sender’s verification key. You can recover offline.</p><button className="sk-btn sk-outline" disabled={busy} onClick={onRecover}>Open a recovery kit</button></article>
+      <article className="sk-card"><Icon name="send" size={24}/><h3>Receive from someone</h3><p>Have a .foxhandoff sharing file? Review the sender and connection before downloading. Opening it starts no connection.</p><button className="sk-btn sk-outline" disabled={busy} onClick={onReceive}>Open a sharing file</button></article>
     </div>
     <p className="sk-hint">Sovereign keeps and restores model files. To run a model, you’ll also need a compatible model application. Receiving never turns on sharing.</p>
   </section>;
@@ -20,12 +20,11 @@ export function NewcomerChoices({busy,onBrowse,onRecover,onReceive}:{busy:boolea
 /** A reusable plain-language path; no step grants trust or starts work. */
 export function JourneyGuide({onClose}:{onClose:()=>void}) {
   return <Sheet kicker="Getting started" title="Your model, kept safe" back="Close getting started" onClose={onClose}>
-    <Step n={1} title="Find a useful model"><p>In Find, search for what you want to do. Check what the model works with and produces. Choose a file version supported by the application you plan to use; download size is not the memory needed to run it.</p></Step>
-    <Step n={2} title="Keep the complete copy"><p>Choose Keep a copy, review the files, companions, storage and source, then confirm. Activity shows the work. A completed copy appears in Library; you can search it offline.</p></Step>
-    <Step n={3} title="Protect it beyond this computer"><p>In Library, Save recovery kit creates one .foxkit containing the complete archive, original model cards and signed evidence. Save it on another drive, or use Back up to save to a remembered folder. A copy on the same computer does not protect against losing it.</p></Step>
-    <Step n={4} title="Share deliberately"><p>Share offers two paths: send a complete recovery kit using a service or drive you choose, or review a separate public mirror. Kits may contain private capture details. Neither path starts a mirror without its own explicit choice.</p></Step>
-    <Step n={5} title="Recover on a new computer"><p>Install Sovereign and open the kit. Compare its verification key with the sender through a channel you already trust, then explicitly accept this exact capture. After import, choose Restore files in Library. The sender and original registry can be offline.</p><p>Restore creates a new folder with the captured files. It does not install a model application or run model code.</p></Step>
-    <Callout>Software signing, model verification and permission to run code are separate. A matching capture key identifies a particular signed copy; it does not establish upstream authorship or registry approval.</Callout>
+    <Step n={1} title="Find a model"><p>In Find, search for what you want to do, such as writing or images. Pick a version your model app can open: each one says which apps it’s for.</p></Step>
+    <Step n={2} title="Keep a copy"><p>Choose Keep a copy, check the size and licence, then confirm. Activity shows the download. When it’s done, the model is in your Library, and you can search it offline.</p></Step>
+    <Step n={3} title="Keep it safe somewhere else"><p>In Library, Save recovery kit puts the whole model into one file (a .foxkit). Keep it on another drive, or use Back up to save it to a folder you choose. A copy on the same computer won’t help if you lose it.</p></Step>
+    <Step n={4} title="Share it if you want to"><p>You can send someone a recovery kit yourself, or help others download the model from this computer. Nothing is shared unless you choose it.</p></Step>
+    <Step n={5} title="Recover it on another computer"><p>Install Sovereign and open the recovery kit. Check with the person who sent it that its verification key matches, then import it. In Library, Restore files puts the model’s files in a new folder for your model app.</p><p>Sovereign doesn’t run models. It keeps and restores their files.</p></Step>
   </Sheet>;
 }
 

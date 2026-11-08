@@ -59,18 +59,23 @@ test('standalone first launch browses preset without Core or bootstrap hunting',
  expect(updates).toBe(1);expect(requests.some(url=>url.includes('core-features')||url.includes('source-follow'))).toBe(false);
  expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
 });
-test('standalone exact download requires consent and stays receive-only',async({page})=>{
+test('Keep a copy in the review is the confirmation and stays receive-only',async({page})=>{
  let submitted:Record<string,unknown>|null=null;
  await page.route('**/api/library*',route=>route.fulfill({json:empty}));
  await page.route('**/api/desktop-search',route=>route.fulfill({json:{catalog_id:id,results:[model],total:1,next_offset:null}}));
  await page.route('**/api/desktop-plan',route=>route.fulfill({json:{plan_id:id,kind:'receive',name:model.name,card_id:card,size_bytes:4096,file_count:2,projector_included:true,members:['example/model','example/required-companion'],expires_at:9999999999}}));
  await page.route('**/api/desktop-start',route=>{submitted=route.request().postDataJSON();return route.fulfill({json:{}});});
- await page.goto('/');await page.getByRole('button',{name:'Keep a copy',exact:true}).click();
+ await page.goto('/');
+ // Each file version says, in plain words, which apps can open it.
+ await expect(page.getByText('For apps such as LM Studio, Ollama and Jan, on most computers.',{exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Keep a copy',exact:true}).click();
  await expect(page.getByText('example/required-companion',{exact:true})).toBeVisible();
  await expect(page.getByText('Included with this copy · needed for picture inputs',{exact:true})).toBeVisible();
- await expect(page.getByText('Verified files',{exact:true})).toBeVisible();
- const start=page.getByRole('button',{name:'Download & preserve',exact:true});await expect(start).toBeDisabled();
- expect(submitted).toBeNull();await page.getByLabel('Proceed with this exact private selection.').check();await start.click();
+ await expect(page.getByText('Files',{exact:true})).toBeVisible();
+ // No second "proceed" box: choosing Keep a copy in the review is the confirmation.
+ await expect(page.getByRole('dialog').getByRole('checkbox')).toHaveCount(0);
+ const start=page.getByRole('dialog').getByRole('button',{name:'Keep a copy',exact:true});await expect(start).toBeEnabled();
+ expect(submitted).toBeNull();await start.click();
  await expect(page.getByRole('heading',{name:'Activity',exact:true})).toBeVisible();
  expect(submitted).toEqual({plan_id:id,operation_id:expect.any(String),confirmed:true});
 });
@@ -132,9 +137,8 @@ test('a model under use-restricted terms is kept only after I accept these terms
  await expect(terms.getByText(/Built with Llama/)).toBeVisible();
  await expect(terms.getByRole('link',{name:/Read the full terms \(LICENSE, carried with the model\)/})).toHaveAttribute('href',/huggingface\.co\/meta-llama\/Llama-3\.1-8B\/blob\/b{40}\/LICENSE$/);
  await expect(terms.getByText('isn’t legal advice',{exact:false})).toBeVisible();
- const start=page.getByRole('button',{name:'Download & preserve',exact:true});
- await page.getByLabel('Proceed with this exact private selection.').check();
- // The licence gate is separate from the selection consent, as on Hugging Face.
+ const start=page.getByRole('dialog').getByRole('button',{name:'Keep a copy',exact:true});
+ // Terms that need acceptance gate the download, as on Hugging Face.
  await expect(start).toBeDisabled();
  // The acceptance is its own section, names the licence, and only gated entries carry the badge.
  const accept=terms.getByRole('region',{name:'Terms to accept'});
@@ -158,8 +162,7 @@ test('plain permissive terms are shown but ask for no acceptance',async({page})=
  await page.goto('/');await page.getByRole('button',{name:'Keep a copy',exact:true}).click();
  await expect(page.getByLabel('Licence terms').getByRole('checkbox')).toHaveCount(0);
  await expect(page.getByText('Needs your acceptance',{exact:true})).toHaveCount(0);
- await page.getByLabel('Proceed with this exact private selection.').check();
- await page.getByRole('button',{name:'Download & preserve',exact:true}).click();
+ await page.getByRole('dialog').getByRole('button',{name:'Keep a copy',exact:true}).click();
  expect(submitted).toEqual({plan_id:id,operation_id:expect.any(String),confirmed:true});
 });
 
@@ -186,4 +189,12 @@ test('a listing that names no licence asks to follow the model’s own terms, no
  await expect(terms.getByText('see-original-card')).toHaveCount(0);
  await expect(terms.getByRole('checkbox',{name:'I’ll read and follow the model’s own terms before using it.'})).toBeVisible();
  await expect(page.getByText('I accept the Licence not named',{exact:false})).toHaveCount(0);
+});
+
+test('an Activity entry named after its job does not repeat that name',async({page})=>{
+ const job={job_id:'d'.repeat(32),kind:'catalog_refresh',state:'succeeded',name:'Update public model listings',error_code:null,output:null,copy_id:null};
+ await page.route('**/api/library*',route=>route.fulfill({json:{...empty,jobs:[job]}}));
+ await page.route('**/api/desktop-search',route=>route.fulfill({json:{catalog_id:id,results:[model],total:1,next_offset:null}}));
+ await page.goto('/');await page.getByRole('button',{name:'Activity',exact:true}).click();
+ await expect(page.getByText('Update public model listings',{exact:true})).toHaveCount(1);
 });
