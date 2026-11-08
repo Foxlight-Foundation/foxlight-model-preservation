@@ -456,7 +456,7 @@ class MirrorDirectory:
         from mirrors a user already approved without contacting others.
         """
         active = control or OperationControl()
-        deadline = time.monotonic() + policy.deadline_seconds
+        deadline = active.deadline_after(policy.deadline_seconds)
         queue = list(dict.fromkeys(seeds))
         if expand:
             # Known mirrors are visited in random order each round, so a bounded
@@ -733,7 +733,7 @@ class MirrorDirectory:
         a caller can bound its ingress (each check reads at most two manifests).
         """
         active = control or OperationControl()
-        deadline = time.monotonic() + policy.deadline_seconds
+        deadline = active.deadline_after(policy.deadline_seconds)
         identities = list(dict.fromkeys(known))
         results: dict[str, tuple[Envelope, bool]] = {}
         # Dropped mirrors are never retried, and the rest are checked in random
@@ -879,7 +879,7 @@ def fetch_discovered(
     if not candidates:
         raise PreservationError("no known mirror lists this model yet")
     # One absolute deadline covers every probe and the download itself.
-    deadline = time.monotonic() + policy.deadline_seconds
+    deadline = active.deadline_after(policy.deadline_seconds)
 
     def remaining() -> TransferPolicy:
         left = deadline - time.monotonic()
@@ -1512,12 +1512,23 @@ def fetch_with_mirrors(
                     first.settle()
                     raise
             try:
+                # The fallback gets only what is left of the receive's deadline:
+                # none left means no starter mirror is contacted at all.
+                left = active.remaining_seconds()
+                if left is not None and left <= 0:
+                    raise DeadlineExceeded("receive deadline exceeded before fallback")
                 staged = plan_fallback(
                     manifest_id,
                     hints,
                     primary,
                     mirrors,
-                    policy,
+                    policy
+                    if left is None
+                    else replace(
+                        policy,
+                        deadline_seconds=left,
+                        timeout=min(policy.timeout, left),
+                    ),
                     seeds=seeds,
                     operation_id=operation_id,
                     destination=destination,

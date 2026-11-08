@@ -526,7 +526,7 @@ def inspect_envelope(
     A host may persist them privately before calling fetch with this exact wrapper.
     """
     with (control or OperationControl()).operation("plan_fetch") as active:
-        deadline = time.monotonic() + policy.deadline_seconds
+        deadline = active.deadline_after(policy.deadline_seconds)
         _manifest, envelope = _load_manifest(
             manifest_id, trust, sources, policy, deadline, active
         )
@@ -594,7 +594,9 @@ def fetch(
         policy.validate()
         if operation_id is not None:
             receipt_path(operation_id)
-        deadline = time.monotonic() + policy.deadline_seconds
+        # A caller's deadline (a staged receive's shared one) bounds this too,
+        # so every request's timeout is cut to what is left of it.
+        deadline = active.deadline_after(policy.deadline_seconds)
         active.limit_deadline(deadline)
         if envelope is None:
             manifest, envelope = _load_manifest(
@@ -751,7 +753,7 @@ def plan_fetch(
     potential space reuse; their integrity is not established by this plan.
     """
     with (control or OperationControl()).operation("plan_fetch") as active:
-        deadline = time.monotonic() + policy.deadline_seconds
+        deadline = active.deadline_after(policy.deadline_seconds)
         active.limit_deadline(deadline)
         manifest, envelope = _load_manifest(
             manifest_id, trust, sources, policy, deadline, active

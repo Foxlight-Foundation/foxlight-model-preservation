@@ -246,6 +246,21 @@ class OperationControl:
             raise ValueError("deadline must be finite")
         self._deadline = min(self._deadline or deadline, deadline)
 
+    def deadline_after(self, seconds: float) -> float:
+        """Return an absolute deadline ``seconds`` from now, never past this one's.
+
+        A nested stage or retry computes its own deadline with this, so it
+        cannot run past a deadline its caller already applied.
+        """
+        deadline = time.monotonic() + seconds
+        return deadline if self._deadline is None else min(deadline, self._deadline)
+
+    def remaining_seconds(self) -> float | None:
+        """Return the time left before this control's deadline, if it has one."""
+        if self._deadline is None:
+            return None
+        return self._deadline - time.monotonic()
+
     def checkpoint(self) -> None:
         """Stop before the next effect; an already committed result wins the race."""
         if self._cancelled.is_set() and not self._snapshot.committed:

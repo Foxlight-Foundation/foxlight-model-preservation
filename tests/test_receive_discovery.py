@@ -1088,3 +1088,105 @@ def test_a_full_disk_during_the_primary_stage_never_reaches_the_seeds(
     assert raised.value.__cause__.errno == errno.ENOSPC
     assert seed_requests == []
     assert directory.read_fallbacks().entries == ()
+
+
+@contextmanager
+def slow(delays: dict[str, float]) -> Generator[tuple[str, list[str]]]:
+    """A host that waits before answering 404; delays are keyed by path prefix."""
+    requests: list[str] = []
+    released = threading.Event()
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, format: str, *args: object) -> None:
+            pass
+
+        def do_GET(self) -> None:
+            requests.append(self.path)
+            for prefix, delay in delays.items():
+                if self.path.startswith(prefix):
+                    released.wait(delay)
+                    break
+            self.send_error(404)
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}", requests
+    finally:
+        released.set()
+        server.shutdown()
+        server.server_close()
+        thread.join(5)
+
+
+def test_the_fallback_gets_only_what_is_left_of_the_receive_deadline(
+    tmp_path: Path, capture: Capture
+) -> None:
+    """A primary failing near the deadline leaves the stalled seed the remainder."""
+    import time
+
+    from foxlight_model_preservation.operations import DeadlineExceeded
+
+    policy = TransferPolicy(
+        allow_http=True, allow_private=True, timeout=30, deadline_seconds=5
+    )
+    with (
+        slow({"/manifests/": 4.0}) as (hint, _hint_requests),
+        slow({"/": 30.0}) as (seed, seed_requests),
+    ):
+        started = time.monotonic()
+        with pytest.raises(DeadlineExceeded):
+            fetch_with_mirrors(
+                capture.identity,
+                capture.trust,
+                (hint,),
+                tmp_path / "never",
+                policy,
+                mirrors=MirrorDirectory(tmp_path / "d"),
+                seeds=(seed,),
+            )
+        elapsed = time.monotonic() - started
+    # The seed was asked after the primary failed, and the whole receive ended
+    # at its own deadline rather than starting a fresh one for the fallback.
+    assert seed_requests == [PEERS]
+    assert 3.5 < elapsed < 6.5, elapsed
+
+
+def test_no_time_left_after_the_primary_stage_contacts_no_seed(
+    tmp_path: Path, capture: Capture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import time
+
+    from foxlight_model_preservation import mirror_directory
+    from foxlight_model_preservation.operations import DeadlineExceeded
+    from foxlight_model_preservation.transfer import SourcesExhausted
+
+    attempts: list[tuple[str, ...]] = []
+
+    def exhausted_at_the_deadline(
+        _manifest: str,
+        _trust: object,
+        sources: tuple[str, ...],
+        *_a: object,
+        **_k: object,
+    ) -> None:
+        attempts.append(sources)
+        time.sleep(1.2)
+        raise SourcesExhausted("no authenticated manifest available")
+
+    monkeypatch.setattr(mirror_directory, "fetch", exhausted_at_the_deadline)
+    with peers_only(tmp_path / "seed.json") as (seed, seed_requests):
+        with pytest.raises(DeadlineExceeded):
+            fetch_with_mirrors(
+                capture.identity,
+                capture.trust,
+                ("http://127.0.0.1:9",),
+                tmp_path / "never",
+                TransferPolicy(allow_http=True, allow_private=True, deadline_seconds=1),
+                mirrors=MirrorDirectory(tmp_path / "d"),
+                seeds=(seed,),
+            )
+    assert attempts == [("http://127.0.0.1:9",)]
+    assert seed_requests == []
+    assert MirrorDirectory(tmp_path / "d").read_fallbacks().entries == ()

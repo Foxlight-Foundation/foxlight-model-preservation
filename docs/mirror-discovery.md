@@ -117,7 +117,8 @@ most four seeds it has never scored, reads their peers documents the same
 bounded way, and tries the primary sources again followed by mirrors that now
 claim the manifest and seeds that no card speaks for yet. Discovered sources
 across both stages stay within eight, all sources within `max_sources`, and one
-deadline and one byte allowance cover both stages. Cancellation, a deadline,
+deadline and one byte allowance cover both stages: the fallback gets only
+what is left of the deadline, and with none left it contacts no seed. Cancellation, a deadline,
 a budget or a failure of the receiver's own storage (a full disk, a failed
 write or sync) never falls back. With no seed list, or no room left, the stage
 contacts nobody and the primary failure is reported. Progress observers (the

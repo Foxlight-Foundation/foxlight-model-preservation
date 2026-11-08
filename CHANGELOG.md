@@ -26,6 +26,11 @@
   storage (full disk, failed write or sync) now raises
   `operations.StorageFailed` (`storage_error`) at once instead of counting
   against the source being read, so it never triggers the fallback.
+  The fallback stage gets only what is left of the receive's deadline: its
+  seed crawl and fetch cut every request timeout to that remainder, and with
+  none left no seed is contacted. Nested crawls, spot checks, discovered
+  fetches and manifest reads likewise never run past a deadline their
+  control already carries (`OperationControl.deadline_after`).
 
 - Guided setup 0.1.4 and graphical setup 0.1.6 install Linux revision 6
   (core 0.29 / Library 0.25), now served by the signed apt channel; package pins
