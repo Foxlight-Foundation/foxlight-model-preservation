@@ -50,6 +50,7 @@ from foxlight_model_preservation.starter import (
     StarterList,
     import_starter,
     list_identity,
+    parse_formats,
     plan_import,
     review_import,
     select_tier,
@@ -135,6 +136,7 @@ class Collection:
         tmp_path: Path,
         names: tuple[str, ...],
         licences: dict[str, str] | None = None,
+        formats: dict[str, str] | None = None,
     ):
         self.key = Ed25519PrivateKey.generate()
         self.trust = TrustProfile(
@@ -174,6 +176,7 @@ class Collection:
             self.entries[name] = StarterEntry(
                 entry_id=name,
                 tier="small" if index == 0 else "standard",
+                format=(formats or {}).get(name, "gguf"),
                 title=name.title(),
                 role="Test role",
                 manifest=identity,
@@ -803,6 +806,11 @@ def test_committed_starter_plan_and_recipes_are_pinned_with_notices():
     plan, recipes = starter_build.load_plan(starter_build.DEFAULT_PLAN)
     assert plan.licence_policy == "known"
     tiers = {entry.entry_id: entry.tier for entry in plan.entries}
+    formats = {entry.entry_id: entry.format for entry in plan.entries}
+    assert {k for k, v in formats.items() if v == "mlx"} == {
+        "gemma-4-e4b-it-mlx",
+        "qwen3-8-27b-mlx",
+    }
     assert {k for k, v in tiers.items() if v == "small"} == {
         "qwen3-5-4b",
         "gemma-4-e4b-it",
@@ -1104,3 +1112,115 @@ def test_pipeline_ancestor_waivers_and_named_custom_licences(tmp_path):
     assert starter_build._card_licence(named) == "coqui-public-model-license"
     with pytest.raises(starter_build.LicenceRefused, match="known licence"):
         starter_build.resolve_licence(named, None, "known")
+
+
+# Formats: the Apple MLX add-on ----------------------------------------------
+
+
+@pytest.fixture
+def mlx_collection(tmp_path: Path) -> Collection:
+    return Collection(
+        tmp_path,
+        ("chat", "chat-mlx", "big"),
+        formats={"chat-mlx": "mlx"},
+    )
+
+
+def test_formats_parse_strictly():
+    assert parse_formats(None) == ("gguf",)
+    assert parse_formats("mlx, GGUF") == ("gguf", "mlx")
+    for bad in ("", "onnx", "gguf,exl2"):
+        with pytest.raises(PreservationError, match="gguf and/or mlx"):
+            parse_formats(bad)
+
+
+def test_default_import_excludes_mlx_and_gguf_mlx_includes_it(tmp_path, mlx_collection):
+    # "chat" is small; "chat-mlx" and "big" are standard (the fixture's tiers).
+    starter = mlx_collection.listing("chat", "chat-mlx", "big")
+    list_id = list_identity(starter)
+    mlx_bytes = mlx_collection.entries["chat-mlx"].size_bytes
+    assert [e.entry_id for e in select_tier(starter, "standard")] == ["chat", "big"]
+    assert [e.entry_id for e in select_tier(starter, "small", ("gguf", "mlx"))] == [
+        "chat"
+    ]
+    ledger = mirror(tmp_path)
+    plan = plan_import(ledger, starter, list_id, "standard")
+    assert plan.addon_bytes == mlx_bytes
+    text, summary = review_import(starter, plan)
+    assert "Apple MLX add-on" in text and "not included" in text
+    assert summary["mlx_addon_bytes"] == mlx_bytes and summary["formats"] == ["gguf"]
+    first = import_starter(
+        ledger,
+        starter,
+        list_id,
+        "standard",
+        consented=True,
+        options=mlx_collection.options(),
+    )
+    assert first["imported"] == ["chat", "big"] and first["formats"] == ["gguf"]
+    assert mlx_collection.entries["chat-mlx"].manifest not in ledger.read().models
+    with_mlx = plan_import(ledger, starter, list_id, "standard", ("gguf", "mlx"))
+    assert "included)" in review_import(starter, with_mlx)[0]
+    second = import_starter(
+        ledger,
+        starter,
+        list_id,
+        "standard",
+        consented=True,
+        formats=("gguf", "mlx"),
+        options=mlx_collection.options(),
+    )
+    assert second["imported"] == ["chat-mlx"]
+    assert mlx_collection.entries["chat-mlx"].manifest in ledger.read().models
+
+
+def test_cli_formats_flag_and_container_env(tmp_path, mlx_collection):
+    ledger = mirror(tmp_path)
+    data, list_id = mlx_collection.signed(
+        mlx_collection.listing("chat", "chat-mlx", "big")
+    )
+    listing = tmp_path / "starter.json"
+    listing.write_bytes(data)
+    base = [
+        "mirror",
+        "import-starter",
+        "--dir",
+        str(ledger.path),
+        "--list",
+        str(listing),
+        "--tier",
+        "standard",
+        "--expected-list-id",
+        list_id,
+        "--mirror",
+        str(mlx_collection.store),
+        "--yes-i-accept-the-starter-list",
+    ]
+    assert _cli(*base, "--formats", "onnx").returncode != 0
+    done = _cli(*base, "--formats", "gguf,mlx")
+    assert done.returncode == 0, done.stderr.decode()
+    assert json.loads(done.stdout)["imported"] == ["chat", "chat-mlx", "big"]
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "calls"
+    stub = bin_dir / "model-preserve"
+    stub.write_text(f'#!/bin/sh\necho "$@" >> "{log}"\n')
+    stub.chmod(0o755)
+    environment = {
+        "PATH": f"{bin_dir}:/usr/bin:/bin",
+        "SOVEREIGN_MIRROR_DIR": str(tmp_path / "data"),
+        "SOVEREIGN_MIRROR_IDLE": "0",
+        "SOVEREIGN_MIRROR_STARTER_LIST": "/config/starter-list.json",
+        "SOVEREIGN_MIRROR_STARTER_LIST_ID": "a" * 64,
+    }
+    script = Path(__file__).parents[1] / "deploy/mirror/entrypoint.sh"
+    for value, expected in ((None, "gguf"), ("gguf,mlx", "gguf,mlx")):
+        if log.exists():
+            log.unlink()
+        if value:
+            environment["SOVEREIGN_MIRROR_STARTER_FORMATS"] = value
+        subprocess.run(  # noqa: S603 - repository script, fixed arguments
+            ["/bin/sh", str(script)], env=environment, capture_output=True, timeout=30
+        )
+        arguments = log.read_text().split()
+        assert arguments[arguments.index("--starter-formats") + 1] == expected

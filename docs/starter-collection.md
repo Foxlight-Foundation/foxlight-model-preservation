@@ -34,13 +34,11 @@ research report the list was derived from.
 | --- | --- | --- | --- | ---: |
 | Qwen3.5 4B (Q4_K_M GGUF + vision projector) | [unsloth/Qwen3.5-4B-GGUF@e87f1764](https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/tree/e87f176479d0855a907a41277aca2f8ee7a09523) | Apache-2.0 ([Qwen/Qwen3.5-4B@851bf6e8](https://huggingface.co/Qwen/Qwen3.5-4B/tree/851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a)) | none | 3.41 GB |
 | Gemma 4 E4B instruct (Q4_K_M GGUF + projector) | [unsloth/gemma-4-E4B-it-GGUF@bfc15c38](https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/tree/bfc15c382204943c3a8fff0c750b94ae2364d7a3) | Apache-2.0 ([google/gemma-4-E4B-it@4ecc2ba6](https://huggingface.co/google/gemma-4-E4B-it/tree/4ecc2ba63bcac23ba4a767fc87025b1450f84c9c)) | none | 5.97 GB |
-| Gemma 4 E4B instruct (MLX 4-bit) | [lmstudio-community/gemma-4-E4B-it-MLX-4bit@ce713a00](https://huggingface.co/lmstudio-community/gemma-4-E4B-it-MLX-4bit/tree/ce713a0013bb7090305edfb8e3773a07ccae35c1) | Apache-2.0 ([google/gemma-4-E4B-it@4ecc2ba6](https://huggingface.co/google/gemma-4-E4B-it/tree/4ecc2ba63bcac23ba4a767fc87025b1450f84c9c)) | none | 6.86 GB |
 | Whisper large-v3-turbo (whisper.cpp q5_0) | [ggerganov/whisper.cpp@5359861c](https://huggingface.co/ggerganov/whisper.cpp/tree/5359861c739e955e79d9a303bcbc70fb988958b1) | MIT ([openai/whisper-large-v3-turbo@41f01f3f](https://huggingface.co/openai/whisper-large-v3-turbo/tree/41f01f3fe87f28c78e2fbf8b568835947dd65ed9)) | none | 0.57 GB |
 | Kokoro 82M | [hexgrad/Kokoro-82M@f3ff3571](https://huggingface.co/hexgrad/Kokoro-82M/tree/f3ff3571791e39611d31c381e3a41a3af07b4987) | Apache-2.0 ([hexgrad/Kokoro-82M@f3ff3571](https://huggingface.co/hexgrad/Kokoro-82M/tree/f3ff3571791e39611d31c381e3a41a3af07b4987)) | none | 0.36 GB |
 | nomic-embed-text v1.5 (f16 GGUF) | [nomic-ai/nomic-embed-text-v1.5-GGUF@0188c9bf](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/tree/0188c9bf409793f810680a5a431e7b899c46104c) | Apache-2.0 ([nomic-ai/nomic-embed-text-v1.5@e9b67630](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5/tree/e9b6763023c676ca8431644204f50c2b100d9aab)) | none | 0.27 GB |
 
-Without the MLX build the small tier is about **10.6 GB**; with it, about
-**17.4 GB**.
+The small tier is about **10.6 GB**.
 
 ### Standard tier
 
@@ -49,7 +47,6 @@ Includes the small tier, plus:
 | Model | Weights from | Licence (from base) | Gate | Size |
 | --- | --- | --- | --- | ---: |
 | Qwen3.8 27B (UD-Q4_K_M GGUF + vision projector) | [unsloth/Qwen3.8-27B-GGUF@4ca72078](https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/tree/4ca720788d1e01f1bff70c033e0d0028fd02e502) | Apache-2.0 ([Qwen/Qwen3.8-27B@37561816](https://huggingface.co/Qwen/Qwen3.8-27B/tree/37561816e66b5b9153b1b64c10968c18c1e6f4a0)) | none | 17.39 GB |
-| Qwen3.8 27B (MLX 4-bit) | [lmstudio-community/Qwen3.8-27B-MLX-4bit@6067b15c](https://huggingface.co/lmstudio-community/Qwen3.8-27B-MLX-4bit/tree/6067b15cf581666a4aecf6af3afaba4bb5efc20c) | Apache-2.0 ([Qwen/Qwen3.8-27B@37561816](https://huggingface.co/Qwen/Qwen3.8-27B/tree/37561816e66b5b9153b1b64c10968c18c1e6f4a0)) | none | 16.08 GB |
 | gpt-oss 20B (MXFP4 GGUF) | [ggml-org/gpt-oss-20b-GGUF@15dcfc7e](https://huggingface.co/ggml-org/gpt-oss-20b-GGUF/tree/15dcfc7e7c608c6161507211ed43c5b590801b4b) | Apache-2.0 ([openai/gpt-oss-20b@6cee5e81](https://huggingface.co/openai/gpt-oss-20b/tree/6cee5e81ee83917806bbde320786a8fb61efebee)) | none | 12.11 GB |
 | Gemma 4 12B instruct (Q4_K_M GGUF + projector) | [unsloth/gemma-4-12b-it-GGUF@fc034cff](https://huggingface.co/unsloth/gemma-4-12b-it-GGUF/tree/fc034cfff751157913579611efad8462ac1be606) | Apache-2.0 ([google/gemma-4-12B-it@43c9d014](https://huggingface.co/google/gemma-4-12B-it/tree/43c9d014b231474fa7212dbb48a762566c2b255d)) | none | 7.30 GB |
 | Qwen3.5 9B (Q4_K_M GGUF + vision projector) | [unsloth/Qwen3.5-9B-GGUF@3885219b](https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/tree/3885219b6810b007914f3a7950a8d1b469d598a5) | Apache-2.0 ([Qwen/Qwen3.5-9B@c2022362](https://huggingface.co/Qwen/Qwen3.5-9B/tree/c202236235762e1c871ad0ccb60c8ee5ba337b9a)) | none | 6.60 GB |
@@ -64,8 +61,7 @@ Includes the small tier, plus:
 | Granite Embedding small English R2 (safetensors) | [ibm-granite/granite-embedding-small-english-r2@2ab6fa8e](https://huggingface.co/ibm-granite/granite-embedding-small-english-r2/tree/2ab6fa8ea2d674564defd37171ae19079b864b33) | Apache-2.0 ([ibm-granite/granite-embedding-small-english-r2@2ab6fa8e](https://huggingface.co/ibm-granite/granite-embedding-small-english-r2/tree/2ab6fa8ea2d674564defd37171ae19079b864b33)) | none | 0.10 GB |
 | Z-Image Turbo (Q4_K_M GGUF + Qwen3-4B encoder + VAE) | [unsloth/Z-Image-Turbo-GGUF@b40f712c](https://huggingface.co/unsloth/Z-Image-Turbo-GGUF/tree/b40f712c569ecfff42f2307dcc43399ae1d71318) | Apache-2.0 ([Tongyi-MAI/Z-Image-Turbo@f332072a](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo/tree/f332072aa78be7aecdf3ee76d5c247082da564a6)) | none | 6.68 GB |
 
-Without MLX builds the standard tier (with small) is about **80 GB**; with
-them, about **103 GB**.
+The standard tier (with small) is about **80 GB**.
 
 ### Large tier
 
@@ -91,20 +87,24 @@ Includes the standard tier, plus:
 | FLUX.2 klein 4B (Q8_0 GGUF + Qwen3-4B encoder + VAE) | [unsloth/FLUX.2-klein-4B-GGUF@a09d5bb5](https://huggingface.co/unsloth/FLUX.2-klein-4B-GGUF/tree/a09d5bb51ac4000ccd9643d10e9db3ed14200508) | Apache-2.0 ([black-forest-labs/FLUX.2-klein-4B@e7b7dc27](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B/tree/e7b7dc27f91deacad38e78976d1f2b499d76a294)) | none | 7.13 GB |
 | Stable Diffusion XL base 1.0 (fp16 single file) | [stabilityai/stable-diffusion-xl-base-1.0@46216598](https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/tree/462165984030d82259a11f4367a4eed129e94a7b) | openrail++ ([stabilityai/stable-diffusion-xl-base-1.0@46216598](https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/tree/462165984030d82259a11f4367a4eed129e94a7b)) | accept OpenRAIL++-M use restrictions | 6.94 GB |
 
-The large tier (with standard and small) is about **312 GB** without MLX
-builds and **335 GB** with them. The Z-Image and FLUX.2 bundles each carry the
+The large tier (with standard and small) is about **312 GB**. The Z-Image and FLUX.2 bundles each carry the
 same Qwen3-4B text encoder: it is counted in both sizes but stored once.
 
-### MLX builds and tier sizes
+### Apple MLX add-on (opt-in)
 
-Qwen3.8 27B and Gemma 4 E4B are also carried as MLX 4-bit builds, because
-for those two models Apple users download more MLX than GGUF. They are
-separate entries in the same tier, so importing a tier brings both formats.
-That adds about 6.9 GB to the small tier and 16.1 GB to the standard tier,
-which takes the small tier past its 10.6 GB target. A proposed split for the
-next list: keep tiers GGUF-only and offer the MLX builds as an opt-in
-`apple` add-on (`--formats gguf,mlx`), so a laptop operator is not asked for
-17 GB by default.
+Tiers are GGUF-only by default. For Qwen3.8 27B and Gemma 4 E4B, Apple users
+download more MLX than GGUF, so their MLX 4-bit builds are offered as an
+**opt-in add-on**: choose formats `gguf,mlx` (`--formats` on `import-starter`,
+`--starter-formats` on quickstart, `SOVEREIGN_MIRROR_STARTER_FORMATS` in the
+container). An MLX build is imported only when its tier is selected and `mlx`
+is among the formats; the review always shows the add-on's size.
+
+| Model | Weights from | Licence (from base) | Gate | Size |
+| --- | --- | --- | --- | ---: |
+| Gemma 4 E4B instruct (MLX 4-bit, Apple add-on) [small] | [lmstudio-community/gemma-4-E4B-it-MLX-4bit@ce713a00](https://huggingface.co/lmstudio-community/gemma-4-E4B-it-MLX-4bit/tree/ce713a0013bb7090305edfb8e3773a07ccae35c1) | Apache-2.0 ([google/gemma-4-E4B-it@4ecc2ba6](https://huggingface.co/google/gemma-4-E4B-it/tree/4ecc2ba63bcac23ba4a767fc87025b1450f84c9c)) | none | 6.86 GB |
+| Qwen3.8 27B (MLX 4-bit, Apple add-on) [standard] | [lmstudio-community/Qwen3.8-27B-MLX-4bit@6067b15c](https://huggingface.co/lmstudio-community/Qwen3.8-27B-MLX-4bit/tree/6067b15cf581666a4aecf6af3afaba4bb5efc20c) | Apache-2.0 ([Qwen/Qwen3.8-27B@37561816](https://huggingface.co/Qwen/Qwen3.8-27B/tree/37561816e66b5b9153b1b64c10968c18c1e6f4a0)) | none | 16.08 GB |
+
+The add-on adds about 6.9 GB to the small tier and 23 GB to standard or large.
 
 ### Notes on specific models
 
@@ -133,7 +133,7 @@ next list: keep tiers GGUF-only and offer the MLX builds as an opt-in
 
 | Model | Why |
 | --- | --- |
-| pyannote/speaker-diarization-community-1 | The repository is gated on Hugging Face. Its small files cannot be pinned without an account that accepted the gate. Run `check` with `HF_TOKEN` to add it. |
+| pyannote/speaker-diarization-community-1 | Skipped for now. The repository is gated on Hugging Face, so its small files cannot be pinned without an account that accepted the gate. It is a candidate for the next quarterly review. |
 | BAAI/bge-m3 | No safetensors weights at the pinned revision (only a pickle `.bin` and ONNX). |
 | Qwen/Qwen3-Reranker-4B (Q8_0 GGUF) | No Q8_0 GGUF from Qwen or the reviewed conversion organizations; only individual uploads. |
 | openai/whisper-large-v3 (whisper.cpp) | The base card says Apache-2.0 but the conversion repository is tagged MIT: the tags disagree. |
@@ -181,6 +181,8 @@ repository's release notes. The list file alone proves nothing; the ID pins it.
 model-preserve mirror import-starter --dir ~/sovereign-mirrors/example \
   --list starter-list.json --expected-list-id LIST_SHA256 --tier small
 ```
+
+Add `--formats gguf,mlx` to include the Apple MLX add-on for the chosen tiers.
 
 Import refuses before it downloads anything unless:
 
@@ -320,6 +322,7 @@ Each entry extends a signed catalog entry (`entry_id`, `manifest`, `mirrors`):
 | --- | --- |
 | `entry_id` | Stable identifier, unique in the list. |
 | `tier` | `small`, `standard` or `large`. Each tier includes the smaller ones. |
+| `format` | `gguf` (the default builds: GGUF, and the whisper.cpp, safetensors or PyTorch files a model's runtime uses) or `mlx` (the opt-in Apple add-on). Any other value refuses. |
 | `title`, `role` | What the model is for. |
 | `manifest` | The exact bundle identity (manifest SHA-256). |
 | `recipe`, `recipe_sha256` | The recipe name and the SHA-256 of its canonical JSON. |

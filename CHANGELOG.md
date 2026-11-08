@@ -5,9 +5,12 @@
 - The starter collection: a signed, one-time import list of the open models
   the community runs most, chosen by sustained interest (Hugging Face base and
   conversion downloads, Ollama and LM Studio). There are three tiers, each
-  including the smaller ones: small (default, about 10.6 GB, or 17.4 GB with
-  MLX builds), standard (about 80 GB, or 103 GB) and large (about 312 GB, or
-  335 GB). Its 38 recipes in `examples/recipes/starter/` pin exact revisions
+  including the smaller ones: small (default, about 10.6 GB), standard (about
+  80 GB) and large (about 312 GB), all GGUF and portable builds. The MLX 4-bit
+  builds of Qwen3.8 27B and Gemma 4 E4B are an opt-in Apple add-on: entries
+  carry a strict `format` (`gguf` or `mlx`), and `--formats gguf,mlx`
+  (`--starter-formats`, `SOVEREIGN_MIRROR_STARTER_FORMATS`) adds them for the
+  selected tiers; the review shows the add-on's size. Its 38 recipes in `examples/recipes/starter/` pin exact revisions
   and every file's SHA-256. They carry the base model's LICENSE, NOTICE and
   usage policy, added from pinned sources where a conversion ships none,
   including the Gemma Terms of Use with its NOTICE line and Prohibited Use

@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import shutil
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -65,6 +65,9 @@ STARTER_LIST_TYPE = "application/vnd.foxlight.sovereign.starter-list.v1+json"
 STARTER_LIST_VERSION = "sovereign.starter-list.v1"
 TIERS = ("small", "standard", "large")
 Tier = Literal["small", "standard", "large"]
+Format = Literal["gguf", "mlx"]
+FORMATS: tuple[Format, ...] = ("gguf", "mlx")
+DEFAULT_FORMATS: tuple[Format, ...] = ("gguf",)
 STARTER_CONSENT_FLAG = "--yes-i-accept-the-starter-list"
 # Each import fetch is bounded; the largest starter bundle is about 20 GB.
 FETCH_DEADLINE_SECONDS = 86400
@@ -100,6 +103,10 @@ class StarterEntry(Record):
 
     entry_id: Identifier
     tier: Tier
+    # "gguf": the default portable builds (GGUF, and the whisper.cpp,
+    # safetensors and PyTorch files a model's common runtime uses). "mlx":
+    # the opt-in Apple silicon add-on, imported only when asked for.
+    format: Format = "gguf"
     title: str = Field(min_length=1, max_length=200)
     role: str = Field(min_length=1, max_length=200)
     manifest: Digest
@@ -192,12 +199,44 @@ def verify_starter_list(
     return starter
 
 
-def select_tier(starter: StarterList, tier: Tier) -> tuple[StarterEntry, ...]:
-    """The entries a tier imports: each tier includes every smaller tier."""
+def parse_formats(value: str | Iterable[str] | None) -> tuple[Format, ...]:
+    """Validate a formats choice such as ``gguf`` or ``gguf,mlx``."""
+    if value is None:
+        return DEFAULT_FORMATS
+    items = value.split(",") if isinstance(value, str) else list(value)
+    chosen = tuple(
+        dict.fromkeys(item.strip().casefold() for item in items if item.strip())
+    )
+    if not chosen or any(item not in FORMATS for item in chosen):
+        raise PreservationError("starter formats must be gguf and/or mlx")
+    return tuple(item for item in FORMATS if item in chosen)
+
+
+def in_tier(starter: StarterList, tier: Tier) -> tuple[StarterEntry, ...]:
+    """Every entry of a tier and the smaller tiers, in any format."""
     if tier not in TIERS:
         raise PreservationError("unknown starter tier")
     wanted = TIERS[: TIERS.index(tier) + 1]
     return tuple(entry for entry in starter.entries if entry.tier in wanted)
+
+
+def select_tier(
+    starter: StarterList,
+    tier: Tier,
+    formats: Iterable[str] = DEFAULT_FORMATS,
+) -> tuple[StarterEntry, ...]:
+    """The entries an import takes: its tiers, in the chosen formats only.
+
+    Each tier includes every smaller tier. An MLX entry is taken only when
+    its tier is selected and ``mlx`` is among the formats.
+    """
+    chosen = set(parse_formats(list(formats)))
+    return tuple(entry for entry in in_tier(starter, tier) if entry.format in chosen)
+
+
+def addon_bytes(starter: StarterList, tier: Tier) -> int:
+    """The size of the MLX add-on available for a tier."""
+    return sum(e.size_bytes for e in in_tier(starter, tier) if e.format == "mlx")
 
 
 def _size(value: int) -> str:
@@ -276,6 +315,8 @@ class StarterPlan:
     new_bytes: int
     usage: int
     disk_bytes: int
+    formats: tuple[Format, ...] = DEFAULT_FORMATS
+    addon_bytes: int = 0
 
     @property
     def new_entries(self) -> tuple[StarterEntry, ...]:
@@ -300,11 +341,16 @@ class StarterPlan:
 
 
 def plan_import(
-    ledger: MirrorLedger, starter: StarterList, list_id: str, tier: Tier
+    ledger: MirrorLedger,
+    starter: StarterList,
+    list_id: str,
+    tier: Tier,
+    formats: Iterable[str] = DEFAULT_FORMATS,
 ) -> StarterPlan:
-    """Classify each tier entry as new, already held or removed; offline."""
+    """Classify each selected entry as new, already held or removed; offline."""
     state = ledger.read()
-    entries = select_tier(starter, tier)
+    chosen = parse_formats(list(formats))
+    entries = select_tier(starter, tier, chosen)
     status: dict[str, str] = {}
     for entry in entries:
         held = state.models.get(entry.manifest)
@@ -326,6 +372,8 @@ def plan_import(
         ),
         usage=ledger.usage(),
         disk_bytes=state.disk_bytes,
+        formats=chosen,
+        addon_bytes=addon_bytes(starter, tier),
     )
 
 
@@ -409,6 +457,17 @@ def review_import(
         "  They are trusted only for the bundles you import from this list.",
         "",
         f"New download:  {_size(plan.new_bytes)}",
+        f"Formats:       {','.join(plan.formats)}"
+        + (
+            ""
+            if not plan.addon_bytes
+            else (
+                f"  (Apple MLX add-on, {_size(plan.addon_bytes)}: included)"
+                if "mlx" in plan.formats
+                else f"  (Apple MLX add-on, {_size(plan.addon_bytes)}: not included;"
+                " choose formats gguf,mlx to add it)"
+            )
+        ),
         f"Disk budget:   {_size(plan.disk_bytes)} ({_size(plan.usage)} already used)",
         "Fits:          "
         + ("yes" if plan.fits else "NO: raise --disk-bytes or choose a smaller tier"),
@@ -428,6 +487,7 @@ def review_import(
             {
                 "entry_id": entry.entry_id,
                 "manifest": entry.manifest,
+                "format": entry.format,
                 "license_id": entry.licence.license_id,
                 "requires_acceptance": list(gated(entry)),
                 "size_bytes": entry.size_bytes,
@@ -438,6 +498,8 @@ def review_import(
         "model_keys": [key.key_id for key in trust.keys],
         "terms": gate,
         "accept": list(accept),
+        "formats": list(plan.formats),
+        "mlx_addon_bytes": plan.addon_bytes,
         "new_bytes": plan.new_bytes,
         "disk_bytes": plan.disk_bytes,
         "usage_bytes": plan.usage,
@@ -478,6 +540,7 @@ def import_starter(
     tier: Tier,
     *,
     consented: bool,
+    formats: Iterable[str] = DEFAULT_FORMATS,
     accepted: tuple[str, ...] | None = None,
     options: ImportOptions | None = None,
     control: OperationControl | None = None,
@@ -511,7 +574,7 @@ def import_starter(
     state = ledger.read()
     if state.left:
         raise PreservationError("this mirror has left; it does not import")
-    plan = plan_import(ledger, starter, list_id, tier)
+    plan = plan_import(ledger, starter, list_id, tier, formats)
     if not plan.fits:
         raise PreservationError(
             "starter import exceeds the mirror disk budget; raise it or choose "
@@ -592,6 +655,7 @@ def import_starter(
     return {
         "list_id": list_id,
         "tier": tier,
+        "formats": list(plan.formats),
         "imported": imported,
         "skipped": skipped,
         "failed": failed,

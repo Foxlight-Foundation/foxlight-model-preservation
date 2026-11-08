@@ -119,6 +119,8 @@ class PlanEntry(Record):
 
     entry_id: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
     tier: Literal["small", "standard", "large"]
+    # "mlx" entries form the opt-in Apple add-on; everything else is "gguf".
+    format: Literal["gguf", "mlx"] = "gguf"
     title: str = Field(min_length=1, max_length=200)
     role: str = Field(min_length=1, max_length=200)
     recipe: str = Field(min_length=1, max_length=200)
@@ -564,6 +566,7 @@ def build(
             StarterEntry(
                 entry_id=entry.entry_id,
                 tier=entry.tier,
+                format=entry.format,
                 title=entry.title,
                 role=entry.role,
                 manifest=identity,

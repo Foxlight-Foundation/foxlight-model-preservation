@@ -31,7 +31,8 @@ if [ -n "$starter" ]; then
   fi
   set -- "$@" --starter-list "$starter" \
     --expected-starter-list-id "${SOVEREIGN_MIRROR_STARTER_LIST_ID:-}" \
-    --starter-tier "${SOVEREIGN_MIRROR_STARTER_TIER:-small}"
+    --starter-tier "${SOVEREIGN_MIRROR_STARTER_TIER:-small}" \
+    --starter-formats "${SOVEREIGN_MIRROR_STARTER_FORMATS:-gguf}"
   # Gated licences (non-commercial, makers' own terms) need your acceptance,
   # exactly as the review lists them, before those models are imported.
   if [ -n "${SOVEREIGN_MIRROR_STARTER_ACCEPT_TERMS:-}" ]; then

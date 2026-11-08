@@ -102,8 +102,8 @@ without them; pass `none` (for example `--egress-daily none`) to remove one.
 
 Quickstart can also import the [starter collection](starter-collection.md):
 a signed list of the open models the community runs most, in small (about
-10.6 GB, or 17.4 GB with MLX builds), standard (about 80 GB, or 103 GB) and
-large (about 312 GB, or 335 GB) tiers. Gated licences need your acceptance
+10.6 GB), standard (about 80 GB) and large (about 312 GB) tiers, with an
+opt-in Apple MLX add-on (`--starter-formats gguf,mlx`). Gated licences need your acceptance
 (`--accept-starter-terms`). Add `--starter-list FILE`
 `--expected-starter-list-id LIST_SHA256` and optionally `--starter-tier
 standard` or `large`; with a starter list, `--collection` is optional. The starter review

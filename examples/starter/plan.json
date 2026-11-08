@@ -40,7 +40,7 @@
     {
       "entry_id": "gemma-4-e4b-it-mlx",
       "tier": "small",
-      "title": "Gemma 4 E4B instruct (MLX 4-bit)",
+      "title": "Gemma 4 E4B instruct (MLX 4-bit, Apple add-on)",
       "role": "Chat and vision on Apple silicon",
       "recipe": "gemma-4-e4b-it-mlx-4bit.json",
       "licence": {
@@ -50,7 +50,8 @@
         "base_revision": "4ecc2ba63bcac23ba4a767fc87025b1450f84c9c",
         "conversion": "lmstudio-community/gemma-4-E4B-it-MLX-4bit",
         "conversion_revision": "ce713a0013bb7090305edfb8e3773a07ccae35c1"
-      }
+      },
+      "format": "mlx"
     },
     {
       "entry_id": "whisper-large-v3-turbo",
@@ -118,7 +119,7 @@
     {
       "entry_id": "qwen3-8-27b-mlx",
       "tier": "standard",
-      "title": "Qwen3.8 27B (MLX 4-bit)",
+      "title": "Qwen3.8 27B (MLX 4-bit, Apple add-on)",
       "role": "Flagship chat and vision on Apple silicon",
       "recipe": "qwen3.8-27b-mlx-4bit.json",
       "licence": {
@@ -128,7 +129,8 @@
         "base_revision": "37561816e66b5b9153b1b64c10968c18c1e6f4a0",
         "conversion": "lmstudio-community/Qwen3.8-27B-MLX-4bit",
         "conversion_revision": "6067b15cf581666a4aecf6af3afaba4bb5efc20c"
-      }
+      },
+      "format": "mlx"
     },
     {
       "entry_id": "gpt-oss-20b",
@@ -643,7 +645,7 @@
   "excluded": [
     {
       "model": "pyannote/speaker-diarization-community-1",
-      "reason": "Stop rule: the repository is gated on Hugging Face (accept to download). Its small config and README files cannot be downloaded to pin their SHA-256 without an HF token whose account has accepted the gate. Pin it with HF_TOKEN set, then add it to the standard tier."
+      "reason": "Skipped (Tom's decision); a candidate for the next quarterly review. The repository is gated on Hugging Face, so its small config and README files cannot be pinned without an HF token whose account accepted the gate."
     },
     {
       "model": "BAAI/bge-m3",

@@ -72,7 +72,9 @@ from .starter import (
     StarterList,
     StarterPlan,
     Tier,
+    addon_bytes,
     import_starter,
+    parse_formats,
     plan_import,
     review_import,
     select_tier,
@@ -116,6 +118,7 @@ class MirrorArguments(argparse.Namespace):
     accept_starter: bool = False
     starter_staging: Path | None = None
     starter_accept: tuple[str, ...] | list[str] = ()
+    starter_formats: str = "gguf"
     resume_for: int | None
     plan_only: bool
     consent_public_serving: bool
@@ -611,6 +614,13 @@ def _starter_arguments(command: argparse.ArgumentParser, *, quickstart: bool) ->
         help="optional independently enrolled keys the list signature must meet",
     )
     command.add_argument(
+        f"--{prefix}formats",
+        dest="starter_formats",
+        default="gguf",
+        help="gguf (default) or gguf,mlx: mlx adds the Apple silicon MLX "
+        "builds of the selected tiers",
+    )
+    command.add_argument(
         "--accept-starter-terms" if quickstart else "--accept-terms",
         dest="starter_accept",
         action="append",
@@ -682,7 +692,13 @@ def _import_starter(
         raise PreservationError("a starter list is required")
     starter, list_id = loaded
     ledger = MirrorLedger(arguments.mirror_dir)
-    plan = plan_import(ledger, starter, list_id, arguments.starter_tier)
+    plan = plan_import(
+        ledger,
+        starter,
+        list_id,
+        arguments.starter_tier,
+        parse_formats(arguments.starter_formats),
+    )
     text, summary = review_import(starter, plan)
     print(text, file=sys.stderr, flush=True)
     if arguments.plan_only:
@@ -703,6 +719,7 @@ def _import_starter(
         list_id,
         arguments.starter_tier,
         consented=consented,
+        formats=parse_formats(arguments.starter_formats),
         accepted=accepted,
         options=ImportOptions(
             mirrors=tuple(arguments.starter_mirror),
@@ -921,13 +938,20 @@ def _quickstart(
         "mirror_key": mirror_key_id(ledger) if announce else None,
     }
     if starter is not None:
-        pending = plan_import(ledger, starter[0], starter[1], arguments.starter_tier)
+        pending = plan_import(
+            ledger,
+            starter[0],
+            starter[1],
+            arguments.starter_tier,
+            parse_formats(arguments.starter_formats),
+        )
         result["starter"] = import_starter(
             ledger,
             starter[0],
             starter[1],
             arguments.starter_tier,
             consented=True,
+            formats=parse_formats(arguments.starter_formats),
             accepted=_ask_terms(pending.accept, _accepted(arguments)),
             options=ImportOptions(
                 mirrors=tuple(arguments.starter_mirror), keep_going=True
@@ -954,7 +978,13 @@ def _starter_review(
     """Review a starter import against the disk budget quickstart will set."""
     if existing is not None:
         ledger = MirrorLedger(arguments.mirror_dir)
-        plan = plan_import(ledger, starter[0], starter[1], arguments.starter_tier)
+        plan = plan_import(
+            ledger,
+            starter[0],
+            starter[1],
+            arguments.starter_tier,
+            parse_formats(arguments.starter_formats),
+        )
         plan = StarterPlan(
             list_id=plan.list_id,
             tier=plan.tier,
@@ -963,9 +993,12 @@ def _starter_review(
             new_bytes=plan.new_bytes,
             usage=plan.usage,
             disk_bytes=disk_bytes,
+            formats=plan.formats,
+            addon_bytes=plan.addon_bytes,
         )
     else:
-        entries = select_tier(starter[0], arguments.starter_tier)
+        formats = parse_formats(arguments.starter_formats)
+        entries = select_tier(starter[0], arguments.starter_tier, formats)
         plan = StarterPlan(
             list_id=starter[1],
             tier=arguments.starter_tier,
@@ -974,6 +1007,8 @@ def _starter_review(
             new_bytes=sum(entry.size_bytes for entry in entries),
             usage=0,
             disk_bytes=disk_bytes,
+            formats=formats,
+            addon_bytes=addon_bytes(starter[0], arguments.starter_tier),
         )
     if not plan.fits:
         raise PreservationError(
