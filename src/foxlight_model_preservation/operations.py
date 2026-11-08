@@ -218,6 +218,7 @@ class OperationControl:
         done = attempt._snapshot
         self._snapshot = self._snapshot.model_copy(
             update={
+                "operation": done.operation,
                 "bytes_hashed": done.bytes_hashed,
                 "bytes_copied": done.bytes_copied,
                 "bytes_received": done.bytes_received,
@@ -225,6 +226,23 @@ class OperationControl:
                 "observer_failed": done.observer_failed,
             }
         )
+        if attempt._observer is None:
+            self._observer = None
+
+    def adopt_outcome(self, attempt: OperationControl) -> None:
+        """Take a finished provisional attempt's final state as this control's.
+
+        For a caller whose attempt was final after all (it succeeded, or failed
+        or was cancelled with nothing to follow), so ``progress`` here shows
+        the real outcome: stage, byte counters, commitment and error code. The
+        observer already had the attempt's one terminal snapshot (a withheld
+        failure must be reported with :meth:`settle` first), so nothing is
+        reported again.
+        """
+        if self._used:
+            raise ValueError("use a fresh control for each invocation")
+        self._used = True
+        self._snapshot = attempt._snapshot
         if attempt._observer is None:
             self._observer = None
 

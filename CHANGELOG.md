@@ -21,7 +21,9 @@
   provisional child controls (`OperationControl.fork(provisional=True)`,
   `resume_after`, `settle`, `conclude`). Progress observers, including the
   Library and `--progress`, never see the primary stage's failure as terminal;
-  only the receive's final outcome is. Without `--operation-id` both stages
+  only the receive's final outcome is. The caller's control always ends with that real
+  outcome (stage, bytes, commitment, error code), including when the primary
+  stage was final or planning failed. Without `--operation-id` both stages
   share one in-memory `max_bytes` allowance. A failure of the receiver's own
   storage (full disk, failed write or sync) now raises
   `operations.StorageFailed` (`storage_error`) at once instead of counting

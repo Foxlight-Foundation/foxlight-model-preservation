@@ -1385,6 +1385,23 @@ def _choose_fallback(
     return extras, asked
 
 
+@contextmanager
+def _settled(control: OperationControl) -> Generator[None]:
+    """Report a failure before any fetch invocation as the one terminal outcome.
+
+    Planning runs before the stages' own invocations, so without this a
+    caller's control and observer would never learn how such a receive ended.
+    """
+    try:
+        yield
+    except BaseException as error:
+        try:
+            control.conclude(error)
+        except ValueError:
+            pass  # An invocation already reported its own outcome.
+        raise
+
+
 def fetch_with_mirrors(
     manifest_id: str,
     trust: TrustProfile,
@@ -1435,16 +1452,17 @@ def fetch_with_mirrors(
     # A damaged directory yields no discovered sources rather than an error;
     # a plan that cannot be read or kept beside the receipt fails the receive,
     # as the receipt itself would.
-    primary = plan_sources(
-        manifest_id,
-        hints,
-        mirrors,
-        policy,
-        seeds=seeds,
-        operation_id=operation_id,
-        destination=destination,
-        control=active,
-    )
+    with _settled(active):
+        primary = plan_sources(
+            manifest_id,
+            hints,
+            mirrors,
+            policy,
+            seeds=seeds,
+            operation_id=operation_id,
+            destination=destination,
+            control=active,
+        )
     delivered: dict[str, bool] = {}
     discovered = set(primary.discovered)
     scored_seeds = list(primary.seeds)
@@ -1494,9 +1512,10 @@ def fetch_with_mirrors(
         else None
     )
     try:
-        staged = _recorded_fallback(
-            primary, mirrors, frozenset(seeds), key, operation_id, destination
-        )
+        with _settled(active):
+            staged = _recorded_fallback(
+                primary, mirrors, frozenset(seeds), key, operation_id, destination
+            )
         if staged is None:
             exhausted: SourcesExhausted | None = None
             if primary.sources:
@@ -1508,14 +1527,20 @@ def fetch_with_mirrors(
                 active.limit_deadline(time.monotonic() + policy.deadline_seconds)
                 first = active.fork(provisional=True)
                 try:
-                    return attempt(primary, first, None)
+                    result = attempt(primary, first, None)
                 except SourcesExhausted as error:
                     exhausted = error
                     active.resume_after(first)
                 except BaseException:
+                    # Final after all: report the withheld failure once, and
+                    # let the caller's control show it.
                     first.settle()
+                    active.adopt_outcome(first)
                     raise
-            try:
+                else:
+                    active.adopt_outcome(first)
+                    return result
+            with _settled(active):
                 # The fallback gets only what is left of the receive's deadline:
                 # none left means no starter mirror is contacted at all.
                 left = active.remaining_seconds()
@@ -1540,10 +1565,6 @@ def fetch_with_mirrors(
                 )
                 if exhausted is not None and staged.sources == primary.sources:
                     raise exhausted
-            except BaseException as error:
-                if exhausted is not None:
-                    active.conclude(error)  # The receive's one terminal outcome.
-                raise
         discovered.update(staged.discovered)
         scored_seeds.extend(staged.seeds)
         return attempt(staged, active, primary.sources)

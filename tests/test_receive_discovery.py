@@ -1286,3 +1286,113 @@ def test_carried_credit_is_forfeit_once_the_receipt_changes(tmp_path: Path) -> N
             ).remaining
             == large - 2 * CHUNK_SIZE
         )
+
+
+def _terminal(events: list[object]) -> list[str]:
+    from foxlight_model_preservation.operations import Progress
+
+    return [
+        event.stage
+        for event in events
+        if isinstance(event, Progress) and event.stage in TERMINAL
+    ]
+
+
+def test_a_final_primary_attempt_shows_its_outcome_on_the_callers_control(
+    tmp_path: Path, capture: Capture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With a fallback possible but not used, control.progress is the real end."""
+    import errno
+
+    from foxlight_model_preservation import transfer
+    from foxlight_model_preservation.operations import (
+        OperationCancelled,
+        OperationControl,
+        Progress,
+        RequestChanged,
+        StorageFailed,
+    )
+
+    seed = "https://seed.example"  # Never reached in any case below.
+
+    def receive(
+        hints: tuple[str, ...], store: str, control: OperationControl, **extra: object
+    ) -> None:
+        fetch_with_mirrors(
+            capture.identity,
+            capture.trust,
+            hints,
+            tmp_path / store,
+            LAB,
+            mirrors=MirrorDirectory(tmp_path / "d"),
+            seeds=extra.pop("seeds", (seed,)),  # type: ignore[arg-type]
+            control=control,
+            **extra,  # type: ignore[arg-type]
+        )
+
+    with holding(capture.store, capture) as hint:
+        # Success.
+        events: list[Progress] = []
+        control = OperationControl(events.append, interval_seconds=0)
+        receive((hint,), "ok", control)
+        assert control.progress.stage == "complete" and control.progress.committed
+        assert control.progress.bytes_received > 0
+        assert _terminal(events) == ["complete"]
+
+        # Cancellation during the primary stage.
+        events = []
+
+        def cancel(progress: Progress) -> None:
+            events.append(progress)
+            if progress.stage == "downloading":
+                control.cancel()
+
+        control = OperationControl(cancel, interval_seconds=0)
+        with pytest.raises(OperationCancelled):
+            receive((hint,), "cancelled", control)
+        assert control.progress.stage == "cancelled"
+        assert control.progress.error_code == "cancelled"
+        assert not control.progress.committed
+        assert _terminal(events) == ["cancelled"]
+
+        # A failure that is not the sources' (no fallback follows).
+        real = transfer.open_file
+
+        @contextmanager
+        def full_disk(
+            root: int, path: str, *, write: bool = False
+        ) -> Generator[object]:
+            if write and path.startswith(".partial/"):
+                raise OSError(errno.ENOSPC, "No space left on device")
+            with real(root, path, write=write) as stream:
+                yield stream
+
+        monkeypatch.setattr(transfer, "open_file", full_disk)
+        events = []
+        control = OperationControl(events.append, interval_seconds=0)
+        with pytest.raises(StorageFailed):
+            receive((hint,), "full", control)
+        monkeypatch.setattr(transfer, "open_file", real)
+        assert control.progress.stage == "failed"
+        assert control.progress.error_code == "storage_error"
+        assert _terminal(events) == ["failed"]
+
+        # Planning refuses changed inputs before any invocation.
+        receive((hint,), "planned", OperationControl(), operation_id="op")
+        events = []
+        control = OperationControl(events.append, interval_seconds=0)
+        with pytest.raises(RequestChanged):
+            receive(("https://other.example",), "planned", control, operation_id="op")
+        assert control.progress.stage == "failed"
+        assert control.progress.error_code == "request_changed"
+        assert _terminal(events) == ["failed"]
+
+    # The sources ran out and the fallback has nothing to add.
+    with peers_only(tmp_path / "absent.json") as (empty, _requests):
+        events = []
+        control = OperationControl(events.append, interval_seconds=0)
+        with pytest.raises(PreservationError, match="manifest"):
+            receive((empty,), "exhausted", control, seeds=(empty,))
+        assert control.progress.stage == "failed"
+        assert control.progress.operation == "fetch"
+        assert _terminal(events) == ["failed"]
