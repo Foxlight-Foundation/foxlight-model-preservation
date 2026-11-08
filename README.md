@@ -230,9 +230,9 @@ exports a repository glob or quietly upgrades provenance.
 
 [Exact-revision seed recipes](examples/recipes) cover small GGUF, MLX, and a
 vision model with its required projector. The [seed guide](docs/seed-collection.md)
-explains their inputs and limits. The [strict starter collection](docs/starter-collection.md)
-is a signed one-time import list of widely used Apache-2.0 and MIT models that a
-mirror can import in one reviewed step. Model weights and private keys are not shipped
+explains their inputs and limits. The [starter collection](docs/starter-collection.md)
+is a signed one-time import list of the open models the community runs most,
+which a mirror can import in one reviewed step. Model weights and private keys are not shipped
 in this repository. These recipes are examples of owner captures, not registry
 publication or inference qualification.
 

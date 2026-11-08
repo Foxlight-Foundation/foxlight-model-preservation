@@ -100,11 +100,13 @@ without them; pass `none` (for example `--egress-daily none`) to remove one.
 
 ### Add the starter collection
 
-Quickstart can also import the [strict starter collection](starter-collection.md):
-a signed list of Apache-2.0 and MIT models in a small (about 4.2 GB) and a
-standard (about 55 GB) tier. Add `--starter-list FILE`
+Quickstart can also import the [starter collection](starter-collection.md):
+a signed list of the open models the community runs most, in small (about
+10.6 GB, or 17.4 GB with MLX builds), standard (about 80 GB, or 103 GB) and
+large (about 312 GB, or 335 GB) tiers. Gated licences need your acceptance
+(`--accept-starter-terms`). Add `--starter-list FILE`
 `--expected-starter-list-id LIST_SHA256` and optionally `--starter-tier
-standard`; with a starter list, `--collection` is optional. The starter review
+standard` or `large`; with a starter list, `--collection` is optional. The starter review
 is shown with the mirror review and covered by the same consent. On an
 existing mirror, `mirror import-starter` does the same on its own.
 

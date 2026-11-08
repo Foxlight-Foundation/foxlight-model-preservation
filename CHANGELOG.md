@@ -2,33 +2,36 @@
 
 ## Unreleased
 
-- The strict starter collection: a signed, one-time import list of widely used
-  Apache-2.0 and MIT models in two tiers. The small tier (default, about
-  4.2 GB) has Qwen3.5 4B with its vision projector, Whisper large-v3-turbo
-  (whisper.cpp), all-MiniLM-L6-v2 and BGE small en v1.5. The opt-in standard
-  tier (about 55 GB with small) adds Qwen3.8 27B, gpt-oss 20B, Qwen3.5 9B,
-  Gemma 4 E4B, Phi-4-mini, BGE reranker v2 m3, Qwen3 Embedding 0.6B and
-  nomic-embed-text v1.5. Recipes in `examples/recipes/starter/` pin exact
-  revisions and every file's SHA-256 and carry the base model's LICENSE and
-  NOTICE, added where a conversion ships none. Licences are resolved from the
-  base model, never a conversion's tag. Kokoro-82M (unlicensed declared base)
-  and BGE-M3 (no safetensors) are left out. `mirror import-starter` verifies
-  the list (`sovereign.starter-list.v1`, DSSE-signed, pinned by
-  `--expected-list-id`), shows one review of models, licences, signing keys and
-  total size against the disk budget, needs consent, then retains each bundle
-  as an ordinary local selection. Re-running is idempotent, removed models are
-  never re-imported, and nothing published later can stop or change an
-  imported copy. `mirror quickstart --starter-list` (where `--collection` is
-  now optional) and the container's `SOVEREIGN_MIRROR_STARTER_LIST`,
-  `_LIST_ID` and `_TIER` opt in. `scripts/build_starter_collection.py` checks
-  every pin against the Hub without downloading weights, then packs, signs and
-  publishes the collection to a bucket mirror. Lists may also carry models
-  under gated licences (non-commercial, responsible-AI, makers' own terms):
-  the review shows each one with its summary and full-text link, and import
-  refuses with `terms_acceptance_required` unless the operator accepts exactly
-  those licences (`--accept-terms`, `--accept-starter-terms`,
-  `SOVEREIGN_MIRROR_STARTER_ACCEPT_TERMS`), recording the acceptance first.
-  Not legal advice; operators are responsible for their jurisdiction.
+- The starter collection: a signed, one-time import list of the open models
+  the community runs most, chosen by sustained interest (Hugging Face base and
+  conversion downloads, Ollama and LM Studio). There are three tiers, each
+  including the smaller ones: small (default, about 10.6 GB, or 17.4 GB with
+  MLX builds), standard (about 80 GB, or 103 GB) and large (about 312 GB, or
+  335 GB). Its 38 recipes in `examples/recipes/starter/` pin exact revisions
+  and every file's SHA-256. They carry the base model's LICENSE, NOTICE and
+  usage policy, added from pinned sources where a conversion ships none,
+  including the Gemma Terms of Use with its NOTICE line and Prohibited Use
+  Policy, the Llama licences with "Built with Llama", and CC BY attribution.
+  Licences are resolved from the base model, and a conversion whose tag
+  disagrees is refused. Llama 3.1/3.2, Gemma 3, SDXL and XTTS v2 sit behind the
+  acceptance gate. `mirror import-starter` verifies the list
+  (`sovereign.starter-list.v1`, DSSE-signed, pinned by `--expected-list-id`),
+  shows one review of models, licences, gates, signing keys and total size
+  against the disk budget, needs consent, then retains each bundle as an
+  ordinary local selection. Gated licences need exactly the reviewed
+  acceptance (`--accept-terms`, `--accept-starter-terms`,
+  `SOVEREIGN_MIRROR_STARTER_ACCEPT_TERMS`), recorded first. Re-running is
+  idempotent, removed models are never re-imported, and nothing published
+  later can stop or change an imported copy. `mirror quickstart --starter-list`
+  (where `--collection` is now optional) and the container's
+  `SOVEREIGN_MIRROR_STARTER_LIST`, `_LIST_ID` and `_TIER` opt in.
+  `scripts/build_starter_collection.py` checks every pin against the Hub
+  without downloading weights, then packs, signs and publishes the collection
+  to a bucket mirror. `scripts/derive_starter_signals.py` recomputes the
+  interest signals each quarter and proposes a diff, with promotion after
+  three months on two signals and demotion after two weak quarters; operators
+  choose what to import. Not legal advice; operators are responsible for
+  their jurisdiction.
 
 - Catalog withdrawal is now advisory: no catalog publisher, Foxlight
   included, can take down a mirror's copies. Catalogs are discovery, not
