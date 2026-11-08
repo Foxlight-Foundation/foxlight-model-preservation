@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Protocol
 
 from .handoffs import Handoff, peer_contacts
-from .mirror_models import MirrorState, NativeModel, NativePolicy
+from .mirror_models import MirrorState, NativeModel, NativePolicy, at_least
 from .mirror_state import HEADROOM, MirrorLedger, serving_hour
 from .models import PreservationError
 from .operations import OperationCancelled, OperationControl
@@ -148,14 +148,9 @@ def configure(
         return ledger.update(
             lambda state: state.model_copy(
                 update={
-                    "schema_version": state.schema_version
-                    if state.schema_version
-                    in {
-                        "foxlight.mirror-state.v3",
-                        "foxlight.mirror-state.v4",
-                        "foxlight.mirror-state.v5",
-                    }
-                    else "foxlight.mirror-state.v2",
+                    "schema_version": at_least(
+                        state.schema_version, "foxlight.mirror-state.v2"
+                    ),
                     "native_policy": policy,
                     "restart": None,
                 }

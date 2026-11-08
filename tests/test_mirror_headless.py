@@ -1182,6 +1182,48 @@ def test_interactive_consent_prompt(tmp_path, capture, monkeypatch):
     assert restart_allowed(MirrorLedger(tmp_path / "mirror").read())
 
 
+def _granted_quickstart_mirror(tmp_path: Path, capture: Capture) -> Path:
+    target = tmp_path / "granted"
+    loaded, document = load_collection(collection(tmp_path, capture))
+    apply_quickstart(target, loaded, document, settings(), consented=True)
+    assert restart_allowed(MirrorLedger(target).read())
+    return target
+
+
+def test_refused_quickstart_keeps_the_existing_mirror_and_grant(tmp_path, capture):
+    target = _granted_quickstart_mirror(tmp_path, capture)
+    before = (target / "mirror.json").read_bytes()
+    state = MirrorLedger(target).read()
+    # A different source with a disk budget below retained usage plus headroom.
+    other, document = load_collection(collection(tmp_path, capture))
+    assert other.expected_bootstrap_id not in str(state.model_dump())
+    tight = settings(disk_bytes=HEADROOM + 1, max_bytes=1024, name="Changed")
+    with pytest.raises(PreservationError, match="disk admission"):
+        apply_quickstart(target, other, document, tight, consented=True)
+    after = MirrorLedger(target).read()
+    assert (target / "mirror.json").read_bytes() == before
+    assert policy_id(after) == policy_id(state) and after.restart == state.restart
+    assert restart_allowed(after)
+
+
+def test_unforeseen_quickstart_refusal_restores_the_ledger(
+    tmp_path, capture, monkeypatch
+):
+    target = _granted_quickstart_mirror(tmp_path, capture)
+    before = (target / "mirror.json").read_bytes()
+    other, document = load_collection(collection(tmp_path, capture))
+
+    def refuse(*_args: object, **_kwargs: object) -> str:
+        raise PreservationError("cache import would roll back trusted roots")
+
+    monkeypatch.setattr("foxlight_model_preservation.mirror_quickstart.follow", refuse)
+    changed = settings(disk_bytes=4 * 1024**3, name="Changed")
+    with pytest.raises(PreservationError, match="roll back"):
+        apply_quickstart(target, other, document, changed, consented=True)
+    assert (target / "mirror.json").read_bytes() == before
+    assert restart_allowed(MirrorLedger(target).read())
+
+
 # Restart idempotency (the container re-runs quickstart on every start) --------
 
 
@@ -1446,6 +1488,61 @@ def test_deploy_files_match_the_installer_and_proxy_model():
     assert not re.search(r"^\s*log\b", caddyfile, re.MULTILINE)
     dockerfile = (deploy / "Dockerfile").read_text()
     assert "USER" in dockerfile and "bittorrent" in dockerfile
+    # The optional system unit: a dedicated account, owner-only state, hardening.
+    system = (deploy / "sovereign-mirror@.service").read_text()
+    directives = {
+        line.partition("=")[0]: line.partition("=")[2]
+        for line in system.splitlines()
+        if "=" in line and not line.startswith("#")
+    }
+    run = "/opt/sovereign/current/bin/model-preserve mirror run"
+    assert directives["ExecStart"] == (
+        run + " --dir /var/lib/sovereign/mirrors/%i --resume"
+    )
+    assert directives["User"] == "sovereign"
+    assert directives["StateDirectory"] == "sovereign/mirrors/%i"
+    assert directives["StateDirectoryMode"] == "0700"
+    assert directives["ReadWritePaths"] == "/var/lib/sovereign/mirrors/%i"
+    for key, value in {
+        "NoNewPrivileges": "yes",
+        "CapabilityBoundingSet": "",
+        "UMask": "0077",
+        "ProtectSystem": "strict",
+        "ProtectHome": "yes",
+        "PrivateTmp": "yes",
+        "PrivateDevices": "yes",
+        "ProtectKernelTunables": "yes",
+        "ProtectKernelModules": "yes",
+        "ProtectKernelLogs": "yes",
+        "ProtectControlGroups": "yes",
+        "ProtectClock": "yes",
+        "ProtectHostname": "yes",
+        "RestrictNamespaces": "yes",
+        "RestrictRealtime": "yes",
+        "RestrictSUIDSGID": "yes",
+        "LockPersonality": "yes",
+        "MemoryDenyWriteExecute": "yes",
+        "PrivateUsers": "yes",
+        "SystemCallArchitectures": "native",
+        "Restart": "on-failure",
+        "KillSignal": "SIGTERM",
+    }.items():
+        assert directives[key] == value, key
+    assert "SystemCallFilter=@system-service" in system
+    families = set(directives["RestrictAddressFamilies"].split())
+    assert families <= {"AF_UNIX", "AF_INET", "AF_INET6", "AF_NETLINK"}
+    assert "%h" not in system and "WantedBy=multi-user.target" in system
+    # Its setup script refuses unauthenticated archives and is opt-in.
+    setup = (deploy / "install-system-service.sh").read_text()
+    assert "gh attestation verify" in setup and "--deny-self-hosted-runners" in setup
+    assert "refusing an unverified archive" in setup
+    assert "curl" not in setup and "runuser -u sovereign" in setup
+    # Every refusal, the review and consent come before the first change.
+    first_change = setup.index("# --- Changes")
+    for guard in ("refusing an unverified archive", "--plan-only", "Plan only:"):
+        assert setup.index(guard) < first_change, guard
+    for change in ("useradd --system", 'systemctl stop "', "mv -Tf", "install -o root"):
+        assert setup.index(change) > first_change, change
 
 
 def test_no_anonymity_claims_in_mirror_text():

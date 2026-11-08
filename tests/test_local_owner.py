@@ -115,14 +115,16 @@ def finish(owner, receipt):
 
 
 def submit(owner, plan, operation=None):
-    return owner.control(
-        "start",
-        {
-            "plan_id": plan["plan_id"],
-            "operation_id": operation or str(uuid.uuid4()),
-            "confirmed": True,
-        },
-    )
+    body = {
+        "plan_id": plan["plan_id"],
+        "operation_id": operation or str(uuid.uuid4()),
+        "confirmed": True,
+    }
+    accept = (plan.get("terms") or {}).get("accept")
+    if accept:
+        # The person ticked "I accept these terms" for exactly these licences.
+        body["accepted_terms"] = accept
+    return owner.control("start", body)
 
 
 def test_same_origin_component_projector_is_consistent_in_find_and_review(tmp_path):

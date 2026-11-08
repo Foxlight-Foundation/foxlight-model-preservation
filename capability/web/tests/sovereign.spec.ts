@@ -116,3 +116,48 @@ test('saved-copy kit action prepares a download without regranting model trust',
  await expect(page.getByRole('status')).not.toContainText('Preparing your complete recovery kit.');
  await expect(page.getByLabel('Proceed with this exact private selection.')).toHaveCount(0);
 });
+
+const shot=(name:string,info:{project:{name:string};outputPath:(name:string)=>string})=>process.env.LIBRARY_SCREENSHOTS?`${process.env.LIBRARY_SCREENSHOTS}/${info.project.name}-${name}.png`:info.outputPath(`${name}.png`);
+const gatedTerms={definition:1,accept:['llama3.1'],licences:[{license_id:'llama3.1',name:'Llama 3.1 Community License',family:'custom',summary:'Meta’s acceptable use policy applies; attribution “Built with Llama” required; copies must include the licence.',requires_acceptance:true,references:[{members:['weights'],reference:'LICENSE',url:'https://huggingface.co/meta-llama/Llama-3.1-8B/blob/'+'b'.repeat(40)+'/LICENSE'}]},{license_id:'mit',name:'MIT',family:'permissive',summary:'Anyone may copy and share, keeping the licence and copyright notice.',requires_acceptance:false,references:[{members:['tokenizer'],reference:'LICENSE',url:null}]}]};
+test('a model under use-restricted terms is kept only after I accept these terms',async({page},info)=>{
+ let submitted:Record<string,unknown>|null=null;
+ await page.route('**/api/library*',route=>route.fulfill({json:empty}));
+ await page.route('**/api/desktop-search',route=>route.fulfill({json:{catalog_id:id,results:[model],total:1,next_offset:null}}));
+ await page.route('**/api/desktop-plan',route=>route.fulfill({json:{plan_id:id,kind:'receive',name:model.name,card_id:card,size_bytes:4096,file_count:2,members:['example/model'],expires_at:9999999999,terms:gatedTerms}}));
+ await page.route('**/api/desktop-start',route=>{submitted=route.request().postDataJSON();return route.fulfill({json:{}});});
+ await page.goto('/');await page.getByRole('button',{name:'Keep a copy',exact:true}).click();
+ const terms=page.getByLabel('Licence terms');
+ await expect(terms.getByText('Llama 3.1 Community License',{exact:true})).toBeVisible();
+ await expect(terms.getByText(/Built with Llama/)).toBeVisible();
+ await expect(terms.getByRole('link',{name:/Read the full terms \(LICENSE, carried with the model\)/})).toHaveAttribute('href',/huggingface\.co\/meta-llama\/Llama-3\.1-8B\/blob\/b{40}\/LICENSE$/);
+ await expect(terms.getByText('isn’t legal advice',{exact:false})).toBeVisible();
+ const start=page.getByRole('button',{name:'Download & preserve',exact:true});
+ await page.getByLabel('Proceed with this exact private selection.').check();
+ // The licence gate is separate from the selection consent, as on Hugging Face.
+ await expect(start).toBeDisabled();
+ // The acceptance is its own section, names the licence, and only gated entries carry the badge.
+ const accept=terms.getByRole('region',{name:'Terms to accept'});
+ await expect(accept.getByRole('heading',{name:'Terms to accept'})).toBeVisible();
+ await expect(terms.getByText('Needs your acceptance',{exact:true})).toHaveCount(1);
+ await expect(terms.getByRole('listitem').filter({hasText:'Llama 3.1 Community License'}).getByText('Needs your acceptance')).toBeVisible();
+ await expect(terms.getByRole('listitem').filter({hasText:'MIT'}).getByText('Needs your acceptance')).toHaveCount(0);
+ await accept.getByRole('checkbox',{name:'I accept the Llama 3.1 Community License.'}).scrollIntoViewIfNeeded();
+ await page.screenshot({path:shot('terms-acceptance',info)});
+ await accept.getByRole('checkbox',{name:'I accept the Llama 3.1 Community License.'}).check();
+ await start.click();
+ expect(submitted).toEqual({plan_id:id,operation_id:expect.any(String),confirmed:true,accepted_terms:['llama3.1']});
+});
+test('plain permissive terms are shown but ask for no acceptance',async({page})=>{
+ let submitted:Record<string,unknown>|null=null;
+ const permissive={definition:1,accept:[],licences:[{license_id:'apache-2.0',name:'Apache License 2.0',family:'permissive',summary:'Anyone may copy and share, keeping the licence and copyright notice.',requires_acceptance:false,references:[{members:['weights'],reference:'LICENSE',url:null}]}]};
+ await page.route('**/api/library*',route=>route.fulfill({json:empty}));
+ await page.route('**/api/desktop-search',route=>route.fulfill({json:{catalog_id:id,results:[model],total:1,next_offset:null}}));
+ await page.route('**/api/desktop-plan',route=>route.fulfill({json:{plan_id:id,kind:'receive',name:model.name,card_id:card,size_bytes:4096,members:['example/model'],expires_at:9999999999,terms:permissive}}));
+ await page.route('**/api/desktop-start',route=>{submitted=route.request().postDataJSON();return route.fulfill({json:{}});});
+ await page.goto('/');await page.getByRole('button',{name:'Keep a copy',exact:true}).click();
+ await expect(page.getByLabel('Licence terms').getByRole('checkbox')).toHaveCount(0);
+ await expect(page.getByText('Needs your acceptance',{exact:true})).toHaveCount(0);
+ await page.getByLabel('Proceed with this exact private selection.').check();
+ await page.getByRole('button',{name:'Download & preserve',exact:true}).click();
+ expect(submitted).toEqual({plan_id:id,operation_id:expect.any(String),confirmed:true});
+});

@@ -7,6 +7,7 @@ import hashlib
 import importlib.util
 import json
 import time
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -23,6 +24,34 @@ from foxlight_preservation_library.sharing_switch import (
 )
 
 APACHE, OTHER, GPL, PMF, REMOVED, MIT = (c * 64 for c in "abcdef")
+CAPPED = {
+    **DEFAULT_CONFIGURATION,
+    "egress_daily": 1024**3,
+    "egress_monthly": 8 * 1024**3,
+}
+
+
+def contract(*, modern: bool) -> dict[str, Any]:
+    """Core's generated mirror contract, optionally with the new intake fields."""
+    value: dict[str, Any] = json.loads(
+        (Path(__file__).parent / "fixtures/core-mirror-contract-v1.json").read_text()
+    )
+    if modern:
+        schemas = value["components"]["schemas"]
+        schemas["MirrorRequest"]["properties"]["kind"]["enum"].append("intake")
+        schemas["MirrorRequest"]["properties"]["intake"] = {
+            "anyOf": [{}, {"type": "null"}]
+        }
+        schemas["MirrorPage"]["properties"]["intake"] = {
+            "anyOf": [{}, {"type": "null"}]
+        }
+        for field in ("egress_daily", "egress_monthly"):
+            schemas["MirrorConfiguration"]["properties"][field] = {
+                "anyOf": [{"type": "integer"}, {"type": "null"}]
+            }
+    return value
+
+
 LICENCES = {APACHE: "Apache 2.0", OTHER: "other", GPL: "GPL-3.0", REMOVED: "MIT"}
 ALL = (APACHE, OTHER, GPL, PMF, REMOVED, MIT)
 
@@ -65,7 +94,8 @@ def review(manifest: str) -> dict[str, JsonValue]:
 class FakeCore:
     """A small stateful stand-in for Skulk Core's persistent-mirror routes."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, modern: bool = True) -> None:
+        self.modern = modern
         self.page: dict[str, Any] = {
             "schema_version": "skulk.preservation-mirror.v1",
             "configured": False,
@@ -85,6 +115,10 @@ class FakeCore:
         self.decisions: list[dict[str, Any]] = []
         self.calls: list[tuple[str, str]] = []
         self.hold_retain = False
+        # Something outside this setup changes the standing intake policy.
+        self.tamper_intake = False
+        # Something outside this setup withholds another copy meanwhile.
+        self.tamper_withheld: str | None = None
         # When set, mirror reads wait so a Stop can overtake an admission.
         self.gate: asyncio.Event | None = None
         # POSTs of these kinds wait, so a Stop can land while one is in flight.
@@ -141,7 +175,13 @@ class FakeCore:
     def handle(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path.removeprefix("/preservation/")
         self.calls.append((request.method, path))
+        if request.method == "GET" and path == "library":
+            return httpx.Response(200, json={"jobs": []})
+        if request.method == "GET" and request.url.path == "/api/openapi.json":
+            return httpx.Response(200, json=contract(modern=self.modern))
         if request.method == "GET" and path == "mirror":
+            if self.modern:
+                return httpx.Response(200, json={"intake": None, **self.page})
             return httpx.Response(200, json=self.page)
         if request.method == "GET" and path.startswith("public-copies/"):
             manifest = next(m for m in ALL if m[0] == path.split("/")[1][-1])
@@ -180,22 +220,54 @@ class FakeCore:
                 self._policy()
             elif kind == "retain":
                 assert decision["confirm_redistribution"] is True
+                if self.tamper_intake:
+                    self.page["intake"] = {
+                        "share": "eligible",
+                        "licenses": ["mit", "gpl-3.0"],
+                        "definition": 1,
+                        "withheld": [],
+                    }
+                intake = self.page.get("intake")
                 self.page["models"].append(
                     {
                         "manifest_id": decision["manifest_id"],
                         "state": "retained",
                         "pinned": False,
-                        "blocked": False,
+                        # As core does: a withheld copy is admitted blocked.
+                        "blocked": isinstance(intake, dict)
+                        and decision["manifest_id"] in intake["withheld"],
                     }
                 )
                 self.page["restart_expires"] = None
                 self._policy()
                 if self.hold_retain:
                     job["state"] = "running"
+            elif kind == "intake":
+                assert self.modern
+                self.page["intake"] = decision["intake"]
+                self.page["restart_expires"] = None
+                self._policy()
             elif kind == "model":
                 for model in self.page["models"]:
                     if model["manifest_id"] == decision["manifest_id"]:
                         model["blocked"] = decision["action"] == "block"
+                intake = self.page.get("intake")
+                if decision["action"] == "unblock" and isinstance(intake, dict):
+                    # As core does: an explicit unblock releases a withheld copy.
+                    self.page["intake"] = {
+                        **intake,
+                        "withheld": [
+                            item
+                            for item in intake["withheld"]
+                            if item != decision["manifest_id"]
+                        ],
+                    }
+                if self.tamper_withheld is not None and isinstance(intake, dict):
+                    current = self.page["intake"]
+                    self.page["intake"] = {
+                        **current,
+                        "withheld": [*current["withheld"], self.tamper_withheld],
+                    }
             elif kind == "revoke_resume":
                 self.page["restart_expires"] = None
             elif kind == "grant_resume":
@@ -255,12 +327,23 @@ async def test_reading_and_reviewing_is_receive_only(core: Any) -> None:
     assert state["progress"]["state"] == "idle"
     assert state["default_licenses"] == list(sharing_switch.DEFAULT_LICENSES)
     defaults = state["defaults"]
-    # Sensible bounded defaults: explicit finite storage and upload allowances.
+    # Storage and downloads are always bounded; upload limits are opt-in.
     assert all(
         isinstance(defaults[k], int) and defaults[k] > 0
-        for k in ("disk_bytes", "egress_daily", "egress_monthly", "ingress_daily")
+        for k in ("disk_bytes", "ingress_daily")
     )
+    assert defaults["egress_daily"] is None and defaults["egress_monthly"] is None
     assert defaults["ipfs"] is False and defaults["torrent"] is False
+    families = state["licence_families"]
+    assert [family["id"] for family in families["families"]] == [
+        "permissive",
+        "attribution",
+        "copyleft",
+        "responsible-ai",
+        "non-commercial",
+        "custom",
+    ]
+    assert state["licence_definition"] == families["version"] == 1
     assert fake.calls == []
     rows = await app.dispatch(
         "mirror-share-review",
@@ -332,9 +415,7 @@ async def test_service_is_bounded_and_needs_a_transport(
             "mirror-share-start",
             start_body(fake, configuration={**DEFAULT_CONFIGURATION, **change}),
         )
-    unbounded = {
-        k: v for k, v in DEFAULT_CONFIGURATION.items() if k != "egress_monthly"
-    }
+    unbounded = {k: v for k, v in DEFAULT_CONFIGURATION.items() if k != "disk_bytes"}
     with pytest.raises(ValidationError):
         await app.dispatch(
             "mirror-share-start", start_body(fake, configuration=unbounded)
@@ -350,7 +431,18 @@ async def test_one_consent_keeps_only_public_licences_for_a_year(core: Any) -> N
     progress = await finished(app)
     assert progress["state"] == "done", progress
     kinds = [decision["kind"] for decision in fake.decisions]
-    assert kinds == ["configure", "retain", "grant_resume", "run"]
+    assert kinds == ["configure", "intake", "retain", "grant_resume", "run"]
+    # No upload limit unless the owner turns one on.
+    configured = fake.decisions[0]["configuration"]
+    assert configured["egress_daily"] is None and configured["egress_monthly"] is None
+    assert configured["disk_bytes"] > 0 and configured["ingress_daily"] > 0
+    # The standing intake policy is what the year's grant covers.
+    assert fake.page["intake"] == {
+        "share": "eligible",
+        "licenses": ["apache-2.0", "mit"],
+        "definition": 1,
+        "withheld": [],
+    }
     retained = [d["manifest_id"] for d in fake.decisions if d["kind"] == "retain"]
     assert retained == [APACHE]
     assert {row["reason"] for row in progress["skipped"]} == {
@@ -358,7 +450,7 @@ async def test_one_consent_keeps_only_public_licences_for_a_year(core: Any) -> N
         "license_not_selected",
         "unsupported",
     }
-    grant = fake.decisions[2]
+    grant = fake.decisions[3]
     assert (
         before + CONSENT_SECONDS
         <= grant["resume_expires"]
@@ -378,7 +470,7 @@ async def test_nothing_eligible_starts_nothing(core: Any) -> None:
     progress = await finished(app)
     assert progress["state"] == "failed"
     assert progress["error_code"] == "community_nothing_to_share"
-    assert [d["kind"] for d in fake.decisions] == ["configure"]
+    assert [d["kind"] for d in fake.decisions] == ["configure", "intake"]
     assert fake.page["controller_job_id"] is None
 
 
@@ -386,8 +478,9 @@ async def test_existing_mirror_selections_and_grants_survive_the_upgrade(
     core: Any,
 ) -> None:
     fake, app = core
+    fake.modern = False  # A Core from before standing intake and opt-in limits.
     existing = {
-        **DEFAULT_CONFIGURATION,
+        **CAPPED,
         "name": "Older mirror",
         "port": 8080,
         "http": True,
@@ -469,7 +562,7 @@ async def test_stop_sharing_is_one_action(core: Any) -> None:
     stopped = await app.dispatch("mirror-share-stop", {})
     assert stopped["progress"]["state"] == "stopped"
     assert retain["state"] == "cancelled"
-    assert [d["kind"] for d in fake.decisions] == ["configure", "retain"]
+    assert [d["kind"] for d in fake.decisions] == ["configure", "intake", "retain"]
     # Stopping a running controller is the same single control.
     fake.hold_retain = False
     await app.dispatch("mirror-share-start", start_body(fake))
@@ -485,8 +578,16 @@ async def test_stop_sharing_is_one_action(core: Any) -> None:
     reason="the core package is optional for the managed Library",
 )
 def test_licence_policy_matches_the_core_community_mirror() -> None:
+    from foxlight_model_preservation import licences
     from foxlight_model_preservation.local_host import community
 
+    from foxlight_preservation_library import licences as library_licences
+
+    # The Library ships the core's definition byte for byte.
+    assert library_licences.definition_bytes() == licences.definition_bytes()
+    assert library_licences.LICENCE_DEFINITION_VERSION == (
+        licences.LICENCE_DEFINITION_VERSION
+    )
     assert sharing_switch.DEFAULT_LICENSES == community.DEFAULT_LICENSES
     assert sharing_switch.UNIDENTIFIED == community.UNIDENTIFIED
     assert sharing_switch.CONSENT_SECONDS == community.CONSENT_SECONDS
@@ -494,6 +595,51 @@ def test_licence_policy_matches_the_core_community_mirror() -> None:
         assert sharing_switch.normalize_license(value) == community.normalize_license(
             value
         )
+
+
+async def test_an_older_core_needs_an_upload_limit_and_gets_no_intake(
+    core: Any,
+) -> None:
+    fake, app = core
+    fake.modern = False
+    with pytest.raises(CoreRefused, match="mirror_upload_limit_required"):
+        await app.dispatch("mirror-share-start", start_body(fake))
+    assert fake.decisions == []
+    await app.dispatch("mirror-share-start", start_body(fake, configuration=CAPPED))
+    assert (await finished(app))["state"] == "done"
+    kinds = [decision["kind"] for decision in fake.decisions]
+    # An older Core never sees an intake decision or an "intake" field.
+    assert kinds == ["configure", "retain", "grant_resume", "run"]
+    assert all("intake" not in decision for decision in fake.decisions)
+
+
+async def test_the_saved_choice_is_kept_and_not_re_decided(core: Any) -> None:
+    fake, app = core
+    await app.dispatch(
+        "mirror-share-start",
+        start_body(fake, share="chosen", licenses=["Apache-2.0", "GPL-3.0"]),
+    )
+    assert (await finished(app))["state"] == "done"
+    # Core keeps the owner's choice, so the screen can show it after a reload.
+    assert fake.page["intake"]["share"] == "chosen"
+    assert fake.page["intake"]["licenses"] == ["apache-2.0", "gpl-3.0"]
+    before = len(fake.decisions)
+    await app.dispatch(
+        "mirror-share-start",
+        start_body(fake, share="chosen", licenses=["apache-2.0", "gpl-3.0"]),
+    )
+    assert (await finished(app))["state"] == "done"
+    # The same reviewed choice is not decided again; only the year is renewed.
+    assert [d["kind"] for d in fake.decisions[before:]] == ["grant_resume", "run"]
+
+
+async def test_an_upload_limit_is_kept_when_the_owner_sets_one(core: Any) -> None:
+    fake, app = core
+    await app.dispatch("mirror-share-start", start_body(fake, configuration=CAPPED))
+    assert (await finished(app))["state"] == "done"
+    configured = fake.decisions[0]["configuration"]
+    assert configured["egress_daily"] == 1024**3
+    assert configured["egress_monthly"] == 8 * 1024**3
 
 
 def held(*identities: str, blocked: tuple[str, ...] = ()) -> list[dict[str, Any]]:
@@ -530,8 +676,14 @@ async def test_choosing_only_a_stops_serving_b_before_the_grant(core: Any) -> No
     # B keeps its retained bytes; it is only blocked from serving.
     assert {m["manifest_id"] for m in fake.page["models"]} == {APACHE, MIT}
     kinds = [(d["kind"], d.get("action")) for d in fake.decisions]
-    assert kinds == [("model", "block"), ("grant_resume", None), ("run", None)]
-    assert fake.decisions[0]["manifest_id"] == MIT
+    # A Core with standing intake records the reviewed choice first.
+    assert kinds == [
+        ("intake", None),
+        ("model", "block"),
+        ("grant_resume", None),
+        ("run", None),
+    ]
+    assert fake.decisions[1]["manifest_id"] == MIT
 
 
 async def test_switching_from_all_to_chosen_narrows_what_is_served(core: Any) -> None:
@@ -550,7 +702,13 @@ async def test_switching_from_all_to_chosen_narrows_what_is_served(core: Any) ->
     assert progress["state"] == "done", progress
     assert fake.served() == {MIT}
     assert progress["kept"] == 1
-    assert [d["kind"] for d in fake.decisions] == ["model", "grant_resume", "run"]
+    # The share mode changed, so the standing intake policy is decided again.
+    assert [d["kind"] for d in fake.decisions] == [
+        "intake",
+        "model",
+        "grant_resume",
+        "run",
+    ]
     assert fake.page["controller_job_id"] is not None
 
 
@@ -632,7 +790,7 @@ async def test_a_stop_during_setup_prevents_any_later_grant_or_run(core: Any) ->
     # A later Start is a new, separately admitted decision.
     for _ in range(50):
         await asyncio.sleep(0)
-    assert {d["kind"] for d in fake.decisions} <= {"configure", "retain"}
+    assert {d["kind"] for d in fake.decisions} <= {"configure", "intake", "retain"}
     assert fake.page["restart_expires"] is None
 
 
@@ -835,3 +993,103 @@ async def test_a_refused_intake_aborts_instead_of_being_skipped(core: Any) -> No
     assert progress["state"] == "failed"
     assert progress["error_code"] == "mirror_policy_changed"
     no_authorization(fake)
+
+
+async def test_an_intake_policy_changed_during_setup_is_never_authorized(
+    core: Any,
+) -> None:
+    fake, app = core
+    fake.tamper_intake = True
+    await app.dispatch("mirror-share-start", start_body(fake))
+    progress = await finished(app)
+    assert progress["state"] == "failed"
+    assert progress["error_code"] == "mirror_changed_during_setup"
+    kinds = [decision["kind"] for decision in fake.decisions]
+    assert "grant_resume" not in kinds and "run" not in kinds
+
+
+def withheld_mirror(fake: FakeCore) -> None:
+    """MIT is retained but withheld under a saved chosen-mode intake policy."""
+    existing(fake, APACHE, MIT, blocked=(MIT,))
+    fake.page["intake"] = {
+        "share": "chosen",
+        "licenses": ["apache-2.0", "mit"],
+        "definition": 1,
+        "withheld": [MIT],
+    }
+
+
+async def test_choosing_a_withheld_copy_shares_it_again(core: Any) -> None:
+    fake, app = core
+    withheld_mirror(fake)
+    await app.dispatch(
+        "mirror-share-start",
+        start_body(fake, share="chosen", copies=[copy(APACHE), copy(MIT)]),
+    )
+    progress = await finished(app)
+    assert progress["state"] == "done", progress
+    # Our own unblock released it from the withheld list; that is expected.
+    assert fake.served() == {APACHE, MIT}
+    assert fake.page["intake"]["withheld"] == []
+    kinds = [(d["kind"], d.get("action")) for d in fake.decisions]
+    assert ("model", "unblock") in kinds and kinds[-2:] == [
+        ("grant_resume", None),
+        ("run", None),
+    ]
+
+
+async def test_an_unrelated_withheld_change_still_aborts(core: Any) -> None:
+    fake, app = core
+    withheld_mirror(fake)
+    # Someone else withholds a different copy while this setup runs.
+    fake.tamper_withheld = "9" * 64
+    await app.dispatch(
+        "mirror-share-start",
+        start_body(fake, share="chosen", copies=[copy(APACHE), copy(MIT)]),
+    )
+    progress = await finished(app)
+    assert progress["state"] == "failed"
+    assert progress["error_code"] == "mirror_changed_during_setup"
+    kinds = [decision["kind"] for decision in fake.decisions]
+    assert "grant_resume" not in kinds and "run" not in kinds
+
+
+async def test_a_withheld_copy_kept_for_the_first_time_follows_the_share_mode(
+    core: Any,
+) -> None:
+    fake, app = core
+    existing(fake, APACHE)
+    fake.page["intake"] = {
+        "share": "eligible",
+        "licenses": ["apache-2.0", "mit"],
+        "definition": 1,
+        "withheld": [MIT],
+    }
+    # All eligible: Core admits the withheld copy blocked, and it stays back.
+    await app.dispatch(
+        "mirror-share-start", start_body(fake, copies=[copy(APACHE), copy(MIT)])
+    )
+    progress = await finished(app)
+    assert progress["state"] == "done", progress
+    assert fake.served() == {APACHE}
+    assert fake.page["intake"]["withheld"] == [MIT]
+
+
+async def test_limits_core_already_holds_are_kept_even_if_daily_exceeds_monthly(
+    core: Any,
+) -> None:
+    """An older setup could save any positive limits; resubmitting them works."""
+    fake, app = core
+    held = {**CAPPED, "egress_daily": 10 * 1024**3, "egress_monthly": 1024**3}
+    existing(fake, APACHE)
+    fake.page["configuration"] = held
+    await app.dispatch("mirror-share-start", start_body(fake, configuration=held))
+    progress = await finished(app)
+    assert progress["state"] == "done", progress
+    assert "configure" not in [d["kind"] for d in fake.decisions]
+    # Changing the limits themselves must keep daily within monthly.
+    changed = {**held, "egress_daily": 20 * 1024**3}
+    with pytest.raises(CoreRefused, match="mirror_allowance_invalid"):
+        await app.dispatch(
+            "mirror-share-start", start_body(fake, configuration=changed)
+        )
