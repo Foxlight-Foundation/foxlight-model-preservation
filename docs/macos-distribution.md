@@ -13,8 +13,10 @@ rebuilding or signing them. Developer ID signing, Apple notarization and an
 installed-app journey remain separate checks. A locally passing Gatekeeper
 check does not establish clean-host acceptance, model compatibility or anonymity.
 
-The build10 recipe pairs the authenticated public core 0.28 / Library 0.24 cohort,
-which makes mirrors easy to host and find: cloud bucket mirrors, a public
+The build11 recipe pairs the authenticated public core 0.29 / Library 0.25 cohort,
+which adds one-switch sharing for Skulk, licence families with opt-in upload caps,
+advisory catalog withdrawal, the Hetzner storage preset and bucket fixes. Build 10
+paired core 0.28 / Library 0.24, which made mirrors easy to host and find: cloud bucket mirrors, a public
 address and DHT/Nostr choices in setup, downloads that use discovered mirrors,
 and the bundled BitTorrent DHT binding. Build 9 paired core 0.27 / Library 0.23,
 which added **Help keep models available**: an opt-in, long-lived mirror of every
