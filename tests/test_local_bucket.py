@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 from typing import Literal
 
@@ -323,6 +324,39 @@ def test_bucket_uploads_count_against_the_owners_upload_limits(
         owner.close()
 
 
+def test_a_failed_upload_is_retried_before_the_next_discovery_round(
+    tmp_path: Path,
+    capture: Capture,
+    keychain: dict[str, BucketCredentials],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # One refused request (a busy ledger or a dropped connection, say) used to
+    # leave the model off the bucket until the 15-minute discovery round.
+    monkeypatch.setattr(LocalOwner, "_bucket_retry", 0.2)
+    real = module.publish_to_bucket
+    attempts: list[str] = []
+
+    def flaky(store, manifest_id, *args, **kwargs):
+        attempts.append(manifest_id)
+        if len(attempts) == 1:
+            raise module.PreservationError("another writer owns this destination")
+        return real(store, manifest_id, *args, **kwargs)
+
+    monkeypatch.setattr(module, "publish_to_bucket", flaky)
+    owner = LocalOwner(tmp_path / "owner")
+    owner.community.bucket_policy = LOCAL
+    try:
+        saved(owner, tmp_path, capture)
+        with bucket() as (server, client):
+            enable(owner, free_port())
+            identity = _shared(owner, server, client)
+            wait_for(lambda: manifest_path(identity) in server.objects, seconds=30)
+            assert attempts[:2] == [identity, identity]
+            wait_for(lambda: owner.community.bucket().last_error is None)
+    finally:
+        owner.close()
+
+
 def test_a_withdrawal_the_bucket_refused_is_retried_while_sharing_is_off(
     tmp_path: Path,
     capture: Capture,
@@ -576,10 +610,20 @@ def test_the_bucket_lists_its_models_and_exports_a_handoff_for_each(
                 seconds=120,
             )
             public_url = client.target.public_url
-            requests_before = len(server.order)
-            contents = owner.control("community-bucket-contents", {})
             # Read from the app's own records: no request reached the bucket.
-            assert len(server.order) == requests_before
+            # Background rounds keep writing to it (announcing, say), so count
+            # only bucket clients made on this thread, which serves the call.
+            made: list[int] = []
+            real_client = module.BucketClient
+
+            def counted(*args, **kwargs):
+                made.append(threading.get_ident())
+                return real_client(*args, **kwargs)
+
+            with pytest.MonkeyPatch.context() as patch:
+                patch.setattr(module, "BucketClient", counted)
+                contents = owner.control("community-bucket-contents", {})
+            assert threading.get_ident() not in made
             assert contents["total"] == 1 and contents["public_url"] == public_url
             (row,) = contents["models"]
             held = (
