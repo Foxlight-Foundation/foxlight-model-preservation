@@ -50,9 +50,17 @@ services:
       SOVEREIGN_MIRROR_FOLLOW_WITHDRAWALS: ${SOVEREIGN_MIRROR_FOLLOW_WITHDRAWALS:-}
       SOVEREIGN_MIRROR_GRANT: ${SOVEREIGN_MIRROR_GRANT:-180d}
       SOVEREIGN_MIRROR_COLLECTION: /config/collection.json
+      # Optional one-time starter import (see docs/starter-collection.md).
+      SOVEREIGN_MIRROR_STARTER_LIST: ${SOVEREIGN_MIRROR_STARTER_LIST:-}
+      SOVEREIGN_MIRROR_STARTER_LIST_ID: ${SOVEREIGN_MIRROR_STARTER_LIST_ID:-}
+      SOVEREIGN_MIRROR_STARTER_TIER: ${SOVEREIGN_MIRROR_STARTER_TIER:-small}
+      SOVEREIGN_MIRROR_STARTER_FORMATS: ${SOVEREIGN_MIRROR_STARTER_FORMATS:-gguf}
+      SOVEREIGN_MIRROR_STARTER_ACCEPT_TERMS: ${SOVEREIGN_MIRROR_STARTER_ACCEPT_TERMS:-}
+      SOVEREIGN_MIRROR_STARTER_MIRROR: ${SOVEREIGN_MIRROR_STARTER_MIRROR:-}
       SOVEREIGN_MIRROR_CONSENT: ${SOVEREIGN_MIRROR_CONSENT:-}
     volumes:
-      # A directory holding collection.json and any source file it names.
+      # A directory holding collection.json and any source file it names,
+      # and/or a signed starter list.
       - ${SOVEREIGN_MIRROR_COLLECTION_DIR:-./collection}:/config:ro
       - mirror-data:/data
     # Stopping drains in-flight work and keeps every retained byte.

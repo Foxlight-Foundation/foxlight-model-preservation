@@ -1,0 +1,176 @@
+{
+  "attestation": "owner-capture",
+  "members": [
+    {
+      "artifact_identity": "flux.2-klein-4b-gguf:weights",
+      "dependencies": [
+        "notices",
+        "text-encoder",
+        "text-encoder-notices",
+        "vae"
+      ],
+      "files": [
+        {
+          "expected_sha256": "ca02bc51900ab07789d1b70283329e7137f5af98f5161c23a1c81fc38a4af1fe",
+          "path": "LICENSE.md"
+        },
+        {
+          "expected_sha256": "9c8d71f5f495b2bbd43f29aca3a5683278945373339c8913c8d6ba456667a8e0",
+          "path": "README.md"
+        },
+        {
+          "expected_sha256": "24a812e8f9b640e21c784164ea48571d8017ca22873696f4badeeabb006d509c",
+          "path": "flux-2-klein-4b-Q8_0.gguf"
+        }
+      ],
+      "format": "gguf",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model black-forest-labs/FLUX.2-klein-4B@e7b7dc27f91deacad38e78976d1f2b499d76a294 card and licence file; the conversion unsloth/FLUX.2-klein-4B-GGUF@a09d5bb51ac4000ccd9643d10e9db3ed14200508 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. The Qwen3-4B text encoder (Qwen/Qwen3-4B, Apache-2.0, via unsloth/Qwen3-4B-GGUF) and the VAE (Comfy-Org/flux2-klein) are separate components whose licences resolve the same way. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "LICENSE.md",
+          "README.md"
+        ],
+        "terms_reference": "https://huggingface.co/unsloth/FLUX.2-klein-4B-GGUF/blob/a09d5bb51ac4000ccd9643d10e9db3ed14200508/LICENSE.md"
+      },
+      "loader_root": null,
+      "member_id": "weights",
+      "origin_repository": "unsloth/FLUX.2-klein-4B-GGUF",
+      "origin_revision": "a09d5bb51ac4000ccd9643d10e9db3ed14200508",
+      "retained_card": null,
+      "role": "primary"
+    },
+    {
+      "artifact_identity": "flux.2-klein-4b-gguf:text-encoder",
+      "dependencies": [],
+      "files": [
+        {
+          "expected_sha256": "f6f851777709861056efcdad3af01da38b31223a3ba26e61a4f8bf3a2195813a",
+          "path": "Qwen3-4B-Q4_K_M.gguf"
+        },
+        {
+          "expected_sha256": "23125fc1abc416b9670af4efa6f1f13d20d408bff0c80fa4cc23179d40e8bfd4",
+          "path": "README.md"
+        }
+      ],
+      "format": "gguf",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model black-forest-labs/FLUX.2-klein-4B@e7b7dc27f91deacad38e78976d1f2b499d76a294 card and licence file; the conversion unsloth/FLUX.2-klein-4B-GGUF@a09d5bb51ac4000ccd9643d10e9db3ed14200508 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. The Qwen3-4B text encoder (Qwen/Qwen3-4B, Apache-2.0, via unsloth/Qwen3-4B-GGUF) and the VAE (Comfy-Org/flux2-klein) are separate components whose licences resolve the same way. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "README.md"
+        ],
+        "terms_reference": "https://huggingface.co/unsloth/Qwen3-4B-GGUF/blob/22c9fc8a8c7700b76a1789366280a6a5a1ad1120/README.md"
+      },
+      "loader_root": null,
+      "member_id": "text-encoder",
+      "origin_repository": "unsloth/Qwen3-4B-GGUF",
+      "origin_revision": "22c9fc8a8c7700b76a1789366280a6a5a1ad1120",
+      "retained_card": null,
+      "role": "text-encoder"
+    },
+    {
+      "artifact_identity": "flux.2-klein-4b-gguf:vae",
+      "dependencies": [],
+      "files": [
+        {
+          "expected_sha256": "b204b17a3cc09c40c6b600d200de6733fbf1081c741ff0f0ad22100e2e9561b5",
+          "path": "README.md"
+        },
+        {
+          "expected_sha256": "868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3",
+          "path": "split_files/vae/flux2-vae.safetensors"
+        }
+      ],
+      "format": "safetensors",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model black-forest-labs/FLUX.2-klein-4B@e7b7dc27f91deacad38e78976d1f2b499d76a294 card and licence file; the conversion unsloth/FLUX.2-klein-4B-GGUF@a09d5bb51ac4000ccd9643d10e9db3ed14200508 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. The Qwen3-4B text encoder (Qwen/Qwen3-4B, Apache-2.0, via unsloth/Qwen3-4B-GGUF) and the VAE (Comfy-Org/flux2-klein) are separate components whose licences resolve the same way. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "README.md"
+        ],
+        "terms_reference": "https://huggingface.co/Comfy-Org/flux2-klein/blob/5b3abca5c0dc1ecd4eaf3340868d09063fc1c965/README.md"
+      },
+      "loader_root": null,
+      "member_id": "vae",
+      "origin_repository": "Comfy-Org/flux2-klein",
+      "origin_revision": "5b3abca5c0dc1ecd4eaf3340868d09063fc1c965",
+      "retained_card": null,
+      "role": "vae"
+    },
+    {
+      "artifact_identity": "flux.2-klein-4b-gguf:notices",
+      "dependencies": [],
+      "files": [
+        {
+          "expected_sha256": "ca02bc51900ab07789d1b70283329e7137f5af98f5161c23a1c81fc38a4af1fe",
+          "path": "LICENSE.md"
+        },
+        {
+          "expected_sha256": "bd447051cf2db4bf67b992e563d89c35ebf1123f009c063361a222ab14e1c4f7",
+          "path": "README.md"
+        }
+      ],
+      "format": "text",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model black-forest-labs/FLUX.2-klein-4B@e7b7dc27f91deacad38e78976d1f2b499d76a294 card and licence file; the conversion unsloth/FLUX.2-klein-4B-GGUF@a09d5bb51ac4000ccd9643d10e9db3ed14200508 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. The Qwen3-4B text encoder (Qwen/Qwen3-4B, Apache-2.0, via unsloth/Qwen3-4B-GGUF) and the VAE (Comfy-Org/flux2-klein) are separate components whose licences resolve the same way. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "LICENSE.md",
+          "README.md"
+        ],
+        "terms_reference": "https://huggingface.co/black-forest-labs/FLUX.2-klein-4B/blob/e7b7dc27f91deacad38e78976d1f2b499d76a294/LICENSE.md"
+      },
+      "loader_root": null,
+      "member_id": "notices",
+      "origin_repository": "black-forest-labs/FLUX.2-klein-4B",
+      "origin_revision": "e7b7dc27f91deacad38e78976d1f2b499d76a294",
+      "retained_card": null,
+      "role": "notices"
+    },
+    {
+      "artifact_identity": "flux.2-klein-4b-gguf:text-encoder-notices",
+      "dependencies": [],
+      "files": [
+        {
+          "expected_sha256": "832dd9e00a68dd83b3c3fb9f5588dad7dcf337a0db50f7d9483f310cd292e92e",
+          "path": "LICENSE"
+        },
+        {
+          "expected_sha256": "71add1cd091c309b1cb1a6b943f2476eb2b004124b3bd1d32dcd0b24cc1abc47",
+          "path": "README.md"
+        }
+      ],
+      "format": "text",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model black-forest-labs/FLUX.2-klein-4B@e7b7dc27f91deacad38e78976d1f2b499d76a294 card and licence file; the conversion unsloth/FLUX.2-klein-4B-GGUF@a09d5bb51ac4000ccd9643d10e9db3ed14200508 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. The Qwen3-4B text encoder (Qwen/Qwen3-4B, Apache-2.0, via unsloth/Qwen3-4B-GGUF) and the VAE (Comfy-Org/flux2-klein) are separate components whose licences resolve the same way. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "LICENSE",
+          "README.md"
+        ],
+        "terms_reference": "https://huggingface.co/Qwen/Qwen3-4B/blob/1cfa9a7208912126459214e8b04321603b3df60c/LICENSE"
+      },
+      "loader_root": null,
+      "member_id": "text-encoder-notices",
+      "origin_repository": "Qwen/Qwen3-4B",
+      "origin_revision": "1cfa9a7208912126459214e8b04321603b3df60c",
+      "retained_card": null,
+      "role": "notices"
+    }
+  ],
+  "name": "flux.2-klein-4b-gguf",
+  "root_member": "weights",
+  "runtime_requirements": [
+    "ComfyUI with ComfyUI-GGUF, or stable-diffusion.cpp, with FLUX.2 support; engine not bundled"
+  ],
+  "schema_version": "foxlight.model-preservation.v1",
+  "workloads": [
+    "text-to-image"
+  ]
+}

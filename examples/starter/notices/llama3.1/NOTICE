@@ -1,0 +1,10 @@
+Llama 3.1 is licensed under the Llama 3.1 Community License, Copyright © Meta Platforms, Inc. All Rights Reserved.
+
+Built with Llama
+
+The complete Llama 3.1 Community License Agreement and the Llama 3.1
+Acceptable Use Policy are carried in this bundle (LICENSE, USE_POLICY.md).
+Use must comply with the Acceptable Use Policy, which the licence
+incorporates by reference. The weights in this bundle are a quantized
+(GGUF Q4_K_M) conversion made by the conversion repository named in the
+bundle's manifest; Sovereign redistributes those files unchanged.

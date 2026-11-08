@@ -1,0 +1,77 @@
+{
+  "attestation": "owner-capture",
+  "members": [
+    {
+      "artifact_identity": "deepseek-r1-0528-qwen3-8b-gguf:weights",
+      "dependencies": [
+        "notices"
+      ],
+      "files": [
+        {
+          "expected_sha256": "a86349a4180c4e6bb43f874c29c404fa2be3f90b15509bd6d86f697dba724ec1",
+          "path": "DeepSeek-R1-0528-Qwen3-8B-Q4_K_M.gguf"
+        },
+        {
+          "expected_sha256": "a1963fb2f2fd3187ab4a008b5f9fc616bea2761fe5030d70ee1d0f563e1f7859",
+          "path": "README.md"
+        }
+      ],
+      "format": "gguf",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (MIT). Licence resolved from the base model deepseek-ai/DeepSeek-R1-0528-Qwen3-8B@6e8885a6ff5c1dc5201574c8fd700323f23c25fa card and licence file; the conversion unsloth/DeepSeek-R1-0528-Qwen3-8B-GGUF@eb48357c179d34dbf515983f798dfb8752a0f261 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "MIT",
+        "notice_paths": [
+          "README.md"
+        ],
+        "terms_reference": "https://huggingface.co/unsloth/DeepSeek-R1-0528-Qwen3-8B-GGUF/blob/eb48357c179d34dbf515983f798dfb8752a0f261/README.md"
+      },
+      "loader_root": null,
+      "member_id": "weights",
+      "origin_repository": "unsloth/DeepSeek-R1-0528-Qwen3-8B-GGUF",
+      "origin_revision": "eb48357c179d34dbf515983f798dfb8752a0f261",
+      "retained_card": null,
+      "role": "primary"
+    },
+    {
+      "artifact_identity": "deepseek-r1-0528-qwen3-8b-gguf:notices",
+      "dependencies": [],
+      "files": [
+        {
+          "expected_sha256": "f2c6c602815669d292889e5be8c802f2ed950653b77999b1584e8e6aed25d040",
+          "path": "LICENSE"
+        },
+        {
+          "expected_sha256": "ee003a09ddabff67a5b0d2394bea65c6ce523e4994f3208d6a58613e27834d8a",
+          "path": "README.md"
+        }
+      ],
+      "format": "text",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (MIT). Licence resolved from the base model deepseek-ai/DeepSeek-R1-0528-Qwen3-8B@6e8885a6ff5c1dc5201574c8fd700323f23c25fa card and licence file; the conversion unsloth/DeepSeek-R1-0528-Qwen3-8B-GGUF@eb48357c179d34dbf515983f798dfb8752a0f261 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "MIT",
+        "notice_paths": [
+          "LICENSE",
+          "README.md"
+        ],
+        "terms_reference": "https://huggingface.co/deepseek-ai/DeepSeek-R1-0528-Qwen3-8B/blob/6e8885a6ff5c1dc5201574c8fd700323f23c25fa/LICENSE"
+      },
+      "loader_root": null,
+      "member_id": "notices",
+      "origin_repository": "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
+      "origin_revision": "6e8885a6ff5c1dc5201574c8fd700323f23c25fa",
+      "retained_card": null,
+      "role": "notices"
+    }
+  ],
+  "name": "deepseek-r1-0528-qwen3-8b-gguf",
+  "root_member": "weights",
+  "runtime_requirements": [
+    "llama.cpp (or a runtime built on it: Ollama, LM Studio, Jan) with Qwen3 support; engine not bundled"
+  ],
+  "schema_version": "foxlight.model-preservation.v1",
+  "workloads": [
+    "text-generation"
+  ]
+}

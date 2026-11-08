@@ -1,0 +1,99 @@
+{
+  "attestation": "owner-capture",
+  "members": [
+    {
+      "artifact_identity": "mistral-7b-instruct-v0.3-gguf:weights",
+      "dependencies": [
+        "apache-text",
+        "notices"
+      ],
+      "files": [
+        {
+          "expected_sha256": "1270d22c0fbb3d092fb725d4d96c457b7b687a5f5a715abe1e818da303e562b6",
+          "path": "Mistral-7B-Instruct-v0.3-Q4_K_M.gguf"
+        },
+        {
+          "expected_sha256": "360168210ad27d275b56379fac8d844aac7246b81937bec47711237f7f0ccfff",
+          "path": "README.md"
+        }
+      ],
+      "format": "gguf",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model mistralai/Mistral-7B-Instruct-v0.3@c170c708c41dac9275d15a8fff4eca08d52bab71 card and licence file; the conversion lmstudio-community/Mistral-7B-Instruct-v0.3-GGUF@29a785419661afc70b5cd91b5023a835b0092281 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "README.md"
+        ],
+        "terms_reference": "https://huggingface.co/lmstudio-community/Mistral-7B-Instruct-v0.3-GGUF/blob/29a785419661afc70b5cd91b5023a835b0092281/README.md"
+      },
+      "loader_root": null,
+      "member_id": "weights",
+      "origin_repository": "lmstudio-community/Mistral-7B-Instruct-v0.3-GGUF",
+      "origin_revision": "29a785419661afc70b5cd91b5023a835b0092281",
+      "retained_card": null,
+      "role": "primary"
+    },
+    {
+      "artifact_identity": "mistral-7b-instruct-v0.3-gguf:notices",
+      "dependencies": [],
+      "files": [
+        {
+          "expected_sha256": "3166974023134d972368b585d730fa5f70100873684f90a10a773b20e80b30ba",
+          "path": "README.md"
+        }
+      ],
+      "format": "text",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model mistralai/Mistral-7B-Instruct-v0.3@c170c708c41dac9275d15a8fff4eca08d52bab71 card and licence file; the conversion lmstudio-community/Mistral-7B-Instruct-v0.3-GGUF@29a785419661afc70b5cd91b5023a835b0092281 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "README.md"
+        ],
+        "terms_reference": "https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.3/blob/c170c708c41dac9275d15a8fff4eca08d52bab71/README.md"
+      },
+      "loader_root": null,
+      "member_id": "notices",
+      "origin_repository": "mistralai/Mistral-7B-Instruct-v0.3",
+      "origin_revision": "c170c708c41dac9275d15a8fff4eca08d52bab71",
+      "retained_card": null,
+      "role": "notices"
+    },
+    {
+      "artifact_identity": "mistral-7b-instruct-v0.3-gguf:apache-text",
+      "dependencies": [],
+      "files": [
+        {
+          "expected_sha256": "eca0a31232d967855093e0e50eb602bbd873be9f2dc1e5f0074799b3bbede523",
+          "path": "LICENSE"
+        }
+      ],
+      "format": "text",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model mistralai/Mistral-7B-Instruct-v0.3@c170c708c41dac9275d15a8fff4eca08d52bab71 card and licence file; the conversion lmstudio-community/Mistral-7B-Instruct-v0.3-GGUF@29a785419661afc70b5cd91b5023a835b0092281 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "LICENSE"
+        ],
+        "terms_reference": "https://github.com/Foxlight-Foundation/foxlight-model-preservation/blob/45d5b20f69a411d63b17e198efe9f42d670d9036/LICENSE"
+      },
+      "loader_root": null,
+      "member_id": "apache-text",
+      "origin_repository": "github.com/Foxlight-Foundation/foxlight-model-preservation",
+      "origin_revision": "45d5b20f69a411d63b17e198efe9f42d670d9036",
+      "retained_card": null,
+      "role": "notices"
+    }
+  ],
+  "name": "mistral-7b-instruct-v0.3-gguf",
+  "root_member": "weights",
+  "runtime_requirements": [
+    "llama.cpp (or a runtime built on it: Ollama, LM Studio, Jan) with Mistral support; engine not bundled"
+  ],
+  "schema_version": "foxlight.model-preservation.v1",
+  "workloads": [
+    "text-generation"
+  ]
+}

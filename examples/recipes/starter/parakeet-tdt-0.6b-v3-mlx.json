@@ -1,0 +1,142 @@
+{
+  "attestation": "owner-capture",
+  "members": [
+    {
+      "artifact_identity": "parakeet-tdt-0.6b-v3-mlx:weights",
+      "dependencies": [
+        "attribution",
+        "cc-by-text",
+        "notices"
+      ],
+      "files": [
+        {
+          "expected_sha256": "724e3ba46903986ff6caeb8fddb7495c06b5a7a8d908f11e43cc0a7e136b5e23",
+          "path": "README.md"
+        },
+        {
+          "expected_sha256": "f320f1292511f34ec47f513755fe20fd01dbfc09a925d42730e66059a6e1ef4c",
+          "path": "config.json"
+        },
+        {
+          "expected_sha256": "05e01c7f396c298cf7d23f61da7b504adeab698f0aaeafd9c82d198625464592",
+          "path": "model.safetensors"
+        },
+        {
+          "expected_sha256": "eacec2b0a77f336d4a2ca4a25a7047575d3c2b74de47e997f4c205126ed3135e",
+          "path": "tokenizer.model"
+        },
+        {
+          "expected_sha256": "41130ff456706304a1adec782ccc9e003c4d417e8e324353d281be958cac4e17",
+          "path": "tokenizer.vocab"
+        },
+        {
+          "expected_sha256": "3cde1409fd78783a79b29ed4d32da57c746993856f7c8263bcb905d2e5839db7",
+          "path": "vocab.txt"
+        }
+      ],
+      "format": "mlx",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (cc-by-4.0). Licence resolved from the base model nvidia/parakeet-tdt-0.6b-v3@541d1f99c6b0c3cd0b11a95167540bb8edefd82b card and licence file; the conversion mlx-community/parakeet-tdt-0.6b-v3@ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "cc-by-4.0",
+        "notice_paths": [
+          "README.md"
+        ],
+        "terms_reference": "https://huggingface.co/mlx-community/parakeet-tdt-0.6b-v3/blob/ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15/README.md"
+      },
+      "loader_root": null,
+      "member_id": "weights",
+      "origin_repository": "mlx-community/parakeet-tdt-0.6b-v3",
+      "origin_revision": "ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15",
+      "retained_card": null,
+      "role": "primary"
+    },
+    {
+      "artifact_identity": "parakeet-tdt-0.6b-v3-mlx:notices",
+      "dependencies": [],
+      "files": [
+        {
+          "expected_sha256": "7a4306a43f395e3a716e77f1d81c03db18a0a355d7b566bb1d6307213ba0302b",
+          "path": "README.md"
+        }
+      ],
+      "format": "text",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (cc-by-4.0). Licence resolved from the base model nvidia/parakeet-tdt-0.6b-v3@541d1f99c6b0c3cd0b11a95167540bb8edefd82b card and licence file; the conversion mlx-community/parakeet-tdt-0.6b-v3@ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "cc-by-4.0",
+        "notice_paths": [
+          "README.md"
+        ],
+        "terms_reference": "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3/blob/541d1f99c6b0c3cd0b11a95167540bb8edefd82b/README.md"
+      },
+      "loader_root": null,
+      "member_id": "notices",
+      "origin_repository": "nvidia/parakeet-tdt-0.6b-v3",
+      "origin_revision": "541d1f99c6b0c3cd0b11a95167540bb8edefd82b",
+      "retained_card": null,
+      "role": "notices"
+    },
+    {
+      "artifact_identity": "parakeet-tdt-0.6b-v3-mlx:attribution",
+      "dependencies": [],
+      "files": [
+        {
+          "expected_sha256": "2da12d4e23a1df738417da1469562edbcc8dc31e9a8e00de9c747fc87cc40d0e",
+          "path": "examples/starter/notices/parakeet/ATTRIBUTION.md"
+        }
+      ],
+      "format": "text",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (cc-by-4.0). Licence resolved from the base model nvidia/parakeet-tdt-0.6b-v3@541d1f99c6b0c3cd0b11a95167540bb8edefd82b card and licence file; the conversion mlx-community/parakeet-tdt-0.6b-v3@ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "cc-by-4.0",
+        "notice_paths": [
+          "examples/starter/notices/parakeet/ATTRIBUTION.md"
+        ],
+        "terms_reference": "https://github.com/Foxlight-Foundation/foxlight-model-preservation/blob/b2b6c118a09bb4140056c97ff2f348f9cde8da8a/examples/starter/notices/parakeet/ATTRIBUTION.md"
+      },
+      "loader_root": null,
+      "member_id": "attribution",
+      "origin_repository": "github.com/Foxlight-Foundation/foxlight-model-preservation",
+      "origin_revision": "b2b6c118a09bb4140056c97ff2f348f9cde8da8a",
+      "retained_card": null,
+      "role": "notices"
+    },
+    {
+      "artifact_identity": "parakeet-tdt-0.6b-v3-mlx:cc-by-text",
+      "dependencies": [],
+      "files": [
+        {
+          "expected_sha256": "d557539df68e771cc1eedcc91d13f70fca930e508d11eedcafa4b15db49e3744",
+          "path": "text/CC-BY-4.0.txt"
+        }
+      ],
+      "format": "text",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (cc-by-4.0). Licence resolved from the base model nvidia/parakeet-tdt-0.6b-v3@541d1f99c6b0c3cd0b11a95167540bb8edefd82b card and licence file; the conversion mlx-community/parakeet-tdt-0.6b-v3@ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "cc-by-4.0",
+        "notice_paths": [
+          "text/CC-BY-4.0.txt"
+        ],
+        "terms_reference": "https://github.com/spdx/license-list-data/blob/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/CC-BY-4.0.txt"
+      },
+      "loader_root": null,
+      "member_id": "cc-by-text",
+      "origin_repository": "github.com/spdx/license-list-data",
+      "origin_revision": "31846481de7ea17d92f2f46fad76abe58b2e9bb0",
+      "retained_card": null,
+      "role": "notices"
+    }
+  ],
+  "name": "parakeet-tdt-0.6b-v3-mlx",
+  "root_member": "weights",
+  "runtime_requirements": [
+    "parakeet-mlx on Apple silicon; engine not bundled"
+  ],
+  "schema_version": "foxlight.model-preservation.v1",
+  "workloads": [
+    "automatic-speech-recognition"
+  ]
+}

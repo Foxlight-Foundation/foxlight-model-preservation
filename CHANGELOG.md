@@ -2,6 +2,41 @@
 
 ## Unreleased
 
+- The starter collection: a signed, one-time import list of the open models
+  the community runs most, chosen by sustained interest (Hugging Face base and
+  conversion downloads, Ollama and LM Studio). There are three tiers, each
+  including the smaller ones: small (default, about 10.6 GB), standard (about
+  78 GB) and large (about 310 GB), all builds that run on any platform. The
+  Apple-only builds (MLX 4-bit Qwen3.8 27B and Gemma 4 E4B, and the MLX
+  Parakeet checkpoint) are an opt-in Apple add-on: entries
+  carry a strict `format` (`gguf` or `mlx`), and `--formats gguf,mlx`
+  (`--starter-formats`, `SOVEREIGN_MIRROR_STARTER_FORMATS`) adds them for the
+  selected tiers; the review shows the add-on's size. Its 38 recipes in `examples/recipes/starter/` pin exact revisions
+  and every file's SHA-256. They carry the base model's LICENSE, NOTICE and
+  usage policy, added from pinned sources where a conversion ships none,
+  including the Gemma Terms of Use with its NOTICE line and Prohibited Use
+  Policy, the Llama licences with "Built with Llama", and CC BY attribution.
+  Licences are resolved from the base model, and a conversion whose tag
+  disagrees is refused. Llama 3.1/3.2, Gemma 3, SDXL and XTTS v2 sit behind the
+  acceptance gate. `mirror import-starter` verifies the list
+  (`sovereign.starter-list.v1`, DSSE-signed, pinned by `--expected-list-id`),
+  shows one review of models, licences, gates, signing keys and total size
+  against the disk budget, needs consent, then retains each bundle as an
+  ordinary local selection. Gated licences need exactly the reviewed
+  acceptance (`--accept-terms`, `--accept-starter-terms`,
+  `SOVEREIGN_MIRROR_STARTER_ACCEPT_TERMS`), recorded first. Re-running is
+  idempotent, removed models are never re-imported, and nothing published
+  later can stop or change an imported copy. `mirror quickstart --starter-list`
+  (where `--collection` is now optional) and the container's
+  `SOVEREIGN_MIRROR_STARTER_LIST`, `_LIST_ID` and `_TIER` opt in.
+  `scripts/build_starter_collection.py` checks every pin against the Hub
+  without downloading weights, then packs, signs and publishes the collection
+  to a bucket mirror. `scripts/derive_starter_signals.py` recomputes the
+  interest signals each quarter and proposes a diff, with promotion after
+  three months on two signals and demotion after two weak quarters; operators
+  choose what to import. Not legal advice; operators are responsible for
+  their jurisdiction.
+
 - Starter (seed) mirrors are now only a fallback. A receive first contacts
   just its approved or signed hints and the mirrors its private directory
   already knows; it reads seeds' peers documents, or tries seeds as sources,

@@ -1,0 +1,155 @@
+{
+  "attestation": "owner-capture",
+  "members": [
+    {
+      "artifact_identity": "muse-glimmer-30b-gguf:weights",
+      "dependencies": [
+        "drafter",
+        "notices",
+        "projector"
+      ],
+      "files": [
+        {
+          "expected_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "path": "LICENSE"
+        },
+        {
+          "expected_sha256": "4cc57c0f51040a226e5a72cc47b7613f7772950e460a665f7083de89f183f60e",
+          "path": "Muse-Glimmer-30B-KQuant-17GB-Q4_K_M.gguf"
+        },
+        {
+          "expected_sha256": "edb6a6fdca3fbeb464f0652dae4099253a5bdb7a778fe6c7458197c0608cfd4c",
+          "path": "README.md"
+        },
+        {
+          "expected_sha256": "98a14dab9fd97de1666dc8589d399efab1e7fc3ba4e6230d037d6637ba9481d3",
+          "path": "USAGE_POLICY.md"
+        }
+      ],
+      "format": "gguf",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model meta-models/Muse-Glimmer-30B@cec94fcfd6512f2cfe708138c32533b346ea4f69 card and licence file; the conversion meta-models/Muse-Glimmer-30B-GGUF@b44f1072cf75e918a1b82a3a17b45c4389b076e7 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "LICENSE",
+          "README.md",
+          "USAGE_POLICY.md"
+        ],
+        "terms_reference": "https://huggingface.co/meta-models/Muse-Glimmer-30B-GGUF/blob/b44f1072cf75e918a1b82a3a17b45c4389b076e7/LICENSE"
+      },
+      "loader_root": null,
+      "member_id": "weights",
+      "origin_repository": "meta-models/Muse-Glimmer-30B-GGUF",
+      "origin_revision": "b44f1072cf75e918a1b82a3a17b45c4389b076e7",
+      "retained_card": null,
+      "role": "primary"
+    },
+    {
+      "artifact_identity": "muse-glimmer-30b-gguf:projector",
+      "dependencies": [],
+      "files": [
+        {
+          "expected_sha256": "edb6a6fdca3fbeb464f0652dae4099253a5bdb7a778fe6c7458197c0608cfd4c",
+          "path": "README.md"
+        },
+        {
+          "expected_sha256": "f48b452316f9b213758e8659444029b961a24a07f99a1abb2a9f88b06f7c00c6",
+          "path": "mmproj-Muse-Glimmer-30B-Q4_K_M.gguf"
+        }
+      ],
+      "format": "gguf",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model meta-models/Muse-Glimmer-30B@cec94fcfd6512f2cfe708138c32533b346ea4f69 card and licence file; the conversion meta-models/Muse-Glimmer-30B-GGUF@b44f1072cf75e918a1b82a3a17b45c4389b076e7 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "README.md"
+        ],
+        "terms_reference": "https://huggingface.co/meta-models/Muse-Glimmer-30B-GGUF/blob/b44f1072cf75e918a1b82a3a17b45c4389b076e7/README.md"
+      },
+      "loader_root": null,
+      "member_id": "projector",
+      "origin_repository": "meta-models/Muse-Glimmer-30B-GGUF",
+      "origin_revision": "b44f1072cf75e918a1b82a3a17b45c4389b076e7",
+      "retained_card": null,
+      "role": "projector"
+    },
+    {
+      "artifact_identity": "muse-glimmer-30b-gguf:drafter",
+      "dependencies": [],
+      "files": [
+        {
+          "expected_sha256": "edb6a6fdca3fbeb464f0652dae4099253a5bdb7a778fe6c7458197c0608cfd4c",
+          "path": "README.md"
+        },
+        {
+          "expected_sha256": "b2e808bf656086fe86bd0d0bd990f01d33e377537a07c02d45371517c8b264ef",
+          "path": "dflash-Muse-Glimmer-30B-Q4_K_M.gguf"
+        }
+      ],
+      "format": "gguf",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model meta-models/Muse-Glimmer-30B@cec94fcfd6512f2cfe708138c32533b346ea4f69 card and licence file; the conversion meta-models/Muse-Glimmer-30B-GGUF@b44f1072cf75e918a1b82a3a17b45c4389b076e7 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "README.md"
+        ],
+        "terms_reference": "https://huggingface.co/meta-models/Muse-Glimmer-30B-GGUF/blob/b44f1072cf75e918a1b82a3a17b45c4389b076e7/README.md"
+      },
+      "loader_root": null,
+      "member_id": "drafter",
+      "origin_repository": "meta-models/Muse-Glimmer-30B-GGUF",
+      "origin_revision": "b44f1072cf75e918a1b82a3a17b45c4389b076e7",
+      "retained_card": null,
+      "role": "draft-model"
+    },
+    {
+      "artifact_identity": "muse-glimmer-30b-gguf:notices",
+      "dependencies": [],
+      "files": [
+        {
+          "expected_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "path": "LICENSE"
+        },
+        {
+          "expected_sha256": "2ba646dcbe5b3b97daedc59e64ef19505312fa99b6598cacc0b82d93f4d74163",
+          "path": "README.md"
+        },
+        {
+          "expected_sha256": "98a14dab9fd97de1666dc8589d399efab1e7fc3ba4e6230d037d6637ba9481d3",
+          "path": "USAGE_POLICY.md"
+        }
+      ],
+      "format": "text",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model meta-models/Muse-Glimmer-30B@cec94fcfd6512f2cfe708138c32533b346ea4f69 card and licence file; the conversion meta-models/Muse-Glimmer-30B-GGUF@b44f1072cf75e918a1b82a3a17b45c4389b076e7 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "LICENSE",
+          "README.md",
+          "USAGE_POLICY.md"
+        ],
+        "terms_reference": "https://huggingface.co/meta-models/Muse-Glimmer-30B/blob/cec94fcfd6512f2cfe708138c32533b346ea4f69/LICENSE"
+      },
+      "loader_root": null,
+      "member_id": "notices",
+      "origin_repository": "meta-models/Muse-Glimmer-30B",
+      "origin_revision": "cec94fcfd6512f2cfe708138c32533b346ea4f69",
+      "retained_card": null,
+      "role": "notices"
+    }
+  ],
+  "name": "muse-glimmer-30b-gguf",
+  "root_member": "weights",
+  "runtime_requirements": [
+    "llama.cpp (or a runtime built on it: Ollama, LM Studio, Jan) with Muse Glimmer, mtmd and DFlash speculative decoding support; engine not bundled"
+  ],
+  "schema_version": "foxlight.model-preservation.v1",
+  "workloads": [
+    "text-generation",
+    "vision-text-generation"
+  ]
+}

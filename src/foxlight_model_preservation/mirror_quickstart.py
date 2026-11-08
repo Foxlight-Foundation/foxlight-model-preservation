@@ -156,24 +156,36 @@ class QuickstartSettings:
     follow_withdrawals: bool = False
 
 
-def model_limit(collection: MirrorCollection, settings: QuickstartSettings) -> int:
+def model_limit(
+    collection: MirrorCollection | None, settings: QuickstartSettings
+) -> int:
     """Operator override, else the collection's limit, else the disk-derived one."""
     if settings.max_bytes is not None:
         return settings.max_bytes
-    if collection.max_bytes is not None:
+    if collection is not None and collection.max_bytes is not None:
         return collection.max_bytes
     return derived_model_limit(settings.disk_bytes)
 
 
 def review(
-    collection: MirrorCollection, document: bytes, settings: QuickstartSettings
+    collection: MirrorCollection | None,
+    document: bytes | None,
+    settings: QuickstartSettings,
 ) -> tuple[str, dict[str, JsonValue]]:
-    """Build the single human review and its machine-readable summary, offline."""
-    source = inspect_source(document)
-    if source["bootstrap_id"] != collection.expected_bootstrap_id:
-        raise PreservationError(
-            "source file differs from the collection's expected bootstrap ID"
-        )
+    """Build the single human review and its machine-readable summary, offline.
+
+    Without a collection (a mirror set up only to hold a starter import) the
+    review has no source or source keys; everything else is the same.
+    """
+    source: dict[str, JsonValue] | None = None
+    if collection is not None:
+        if document is None:
+            raise PreservationError("a collection needs its source document")
+        source = inspect_source(document)
+        if source["bootstrap_id"] != collection.expected_bootstrap_id:
+            raise PreservationError(
+                "source file differs from the collection's expected bootstrap ID"
+            )
     if not 1 <= settings.resume_seconds <= MAX_RESUME_SECONDS:
         raise PreservationError("restart grant must last between 1s and 366 days")
     warnings: list[str] = []
@@ -201,26 +213,36 @@ def review(
         )
     expires = int(time.time()) + settings.resume_seconds
     limit = model_limit(collection, settings)
+    collection_lines = (
+        [
+            f"Collection: {collection.title} ({collection.schema_version})",
+            f"Source: {source['name']}",
+            f"  source id:    {source['source_id']}",
+            f"  bootstrap id: {source['bootstrap_id']} (matches the collection)",
+            "  endpoints:    "
+            + ", ".join(str(item) for item in _items(source["endpoints"])),
+            "",
+            f"Model signing keys (threshold {collection.trust.threshold} of "
+            f"{len(collection.trust.keys)}; as of {collection.trust.as_of}):",
+            *(
+                f"  {key.key_id}"
+                + (" (revoked)" if key.key_id in collection.trust.revoked_keys else "")
+                for key in collection.trust.keys
+            ),
+            "",
+            "Accepted terms (every member of every model must match one exactly):",
+            *(
+                f"  {item.license_id}: {item.terms_reference}"
+                for item in collection.terms
+            ),
+        ]
+        if collection is not None and source is not None
+        else ["Collection: none (no source is followed)"]
+    )
     lines = [
         "Sovereign mirror quickstart: review before consenting",
         "",
-        f"Collection: {collection.title} ({collection.schema_version})",
-        f"Source: {source['name']}",
-        f"  source id:    {source['source_id']}",
-        f"  bootstrap id: {source['bootstrap_id']} (matches the collection)",
-        "  endpoints:    "
-        + ", ".join(str(item) for item in _items(source["endpoints"])),
-        "",
-        f"Model signing keys (threshold {collection.trust.threshold} of "
-        f"{len(collection.trust.keys)}; as of {collection.trust.as_of}):",
-        *(
-            f"  {key.key_id}"
-            + (" (revoked)" if key.key_id in collection.trust.revoked_keys else "")
-            for key in collection.trust.keys
-        ),
-        "",
-        "Accepted terms (every member of every model must match one exactly):",
-        *(f"  {item.license_id}: {item.terms_reference}" for item in collection.terms),
+        *collection_lines,
         "",
         f"Mirror name:     {settings.name}",
         f"Per-model limit: {format_size(limit)}",
@@ -281,11 +303,15 @@ def review(
     if warnings:
         lines += ["", "Warnings:", *("  ! " + item for item in warnings)]
     summary: dict[str, JsonValue] = {
-        "collection": collection.title,
-        "source_id": source["source_id"],
-        "bootstrap_id": source["bootstrap_id"],
-        "model_keys": [key.key_id for key in collection.trust.keys],
-        "terms": [item.model_dump(mode="json") for item in collection.terms],
+        "collection": collection.title if collection is not None else None,
+        "source_id": source["source_id"] if source is not None else None,
+        "bootstrap_id": source["bootstrap_id"] if source is not None else None,
+        "model_keys": [key.key_id for key in collection.trust.keys]
+        if collection is not None
+        else [],
+        "terms": [item.model_dump(mode="json") for item in collection.terms]
+        if collection is not None
+        else [],
         "per_model_limit": limit,
         "disk_bytes": settings.disk_bytes,
         "ingress_daily": settings.ingress_daily,
@@ -346,8 +372,8 @@ def preflight_settings(config: dict[str, object]) -> MirrorState:
 
 def apply_quickstart(
     directory: Path,
-    collection: MirrorCollection,
-    document: bytes,
+    collection: MirrorCollection | None,
+    document: bytes | None,
     settings: QuickstartSettings,
     *,
     consented: bool,
@@ -365,6 +391,8 @@ def apply_quickstart(
     grant length) is checked before anything is written, and a later refusal
     restores the previous ledger, so an existing mirror keeps its settings and
     restart grant. No network is used; ``mirror run`` starts serving separately.
+    Without a collection no source is followed: the mirror is set up (for
+    example to hold a starter import) and granted, and nothing else changes.
     """
     if not consented:
         raise PreservationError(
@@ -381,18 +409,23 @@ def apply_quickstart(
         "announce": settings.announce,
         "follow_withdrawals": settings.follow_withdrawals,
     }
-    grant = SourceGrant(
-        trust=collection.trust,
-        terms=collection.terms,
-        allow_http=collection.allow_http,
-        max_bytes=model_limit(collection, settings),
-    )
-    source = inspect_source(document)
-    source_id = str(source["source_id"])
-    if source["bootstrap_id"] != collection.expected_bootstrap_id:
-        raise PreservationError(
-            "source file differs from the collection's expected bootstrap ID"
+    grant: SourceGrant | None = None
+    source_id: str | None = None
+    if collection is not None:
+        if document is None:
+            raise PreservationError("a collection needs its source document")
+        grant = SourceGrant(
+            trust=collection.trust,
+            terms=collection.terms,
+            allow_http=collection.allow_http,
+            max_bytes=model_limit(collection, settings),
         )
+        source = inspect_source(document)
+        source_id = str(source["source_id"])
+        if source["bootstrap_id"] != collection.expected_bootstrap_id:
+            raise PreservationError(
+                "source file differs from the collection's expected bootstrap ID"
+            )
     if not 0 < settings.resume_seconds <= 366 * 86400:
         raise PreservationError("resume expiry must be within the next 366 days")
     existing: MirrorLedger | None = None
@@ -419,9 +452,9 @@ def apply_quickstart(
             status.source_id: status.bootstrap_id
             for status in list_sources(existing.path / "discovery")
         }
-        reimported = not (
+        reimported = collection is not None and not (
             source_id in previous.sources
-            and followed.get(source_id) == collection.expected_bootstrap_id
+            and followed.get(source_id or "") == collection.expected_bootstrap_id
         )
         usage = existing.usage()
     elif directory.exists():
@@ -430,7 +463,7 @@ def apply_quickstart(
             "inspect it and remove it before running quickstart again"
         )
     else:
-        reimported, usage = True, 0
+        reimported, usage = collection is not None, 0
         # A new mirror's settings validate before its directory is created.
         preflight_settings(config)
     # Following admits nothing once retained bytes fill the new disk budget.
@@ -445,10 +478,11 @@ def apply_quickstart(
         ledger = existing
         configure_mirror(ledger, config)
     try:
-        if reimported:
-            follow(ledger, document, collection.expected_bootstrap_id, grant)
-        else:
-            apply_source_grant(ledger, source_id, grant)
+        if collection is not None and document is not None and grant is not None:
+            if reimported:
+                follow(ledger, document, collection.expected_bootstrap_id, grant)
+            elif source_id is not None:
+                apply_source_grant(ledger, source_id, grant)
         changed = previous is None or policy_id(ledger.read()) != policy_id(previous)
         expires = int(time.time()) + settings.resume_seconds
         grant_restart(ledger, expires)

@@ -1,0 +1,77 @@
+{
+  "attestation": "owner-capture",
+  "members": [
+    {
+      "artifact_identity": "qwen3-embedding-8b-gguf:weights",
+      "dependencies": [
+        "notices"
+      ],
+      "files": [
+        {
+          "expected_sha256": "d20ddc71e8a5c4344f2343481e242233a997dc5eaff442427a945836c97b4deb",
+          "path": "Qwen3-Embedding-8B-Q8_0.gguf"
+        },
+        {
+          "expected_sha256": "88c03406baf43f516a18f33286fe79a99e3c203ebc7ed08b31135315be80e107",
+          "path": "README.md"
+        }
+      ],
+      "format": "gguf",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model Qwen/Qwen3-Embedding-8B@1d8ad4ca9b3dd8059ad90a75d4983776a23d44af card and licence file; the conversion Qwen/Qwen3-Embedding-8B-GGUF@69d0e58a13e463cd99a9b83e3f5fee7c10265fab declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "README.md"
+        ],
+        "terms_reference": "https://huggingface.co/Qwen/Qwen3-Embedding-8B-GGUF/blob/69d0e58a13e463cd99a9b83e3f5fee7c10265fab/README.md"
+      },
+      "loader_root": null,
+      "member_id": "weights",
+      "origin_repository": "Qwen/Qwen3-Embedding-8B-GGUF",
+      "origin_revision": "69d0e58a13e463cd99a9b83e3f5fee7c10265fab",
+      "retained_card": null,
+      "role": "primary"
+    },
+    {
+      "artifact_identity": "qwen3-embedding-8b-gguf:notices",
+      "dependencies": [],
+      "files": [
+        {
+          "expected_sha256": "832dd9e00a68dd83b3c3fb9f5588dad7dcf337a0db50f7d9483f310cd292e92e",
+          "path": "LICENSE"
+        },
+        {
+          "expected_sha256": "1fd6f3583d642a3319efb3eb8c22b6aa6320e6ab92263447bd84fd92615206d4",
+          "path": "README.md"
+        }
+      ],
+      "format": "text",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model Qwen/Qwen3-Embedding-8B@1d8ad4ca9b3dd8059ad90a75d4983776a23d44af card and licence file; the conversion Qwen/Qwen3-Embedding-8B-GGUF@69d0e58a13e463cd99a9b83e3f5fee7c10265fab declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "LICENSE",
+          "README.md"
+        ],
+        "terms_reference": "https://huggingface.co/Qwen/Qwen3-Embedding-8B/blob/1d8ad4ca9b3dd8059ad90a75d4983776a23d44af/LICENSE"
+      },
+      "loader_root": null,
+      "member_id": "notices",
+      "origin_repository": "Qwen/Qwen3-Embedding-8B",
+      "origin_revision": "1d8ad4ca9b3dd8059ad90a75d4983776a23d44af",
+      "retained_card": null,
+      "role": "notices"
+    }
+  ],
+  "name": "qwen3-embedding-8b-gguf",
+  "root_member": "weights",
+  "runtime_requirements": [
+    "llama.cpp (or a runtime built on it: Ollama, LM Studio, Jan) with Qwen3 embedding support; engine not bundled"
+  ],
+  "schema_version": "foxlight.model-preservation.v1",
+  "workloads": [
+    "sentence-embedding"
+  ]
+}

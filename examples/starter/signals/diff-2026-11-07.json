@@ -1,0 +1,343 @@
+{
+  "date": "2026-11-07",
+  "plan": "Sovereign starter collection (community interest, 2026-Q4)",
+  "note": "A proposal only. Publishing a new list changes no mirror; operators choose what to import.",
+  "promote": [],
+  "keep": [
+    {
+      "key": "qwen3-5-4b",
+      "base_model": "Qwen/Qwen3.5-4B",
+      "tier": "small",
+      "score": 2.5,
+      "strong_signals": 2,
+      "sustained_ratio": 0.784,
+      "age_days": 253
+    },
+    {
+      "key": "kokoro-82m",
+      "base_model": "hexgrad/Kokoro-82M",
+      "tier": "small",
+      "score": 2.5,
+      "strong_signals": 2,
+      "sustained_ratio": 1.949,
+      "age_days": 681
+    },
+    {
+      "key": "gemma-4-e4b-it",
+      "base_model": "google/gemma-4-E4B-it",
+      "tier": "small",
+      "score": 3.0,
+      "strong_signals": 2,
+      "sustained_ratio": 0.887,
+      "age_days": 250
+    },
+    {
+      "key": "whisper-large-v3-turbo",
+      "base_model": "openai/whisper-large-v3-turbo",
+      "tier": "small",
+      "score": 3.5,
+      "strong_signals": 2,
+      "sustained_ratio": 1.046,
+      "age_days": 767
+    },
+    {
+      "key": "nomic-embed-text-v1-5",
+      "base_model": "nomic-ai/nomic-embed-text-v1.5",
+      "tier": "small",
+      "score": 3.5,
+      "strong_signals": 2,
+      "sustained_ratio": 2.202,
+      "age_days": 1001
+    },
+    {
+      "key": "qwen3-8-27b",
+      "base_model": "Qwen/Qwen3.8-27B",
+      "tier": "standard",
+      "score": 2.5,
+      "strong_signals": 2,
+      "sustained_ratio": 1.104,
+      "age_days": 94
+    },
+    {
+      "key": "qwen3-5-9b",
+      "base_model": "Qwen/Qwen3.5-9B",
+      "tier": "standard",
+      "score": 4.5,
+      "strong_signals": 2,
+      "sustained_ratio": 0.701,
+      "age_days": 253
+    },
+    {
+      "key": "gemma-4-12b-it",
+      "base_model": "google/gemma-4-12B-it",
+      "tier": "standard",
+      "score": 5.5,
+      "strong_signals": 2,
+      "sustained_ratio": 0.73,
+      "age_days": 168
+    },
+    {
+      "key": "gpt-oss-20b",
+      "base_model": "openai/gpt-oss-20b",
+      "tier": "standard",
+      "score": 6.5,
+      "strong_signals": 2,
+      "sustained_ratio": 0.828,
+      "age_days": 460
+    },
+    {
+      "key": "all-minilm-l6-v2",
+      "base_model": "sentence-transformers/all-MiniLM-L6-v2",
+      "tier": "standard",
+      "score": 6.5,
+      "strong_signals": 2,
+      "sustained_ratio": 2.399,
+      "age_days": 1711
+    },
+    {
+      "key": "qwen3-embedding-0-6b",
+      "base_model": "Qwen/Qwen3-Embedding-0.6B",
+      "tier": "standard",
+      "score": 7.0,
+      "strong_signals": 2,
+      "sustained_ratio": 1.559,
+      "age_days": 522
+    },
+    {
+      "key": "bge-reranker-v2-m3",
+      "base_model": "BAAI/bge-reranker-v2-m3",
+      "tier": "standard",
+      "score": 7.5,
+      "strong_signals": 2,
+      "sustained_ratio": 2.806,
+      "age_days": 967
+    },
+    {
+      "key": "qwen3-tts-1-7b",
+      "base_model": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+      "tier": "standard",
+      "score": 8.5,
+      "strong_signals": 2,
+      "sustained_ratio": 1.43,
+      "age_days": 290
+    },
+    {
+      "key": "parakeet-tdt-0-6b-v3",
+      "base_model": "nvidia/parakeet-tdt-0.6b-v3",
+      "tier": "standard",
+      "score": 9.0,
+      "strong_signals": 2,
+      "sustained_ratio": 2.196,
+      "age_days": 460
+    },
+    {
+      "key": "z-image-turbo",
+      "base_model": "Tongyi-MAI/Z-Image-Turbo",
+      "tier": "standard",
+      "score": 9.0,
+      "strong_signals": 2,
+      "sustained_ratio": 0.814,
+      "age_days": 347
+    },
+    {
+      "key": "qwen2-5-coder-7b",
+      "base_model": "Qwen/Qwen2.5-Coder-7B-Instruct",
+      "tier": "standard",
+      "score": 9.5,
+      "strong_signals": 2,
+      "sustained_ratio": 1.293,
+      "age_days": 781
+    },
+    {
+      "key": "granite-embedding-small-r2",
+      "base_model": "ibm-granite/granite-embedding-small-english-r2",
+      "tier": "standard",
+      "score": 9.5,
+      "strong_signals": 2,
+      "sustained_ratio": 3.105,
+      "age_days": 478
+    },
+    {
+      "key": "gemma-4-31b-it",
+      "base_model": "google/gemma-4-31B-it",
+      "tier": "large",
+      "score": 2.0,
+      "strong_signals": 2,
+      "sustained_ratio": 0.801,
+      "age_days": 241
+    },
+    {
+      "key": "qwen3-6-35b-a3b",
+      "base_model": "Qwen/Qwen3.6-35B-A3B",
+      "tier": "large",
+      "score": 3.5,
+      "strong_signals": 2,
+      "sustained_ratio": 0.841,
+      "age_days": 206
+    },
+    {
+      "key": "qwen3-vl-8b",
+      "base_model": "Qwen/Qwen3-VL-8B-Instruct",
+      "tier": "large",
+      "score": 5.5,
+      "strong_signals": 2,
+      "sustained_ratio": 1.154,
+      "age_days": 392
+    },
+    {
+      "key": "qwen3-coder-30b-a3b",
+      "base_model": "Qwen/Qwen3-Coder-30B-A3B-Instruct",
+      "tier": "large",
+      "score": 8.5,
+      "strong_signals": 2,
+      "sustained_ratio": 1.341,
+      "age_days": 464
+    },
+    {
+      "key": "xtts-v2",
+      "base_model": "coqui/XTTS-v2",
+      "tier": "large",
+      "score": 10.0,
+      "strong_signals": 2,
+      "sustained_ratio": 1.573,
+      "age_days": 1103
+    },
+    {
+      "key": "sdxl-base-1-0",
+      "base_model": "stabilityai/stable-diffusion-xl-base-1.0",
+      "tier": "large",
+      "score": 10.0,
+      "strong_signals": 2,
+      "sustained_ratio": 1.401,
+      "age_days": 1201
+    },
+    {
+      "key": "flux-2-klein-4b",
+      "base_model": "black-forest-labs/FLUX.2-klein-4B",
+      "tier": "large",
+      "score": 10.5,
+      "strong_signals": 2,
+      "sustained_ratio": 1.165,
+      "age_days": 297
+    },
+    {
+      "key": "chatterbox",
+      "base_model": "ResembleAI/chatterbox",
+      "tier": "large",
+      "score": 11.0,
+      "strong_signals": 2,
+      "sustained_ratio": 1.723,
+      "age_days": 562
+    },
+    {
+      "key": "deepseek-r1-0528-qwen3-8b",
+      "base_model": "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
+      "tier": "large",
+      "score": 12.0,
+      "strong_signals": 2,
+      "sustained_ratio": 0.72,
+      "age_days": 527
+    },
+    {
+      "key": "gemma-3-4b-it",
+      "base_model": "google/gemma-3-4b-it",
+      "tier": "large",
+      "score": 12.0,
+      "strong_signals": 2,
+      "sustained_ratio": 0.737,
+      "age_days": 625
+    },
+    {
+      "key": "mistral-7b-v0-3",
+      "base_model": "mistralai/Mistral-7B-Instruct-v0.3",
+      "tier": "large",
+      "score": 12.5,
+      "strong_signals": 2,
+      "sustained_ratio": 1.028,
+      "age_days": 899
+    },
+    {
+      "key": "qwen3-embedding-8b",
+      "base_model": "Qwen/Qwen3-Embedding-8B",
+      "tier": "large",
+      "score": 13.0,
+      "strong_signals": 2,
+      "sustained_ratio": 1.474,
+      "age_days": 522
+    }
+  ],
+  "watch": [
+    {
+      "key": "llama-3-2-3b",
+      "base_model": "meta-llama/Llama-3.2-3B-Instruct",
+      "tier": "standard",
+      "score": 9.5,
+      "strong_signals": 2,
+      "sustained_ratio": 0.46,
+      "age_days": 780,
+      "reason": "first weak quarter"
+    },
+    {
+      "key": "glm-ocr",
+      "base_model": "zai-org/GLM-OCR",
+      "tier": "standard",
+      "score": 10.0,
+      "strong_signals": 2,
+      "sustained_ratio": 0.474,
+      "age_days": 281,
+      "reason": "first weak quarter"
+    },
+    {
+      "key": "gemma-4-26b-a4b-it",
+      "base_model": "google/gemma-4-26B-A4B-it",
+      "tier": "large",
+      "score": 3.0,
+      "strong_signals": 2,
+      "sustained_ratio": 0.594,
+      "age_days": 241,
+      "reason": "first weak quarter"
+    },
+    {
+      "key": "gpt-oss-120b",
+      "base_model": "openai/gpt-oss-120b",
+      "tier": "large",
+      "score": 9.5,
+      "strong_signals": 2,
+      "sustained_ratio": 0.598,
+      "age_days": 460,
+      "reason": "first weak quarter"
+    },
+    {
+      "key": "llama-3-1-8b",
+      "base_model": "meta-llama/Llama-3.1-8B-Instruct",
+      "tier": "large",
+      "score": 9.5,
+      "strong_signals": 2,
+      "sustained_ratio": 0.622,
+      "age_days": 842,
+      "reason": "first weak quarter"
+    },
+    {
+      "key": "glm-4-7-flash",
+      "base_model": "zai-org/GLM-4.7-Flash",
+      "tier": "large",
+      "score": 10.0,
+      "strong_signals": 2,
+      "sustained_ratio": 0.626,
+      "age_days": 292,
+      "reason": "first weak quarter"
+    },
+    {
+      "key": "muse-glimmer-30b",
+      "base_model": "meta-models/Muse-Glimmer-30B",
+      "tier": "large",
+      "score": 10.5,
+      "strong_signals": 2,
+      "sustained_ratio": 0.487,
+      "age_days": 90,
+      "reason": "first weak quarter"
+    }
+  ],
+  "demote": [],
+  "not_yet": []
+}

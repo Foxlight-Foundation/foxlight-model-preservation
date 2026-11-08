@@ -1,0 +1,99 @@
+{
+  "attestation": "owner-capture",
+  "members": [
+    {
+      "artifact_identity": "glm-4.7-flash-gguf:weights",
+      "dependencies": [
+        "mit-text",
+        "notices"
+      ],
+      "files": [
+        {
+          "expected_sha256": "29837ed2c0fc5f51981adf8ac8083fcf80743c598381f13e9f06cbad0498b174",
+          "path": "GLM-4.7-Flash-Q4_K_M.gguf"
+        },
+        {
+          "expected_sha256": "c3ca90d7a4c4969a151d58f48d3672d1a2f0b95d90a5856a125c169918730aec",
+          "path": "README.md"
+        }
+      ],
+      "format": "gguf",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (MIT). Licence resolved from the base model zai-org/GLM-4.7-Flash@7dd20894a642a0aa287e9827cb1a1f7f91386b67 card and licence file; the conversion unsloth/GLM-4.7-Flash-GGUF@0d32489ecb9db6d2a4fc93bd27ef01519f95474d declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "MIT",
+        "notice_paths": [
+          "README.md"
+        ],
+        "terms_reference": "https://huggingface.co/unsloth/GLM-4.7-Flash-GGUF/blob/0d32489ecb9db6d2a4fc93bd27ef01519f95474d/README.md"
+      },
+      "loader_root": null,
+      "member_id": "weights",
+      "origin_repository": "unsloth/GLM-4.7-Flash-GGUF",
+      "origin_revision": "0d32489ecb9db6d2a4fc93bd27ef01519f95474d",
+      "retained_card": null,
+      "role": "primary"
+    },
+    {
+      "artifact_identity": "glm-4.7-flash-gguf:notices",
+      "dependencies": [],
+      "files": [
+        {
+          "expected_sha256": "7bfcbced42741ceb3fff8809f8d6c84ada9696850e257c4e53e6c2fe9ef4f9bf",
+          "path": "README.md"
+        }
+      ],
+      "format": "text",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (MIT). Licence resolved from the base model zai-org/GLM-4.7-Flash@7dd20894a642a0aa287e9827cb1a1f7f91386b67 card and licence file; the conversion unsloth/GLM-4.7-Flash-GGUF@0d32489ecb9db6d2a4fc93bd27ef01519f95474d declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "MIT",
+        "notice_paths": [
+          "README.md"
+        ],
+        "terms_reference": "https://huggingface.co/zai-org/GLM-4.7-Flash/blob/7dd20894a642a0aa287e9827cb1a1f7f91386b67/README.md"
+      },
+      "loader_root": null,
+      "member_id": "notices",
+      "origin_repository": "zai-org/GLM-4.7-Flash",
+      "origin_revision": "7dd20894a642a0aa287e9827cb1a1f7f91386b67",
+      "retained_card": null,
+      "role": "notices"
+    },
+    {
+      "artifact_identity": "glm-4.7-flash-gguf:mit-text",
+      "dependencies": [],
+      "files": [
+        {
+          "expected_sha256": "b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5",
+          "path": "text/MIT.txt"
+        }
+      ],
+      "format": "text",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (MIT). Licence resolved from the base model zai-org/GLM-4.7-Flash@7dd20894a642a0aa287e9827cb1a1f7f91386b67 card and licence file; the conversion unsloth/GLM-4.7-Flash-GGUF@0d32489ecb9db6d2a4fc93bd27ef01519f95474d declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "MIT",
+        "notice_paths": [
+          "text/MIT.txt"
+        ],
+        "terms_reference": "https://github.com/spdx/license-list-data/blob/31846481de7ea17d92f2f46fad76abe58b2e9bb0/text/MIT.txt"
+      },
+      "loader_root": null,
+      "member_id": "mit-text",
+      "origin_repository": "github.com/spdx/license-list-data",
+      "origin_revision": "31846481de7ea17d92f2f46fad76abe58b2e9bb0",
+      "retained_card": null,
+      "role": "notices"
+    }
+  ],
+  "name": "glm-4.7-flash-gguf",
+  "root_member": "weights",
+  "runtime_requirements": [
+    "llama.cpp (or a runtime built on it: Ollama, LM Studio, Jan) with GLM-4.7 support; engine not bundled"
+  ],
+  "schema_version": "foxlight.model-preservation.v1",
+  "workloads": [
+    "text-generation"
+  ]
+}

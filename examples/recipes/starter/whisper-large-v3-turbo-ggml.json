@@ -1,0 +1,99 @@
+{
+  "attestation": "owner-capture",
+  "members": [
+    {
+      "artifact_identity": "whisper-large-v3-turbo-ggml:weights",
+      "dependencies": [
+        "mit-text",
+        "notices"
+      ],
+      "files": [
+        {
+          "expected_sha256": "21fd967098804f33fc84e803fb0e5ab7666d71801f4027cf28a65e7af09c1758",
+          "path": "README.md"
+        },
+        {
+          "expected_sha256": "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
+          "path": "ggml-large-v3-turbo-q5_0.bin"
+        }
+      ],
+      "format": "ggml",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (MIT). Licence resolved from the base model openai/whisper-large-v3-turbo@41f01f3fe87f28c78e2fbf8b568835947dd65ed9 card and licence file; the conversion ggerganov/whisper.cpp@5359861c739e955e79d9a303bcbc70fb988958b1 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "MIT",
+        "notice_paths": [
+          "README.md"
+        ],
+        "terms_reference": "https://huggingface.co/ggerganov/whisper.cpp/blob/5359861c739e955e79d9a303bcbc70fb988958b1/README.md"
+      },
+      "loader_root": null,
+      "member_id": "weights",
+      "origin_repository": "ggerganov/whisper.cpp",
+      "origin_revision": "5359861c739e955e79d9a303bcbc70fb988958b1",
+      "retained_card": null,
+      "role": "primary"
+    },
+    {
+      "artifact_identity": "whisper-large-v3-turbo-ggml:notices",
+      "dependencies": [],
+      "files": [
+        {
+          "expected_sha256": "aaef74a740faca90fa1899c4233ebe17f2093b9846d0acf16d9131bf650e9585",
+          "path": "README.md"
+        }
+      ],
+      "format": "text",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (MIT). Licence resolved from the base model openai/whisper-large-v3-turbo@41f01f3fe87f28c78e2fbf8b568835947dd65ed9 card and licence file; the conversion ggerganov/whisper.cpp@5359861c739e955e79d9a303bcbc70fb988958b1 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "MIT",
+        "notice_paths": [
+          "README.md"
+        ],
+        "terms_reference": "https://huggingface.co/openai/whisper-large-v3-turbo/blob/41f01f3fe87f28c78e2fbf8b568835947dd65ed9/README.md"
+      },
+      "loader_root": null,
+      "member_id": "notices",
+      "origin_repository": "openai/whisper-large-v3-turbo",
+      "origin_revision": "41f01f3fe87f28c78e2fbf8b568835947dd65ed9",
+      "retained_card": null,
+      "role": "notices"
+    },
+    {
+      "artifact_identity": "whisper-large-v3-turbo-ggml:mit-text",
+      "dependencies": [],
+      "files": [
+        {
+          "expected_sha256": "b5d65a59060e68c4ff940e1eddfa6f94b2d68fdf58ed7f4dd57721c997e35e9d",
+          "path": "LICENSE"
+        }
+      ],
+      "format": "text",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (MIT). Licence resolved from the base model openai/whisper-large-v3-turbo@41f01f3fe87f28c78e2fbf8b568835947dd65ed9 card and licence file; the conversion ggerganov/whisper.cpp@5359861c739e955e79d9a303bcbc70fb988958b1 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "MIT",
+        "notice_paths": [
+          "LICENSE"
+        ],
+        "terms_reference": "https://github.com/openai/whisper/blob/86098128c0b4f24f0e2aa2994de830614b474227/LICENSE"
+      },
+      "loader_root": null,
+      "member_id": "mit-text",
+      "origin_repository": "github.com/openai/whisper",
+      "origin_revision": "86098128c0b4f24f0e2aa2994de830614b474227",
+      "retained_card": null,
+      "role": "notices"
+    }
+  ],
+  "name": "whisper-large-v3-turbo-ggml",
+  "root_member": "weights",
+  "runtime_requirements": [
+    "whisper.cpp compatible with ggml q5_0 models; engine not bundled"
+  ],
+  "schema_version": "foxlight.model-preservation.v1",
+  "workloads": [
+    "automatic-speech-recognition"
+  ]
+}

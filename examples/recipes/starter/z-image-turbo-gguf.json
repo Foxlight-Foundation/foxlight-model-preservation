@@ -1,0 +1,193 @@
+{
+  "attestation": "owner-capture",
+  "members": [
+    {
+      "artifact_identity": "z-image-turbo-gguf:weights",
+      "dependencies": [
+        "apache-text",
+        "notices",
+        "text-encoder",
+        "text-encoder-notices",
+        "vae"
+      ],
+      "files": [
+        {
+          "expected_sha256": "29d4e031bd960039edf2ef5887bccba90374a88452b1d00ee0898cfcce0cfb2a",
+          "path": "README.md"
+        },
+        {
+          "expected_sha256": "4ab6bceb1f0b82c9e725f123848018eac662a6fc1d467c019e13e701afb7b55c",
+          "path": "z-image-turbo-Q4_K_M.gguf"
+        }
+      ],
+      "format": "gguf",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model Tongyi-MAI/Z-Image-Turbo@f332072aa78be7aecdf3ee76d5c247082da564a6 card and licence file; the conversion unsloth/Z-Image-Turbo-GGUF@b40f712c569ecfff42f2307dcc43399ae1d71318 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. The Qwen3-4B text encoder (Qwen/Qwen3-4B, Apache-2.0, via unsloth/Qwen3-4B-GGUF) and the VAE (Comfy-Org/z_image_turbo) are separate components whose licences resolve the same way. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "README.md"
+        ],
+        "terms_reference": "https://huggingface.co/unsloth/Z-Image-Turbo-GGUF/blob/b40f712c569ecfff42f2307dcc43399ae1d71318/README.md"
+      },
+      "loader_root": null,
+      "member_id": "weights",
+      "origin_repository": "unsloth/Z-Image-Turbo-GGUF",
+      "origin_revision": "b40f712c569ecfff42f2307dcc43399ae1d71318",
+      "retained_card": null,
+      "role": "primary"
+    },
+    {
+      "artifact_identity": "z-image-turbo-gguf:text-encoder",
+      "dependencies": [],
+      "files": [
+        {
+          "expected_sha256": "f6f851777709861056efcdad3af01da38b31223a3ba26e61a4f8bf3a2195813a",
+          "path": "Qwen3-4B-Q4_K_M.gguf"
+        },
+        {
+          "expected_sha256": "23125fc1abc416b9670af4efa6f1f13d20d408bff0c80fa4cc23179d40e8bfd4",
+          "path": "README.md"
+        }
+      ],
+      "format": "gguf",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model Tongyi-MAI/Z-Image-Turbo@f332072aa78be7aecdf3ee76d5c247082da564a6 card and licence file; the conversion unsloth/Z-Image-Turbo-GGUF@b40f712c569ecfff42f2307dcc43399ae1d71318 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. The Qwen3-4B text encoder (Qwen/Qwen3-4B, Apache-2.0, via unsloth/Qwen3-4B-GGUF) and the VAE (Comfy-Org/z_image_turbo) are separate components whose licences resolve the same way. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "README.md"
+        ],
+        "terms_reference": "https://huggingface.co/unsloth/Qwen3-4B-GGUF/blob/22c9fc8a8c7700b76a1789366280a6a5a1ad1120/README.md"
+      },
+      "loader_root": null,
+      "member_id": "text-encoder",
+      "origin_repository": "unsloth/Qwen3-4B-GGUF",
+      "origin_revision": "22c9fc8a8c7700b76a1789366280a6a5a1ad1120",
+      "retained_card": null,
+      "role": "text-encoder"
+    },
+    {
+      "artifact_identity": "z-image-turbo-gguf:vae",
+      "dependencies": [],
+      "files": [
+        {
+          "expected_sha256": "66b7c7b238a00ecba3488434c6e95473ad44c07ad9eade19da368ab5b1f747d5",
+          "path": "README.md"
+        },
+        {
+          "expected_sha256": "afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38",
+          "path": "split_files/vae/ae.safetensors"
+        }
+      ],
+      "format": "safetensors",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model Tongyi-MAI/Z-Image-Turbo@f332072aa78be7aecdf3ee76d5c247082da564a6 card and licence file; the conversion unsloth/Z-Image-Turbo-GGUF@b40f712c569ecfff42f2307dcc43399ae1d71318 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. The Qwen3-4B text encoder (Qwen/Qwen3-4B, Apache-2.0, via unsloth/Qwen3-4B-GGUF) and the VAE (Comfy-Org/z_image_turbo) are separate components whose licences resolve the same way. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "README.md"
+        ],
+        "terms_reference": "https://huggingface.co/Comfy-Org/z_image_turbo/blob/6fc90a3b1b653e935a0d175e260736de25b84df5/README.md"
+      },
+      "loader_root": null,
+      "member_id": "vae",
+      "origin_repository": "Comfy-Org/z_image_turbo",
+      "origin_revision": "6fc90a3b1b653e935a0d175e260736de25b84df5",
+      "retained_card": null,
+      "role": "vae"
+    },
+    {
+      "artifact_identity": "z-image-turbo-gguf:notices",
+      "dependencies": [],
+      "files": [
+        {
+          "expected_sha256": "87af5e1d7933dbfe091c4048a20805541130690ee813b8039b7f396b47e64338",
+          "path": "README.md"
+        }
+      ],
+      "format": "text",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model Tongyi-MAI/Z-Image-Turbo@f332072aa78be7aecdf3ee76d5c247082da564a6 card and licence file; the conversion unsloth/Z-Image-Turbo-GGUF@b40f712c569ecfff42f2307dcc43399ae1d71318 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. The Qwen3-4B text encoder (Qwen/Qwen3-4B, Apache-2.0, via unsloth/Qwen3-4B-GGUF) and the VAE (Comfy-Org/z_image_turbo) are separate components whose licences resolve the same way. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "README.md"
+        ],
+        "terms_reference": "https://huggingface.co/Tongyi-MAI/Z-Image-Turbo/blob/f332072aa78be7aecdf3ee76d5c247082da564a6/README.md"
+      },
+      "loader_root": null,
+      "member_id": "notices",
+      "origin_repository": "Tongyi-MAI/Z-Image-Turbo",
+      "origin_revision": "f332072aa78be7aecdf3ee76d5c247082da564a6",
+      "retained_card": null,
+      "role": "notices"
+    },
+    {
+      "artifact_identity": "z-image-turbo-gguf:text-encoder-notices",
+      "dependencies": [],
+      "files": [
+        {
+          "expected_sha256": "832dd9e00a68dd83b3c3fb9f5588dad7dcf337a0db50f7d9483f310cd292e92e",
+          "path": "LICENSE"
+        },
+        {
+          "expected_sha256": "71add1cd091c309b1cb1a6b943f2476eb2b004124b3bd1d32dcd0b24cc1abc47",
+          "path": "README.md"
+        }
+      ],
+      "format": "text",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model Tongyi-MAI/Z-Image-Turbo@f332072aa78be7aecdf3ee76d5c247082da564a6 card and licence file; the conversion unsloth/Z-Image-Turbo-GGUF@b40f712c569ecfff42f2307dcc43399ae1d71318 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. The Qwen3-4B text encoder (Qwen/Qwen3-4B, Apache-2.0, via unsloth/Qwen3-4B-GGUF) and the VAE (Comfy-Org/z_image_turbo) are separate components whose licences resolve the same way. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "LICENSE",
+          "README.md"
+        ],
+        "terms_reference": "https://huggingface.co/Qwen/Qwen3-4B/blob/1cfa9a7208912126459214e8b04321603b3df60c/LICENSE"
+      },
+      "loader_root": null,
+      "member_id": "text-encoder-notices",
+      "origin_repository": "Qwen/Qwen3-4B",
+      "origin_revision": "1cfa9a7208912126459214e8b04321603b3df60c",
+      "retained_card": null,
+      "role": "notices"
+    },
+    {
+      "artifact_identity": "z-image-turbo-gguf:apache-text",
+      "dependencies": [],
+      "files": [
+        {
+          "expected_sha256": "eca0a31232d967855093e0e50eb602bbd873be9f2dc1e5f0074799b3bbede523",
+          "path": "LICENSE"
+        }
+      ],
+      "format": "text",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model Tongyi-MAI/Z-Image-Turbo@f332072aa78be7aecdf3ee76d5c247082da564a6 card and licence file; the conversion unsloth/Z-Image-Turbo-GGUF@b40f712c569ecfff42f2307dcc43399ae1d71318 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. The Qwen3-4B text encoder (Qwen/Qwen3-4B, Apache-2.0, via unsloth/Qwen3-4B-GGUF) and the VAE (Comfy-Org/z_image_turbo) are separate components whose licences resolve the same way. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "LICENSE"
+        ],
+        "terms_reference": "https://github.com/Foxlight-Foundation/foxlight-model-preservation/blob/45d5b20f69a411d63b17e198efe9f42d670d9036/LICENSE"
+      },
+      "loader_root": null,
+      "member_id": "apache-text",
+      "origin_repository": "github.com/Foxlight-Foundation/foxlight-model-preservation",
+      "origin_revision": "45d5b20f69a411d63b17e198efe9f42d670d9036",
+      "retained_card": null,
+      "role": "notices"
+    }
+  ],
+  "name": "z-image-turbo-gguf",
+  "root_member": "weights",
+  "runtime_requirements": [
+    "ComfyUI with ComfyUI-GGUF, or stable-diffusion.cpp, with Z-Image support; engine not bundled"
+  ],
+  "schema_version": "foxlight.model-preservation.v1",
+  "workloads": [
+    "text-to-image"
+  ]
+}
