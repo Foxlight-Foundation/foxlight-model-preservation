@@ -44,11 +44,11 @@ first start; the attestation names the exact workflow and release tag that built
 it:
 
 ```sh
-docker pull ghcr.io/foxlight-foundation/sovereign-mirror:0.28.1
-gh attestation verify oci://ghcr.io/foxlight-foundation/sovereign-mirror:0.28.1 \
+docker pull ghcr.io/foxlight-foundation/sovereign-mirror:0.29.0
+gh attestation verify oci://ghcr.io/foxlight-foundation/sovereign-mirror:0.29.0 \
   --repo Foxlight-Foundation/foxlight-model-preservation \
   --signer-workflow Foxlight-Foundation/foxlight-model-preservation/.github/workflows/mirror-image.yml \
-  --source-ref refs/tags/v0.28.1 --deny-self-hosted-runners
+  --source-ref refs/tags/v0.29.0 --deny-self-hosted-runners
 ```
 
 To pin exactly what you verified, set
@@ -101,7 +101,7 @@ authenticated release archive as in [installation](../../docs/installation.md):
 
 ```sh
 sudo deploy/mirror/install-system-service.sh \
-  --archive foxlight-model-preservation-0.28.1-install.zip \
+  --archive foxlight-model-preservation-0.29.0-install.zip \
   --bundle release.sigstore.json \
   --collection collection.json --instance example \
   -- --public-url https://mirror.example.org
@@ -137,7 +137,7 @@ Install the authenticated release as in [installation](../../docs/installation.m
 then link it and set up the mirror:
 
 ```sh
-ln -sfn "$HOME/sovereign-0.28.1" "$HOME/sovereign"
+ln -sfn "$HOME/sovereign-0.29.0" "$HOME/sovereign"
 mkdir -m 0700 "$HOME/sovereign-mirrors"
 ~/sovereign/bin/model-preserve mirror quickstart \
   --dir ~/sovereign-mirrors/example --collection collection.json \
