@@ -314,4 +314,46 @@ async def check_core(client: CoreClient) -> dict[str, bool]:
                 }.issubset(properties)
             )
     report["Pending recovery"] = pending
+    # Standing intake: Core keeps the owner's share mode and licence selection
+    # under the restart grant, so a newly kept matching copy keeps the grant.
+    request = schemas.get("MirrorRequest") if isinstance(schemas, dict) else None
+    request_properties = (
+        request.get("properties") if isinstance(request, dict) else None
+    )
+    page = schemas.get("MirrorPage") if isinstance(schemas, dict) else None
+    page_properties = page.get("properties") if isinstance(page, dict) else None
+    kind = (
+        request_properties.get("kind") if isinstance(request_properties, dict) else None
+    )
+    kinds = kind.get("enum") if isinstance(kind, dict) else None
+    report["Standing intake"] = (
+        report["Persistent mirrors"]
+        and isinstance(kinds, list)
+        and "intake" in kinds
+        and isinstance(request_properties, dict)
+        and "intake" in request_properties
+        and isinstance(page_properties, dict)
+        and "intake" in page_properties
+    )
+    # Opt-in upload limits: Core's configuration accepts null as "no limit".
+    configuration = (
+        schemas.get("MirrorConfiguration") if isinstance(schemas, dict) else None
+    )
+    configured = (
+        configuration.get("properties") if isinstance(configuration, dict) else None
+    )
+    report["Uncapped uploads"] = report["Persistent mirrors"] and all(
+        _nullable(configured.get(field) if isinstance(configured, dict) else None)
+        for field in ("egress_daily", "egress_monthly")
+    )
     return report
+
+
+def _nullable(schema: JsonValue) -> bool:
+    """Whether a generated property schema explicitly admits null."""
+    if not isinstance(schema, dict):
+        return False
+    options = schema.get("anyOf")
+    return isinstance(options, list) and any(
+        isinstance(option, dict) and option.get("type") == "null" for option in options
+    )

@@ -1,3 +1,4 @@
+import {TermsAcceptance,acceptedTerms,termsPending} from './terms';
 import {useEffect,useRef,useState} from 'react';
 import {api,bytes,errorText,manifestDownload,transferAllowance,uploadMetadata,type Copy,type InvitationPreview,type Job,type Location,type Plan,type PublicationMember,type PublicationSource} from './client';
 import {PeerAccess,type PeerGrant} from './peer';
@@ -91,11 +92,11 @@ export function Receive({resume,onBack,onReview,i2pAvailable}:{i2pAvailable:bool
 }
 
 /** Final fresh consent binds an immutable public publication or receiving plan. */
-export function DeliveryReview({plan,busy,onBack,onStart}:{plan:Plan;busy:boolean;onBack:()=>void;onStart:(accept:boolean,participate:boolean)=>void}) {
-  const [accept,setAccept]=useState(false);const publishing=plan.kind==='publish';const policy=plan.receiving;
+export function DeliveryReview({plan,busy,onBack,onStart}:{plan:Plan;busy:boolean;onBack:()=>void;onStart:(accept:boolean,participate:boolean,terms:{accepted_terms?:string[]})=>void}) {
+  const [accept,setAccept]=useState(false),[termsAccepted,setTermsAccepted]=useState(false);const publishing=plan.kind==='publish';const policy=plan.receiving;
   const expired=plan.expires_at*1000<Date.now();
   return <Sheet kicker={publishing?'Public publication':'Receive only'} title={publishing?'Sign and keep this public copy':plan.resume_job_id?'Resume this exact download':'Download this signed copy'} subtitle={<>{plan.model_id} · <span className="sk-num">{bytes(plan.size_bytes)}</span> · {plan.member_count} members</>} back={`Back to ${publishing?'Library':'Sharing'}`} onClose={onBack}
-    footer={<><span className="sk-foot-note">{expired?'This review expired. Close it and review again.':accept?'You can leave while Skulk works.':'Confirm above to continue.'}</span><button className="sk-btn sk-solid" disabled={busy||!accept||expired} onClick={()=>onStart(!publishing&&accept,publishing&&accept)}>{busy?'Starting…':publishing?'Create signed public copy':plan.resume_job_id?'Resume download':'Download model'}</button></>}>
+    footer={<><span className="sk-foot-note">{expired?'This review expired. Close it and review again.':accept?'You can leave while Skulk works.':'Confirm above to continue.'}</span><button className="sk-btn sk-solid" disabled={busy||!accept||expired||termsPending(plan.terms,termsAccepted)} onClick={()=>onStart(!publishing&&accept,publishing&&accept,acceptedTerms(plan.terms,termsAccepted))}>{busy?'Starting…':publishing?'Create signed public copy':plan.resume_job_id?'Resume download':'Download model'}</button></>}>
     <Step n={1} title="The exact copy">
       <ul className="sk-members">{plan.members.map((member,i)=><li key={i}><Icon name="check" size={14}/><span>{member}</span></li>)}</ul>
       {plan.member_count>plan.members.length&&<p className="sk-hint">All {plan.member_count} signed members shown in the invitation are included.</p>}
@@ -108,7 +109,8 @@ export function DeliveryReview({plan,busy,onBack,onStart}:{plan:Plan;busy:boolea
       {policy.transport==='i2p'?<><p>I2P receive only through the {plan.resume_job_id?'original':'selected'} local proxy <Mono value={`${policy.i2p_proxy?.host}:${policy.i2p_proxy?.port}`} label="I2P proxy"/>. Only supported I2P mirrors are used.</p><I2PDisclosure/></>:policy.transport==='peer'?<p>Peer receive only · {policy.peer_private?'Local/private peer addresses allowed':'Public peer addresses only'}. Routing and cache overhead are outside the object-byte allowance.</p>:<p>Plaintext HTTP: {policy.allow_http?'allowed':'blocked'} · Local/private addresses: {policy.allow_private?'allowed':'blocked'}.</p>}
       {plan.resume_job_id&&<p className="sk-hint">Same job and retained partial files. Earlier charges remain deducted from this allowance.</p>}
     </Step>:null}
-    <Step n={policy?3:2} title={publishing?'What happens':'Your confirmation'}>
+    {!publishing&&plan.terms&&<Step n={policy?3:2} title="Licence terms"><TermsAcceptance terms={plan.terms} accepted={termsAccepted} onChange={setTermsAccepted}/></Step>}
+    <Step n={(policy?3:2)+(!publishing&&plan.terms?1:0)} title={publishing?'What happens':'Your confirmation'}>
       <p>{publishing?'Core verifies all source files, signs a separate public generation and keeps it locally. Your private capture remains intact. No mirror or peer session starts.':'Core verifies the complete model, its companions and provenance into a public copy. It won’t install the model, run its code or start sharing.'}</p>
       {!publishing&&policy?.transport!=='i2p'&&<p className="sk-fine"><Icon name="globe" size={14}/><span>Suppliers can see this host’s network address and what it requests.</span></p>}
       {!publishing&&<Details summary="Details"><p>Core verifies the complete model, companions and provenance into a public copy. It does not install the model, run repository code or start sharing. You can save a recovery kit or review a separate restore afterward. {policy?.transport==='i2p'?'I2P mirrors see requested content and timing; the selected local proxy handles these connections without direct fallback.':'Suppliers can see Core’s network address and requested content.'}</p></Details>}

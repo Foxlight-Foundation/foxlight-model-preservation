@@ -26,7 +26,7 @@ from .mirror import (
     follow,
 )
 from .mirror_announce import DISCLOSURE, dht_port
-from .mirror_models import AnnouncePolicy, SourceGrant, Terms
+from .mirror_models import AnnouncePolicy, SourceGrant, Terms, upgrade_profile
 from .mirror_state import (
     HEADROOM,
     MirrorLedger,
@@ -144,8 +144,9 @@ class QuickstartSettings:
     name: str
     disk_bytes: int
     ingress_daily: int
-    egress_daily: int
-    egress_monthly: int
+    # None is no upload cap: uploads are counted but never refused.
+    egress_daily: int | None
+    egress_monthly: int | None
     bind: str = "127.0.0.1"
     port: int = 8080
     announce: AnnouncePolicy | None = None
@@ -190,6 +191,12 @@ def review(
             "listener binds every interface: it is directly reachable without "
             "the reverse proxy"
         )
+    if settings.egress_daily is None and settings.egress_monthly is None:
+        warnings.append(
+            "uploads are not capped: serving can use a lot of bandwidth, and "
+            "on metered hosting that costs money. Set --egress-daily and "
+            "--egress-monthly to cap it"
+        )
     expires = int(time.time()) + settings.resume_seconds
     limit = model_limit(collection, settings)
     lines = [
@@ -217,8 +224,13 @@ def review(
         f"Per-model limit: {format_size(limit)}",
         f"Disk budget:     {format_size(settings.disk_bytes)}",
         f"Ingress budget:  {format_size(settings.ingress_daily)} per UTC day",
-        f"Egress budget:   {format_size(settings.egress_daily)} per UTC day, "
-        f"{format_size(settings.egress_monthly)} per UTC month",
+        "Upload cap:      "
+        + (
+            "none (uploads are counted, never refused)"
+            if settings.egress_daily is None and settings.egress_monthly is None
+            else f"{_cap_text(settings.egress_daily)} per UTC day, "
+            f"{_cap_text(settings.egress_monthly)} per UTC month"
+        ),
         f"Listener:        {settings.bind} port {settings.port}",
         f"Public URL:      {announce.public_url if announce else 'none'}",
         "Announcement:    "
@@ -275,6 +287,10 @@ def review(
     return "\n".join(lines), summary
 
 
+def _cap_text(value: int | None) -> str:
+    return "no cap" if value is None else format_size(value)
+
+
 def _items(value: JsonValue) -> list[JsonValue]:
     return list(value) if isinstance(value, list) else []
 
@@ -289,6 +305,28 @@ def _wrap(text: str, width: int = 74) -> list[str]:
         else:
             current = f"{current} {word}".strip()
     return [*lines, current] if current else lines
+
+
+def preflight_settings(config: dict[str, object]) -> MirrorState:
+    """Validate a new mirror's settings exactly as ``initialize`` would, offline.
+
+    Nothing is created. Upload caps of ``None`` select the v6 profile, as
+    ``MirrorLedger.initialize`` does, so "no cap" is checked like any other
+    value.
+    """
+    fields: dict[str, object] = {
+        **config,
+        "identity": {},
+        "salt": "0" * 64,
+        "clock_floor": 0,
+    }
+    if (
+        config.get("egress_daily") is None
+        or config.get("egress_monthly") is None
+        or config.get("intake") is not None
+    ):
+        fields["schema_version"] = "foxlight.mirror-state.v6"
+    return MirrorState.model_validate(fields)
 
 
 def apply_quickstart(
@@ -356,8 +394,11 @@ def apply_quickstart(
                 "this mirror is paused; run `mirror resume` first if you want it "
                 "to serve again"
             )
-        # The new settings must validate before anything is written.
-        MirrorState.model_validate(previous.model_copy(update=config).model_dump())
+        # The new settings must validate before anything is written, including
+        # "no upload cap", which only the v6 profile can store.
+        MirrorState.model_validate(
+            upgrade_profile(previous.model_copy(update=config)).model_dump()
+        )
         followed = {
             status.source_id: status.bootstrap_id
             for status in list_sources(existing.path / "discovery")
@@ -374,6 +415,8 @@ def apply_quickstart(
         )
     else:
         reimported, usage = True, 0
+        # A new mirror's settings validate before its directory is created.
+        preflight_settings(config)
     # Following admits nothing once retained bytes fill the new disk budget.
     if reimported and usage + HEADROOM > settings.disk_bytes:
         raise PreservationError(

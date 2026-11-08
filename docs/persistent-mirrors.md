@@ -89,6 +89,15 @@ Sizes everywhere accept bytes or binary units: `K`, `M`, `G`, `T` and `P` are
 powers of 1024 (`100G` is 100 × 1024³ bytes; `GiB`/`GB` spellings are the same).
 `--name` defaults to the host name.
 
+Upload caps are opt-in. A new mirror from quickstart (or `init`) has no daily
+or monthly upload cap unless you pass `--egress-daily` and `--egress-monthly`:
+uploads are still counted and reported, but never refused. The review says so,
+and warns that uncapped serving can use a lot of bandwidth, which costs money
+on metered hosting. The disk budget is always bounded, and the daily download
+budget (`--ingress-daily`, 50G by default) protects your own connection. An
+existing mirror keeps the caps it already has when quickstart runs again
+without them; pass `none` (for example `--egress-daily none`) to remove one.
+
 ## Choose how to run it
 
 There are three ways to keep a mirror running. Pick whichever suits the
@@ -147,7 +156,10 @@ docker compose --env-file deploy/mirror/mirror.env \
 ```
 
 `SOVEREIGN_MIRROR_DOMAIN`, `SOVEREIGN_MIRROR_CONTACT`, `SOVEREIGN_MIRROR_BUDGET`,
-the collection directory and `SOVEREIGN_MIRROR_CONSENT` configure it. Until
+the collection directory and `SOVEREIGN_MIRROR_CONSENT` configure it. Upload
+caps (`SOVEREIGN_MIRROR_EGRESS_DAILY`, `SOVEREIGN_MIRROR_EGRESS_MONTHLY`) are
+unset by default, so a new container mirror has none; set them to cap uploads,
+or to `none` to remove caps an existing mirror already has. Until
 `SOVEREIGN_MIRROR_CONSENT=yes-i-consent-to-public-serving` is set, the container
 runs plan-only: it prints the review and serves nothing. With consent, every
 start re-applies the collection and policy, renews the grant and serves. A
@@ -248,7 +260,7 @@ model-preserve mirror config --dir ~/sovereign-mirrors/example \
 
 `config` changes the name, budgets, bind (`127.0.0.1`, `::1`, `0.0.0.0` or `::`),
 port, UTC serving window, refresh interval, public URL, contact and announcement
-choices. Stop the controller first. Any effective change alters the policy
+choices. `--egress-daily none` or `--egress-monthly none` removes an upload cap. Stop the controller first. Any effective change alters the policy
 identity and clears the standing restart grant; grant it again after review.
 Retained bytes are never touched. Per-model limits that were derived from the
 old disk budget follow the new one; limits set explicitly stay.
@@ -256,7 +268,60 @@ old disk budget follow the new one; limits set explicitly stay.
 An announcement policy and the deferred/withdrawn receipts below are written to
 the owner state only when used, so an unchanged mirror keeps its exact encoding
 and restart grant across this upgrade. A release that predates them refuses such
-a ledger rather than silently ignoring it.
+a ledger rather than silently ignoring it. Likewise, "no upload cap" and a
+standing intake policy need the `foxlight.mirror-state.v6` owner profile, which
+the mirror writes only when one of them is chosen; older releases refuse a v6
+ledger outright instead of misreading it. Existing caps stay exactly as they
+were until you change them.
+
+## Licences travel with every copy
+
+Public intake requires each member to name its licence, a terms reference and
+at least one notice file (the upstream `LICENSE`/`NOTICE`), and a manifest whose
+notice files aren't among the member's files is refused. A mirror serves a
+model's notice files with its weights, so every copy downloaded from it carries
+its licence. A quantized or otherwise converted model is a *modified* work:
+licences that require marking changes (for example Llama's or the Apache
+licence's) apply to such conversions, and their notices must say so. The
+licence families describe common terms in plain words; they are not legal
+advice, and operators are responsible for the law where they run a mirror. A
+public mirror is not anonymous.
+
+## Standing intake policy
+
+Without a standing policy, every local selection (`mirror retain`) is part of
+the restart grant's policy identity, so retaining a new copy clears the grant
+and serving needs fresh consent. A **standing intake policy** lets an owner
+consent once to a rule instead:
+
+```sh
+model-preserve mirror config --dir ~/sovereign-mirrors/example \
+  --share all --licence-families permissive,attribution,copyleft,responsible-ai \
+  --licenses eupl-1.2
+model-preserve mirror grant-resume --dir ~/sovereign-mirrors/example \
+  --for 365d --confirm-resume
+```
+
+- `--share all` admits every local public selection whose reviewed terms all
+  name a selected licence; `--share chosen` keeps consenting to each copy
+  separately. `--licence-families` expands the [licence families](sovereign-desktop.md#help-keep-models-available)
+  (`permissive`, `attribution`, `copyleft`, `responsible-ai`, `custom`) and
+  `--licenses` adds exact identifiers; without either, the default families
+  are used. Identifiers that name no licence (`unknown`, `other`, blank) are
+  refused. The policy stores the resolved list and the licence-definition
+  version it was reviewed under, so a later definition never widens it.
+- The grant's policy identity includes the standing policy as a whole, not each
+  selection it covers. Retaining a copy the policy covers keeps the grant: stop
+  the controller, `mirror retain` it (still exact, public intake only and fully
+  verified before serving), and `mirror run --resume` continues under the same
+  consent. A copy the policy does not cover is bound individually and clears
+  the grant, as before.
+- Changing the share mode or licences, adopting a policy on an existing mirror,
+  or clearing it (`--clear-intake`) changes what the grant covers, so it clears
+  the grant and serving needs fresh consent.
+- `mirror withhold --manifest ID` keeps a copy back: it is blocked from serving
+  and, if not yet retained, will be admitted blocked. `mirror release` shares it
+  again. Withholding only narrows, so it never clears the grant.
 
 ## Announce the mirror
 
@@ -337,7 +402,7 @@ only weights loses source floors, policy and accounting.
 
 ```sh
 model-preserve mirror init --dir ~/sovereign-mirrors/example \
-  --disk-bytes 100G --ingress-daily 50G --egress-daily 50G --egress-monthly 1T
+  --disk-bytes 100G --ingress-daily 50G   # add --egress-daily/--egress-monthly to cap uploads
 ```
 
 The parent must exist and belong to you; the selected directory must be new.
@@ -738,13 +803,17 @@ They include unused and uncertain credit, survive crashes and are not refunded
 on retry, deferral, withdrawal or prune. Selected HTTP response bodies are fully reserved
 and fsynced before sending; interrupted responses keep the entire reservation.
 Headers, TLS/TCP overhead and HTTP error responses are outside that body budget.
+Upload caps are optional: without one, response reservations are still recorded
+(for status), but uploads are never refused for volume. Native BitTorrent/IPFS
+sessions keep their explicit per-session byte threshold and rate; uncapped,
+each new session's reservation is always granted.
 Daily/monthly windows use UTC; forward rollover resets only its own window.
 Clock rollback refuses new credit rather than reopening an earlier window.
 
 An optional UTC serving window is selected at init or with `mirror config`
 using `--serve-start HOUR` and `--serve-end HOUR`; equal values mean all day and overnight ranges work.
-Budget/window/pause/grant refusal returns 503 with `Retry-After` and an empty
-body. The server checks local policy between chunks. Metadata acquisition and
+Budget (when capped)/window/pause/grant refusal returns 503 with `Retry-After`
+and an empty body. The server checks local policy between chunks. Metadata acquisition and
 model object budgets remain distinct; no hard total wire quota is claimed.
 
 ## Delete only when you choose

@@ -3,19 +3,19 @@ import {createPortal} from 'react-dom';
 import {api,bytes,errorText} from './client';
 import {CloudStorage,type BucketProvider,type BucketSummary} from './sovereign-bucket';
 import {Callout,Consent,Details,Pill,Row,Sheet,Step,type Tone} from './ui';
-import {Announce,LicenceList,ShareChoice,listed} from './community-parts';
+import {Announce,LicenceFamilies,LicenceList,ShareChoice,UploadLimits,describeLicences,limitsValid,listed,type LicenceDefinition} from './community-parts';
 
 type Status='sharing'|'eligible'|'failed'|'withheld'|'not_chosen'|'license_not_selected'|'no_license'|'unsupported';
 interface CommunityCopy {copy_id:string;name:string;size_bytes:number;status:Status;licenses:string[];public_manifest_id:string|null;error_code?:string|null}
-interface Policy {enabled:boolean;share:'eligible'|'chosen';licenses:string[];chosen:string[];withheld:string[];daily_upload_bytes:number;monthly_upload_bytes:number;port:number;consent_expires:number|null;public_url?:string|null;announce_dht?:boolean;publish_nostr?:boolean;nostr_relays?:string[]}
+interface Policy {enabled:boolean;share:'eligible'|'chosen';licenses:string[];chosen:string[];withheld:string[];daily_upload_bytes:number|null;monthly_upload_bytes:number|null;port:number;consent_expires:number|null;public_url?:string|null;announce_dht?:boolean;publish_nostr?:boolean;nostr_relays?:string[]}
 interface Reachability {status:'public_address'|'private_network'|'offline';local_address:string|null;port:number;mirror_url:string|null}
 type Reason='awaiting_review'|'address_invalid'|'turned_off'|'not_sharing'|'dht_unavailable'|'nothing_shared'|'no_reachable_address'|'address_not_plain_http'|'no_relays';
-export interface Community {policy:Policy;consented:boolean;default_licenses:string[];copies:CommunityCopy[];sharing_count:number;running:boolean;http_port:number|null;reachability:Reachability;last_error:string|null;bucket:BucketSummary|null;bucket_providers:BucketProvider[];uploaded_today_bytes?:number;uploaded_this_month_bytes?:number;dht_available?:boolean;dht_announcing?:boolean;nostr_publishing?:boolean;announce_reasons?:{dht:Reason[];nostr:Reason[]};announce_review_required?:boolean;address_invalid?:boolean}
+export interface Community {policy:Policy;consented:boolean;default_licenses:string[];licence_families?:LicenceDefinition;copies:CommunityCopy[];sharing_count:number;running:boolean;http_port:number|null;reachability:Reachability;last_error:string|null;bucket:BucketSummary|null;bucket_providers:BucketProvider[];uploaded_today_bytes?:number;uploaded_this_month_bytes?:number;dht_available?:boolean;dht_announcing?:boolean;nostr_publishing?:boolean;announce_reasons?:{dht:Reason[];nostr:Reason[]};announce_review_required?:boolean;address_invalid?:boolean}
 type CheckOutcome='too_slow'|'this_mirror'|'other_mirror'|'no_card'|'not_a_mirror'|'http_error'|'private_address'|'unreachable';
 interface AddressCheck {address:string;outcome:CheckOutcome;http_status:number|null}
 
 const label:Record<Status,[string,Tone]>={sharing:['Sharing','live'],eligible:['Joining…','info'],failed:['Couldn’t join · will retry','bad'],withheld:['Kept back','muted'],not_chosen:['Not chosen','muted'],license_not_selected:['Licence not in your list','muted'],no_license:['No licence found · stays private','muted'],unsupported:['Can’t be shared yet','muted']};
-const communityError=(code:string)=>({community_address_port_invalid:'That public address has a port that can’t be used. Use a number from 1 to 65535, or leave the port out.',community_address_invalid:'That public address doesn’t look right. Use a plain address such as https://models.example.org, with no user name or password.',community_address_required:'Add a public address first.',community_consent_required:'Confirm that you want this computer to keep serving before turning this on.',community_license_unidentified:'That doesn’t name a licence. Use its identifier, for example Apache-2.0 or MIT.',community_nothing_to_share:'Nothing to share yet. Models join here as soon as one of your backups has a licence on your list.',insufficient_space:'There isn’t enough free space to prepare a public copy. Your private backups are untouched.'} as Record<string,string>)[code]??errorText(code);
+const communityError=(code:string)=>({community_address_port_invalid:'That public address has a port that can’t be used. Use a number from 1 to 65535, or leave the port out.',community_address_invalid:'That public address doesn’t look right. Use a plain address such as https://models.example.org, with no user name or password.',community_address_required:'Add a public address first.',community_consent_required:'Confirm that you want this computer to keep serving before turning this on.',community_license_unidentified:'That doesn’t name a licence. Use its identifier, for example Apache-2.0 or MIT.',community_nothing_to_share:'Nothing to share yet. Models join here as soon as one of your backups has a licence on your list.',community_upload_limit_invalid:'The daily upload limit can’t be larger than the monthly one.',community_policy_version:'This sharing setting was saved by a newer version of Sovereign. Update Sovereign to change it.',insufficient_space:'There isn’t enough free space to prepare a public copy. Your private backups are untouched.'} as Record<string,string>)[code]??errorText(code);
 
 const dhtWhy:Record<Reason,string>={
  awaiting_review:'waiting for your review',
@@ -49,6 +49,7 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
  const [state,setState]=useState<Community|null>(null),[unavailable,setUnavailable]=useState(false);
  const [setup,setSetup]=useState<false|'all'|'announce'>(false),[agreed,setAgreed]=useState(false),[share,setShare]=useState<'eligible'|'chosen'>('eligible');
  const [licenses,setLicenses]=useState<string[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState('');
+ const [limits,setLimits]=useState<[number|null,number|null]>([null,null]);
  const [address,setAddress]=useState(''),[dht,setDht]=useState(true),[nostr,setNostr]=useState(true);
  const [checking,setChecking]=useState(false),[check,setCheck]=useState<AddressCheck|null>(null);
  const live=useRef(true);
@@ -61,11 +62,13 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
  const refresh=useCallback(async()=>{try{const value=await api<Community>('desktop-community-read',{});if(live.current){loaded.current=true;setState(value);setUnavailable(false);}}catch{if(live.current&&!loaded.current)setUnavailable(true);}},[]);
  useEffect(()=>{void refresh();const timer=setInterval(()=>void refresh(),5000);return()=>clearInterval(timer);},[refresh,version]);
  async function act(action:string,body:Record<string,unknown>){setBusy(true);setError('');try{const value=await api<Community>(action,body);if(live.current)setState(value);return true;}catch(err){if(live.current)setError(err instanceof Error?err.message:'host_unavailable');return false;}finally{if(live.current)setBusy(false);}}
- function open(mode:'all'|'announce'='all'){if(!state)return;setLicenses(state.policy.licenses);setShare(state.policy.share);setAddress(state.policy.public_url??'');setDht(state.policy.announce_dht??true);setNostr(state.policy.publish_nostr??true);setAgreed(false);setError('');setSetup(mode);}
+ function open(mode:'all'|'announce'='all'){if(!state)return;setLicenses(state.policy.licenses);setShare(state.policy.share);setLimits([state.policy.daily_upload_bytes,state.policy.monthly_upload_bytes]);setAddress(state.policy.public_url??'');setDht(state.policy.announce_dht??true);setNostr(state.policy.publish_nostr??true);setAgreed(false);setError('');setSetup(mode);}
  // What people find is chosen with its disclosure on screen; sending the
  // disclosure version records that the owner saw it (with the consent, or later).
  const findChoices=()=>({public_url:address.trim()||null,announce_dht:dht,publish_nostr:nostr,announce_disclosure:1});
- const choices=()=>({share,licenses,...findChoices()});
+ // Saved limits are left exactly as they are unless the owner changes them.
+ const limitsChanged=()=>!state||limits[0]!==state.policy.daily_upload_bytes||limits[1]!==state.policy.monthly_upload_bytes;
+ const choices=()=>({share,licenses,...(limitsChanged()?{daily_upload_bytes:limits[0],monthly_upload_bytes:limits[1]}:{}),...findChoices()});
  async function turnOn(){if(await act('desktop-community-configure',{enabled:true,consent:true,...choices()}))setSetup(false);}
  async function checkAddress(){setChecking(true);setCheck(null);setError('');try{const value=await api<AddressCheck>('desktop-community-check-address',{});if(live.current)setCheck(value);}catch(err){if(live.current)setError(err instanceof Error?err.message:'host_unavailable');}finally{if(live.current)setChecking(false);}}
  if(unavailable||!state)return null;
@@ -114,8 +117,9 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
    </>}
    {state.announce_reasons&&findable}
    <Row k="Shares">{policy.share==='eligible'?'Every backup whose licence is on your list':'Only the backups you choose'}</Row>
-   <Row k="Uploaded today">{bytes(state.uploaded_today_bytes??0)} of {bytes(policy.daily_upload_bytes)}</Row>
-   <Row k="Uploaded this month">{bytes(state.uploaded_this_month_bytes??0)} of {bytes(policy.monthly_upload_bytes)}</Row>
+   <Row k="Licences">{describeLicences(policy.licenses,state.licence_families)}</Row>
+   <Row k="Uploaded today">{bytes(state.uploaded_today_bytes??0)}{policy.daily_upload_bytes===null?' · no limit':<> of {bytes(policy.daily_upload_bytes)}</>}</Row>
+   <Row k="Uploaded this month">{bytes(state.uploaded_this_month_bytes??0)}{policy.monthly_upload_bytes===null?' · no limit':<> of {bytes(policy.monthly_upload_bytes)}</>}</Row>
    {policy.consent_expires&&<Row k="Keeps sharing until">{new Date(policy.consent_expires*1000).toLocaleDateString()}, then asks again</Row>}
    <Details summary={`Your backups · ${eligible} of ${state.copies.length} can be shared`}>
     <ul className="sk-community-list">{state.copies.map(item=>{const [text,tone]=label[item.status];const included=policy.share==='chosen'&&policy.chosen.includes(item.copy_id);return <li key={item.copy_id}>
@@ -138,19 +142,19 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
    <p>Sharing stays on exactly as it is. Choose whether this computer also announces itself publicly. Nothing is announced until you save.</p>
    {announceStep(1)}
   </Sheet>,document.body)}
-  {setup==='all'&&createPortal(<Sheet kicker="Help keep models available" title="Share your backups with everyone" back="Close sharing setup" onClose={()=>setSetup(false)} footer={<button className="sk-btn sk-solid" disabled={busy||!agreed||licenses.length===0||badAddress} onClick={()=>void (on?act('desktop-community-configure',choices()).then(ok=>ok&&setSetup(false)):turnOn())}>{busy?'Saving…':on?'Save changes':'Start sharing'}</button>}>
+  {setup==='all'&&createPortal(<Sheet kicker="Help keep models available" title="Share your backups with everyone" back="Close sharing setup" onClose={()=>setSetup(false)} footer={<button className="sk-btn sk-solid" disabled={busy||!agreed||licenses.length===0||badAddress||(limitsChanged()&&!limitsValid(...limits))} onClick={()=>void (on?act('desktop-community-configure',choices()).then(ok=>ok&&setSetup(false)):turnOn())}>{busy?'Saving…':on?'Save changes':'Start sharing'}</button>}>
    {alert}
    <Step n={1} title="What to share">
     <ShareChoice value={share} onChange={setShare} name="community-share" every={['Every backup whose licence allows it','New backups join on their own. You can keep any one back.']} chosen={['Only the backups I choose','Pick them from the list after you start.']}/>
    </Step>
    <Step n={2} title="Licences that allow sharing">
-    <p>A model is shared only if every part has a licence on this list. Models with no licence stay private. Whether the original download asked who you are doesn’t matter; the licence does.</p>
-    <LicenceList licenses={licenses} onChange={setLicenses} defaults={state.default_licenses}/>
+    <p>A model is shared only if every part has a licence that’s on. Whether the original download asked who you are doesn’t matter; the licence does.</p>
+    {state.licence_families?<LicenceFamilies definition={state.licence_families} licenses={licenses} onChange={setLicenses} copies={state.copies.filter(item=>item.status!=='unsupported')} noun={['backup','backups']}/>:<LicenceList licenses={licenses} onChange={setLicenses} defaults={state.default_licenses}/>}
    </Step>
    {announceStep(3)}
    <Step n={4} title="What others can see">
     <p>Anyone who connects can download the shared models and will see this computer’s network address. Direct sharing isn’t anonymous or encrypted.</p>
-    <Row k="Upload limit">{bytes(policy.daily_upload_bytes)} a day, {bytes(policy.monthly_upload_bytes)} a month</Row>
+    <UploadLimits daily={limits[0]} monthly={limits[1]} onChange={(daily,monthly)=>setLimits([daily,monthly])}/>
     <Row k="Port">{policy.port}</Row>
     <p>Sharing keeps running after you restart this computer, for one year, then asks again. Turn it off at any time.</p>
    </Step>

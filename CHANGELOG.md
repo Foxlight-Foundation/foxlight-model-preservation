@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+- Licences come in one canonical, versioned family definition
+  (`foxlight_model_preservation.licences`, `licence_families_v1.json`). The
+  defaults follow Hugging Face: Permissive, Attribution, Copyleft, Responsible
+  AI, a new Non-commercial family (switch it off for a commercial mirror) and
+  makers' own terms that allow redistribution (Llama 2 to 4, Gemma 1 to 3,
+  Qwen, Tongyi Qianwen) are on. Grok 2, DeepFloyd IF and Apple's research
+  licence stay off because we couldn't confirm they allow redistribution. Llama
+  3.2 and Llama 4 have their own switches and an EU notice. Unknown, "other"
+  and blank licences still never match. Policies saved earlier keep their
+  exact licence lists. This is not legal advice; operators are responsible
+  for their jurisdiction.
+
+- Keeping or downloading a model whose licence has use restrictions or
+  conditions to pass on (or can't be identified) now asks, as Hugging Face's
+  gated models do, for an explicit "I accept these terms" after showing each
+  licence's name, a plain summary and a link to its full text. Sovereign
+  refuses a start without exactly that acceptance (`terms_acceptance_required`)
+  and records it in `terms-acceptance/<job>.json` before any download. Receive
+  plans carry a `terms` review. Plain permissive licences need no tick.
+
+- Upload caps are opt-in and off by default for the desktop community mirror,
+  the CLI persistent mirror, quickstart and the container. "No cap" is `None`
+  in the community policy (`sovereign.community-mirror.v2`) and the mirror
+  ledger (`foxlight.mirror-state.v6`); uploads are still counted, but never
+  refused or answered with 503 for volume. Pass `--egress-daily none` (or the
+  `none` environment value) to remove a cap. Stored policies and ledgers keep
+  the caps they have; older releases refuse the new formats rather than
+  misread them. The disk budget and the daily download budget stay bounded.
+
+- The persistent mirror can keep a standing intake policy (`mirror config
+  --share all|chosen --licence-families ... --licenses ...`, `mirror
+  withhold`/`release`). The restart grant covers the policy as a whole, so
+  retaining a newly matching public copy keeps the grant; changing the policy,
+  or adopting one on an existing mirror, clears it and needs fresh consent.
+  Withholding a copy only narrows and never clears the grant.
+
 - `mirror quickstart` is now all or nothing on an existing mirror. It checks
   the settings, the source's bootstrap ID, disk admission under the new budget
   and the grant length before writing anything, and restores the previous

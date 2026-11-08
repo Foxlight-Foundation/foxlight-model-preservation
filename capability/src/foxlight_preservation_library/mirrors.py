@@ -19,8 +19,9 @@ class MirrorConfigurationInput(Contract):
     name: str = Field(min_length=1, max_length=200)
     disk_bytes: int = Field(ge=256 * 1024**2, le=2**53 - 1)
     ingress_daily: int = Field(ge=1, le=2**53 - 1)
-    egress_daily: int = Field(ge=1, le=2**53 - 1)
-    egress_monthly: int = Field(ge=1, le=2**53 - 1)
+    # None is no upload limit; only a Core with "Uncapped uploads" accepts it.
+    egress_daily: int | None = Field(ge=1, le=2**53 - 1)
+    egress_monthly: int | None = Field(ge=1, le=2**53 - 1)
     http: bool = False
     exposure: Literal["loopback", "network"] = "loopback"
     port: int = Field(default=8080, ge=0, le=65535)
@@ -40,6 +41,26 @@ class MirrorConfigurationInput(Contract):
         return self
 
 
+class MirrorIntakeInput(Contract):
+    """The standing public intake policy that Core binds into the restart grant."""
+
+    share: Literal["eligible", "chosen"]
+    licenses: tuple[str, ...] = Field(min_length=1, max_length=128)
+    definition: int = Field(ge=1, le=1000)
+    withheld: tuple[str, ...] = Field(default=(), max_length=1000)
+
+    @model_validator(mode="after")
+    def exact(self) -> MirrorIntakeInput:
+        """Licence identifiers are short and unique; withheld names exact copies."""
+        if len(set(self.licenses)) != len(self.licenses) or any(
+            not 1 <= len(item) <= 200 for item in self.licenses
+        ):
+            raise ValueError("list each licence once")
+        if any(re.fullmatch(r"[0-9a-f]{64}", item) is None for item in self.withheld):
+            raise ValueError("withheld copies are exact manifest identities")
+        return self
+
+
 class MirrorStartInput(Contract):
     """One immutable operator decision with separate effect confirmations."""
 
@@ -56,6 +77,7 @@ class MirrorStartInput(Contract):
         "prune",
         "prepare_kit",
         "recover",
+        "intake",
     ]
     policy_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     configuration: MirrorConfigurationInput | None = None
@@ -70,12 +92,22 @@ class MirrorStartInput(Contract):
     resume_expires: int | None = Field(default=None, ge=1)
     confirm_resume: bool = False
     confirm_delete_manifest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    intake: MirrorIntakeInput | None = None
+
+    def wire(self) -> dict[str, JsonValue]:
+        """The decision as Core receives it; an older Core never sees ``intake``."""
+        value = self.model_dump(mode="json")
+        if self.intake is None:
+            value.pop("intake")
+        return value
 
     @model_validator(mode="after")
     def exact_decision(self) -> MirrorStartInput:
         """Refuse missing consent or choices belonging to another decision."""
         if (self.configuration is not None) != (self.kind == "configure"):
             raise ValueError("configuration belongs only to configure")
+        if (self.intake is not None) != (self.kind == "intake"):
+            raise ValueError("an intake policy belongs only to intake")
         if self.kind != "configure" and self.policy_id is None:
             raise ValueError("review the current mirror policy")
         if self.kind == "retain":
@@ -452,7 +484,7 @@ async def _recovery_control(
         result = await client.request(
             "POST",
             "mirror/jobs",
-            {**decision.model_dump(mode="json"), "owner_id": client.mirror_owner_id},
+            {**decision.wire(), "owner_id": client.mirror_owner_id},
         )
         if (
             result.get("operation_id") != operation_id
@@ -519,7 +551,7 @@ async def mirror_control(
         return await client.request(
             "POST",
             "mirror/jobs",
-            {**decision.model_dump(mode="json"), "owner_id": client.mirror_owner_id},
+            {**decision.wire(), "owner_id": client.mirror_owner_id},
         )
     if action in {"mirror-observe", "mirror-stop"}:
         selected = MirrorJobInput.model_validate(body)

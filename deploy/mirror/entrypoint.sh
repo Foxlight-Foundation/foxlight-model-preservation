@@ -18,9 +18,16 @@ set -- mirror quickstart \
   --port "${SOVEREIGN_MIRROR_PORT:-8080}" \
   --disk-bytes "${SOVEREIGN_MIRROR_BUDGET:-100G}" \
   --ingress-daily "${SOVEREIGN_MIRROR_INGRESS_DAILY:-50G}" \
-  --egress-daily "${SOVEREIGN_MIRROR_EGRESS_DAILY:-50G}" \
-  --egress-monthly "${SOVEREIGN_MIRROR_EGRESS_MONTHLY:-1T}" \
   --resume-for "${SOVEREIGN_MIRROR_GRANT:-180d}"
+
+# Upload caps are opt-in. Unset: a new mirror has none and an existing mirror
+# keeps the caps it has. A size caps uploads; "none" removes the cap.
+if [ -n "${SOVEREIGN_MIRROR_EGRESS_DAILY:-}" ]; then
+  set -- "$@" --egress-daily "$SOVEREIGN_MIRROR_EGRESS_DAILY"
+fi
+if [ -n "${SOVEREIGN_MIRROR_EGRESS_MONTHLY:-}" ]; then
+  set -- "$@" --egress-monthly "$SOVEREIGN_MIRROR_EGRESS_MONTHLY"
+fi
 
 # A container's host name changes when it is recreated; prefer a stable name.
 name="${SOVEREIGN_MIRROR_NAME:-${SOVEREIGN_MIRROR_DOMAIN:-}}"

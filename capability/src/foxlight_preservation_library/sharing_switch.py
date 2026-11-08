@@ -78,7 +78,16 @@ from pydantic import (
 )
 
 from .client import CoreClient, CoreRefused
+from .compatibility import check_core
 from .contracts import Contract
+from .licences import (
+    DEFAULT_LICENSES,
+    LICENCE_DEFINITION_VERSION,
+    UNIDENTIFIED,
+    definition_json,
+    licence_status,
+    normalize_license,
+)
 from .mirrors import (
     MirrorConfigurationInput,
     MirrorCopyInput,
@@ -86,59 +95,33 @@ from .mirrors import (
     reviewed_public_copy,
 )
 
-# Kept equal to the core's community-mirror licence policy
-# (foxlight_model_preservation.local_host.community). The managed Library does
-# not install the core package, so a parity test checks this copy instead.
-DEFAULT_LICENSES: Final = (
-    "apache-2.0",
-    "mit",
-    "bsd-2-clause",
-    "bsd-3-clause",
-    "bsd-3-clause-clear",
-    "0bsd",
-    "openrail",
-    "openrail-m",
-    "openrail++",
-    "creativeml-openrail-m",
-    "bigscience-openrail-m",
-    "bigcode-openrail-m",
-)
-UNIDENTIFIED: Final = frozenset(
-    {
-        "",
-        "unknown",
-        "other",
-        "none",
-        "noassertion",
-        "unlicensed",
-        "unresolved",
-        "unresolved-owner-capture",
-        "see-original-card",
-    }
-)
-_ALIASES: Final = {
-    "apache-license-2.0": "apache-2.0",
-    "apache-license,-version-2.0": "apache-2.0",
-    "apache-2": "apache-2.0",
-    "apache": "apache-2.0",
-    "mit-license": "mit",
-    "the-mit-license": "mit",
-    "bsd-2-clause-license": "bsd-2-clause",
-    "bsd-3-clause-license": "bsd-3-clause",
-    "openrail-m-license": "openrail-m",
-}
+__all__ = [
+    "CONSENT_SECONDS",
+    "DEFAULT_LICENSES",
+    "UNIDENTIFIED",
+    "ShareSwitch",
+    "licence_status",
+    "normalize_license",
+    "share_control",
+]
+
+# The licence families, their defaults and the identifiers that name no
+# licence come from the core's canonical definition (see licences.py), shipped
+# here byte for byte because the managed Library does not install the core.
 # One consent lasts a year, as on Sovereign; the core caps grants at 366 days.
 CONSENT_SECONDS: Final = 365 * 86400
 # The disclosure text version the sheet showed before consent.
 DISCLOSURE_VERSION: Final = 1
 _GIB: Final = 1024**3
-# Sensible bounded defaults for a first mirror. Advanced settings change them.
+# Defaults for a first mirror. Advanced settings change them. The storage
+# allowance is always bounded and the download budget protects this host's
+# connection; upload limits are opt-in, so a new setup has none (None).
 DEFAULT_CONFIGURATION: Final[dict[str, JsonValue]] = {
     "name": "Library community mirror",
     "disk_bytes": 50 * _GIB,
     "ingress_daily": 20 * _GIB,
-    "egress_daily": 20 * _GIB,
-    "egress_monthly": 300 * _GIB,
+    "egress_daily": None,
+    "egress_monthly": None,
     "http": True,
     "exposure": "network",
     "port": 8743,
@@ -165,24 +148,6 @@ Status = Literal[
     "review_unavailable",
 ]
 Step = Literal["stopping", "configuring", "keeping", "permitting", "starting"]
-
-
-def normalize_license(value: str) -> str:
-    """Compare licence identifiers case-insensitively, with spaces as dashes."""
-    folded = "-".join(value.strip().casefold().split())
-    return _ALIASES.get(folded, folded)
-
-
-def licence_status(
-    licences: list[str], allowed: frozenset[str]
-) -> Literal["eligible", "license_not_selected", "no_license"]:
-    """Every member must carry an identified licence that the owner listed."""
-    normalized = [normalize_license(item) for item in licences]
-    if not normalized or any(item in UNIDENTIFIED for item in normalized):
-        return "no_license"
-    if any(item not in allowed for item in normalized):
-        return "license_not_selected"
-    return "eligible"
 
 
 def _validated[T: BaseModel](contract: type[T], body: dict[str, JsonValue]) -> T:
@@ -240,8 +205,6 @@ class ShareStartInput(_Licences):
         settings = self.configuration
         if not (settings.http or settings.ipfs or settings.torrent):
             raise CoreRefused("mirror_transport_required")
-        if settings.egress_daily > settings.egress_monthly:
-            raise CoreRefused("mirror_allowance_invalid")
         if len({copy.manifest_id for copy in self.copies}) != len(self.copies):
             raise CoreRefused("mirror_selection_duplicate")
         return self
@@ -267,6 +230,11 @@ class ShareSwitch:
         self._sent: list[tuple[str, str]] = []
         self._posting: asyncio.Future[dict[str, JsonValue]] | None = None
         self._reviews: dict[tuple[str, str], tuple[str, list[str]]] = {}
+        # Whether this Core keeps a standing intake policy under the grant,
+        # the policy this setup wants there, and the one Core last reported.
+        self._intake = False
+        self._wanted_intake: dict[str, JsonValue] | None = None
+        self._seen_intake: JsonValue = None
         self._progress: dict[str, JsonValue] = self._idle()
 
     @staticmethod
@@ -282,10 +250,16 @@ class ShareSwitch:
         }
 
     def read(self) -> dict[str, JsonValue]:
-        """Report this Library session's latest switch decision and defaults."""
+        """Report this Library session's latest switch decision and defaults.
+
+        The owner's saved choices (share mode and licences) are read from
+        Core's mirror page, where a Core with standing intake keeps them.
+        """
         return {
             "progress": dict(self._progress),
             "default_licenses": list(DEFAULT_LICENSES),
+            "licence_families": definition_json(),
+            "licence_definition": LICENCE_DEFINITION_VERSION,
             "defaults": dict(DEFAULT_CONFIGURATION),
             "consent_seconds": CONSENT_SECONDS,
             "disclosure": DISCLOSURE_VERSION,
@@ -378,6 +352,35 @@ class ShareSwitch:
                 raise CoreRefused("mirror_policy_changed")
             if page.get("configured") is True and page.get("available") is not True:
                 raise CoreRefused("mirror_unavailable")
+            try:
+                features = await check_core(self.client)
+            except CoreRefused:
+                # Unknown support is treated as an older Core: limits are
+                # required, and no standing intake policy is sent.
+                features = {}
+            self._fence(epoch)
+            settings = decision.configuration
+            current = page.get("configuration")
+            saved = (
+                (current.get("egress_daily"), current.get("egress_monthly"))
+                if isinstance(current, dict)
+                else None
+            )
+            if (
+                (settings.egress_daily, settings.egress_monthly) != saved
+                and settings.egress_daily is not None
+                and settings.egress_monthly is not None
+                and settings.egress_daily > settings.egress_monthly
+            ):
+                # Only limits the owner sets now must keep daily within
+                # monthly; limits Core already holds are kept as they are.
+                raise CoreRefused("mirror_allowance_invalid")
+            if (
+                settings.egress_daily is None or settings.egress_monthly is None
+            ) and not features.get("Uncapped uploads"):
+                # An older Core can't store "no upload limit"; ask for one.
+                raise CoreRefused("mirror_upload_limit_required")
+            self._intake = features.get("Standing intake") is True
         except BaseException:
             if self._epoch == epoch:
                 self._admitted = False
@@ -524,8 +527,9 @@ class ShareSwitch:
         self, decision: dict[str, JsonValue], *, record: bool = True
     ) -> dict[str, JsonValue]:
         operation = uuid.uuid4().hex
-        checked = MirrorStartInput.model_validate(
-            {**decision, "operation_id": operation}
+        # JSON validation, as Core receives it: lists stand for tuples.
+        checked = MirrorStartInput.model_validate_json(
+            json.dumps({**decision, "operation_id": operation})
         )
         expected = self._job_id(operation)
         if record:
@@ -535,10 +539,8 @@ class ShareSwitch:
             self.client.request(
                 "POST",
                 "mirror/jobs",
-                {
-                    **checked.model_dump(mode="json"),
-                    "owner_id": self.client.mirror_owner_id,
-                },
+                # An older Core never sees an "intake" field.
+                {**checked.wire(), "owner_id": self.client.mirror_owner_id},
             )
         )
         if record:
@@ -609,6 +611,7 @@ class ShareSwitch:
             raise CoreRefused("mirror_changed_during_setup")
         policy = last.get("policy_id")
         configuration = last.get("configuration")
+        self._seen_intake = last.get("intake")
         return (
             policy if isinstance(policy, str) else None,
             configuration if isinstance(configuration, dict) else None,
@@ -628,6 +631,12 @@ class ShareSwitch:
             or configuration is None
             or any(configuration.get(key) != value for key, value in wanted.items())
             or holdings != expected
+            # The standing intake policy is part of what the grant covers, so
+            # only the exact reviewed one is ever authorized.
+            or (
+                self._wanted_intake is not None
+                and self._seen_intake != self._wanted_intake
+            )
         ):
             raise CoreRefused("mirror_changed_during_setup")
         if consented is not None and any(
@@ -648,6 +657,7 @@ class ShareSwitch:
             self._fence(epoch)
             _ = await self.client.request("DELETE", "mirror/jobs/" + controller)
             _ = await self._settle_stopped(controller)
+        self._wanted_intake = None
         # The reviewed policy covers the settings and selections the sheet showed.
         policy, configuration, expected = await self._snapshot()
         if policy != decision.policy_id:
@@ -666,6 +676,33 @@ class ShareSwitch:
             policy = await self._adopt(wanted, expected)
         if policy is None:
             raise CoreRefused("mirror_not_configured")
+        if self._intake:
+            # Core keeps the owner's choice as a standing intake policy that
+            # the grant covers, so the saved list shows after a reload and a
+            # newly kept matching copy joins without new consent. Withheld
+            # copies stay as Core has them.
+            current = self._seen_intake
+            withheld: JsonValue = (
+                current.get("withheld", []) if isinstance(current, dict) else []
+            )
+            wanted_intake: dict[str, JsonValue] = {
+                "share": decision.share,
+                "licenses": list(
+                    dict.fromkeys(normalize_license(item) for item in decision.licenses)
+                ),
+                "definition": LICENCE_DEFINITION_VERSION,
+                "withheld": withheld,
+            }
+            self._wanted_intake = wanted_intake
+            if current != wanted_intake:
+                self._step("configuring")
+                _ = await self._settle(
+                    await self._decide(
+                        epoch, kind="intake", policy_id=policy, intake=wanted_intake
+                    )
+                )
+                # Accept the new policy only if nothing else changed meanwhile.
+                policy = await self._adopt(wanted, expected)
         self._step("keeping")
         allowed = _allowed(decision.licenses)
         consented: set[str] = set()
@@ -694,7 +731,12 @@ class ShareSwitch:
                         confirm_redistribution=True,
                     )
                 )
-                expected[copy.manifest_id] = ("held", False)
+                # Core admits a copy the owner withheld blocked; that is our
+                # own retain's effect, not an unreviewed change.
+                expected[copy.manifest_id] = (
+                    "held",
+                    self._is_withheld(copy.manifest_id),
+                )
                 policy = await self._adopt(wanted, expected)
             consented.add(copy.manifest_id)
             self._progress = {
@@ -800,8 +842,39 @@ class ShareSwitch:
                     )
                 )
                 expected[identity] = ("held", action == "block")
+                self._expect_released(identity, action)
                 policy = await self._adopt(wanted, expected)
         return policy
+
+    def _is_withheld(self, identity: str) -> bool:
+        """Whether the expected standing intake policy keeps this copy back."""
+        wanted = self._wanted_intake
+        withheld = wanted.get("withheld") if wanted is not None else None
+        return isinstance(withheld, list) and identity in withheld
+
+    def _expect_released(
+        self, identity: str, action: Literal["block", "unblock"]
+    ) -> None:
+        """Account for Core releasing a withheld copy on our explicit unblock.
+
+        Core keeps a withheld copy blocked, and an explicit unblock is the owner
+        sharing it again: it also leaves the standing intake policy's withheld
+        list. That change is ours, so the expected policy follows it; any other
+        change to the policy still aborts the setup.
+        """
+        wanted = self._wanted_intake
+        withheld = wanted.get("withheld") if wanted is not None else None
+        if (
+            action != "unblock"
+            or wanted is None
+            or not isinstance(withheld, list)
+            or identity not in withheld
+        ):
+            return
+        self._wanted_intake = {
+            **wanted,
+            "withheld": [item for item in withheld if item != identity],
+        }
 
     async def _settle_stopped(self, job_id: str) -> dict[str, JsonValue]:
         for _ in range(self.stop_attempts * 10):
