@@ -173,10 +173,16 @@ seeds or publishes.
 
 The package ships an untrusted seed list,
 `resources/seed-mirrors.json` (`sovereign.seed-mirrors.v1`, a list of HTTP(S)
-base URLs). It is empty for now. A user can add their own file with
+base URLs). It names one address, `https://starter.foxlight.ai`: Foxlight's
+starter mirror, a public Cloudflare R2 bucket carrying the
+[starter collection](starter-collection.md). It is asked only when everything
+else has failed, so Foxlight sees only those requests. A user can add their own file with
 `--seed-mirrors` or `$SOVEREIGN_SEED_MIRRORS`; its entries are added after the
 shipped ones. A seed grants nothing: it is only a place to ask when everything
 else failed (the fallback stage above).
+Set `SOVEREIGN_PACKAGED_SEED_MIRRORS=off` to ignore the shipped list entirely,
+so no receive ever contacts Foxlight's starter mirror; your own seed file still
+applies.
 
 **Privacy.** Contacting a seed shows this computer's network address, and the
 fact that it is looking for mirrors, to whoever runs that seed. That is why a

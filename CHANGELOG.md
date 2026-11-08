@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The shipped starter (seed) mirror list now names `https://starter.foxlight.ai`,
+  Foxlight's R2 bucket mirror of the starter collection. It is contacted only
+  after a receive's own and discovered mirrors fail.
+
 - The starter collection: a signed, one-time import list of the open models
   the community runs most, chosen by sustained interest (Hugging Face base and
   conversion downloads, Ollama and LM Studio). There are three tiers, each
