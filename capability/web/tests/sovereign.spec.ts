@@ -52,7 +52,8 @@ test('standalone first launch browses preset without Core or bootstrap hunting',
  await expect(page.getByText('No account or source-file setup.')).toBeVisible();
  expect(updates).toBe(0);
  await page.getByRole('button',{name:'Browse public models'}).first().click();
- await expect(page.getByRole('status')).toContainText('Listing update started. See Activity for the result.');
+ // No leftover notice: the listings themselves are the feedback.
+ await expect(page.getByText('Listing update started',{exact:false})).toHaveCount(0);
  await page.getByLabel('Search models',{exact:true}).fill('Portable');
  await expect(page.getByRole('heading',{name:model.name,exact:true})).toBeVisible();
  expect(updates).toBe(1);expect(requests.some(url=>url.includes('core-features')||url.includes('source-follow'))).toBe(false);
@@ -160,4 +161,15 @@ test('plain permissive terms are shown but ask for no acceptance',async({page})=
  await page.getByLabel('Proceed with this exact private selection.').check();
  await page.getByRole('button',{name:'Download & preserve',exact:true}).click();
  expect(submitted).toEqual({plan_id:id,operation_id:expect.any(String),confirmed:true});
+});
+
+test('getting listings for the first time shows a loader, not a silent wait',async({page})=>{
+ let refreshing=false;
+ const job={job_id:'c'.repeat(32),kind:'catalog_refresh',state:'running',created_at:0,updated_at:0};
+ await page.route('**/api/library*',route=>route.fulfill({json:{host_kind:'sovereign',copies:[],jobs:refreshing?[job]:[],next_offset:null}}));
+ await page.route('**/api/desktop-search',route=>route.fulfill({json:{catalog_id:null,results:[],total:0,next_offset:null}}));
+ await page.route('**/api/desktop-refresh',route=>{refreshing=true;return route.fulfill({json:{}});});
+ await page.goto('/');
+ await page.getByRole('button',{name:'Browse public models'}).first().click();
+ await expect(page.getByRole('status').filter({hasText:'Getting model listings from Foxlight’s registry'})).toBeVisible();
 });

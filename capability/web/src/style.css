@@ -681,3 +681,9 @@ main[inert] .sk-scrim {opacity:0;}
 .sk-terms-accept {margin:16px 0 12px;padding:16px 0 0;border-top:1px solid var(--line-card);}
 .sk-terms-accept h4 {margin:0 0 4px;font-size:14px;}
 .sk-upload-fields {display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:0 16px;}
+.sk-inline-loading {display:flex;align-items:center;gap:10px;margin:0 0 16px;padding:12px 14px;border:1px solid var(--line-hair);border-radius:12px;color:var(--text-2);}
+.sk-spinner {width:16px;height:16px;flex:none;border:2px solid var(--line-strong);border-top-color:var(--foxlight);border-radius:50%;animation:sk-spin .8s linear infinite;}
+@keyframes sk-spin {to {transform:rotate(360deg);}}
+@media (prefers-reduced-motion: reduce) {.sk-spinner {animation:none;}}
+.sk-check {display:flex;align-items:center;gap:8px;color:var(--text-2);font-size:14px;}
+.sk-check input {width:16px;height:16px;accent-color:var(--foxlight);}

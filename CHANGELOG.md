@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Catalog browsing without a search or chosen use lists saveable chat models
+  first (`result_order`), then the rest smallest first.
+
 - The starter collection: a signed, one-time import list of the open models
   the community runs most, chosen by sustained interest (Hugging Face base and
   conversion downloads, Ollama and LM Studio). There are three tiers, each
