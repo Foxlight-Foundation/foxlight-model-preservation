@@ -37,6 +37,11 @@
   choose what to import. Not legal advice; operators are responsible for
   their jurisdiction.
 
+- Publish Sovereign Mac build 11 (core 0.29 / Library 0.25): Developer ID signed
+  and Apple notarized (app 7504d452…, DMG 5cfd0510…), DMG f97edfe6… and ZIP
+  2dbbc527…. Install docs, download pages and the mirror deploy files now point
+  at core 0.29.0, Library 0.25.0, Mac build 11 and the 0.29.0 mirror image.
+
 - Guided setup 0.1.4 and graphical setup 0.1.6 install Linux revision 6
   (core 0.29 / Library 0.25), now served by the signed apt channel; package pins
   amd64 61d9198e… and arm64 31fe8dde…, documented bootstrap hash 5f3c50b5….
