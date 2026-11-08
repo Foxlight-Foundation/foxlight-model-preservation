@@ -15,6 +15,9 @@ const fieldLabel:Record<Field,[string,string]>={
  endpoint:['Endpoint','https://storage.example.com'],
  public_url:['Public address','https://pub-….r2.dev'],
 };
+// Region formats differ by provider; show an example in that provider's form.
+const regionExample:Record<string,string>={b2:'For example us-west-004',s3:'For example us-east-1',wasabi:'For example us-east-1',hetzner:'fsn1, nbg1 or hel1',other:'For example us-east-1'};
+const placeholder=(provider:string,name:Field)=>name==='region'?(regionExample[provider]??fieldLabel.region[1]):fieldLabel[name][1];
 const bucketError=(code:string)=>({bucket_details_incomplete:'Fill in every field for this provider.',bucket_account_id_invalid:'That account ID doesn’t look right. It’s 32 letters and numbers, shown on your Cloudflare dashboard.',bucket_credentials_invalid:'Paste the access key and secret exactly as the provider showed them.',bucket_details_invalid:'Check the bucket name and addresses. Bucket names use lowercase letters, numbers and dashes, and addresses start with https://.',bucket_keychain_unavailable:'This computer’s keychain couldn’t store the key. Unlock it and try again.'} as Record<string,string>)[code]??errorText(code);
 
 /** Keep a copy of shared models in the owner's own cloud bucket, reachable from anywhere. */
@@ -56,7 +59,7 @@ export function CloudStorage<T extends {bucket:BucketSummary|null;bucket_provide
    </Step>
    <Step n={2} title={`Your ${chosen.name} bucket`}>
     <p>{chosen.note}</p>
-    {chosen.asks.map(name=><label key={name} className="sk-field">{fieldLabel[name][0]}<input className="sk-input" value={values[name]??''} placeholder={fieldLabel[name][1]} autoComplete="off" spellCheck={false} onChange={set(name)}/></label>)}
+    {chosen.asks.map(name=><label key={name} className="sk-field">{fieldLabel[name][0]}<input className="sk-input" value={values[name]??''} placeholder={placeholder(chosen.id,name)} autoComplete="off" spellCheck={false} onChange={set(name)}/></label>)}
    </Step>
    <Step n={3} title="A key that can write to it">
     <p>Create an access key limited to this one bucket. Sovereign keeps it in this computer’s keychain and sends it only to {chosen.name}.</p>

@@ -38,6 +38,10 @@
   or adopting one on an existing mirror, clears it and needs fresh consent.
   Withholding a copy only narrows and never clears the grant.
 
+- Add a Hetzner Object Storage bucket preset (`hetzner`): the location code
+  (`fsn1`, `nbg1` or `hel1`) gives the endpoint, signing region and public
+  address. A bucket target saved with it is not readable by older versions.
+
 ## 0.28.1
 
 - The mirror's default standing restart grant (quickstart, the container's
