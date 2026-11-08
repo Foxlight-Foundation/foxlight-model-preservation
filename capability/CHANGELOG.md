@@ -12,6 +12,11 @@ tagged `library-v*`; versions without a tag are source previews installed from
   "Preservation support" dropdown and its count line are replaced by one
   plain option: "Also show listings Sovereign can't save yet".
 
+- The save review no longer asks people to "accept the No identified licence".
+  A listing without a licence shows "Licence not named", and its checkbox
+  reads "I'll read and follow the model's own terms before using it"; the
+  internal marker is no longer shown as if it were a licence.
+
 - Publish Sovereign Mac build 11 (core 0.29 / Library 0.25): Developer ID signed
   and Apple notarized (app 7504d452…, DMG 5cfd0510…), DMG f97edfe6… and ZIP
   2dbbc527…. Install docs, download pages and the mirror deploy files now point

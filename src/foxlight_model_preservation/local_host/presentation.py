@@ -87,6 +87,8 @@ def _bounded(summary: dict[str, JsonValue]) -> dict[str, JsonValue]:
     for key in (
         "metadata_status",
         "metadata_source",
+        # The licence decides whether terms must be accepted: never drop it.
+        "license",
         "purposes",
         "feature_ids",
         "input_modalities",
@@ -104,7 +106,6 @@ def _bounded(summary: dict[str, JsonValue]) -> dict[str, JsonValue]:
         "base_model",
         "context_length",
         "languages",
-        "license",
         "capabilities",
         "runtime_requirements",
         "analysis_notes",
@@ -125,6 +126,18 @@ def purpose_ids(tasks: list[str], capabilities: list[str]) -> list[str]:
                 "capabilities": cast(list[JsonValue], capabilities),
             }
         )["purposes"],
+    )
+
+
+def _card_license(body: dict[str, JsonValue]) -> str | None:
+    """Return the licence a card names for itself, if any."""
+    license_info = body.get("license")
+    license_fields = license_info if isinstance(license_info, dict) else {}
+    return (
+        _text(license_fields.get("spdx_id"))
+        or _text(license_fields.get("name"))
+        or _text(license_info)
+        or _text(body.get("license_id"))
     )
 
 
@@ -170,10 +183,7 @@ def model_summary(
             "languages": cast(
                 list[JsonValue], _strings(body.get("languages") or body.get("language"))
             ),
-            "license": _text(license_fields.get("spdx_id"))
-            or _text(license_fields.get("name"))
-            or _text(license_info)
-            or _text(body.get("license_id")),
+            "license": _card_license(body),
             "attribution": _text(license_fields.get("display_name")),
             "license_notice": _text(license_fields.get("notice")),
             "runtime_requirements": [],
@@ -191,8 +201,12 @@ def card_summary(
     metadata: dict[str, JsonValue] | None = None,
     selected_files: Iterable[str] | None = None,
 ) -> dict[str, JsonValue]:
-    """Describe original metadata and listed files, without granting coverage/trust."""
-    return model_summary(
+    """Describe original metadata and listed files, without granting coverage/trust.
+
+    A card that names no licence takes the one its signed catalog metadata
+    records for it (the registry's ``license``), when that is present.
+    """
+    summary = model_summary(
         card.card,
         repository=card.artifact.repository,
         artifact_format=card.artifact.format,
@@ -204,6 +218,12 @@ def card_summary(
         if card.artifact.bundle
         else (),
     )
+    # Ask the card itself, not the size-bounded summary: a licence the card
+    # names must never be replaced by the catalog's.
+    catalog_license = metadata.get("license") if metadata else None
+    if _card_license(card.card) is None and isinstance(catalog_license, str):
+        summary = {**summary, "license": _text(catalog_license, 64)}
+    return summary
 
 
 def captured_card_metadata(

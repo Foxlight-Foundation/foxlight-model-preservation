@@ -329,6 +329,27 @@ def test_descriptive_projection_is_bounded_and_does_not_rewrite_the_card():
     assert card.card["future_properties"] == value["future_properties"]
 
 
+def test_a_licence_the_card_names_survives_bounding_and_beats_the_catalog():
+    """A long notice cannot hide the card's licence or let the catalog replace it."""
+    value = body()
+    value.update(
+        {
+            "license": {"name": "llama3", "notice": "n" * 600},
+            "base_model": "b" * 512,
+            "description": "d" * 600,
+        }
+    )
+    card = create_card(value)
+    assert card_summary(card)["license"] == "llama3"
+    assert card_summary(card, metadata={"license": "apache-2.0"})["license"] == (
+        "llama3"
+    )
+    plain = create_card(body())
+    assert card_summary(plain, metadata={"license": "apache-2.0"})["license"] == (
+        "apache-2.0"
+    )
+
+
 def test_long_license_metadata_cannot_break_purpose_filtering(tmp_path):
     catalog, _, _ = accepted_catalog(
         tmp_path,

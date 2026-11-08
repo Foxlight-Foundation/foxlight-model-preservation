@@ -250,6 +250,51 @@ def test_backup_without_identifiable_licence_is_never_served(
         owner.close()
 
 
+def test_a_card_without_a_licence_uses_the_catalogs_recorded_licence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The registry's catalog licence makes a licence-less card shareable.
+
+    Most published cards name no licence themselves; the signed catalog
+    metadata records it. It travels with the backup inside the retained
+    registry proof, so the sharing decision needs no network.
+    """
+    from test_local_owner import accepted_catalog, finish, submit
+
+    catalog, repo, data = accepted_catalog(
+        tmp_path, companion=False, catalog_metadata={"license": "apache-2.0"}
+    )
+
+    def download(repository, revision, file, destination, control, **kwargs):
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(data)
+
+    monkeypatch.setattr(
+        "foxlight_model_preservation.local_host.owner.download_file", download
+    )
+    owner = LocalOwner(tmp_path / "owner", catalog=catalog)
+    try:
+        listing = owner.control("search", {})
+        plan = owner.control(
+            "plan",
+            {
+                "kind": "receive",
+                "catalog_id": listing["catalog_id"],
+                "card_id": repo.card.card_id,
+            },
+        )
+        # Apache-2.0 is shown and asks for no acceptance.
+        assert plan["terms"]["accept"] == []
+        assert [row["license_id"] for row in plan["terms"]["licences"]] == [
+            "apache-2.0"
+        ]
+        assert finish(owner, submit(owner, plan))["state"] == "succeeded"
+        copy = owner.read()["copies"][0]
+        assert status(owner, copy["copy_id"]) == "eligible"
+    finally:
+        owner.close()
+
+
 @pytest.mark.parametrize(
     ("card_license", "expected"),
     [
