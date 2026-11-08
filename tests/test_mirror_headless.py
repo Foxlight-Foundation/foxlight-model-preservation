@@ -44,6 +44,7 @@ from foxlight_model_preservation.mirror_models import (
     MirrorState,
     SourceGrant,
     Terms,
+    WithdrawalAdvisory,
 )
 from foxlight_model_preservation.mirror_quickstart import (
     QuickstartSettings,
@@ -293,7 +294,7 @@ def test_new_fields_keep_released_encoding_and_policy_identity(tmp_path, capture
     ledger, _ = mirror(tmp_path, capture)
     cycle(ledger)
     raw = (ledger.path / "mirror.json").read_bytes()
-    assert b"deferred" not in raw and b"withdrawn" not in raw
+    assert b"deferred" not in raw and b"withdraw" not in raw
     assert b"announce" not in raw
     state = ledger.read()
     held = state.models[capture.identity]
@@ -301,18 +302,26 @@ def test_new_fields_keep_released_encoding_and_policy_identity(tmp_path, capture
         update={
             "models": {
                 capture.identity: held.model_copy(
-                    update={"deferred": "later", "withdrawn": True}
+                    update={
+                        "deferred": "later",
+                        "withdrawal": WithdrawalAdvisory(observed_at=1),
+                    }
                 )
             }
         }
     )
     assert policy_id(receipts) == policy_id(state)
-    assert b"withdrawn" in encode_state(receipts)
+    assert b"withdrawal" in encode_state(receipts)
     announced = state.model_copy(
         update={"announce": AnnouncePolicy(public_url="https://m.example")}
     )
     assert policy_id(announced) != policy_id(state)
     MirrorState.model_validate_json(encode_state(announced))
+    # Following withdrawals is reviewed policy; off keeps the released bytes.
+    following = state.model_copy(update={"follow_withdrawals": True})
+    assert policy_id(following) != policy_id(state)
+    assert b"follow_withdrawals" in encode_state(following)
+    MirrorState.model_validate_json(encode_state(following))
 
 
 # Deferred budget refusals ---------------------------------------------------------
@@ -569,37 +578,136 @@ def test_adoption_refuses_keys_that_do_not_sign_the_pinned_wrapper(tmp_path, cap
     assert ledger.read().models[capture.identity] == held
 
 
-# Withdrawal versus expiry ----------------------------------------------------------
+# Withdrawal: advisory by default, followed only by operator choice --------------
 
 
-def test_withdrawal_from_every_catalog_stops_serving_but_keeps_bytes(tmp_path, capture):
+def _served(ledger: MirrorLedger, identity: str) -> bool:
+    with ledger.service_lock():
+        allowed, _ = public_selection(ledger, OperationControl())
+    return "/" + manifest_path(identity) in allowed
+
+
+def _follow_withdrawals(ledger: MirrorLedger, value: str = "on") -> dict:
+    result = cli(
+        "mirror",
+        "config",
+        "--dir",
+        str(ledger.path),
+        "--follow-withdrawals",
+        value,
+    )
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
+def _status(ledger: MirrorLedger) -> dict:
+    result = cli("mirror", "status", "--dir", str(ledger.path))
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
+def _get(port: int, identity: str) -> int:
+    client = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
+    client.request("GET", "/" + manifest_path(identity))
+    reply = client.getresponse()
+    reply.read()
+    client.close()
+    return reply.status
+
+
+def test_withdrawal_is_advisory_and_keeps_serving_by_default(tmp_path, capture):
+    from foxlight_model_preservation.discovery import list_sources
+
     ledger, publisher = mirror(tmp_path, capture)
     cycle(ledger)
-    with ledger.service_lock():
-        public_selection(ledger, OperationControl())
-    assert public(ledger.path, capture.identity).exists()
+    assert _served(ledger, capture.identity)
+    before = int(time.time())
     publisher.publish(version=2, manifest="b" * 64)
     cycle(ledger)
     held = ledger.read().models[capture.identity]
-    assert held.withdrawn and held.state == "retained" and not held.error
+    (source,) = list_sources(ledger.path / "discovery")
+    advisory = held.withdrawal
+    assert advisory is not None and not advisory.acknowledged
+    assert advisory.source_id == held.source_id == source.source_id
+    assert advisory.catalog_id == source.catalog_id is not None
+    assert advisory.observed_at is not None and advisory.observed_at >= before
+    assert held.state == "retained" and not held.blocked and not held.error
+    # The publisher's catalog is not a takedown authority: still served.
+    assert _served(ledger, capture.identity)
+    assert public(ledger.path, capture.identity).exists()
+    status = _status(ledger)
+    assert status["follow_withdrawals"] is False
+    (shown,) = [
+        item
+        for item in status["withdrawal_advisories"]
+        if item["manifest"] == capture.identity
+    ]
+    assert shown["manifest"] == capture.identity
+    assert shown["source_id"] == source.source_id
+    assert shown["catalog_id"] == source.catalog_id
+    assert shown["serving_withheld"] is False
+    assert "you decide" in shown["advice"]
+    assert "mirror block" in shown["advice"] and capture.identity in shown["advice"]
+    # A later catalog that still omits it keeps the first observation.
+    publisher.publish(version=3, manifest="c" * 64)
+    cycle(ledger)
+    assert ledger.read().models[capture.identity].withdrawal == advisory
+    # Relisted by a current catalog: the advisory clears.
+    publisher.publish(version=4)
+    cycle(ledger)
+    assert ledger.read().models[capture.identity].withdrawal is None
+    assert capture.identity not in {
+        item["manifest"] for item in _status(ledger)["withdrawal_advisories"]
+    }
+    assert _served(ledger, capture.identity)
+
+
+def test_followed_withdrawal_stops_serving_but_keeps_bytes(tmp_path, capture):
+    ledger, publisher = mirror(tmp_path, capture)
+    cycle(ledger)
+    grant_restart(ledger, int(time.time()) + 600)
+    granted = policy_id(ledger.read())
+    receipt = _follow_withdrawals(ledger)
+    # The operator's choice is reviewed policy: fresh consent is needed.
+    assert receipt["configured"] == ["follow_withdrawals"]
+    assert receipt["restart_grant_invalidated"] is True
+    assert ledger.read().follow_withdrawals and ledger.read().restart is None
+    assert policy_id(ledger.read()) != granted
+    assert _served(ledger, capture.identity)
+    publisher.publish(version=2, manifest="b" * 64)
+    cycle(ledger)
+    held = ledger.read().models[capture.identity]
+    assert held.withdrawal is not None and held.state == "retained"
+    assert not held.error and not held.blocked
     with ledger.service_lock():
         allowed, owners = public_selection(ledger, OperationControl())
     assert "/" + manifest_path(capture.identity) not in allowed
     assert not public(ledger.path, capture.identity).exists()
     assert not any(capture.identity in item for item in owners.values())
+    (shown,) = _status(ledger)["withdrawal_advisories"]
+    assert shown["serving_withheld"] is True
     # Retention rules are unchanged: the copy is kept and verifies.
     verify_store(ledger.path / "store", capture.identity, capture.trust)
     # Listed again by a current catalog: served again.
     publisher.publish(version=3)
     cycle(ledger)
-    assert not ledger.read().models[capture.identity].withdrawn
-    with ledger.service_lock():
-        allowed, _ = public_selection(ledger, OperationControl())
-    assert "/" + manifest_path(capture.identity) in allowed
+    assert ledger.read().models[capture.identity].withdrawal is None
+    assert _served(ledger, capture.identity)
+    # Turning it off again serves withdrawn copies, as advisories.
+    publisher.publish(version=4, manifest="b" * 64)
+    cycle(ledger)
+    assert not _served(ledger, capture.identity)
+    assert _follow_withdrawals(ledger, "off")["restart_grant_invalidated"] is False
+    assert not ledger.read().follow_withdrawals
+    assert b"follow_withdrawals" not in (ledger.path / "mirror.json").read_bytes()
+    assert _served(ledger, capture.identity)
 
 
-def test_withdrawal_survives_restart_before_public_selection(tmp_path, capture):
+def test_followed_withdrawal_survives_restart_before_public_selection(
+    tmp_path, capture
+):
     ledger, publisher = mirror(tmp_path, capture)
+    configure_mirror(ledger, {"follow_withdrawals": True})
     cycle(ledger)
     with ledger.service_lock():
         public_selection(ledger, OperationControl())
@@ -607,7 +715,7 @@ def test_withdrawal_survives_restart_before_public_selection(tmp_path, capture):
     cycle(ledger)
     # Killed before unlinking: the persisted receipt still withholds service.
     restarted = MirrorLedger(ledger.path)
-    assert restarted.read().models[capture.identity].withdrawn
+    assert restarted.read().models[capture.identity].withdrawal is not None
     grant_restart(restarted, int(time.time()) + 600)
     ready: queue.Queue[int] = queue.Queue()
     thread = threading.Thread(
@@ -620,19 +728,16 @@ def test_withdrawal_survives_restart_before_public_selection(tmp_path, capture):
         while public(ledger.path, capture.identity).exists():
             assert time.monotonic() < end
             time.sleep(0.05)
-        client = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
-        client.request("GET", "/" + manifest_path(capture.identity))
-        reply = client.getresponse()
-        reply.read()
-        client.close()
-        assert reply.status != 200
+        assert _get(port, capture.identity) != 200
     finally:
         restarted.update(lambda s: s.model_copy(update={"paused": True}))
         thread.join(30)
 
 
-def test_expired_catalog_is_availability_not_withdrawal(tmp_path, capture):
+@pytest.mark.parametrize("following", [False, True])
+def test_expired_catalog_is_availability_not_withdrawal(tmp_path, capture, following):
     ledger, publisher = mirror(tmp_path, capture)
+    configure_mirror(ledger, {"follow_withdrawals": following})
     expiry = datetime.now(UTC) + timedelta(seconds=4)
     publisher.publish(version=2, expires=expiry)
     cycle(ledger)
@@ -645,36 +750,33 @@ def test_expired_catalog_is_availability_not_withdrawal(tmp_path, capture):
     (status,) = list_sources(ledger.path / "discovery")
     assert status.freshness == "stale"
     held = ledger.read().models[capture.identity]
-    assert not held.withdrawn and not held.error
-    with ledger.service_lock():
-        allowed, _ = public_selection(ledger, OperationControl())
-    assert "/" + manifest_path(capture.identity) in allowed
+    assert held.withdrawal is None and not held.error
+    assert _served(ledger, capture.identity)
 
 
 def test_publisher_loss_is_not_withdrawal(tmp_path, capture):
     ledger, publisher = mirror(tmp_path, capture)
+    configure_mirror(ledger, {"follow_withdrawals": True})
     cycle(ledger)
     shutil.rmtree(publisher.path)
     cycle(ledger)
-    assert not ledger.read().models[capture.identity].withdrawn
-
-
-def _served(ledger: MirrorLedger, identity: str) -> bool:
-    with ledger.service_lock():
-        allowed, _ = public_selection(ledger, OperationControl())
-    return "/" + manifest_path(identity) in allowed
+    assert ledger.read().models[capture.identity].withdrawal is None
+    assert _served(ledger, capture.identity)
 
 
 def test_withdrawal_persists_when_the_withdrawing_catalog_expires(tmp_path, capture):
     ledger, publisher = mirror(tmp_path, capture)
+    configure_mirror(ledger, {"follow_withdrawals": True})
     cycle(ledger)
     assert _served(ledger, capture.identity)
     expiry = datetime.now(UTC) + timedelta(seconds=4)
     publisher.publish(version=2, manifest="b" * 64, expires=expiry)
     cycle(ledger)
-    assert ledger.read().models[capture.identity].withdrawn
+    advisory = ledger.read().models[capture.identity].withdrawal
+    assert advisory is not None
     time.sleep(max(0.0, (expiry - datetime.now(UTC)).total_seconds()) + 0.5)
-    # The withdrawing catalog is now stale: that is no reason to serve again.
+    # The withdrawing catalog is now stale: neither a relisting nor a reason
+    # to drop the advisory.
     cycle(ledger)
     from foxlight_model_preservation.discovery import list_sources
 
@@ -682,25 +784,26 @@ def test_withdrawal_persists_when_the_withdrawing_catalog_expires(tmp_path, capt
     assert status.freshness == "stale"
     restarted = MirrorLedger(ledger.path)
     cycle(restarted)
-    assert restarted.read().models[capture.identity].withdrawn
+    assert restarted.read().models[capture.identity].withdrawal == advisory
     assert not _served(restarted, capture.identity)
     assert not public(ledger.path, capture.identity).exists()
     # A current catalog listing it again resumes serving.
     publisher.publish(version=3)
     cycle(restarted)
-    assert not restarted.read().models[capture.identity].withdrawn
+    assert restarted.read().models[capture.identity].withdrawal is None
     assert _served(restarted, capture.identity)
 
 
-def test_operator_unwithdraw_resumes_serving_without_current_evidence(
-    tmp_path, capture
-):
+def test_acknowledgement_is_the_operators_per_copy_exception(tmp_path, capture):
     ledger, publisher = mirror(tmp_path, capture)
+    configure_mirror(ledger, {"follow_withdrawals": True})
     cycle(ledger)
+    with pytest.raises(PreservationError, match="no followed catalog"):
+        model_action(ledger, capture.identity, "acknowledge")
     publisher.publish(version=2, manifest="b" * 64)
     cycle(ledger)
-    assert ledger.read().models[capture.identity].withdrawn
-    shutil.rmtree(publisher.path)
+    assert not _served(ledger, capture.identity)
+    # The deprecated name still works, acknowledges, and says so.
     result = cli(
         "mirror",
         "unwithdraw",
@@ -710,11 +813,273 @@ def test_operator_unwithdraw_resumes_serving_without_current_evidence(
         capture.identity,
     )
     assert result.returncode == 0, result.stderr
-    assert not ledger.read().models[capture.identity].withdrawn
+    assert "acknowledge" in json.loads(result.stdout)["deprecated"]
+    advisory = ledger.read().models[capture.identity].withdrawal
+    assert advisory is not None and advisory.acknowledged
+    assert _served(ledger, capture.identity)
+    # Unlike the old unwithdraw, the next cycle does not undo the decision.
+    cycle(ledger)
+    assert ledger.read().models[capture.identity].withdrawal == advisory
+    assert _served(ledger, capture.identity)
+    # A relisting ends it; a later withdrawal is a new, unacknowledged advisory.
+    publisher.publish(version=3)
+    cycle(ledger)
+    publisher.publish(version=4, manifest="b" * 64)
+    cycle(ledger)
+    renewed = ledger.read().models[capture.identity].withdrawal
+    assert renewed is not None and not renewed.acknowledged
+    assert not _served(ledger, capture.identity)
+    result = cli(
+        "mirror",
+        "acknowledge",
+        "--dir",
+        str(ledger.path),
+        "--manifest",
+        capture.identity,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "deprecated" not in json.loads(result.stdout)
     assert _served(ledger, capture.identity)
 
 
-def test_one_source_budget_failure_does_not_delay_another_takedown(tmp_path, capture):
+def test_block_is_immediate_persistent_and_independent_of_catalogs(tmp_path, capture):
+    ledger, publisher = mirror(tmp_path, capture)
+    cycle(ledger)
+    publisher.publish(version=2, manifest="b" * 64)
+    cycle(ledger)
+    assert ledger.read().models[capture.identity].withdrawal is not None
+    grant_restart(ledger, int(time.time()) + 600)
+
+    def serve(target: MirrorLedger) -> tuple[threading.Thread, int]:
+        ready: queue.Queue[int] = queue.Queue()
+        thread = threading.Thread(
+            target=lambda: run_mirror(target, resume=True, ready=ready.put)
+        )
+        thread.start()
+        return thread, ready.get(timeout=10)
+
+    thread, port = serve(ledger)
+    try:
+        end = time.monotonic() + 10
+        while _get(port, capture.identity) != 200:
+            assert time.monotonic() < end
+            time.sleep(0.05)
+        # The operator acts on a notice: refused on the very next request.
+        result = cli(
+            "mirror",
+            "block",
+            "--dir",
+            str(ledger.path),
+            "--manifest",
+            capture.identity,
+        )
+        assert result.returncode == 0, result.stderr
+        assert _get(port, capture.identity) == 503
+    finally:
+        ledger.update(lambda s: s.model_copy(update={"paused": True}))
+        thread.join(30)
+    # Blocking is not policy: the standing grant still covers a restart.
+    restarted = MirrorLedger(ledger.path)
+    restarted.update(lambda s: s.model_copy(update={"paused": False}))
+    assert restarted.read().models[capture.identity].blocked
+    # Neither a relisting nor an acknowledgement unblocks it.
+    publisher.publish(version=3)
+    cycle(restarted)
+    assert restarted.read().models[capture.identity].withdrawal is None
+    assert restarted.read().models[capture.identity].blocked
+    thread, port = serve(restarted)
+    try:
+        end = time.monotonic() + 10
+        while public(ledger.path, capture.identity).exists():
+            assert time.monotonic() < end
+            time.sleep(0.05)
+        assert _get(port, capture.identity) != 200
+    finally:
+        restarted.update(lambda s: s.model_copy(update={"paused": True}))
+        thread.join(30)
+    assert not _served(restarted, capture.identity)
+
+
+def _legacy(ledger: MirrorLedger, identity: str) -> None:
+    """Rewrite the ledger as an earlier release recorded a withdrawal."""
+    path = ledger.path / "mirror.json"
+    value = json.loads(path.read_bytes())
+    value["models"][identity].pop("withdrawal", None)
+    value["models"][identity]["withdrawn"] = True
+    path.write_bytes(json.dumps(value, sort_keys=True).encode())
+
+
+def test_upgrade_reads_old_withdrawn_receipts_as_advisories(tmp_path, capture, caplog):
+    ledger, publisher = mirror(tmp_path, capture)
+    cycle(ledger)
+    publisher.publish(version=2, manifest="b" * 64)
+    _legacy(ledger, capture.identity)
+    upgraded = MirrorLedger(ledger.path)
+    assert upgraded.legacy_withdrawals() == (capture.identity,)
+    held = upgraded.read().models[capture.identity]
+    # Old ledgers stay readable; the facts an old release never kept are unknown.
+    assert held.withdrawal is not None and held.withdrawal.observed_at is None
+    assert held.withdrawal.source_id == held.source_id
+    (shown,) = _status(upgraded)["withdrawal_advisories"]
+    assert shown["serving_withheld"] is False and shown["observed_at"] is None
+    # Reading (status) converts nothing on disk.
+    assert upgraded.legacy_withdrawals() == (capture.identity,)
+    granted = policy_id(upgraded.read())
+    caplog.set_level("WARNING", logger="foxlight_model_preservation.mirror_state")
+    ready: queue.Queue[int] = queue.Queue()
+    thread = threading.Thread(
+        target=lambda: run_mirror(upgraded, public=True, seconds=60, ready=ready.put)
+    )
+    thread.start()
+    try:
+        port = ready.get(timeout=10)
+        end = time.monotonic() + 10
+        while _get(port, capture.identity) != 200:
+            assert time.monotonic() < end
+            time.sleep(0.05)
+    finally:
+        upgraded.update(lambda s: s.model_copy(update={"paused": True}))
+        thread.join(30)
+    (record,) = [r for r in caplog.records if "advisory" in r.getMessage()]
+    message = record.getMessage()
+    assert "served again" in message and capture.identity in message
+    assert "mirror block" in message and "--follow-withdrawals on" in message
+    # Converted once: the ledger now holds the advisory form, and the receipt
+    # rewrite did not change policy identity.
+    raw = (ledger.path / "mirror.json").read_bytes()
+    assert b'"withdrawn"' not in raw and b'"withdrawal"' in raw
+    assert upgraded.legacy_withdrawals() == ()
+    assert policy_id(upgraded.read()) == granted
+    # A cycle fills in the withdrawing catalog it can now see.
+    upgraded.update(lambda s: s.model_copy(update={"paused": False}))
+    cycle(upgraded)
+    advisory = upgraded.read().models[capture.identity].withdrawal
+    assert advisory is not None and advisory.observed_at is not None
+    assert advisory.catalog_id is not None
+    # Two receipts for one selection are ambiguous: refused, not guessed.
+    value = json.loads(raw)
+    value["models"][capture.identity]["withdrawn"] = True
+    (ledger.path / "mirror.json").write_bytes(json.dumps(value).encode())
+    with pytest.raises(ValueError, match="two withdrawal receipts"):
+        MirrorLedger(ledger.path)
+
+
+def test_upgrade_with_followed_withdrawals_keeps_old_copies_withheld(
+    tmp_path, capture, caplog
+):
+    ledger, publisher = mirror(tmp_path, capture)
+    configure_mirror(ledger, {"follow_withdrawals": True})
+    cycle(ledger)
+    _legacy(ledger, capture.identity)
+    caplog.set_level("WARNING", logger="foxlight_model_preservation.mirror_state")
+    upgraded = MirrorLedger(ledger.path)
+    # Whatever writes first after upgrade converts and logs, e.g. a CLI action.
+    result = cli(
+        "mirror",
+        "grant-resume",
+        "--dir",
+        str(ledger.path),
+        "--for",
+        "1d",
+        "--confirm-resume",
+    )
+    assert result.returncode == 0, result.stderr
+    assert "still withheld" in result.stderr and capture.identity in result.stderr
+    assert upgraded.legacy_withdrawals() == ()
+    assert mirror_module.convert_legacy_withdrawals(upgraded) == ()
+    assert not caplog.records
+    _legacy(ledger, capture.identity)
+    assert mirror_module.convert_legacy_withdrawals(upgraded) == (capture.identity,)
+    (record,) = caplog.records
+    assert "still withheld" in record.getMessage()
+    assert not _served(upgraded, capture.identity)
+
+
+def test_withdrawn_entry_is_not_newly_admitted(tmp_path, capture):
+    ledger, publisher = mirror(tmp_path, capture)
+    cycle(ledger)
+    publisher.publish(version=2, manifest="b" * 64)
+    # A mirror that never held it follows the same publisher after withdrawal.
+    late = MirrorLedger.initialize(
+        tmp_path / "late",
+        name="Late mirror",
+        disk_bytes=2 * 1024**3,
+        ingress_daily=10 * 1024**3,
+        egress_daily=1024**3,
+        egress_monthly=10 * 1024**3,
+        port=0,
+    )
+    bootstrap = publisher.bootstrap()
+    follow(
+        late,
+        encode_record(bootstrap),
+        bootstrap_identity(bootstrap),
+        next(iter(ledger.read().sources.values())),
+    )
+    cycle(late)
+    cycle(ledger)
+    # Discovery is unchanged: the withdrawn entry is not admitted anew ...
+    assert capture.identity not in late.read().models
+    assert not (late.path / "store" / manifest_path(capture.identity)).exists()
+    # ... while the mirror that already held it keeps serving its own copy.
+    assert ledger.read().models[capture.identity].withdrawal is not None
+    assert _served(ledger, capture.identity)
+
+
+def test_withdrawn_pending_selection_is_not_fetched(tmp_path, capture):
+    ledger, publisher = mirror(tmp_path, capture)
+    # Selected but not yet retained (no bytes): a withdrawal stops the intake.
+    now = time.gmtime()
+    ledger.update(
+        lambda s: s.model_copy(
+            update={
+                "ingress_used": s.ingress_daily - 40 * 1024**2,
+                "day": time.strftime("%Y-%m-%d", now),
+                "month": time.strftime("%Y-%m", now),
+            }
+        )
+    )
+    cycle(ledger)
+    held = ledger.read().models[capture.identity]
+    assert held.state == "pending" and held.deferred is not None
+    ledger.update(lambda s: s.model_copy(update={"ingress_used": 0}))
+    publisher.publish(version=2, manifest="b" * 64)
+    cycle(ledger)
+    held = ledger.read().models[capture.identity]
+    assert held.state == "pending" and held.withdrawal is not None
+    assert not (ledger.path / "store" / manifest_path(capture.identity)).exists()
+    assert not _served(ledger, capture.identity)
+
+
+def test_native_transports_follow_the_same_withdrawal_rule(tmp_path, capture):
+    from foxlight_model_preservation.mirror_native import NativeMirrors
+
+    ledger, publisher = mirror(tmp_path, capture)
+    cycle(ledger)
+    native = NativeMirrors(ledger, lambda _state: True)
+    assert native._allowed(ledger.read(), capture.identity)
+    publisher.publish(version=2, manifest="b" * 64)
+    cycle(ledger)
+    # Advisory by default: IPFS/BitTorrent keep serving the retained copy.
+    assert native._allowed(ledger.read(), capture.identity)
+    configure_mirror(ledger, {"follow_withdrawals": True})
+    assert not native._allowed(ledger.read(), capture.identity)
+    model_action(ledger, capture.identity, "acknowledge")
+    assert native._allowed(ledger.read(), capture.identity)
+    model_action(ledger, capture.identity, "block")
+    assert not native._allowed(ledger.read(), capture.identity)
+    model_action(ledger, capture.identity, "unblock")
+    publisher.publish(version=3)
+    cycle(ledger)
+    publisher.publish(version=4, manifest="b" * 64)
+    cycle(ledger)
+    assert not native._allowed(ledger.read(), capture.identity)
+    publisher.publish(version=5)
+    cycle(ledger)
+    assert native._allowed(ledger.read(), capture.identity)
+
+
+def test_one_source_budget_failure_does_not_delay_another_withdrawal(tmp_path, capture):
     from foxlight_model_preservation.discovery import source_identity
 
     # Sources refresh in identity order, so the withdrawing source must sort
@@ -744,6 +1109,7 @@ def test_one_source_budget_failure_does_not_delay_another_takedown(tmp_path, cap
         bootstrap_identity(bootstrap),
         next(iter(ledger.read().sources.values())),
     )
+    configure_mirror(ledger, {"follow_withdrawals": True})
     cycle(ledger)
     assert _served(ledger, capture.identity)
     publisher.publish(version=2, manifest="b" * 64)
@@ -753,7 +1119,7 @@ def test_one_source_budget_failure_does_not_delay_another_takedown(tmp_path, cap
     )
     with pytest.raises(PreservationError, match="ingress"):
         cycle(ledger)
-    assert ledger.read().models[capture.identity].withdrawn
+    assert ledger.read().models[capture.identity].withdrawal is not None
     assert not _served(ledger, capture.identity)
 
 
@@ -907,9 +1273,11 @@ def test_card_renews_when_reconcile_is_budget_blocked(tmp_path, capture, withdra
     ledger, publisher = mirror(tmp_path, capture)
     cycle(ledger)
     if withdrawn:
+        # Only the operator's choice to follow withdrawals withholds it.
+        configure_mirror(ledger, {"follow_withdrawals": True})
         publisher.publish(version=2, manifest="b" * 64)
         cycle(ledger)
-        assert ledger.read().models[capture.identity].withdrawn
+        assert ledger.read().models[capture.identity].withdrawal is not None
     configure_mirror(
         ledger, {"announce": AnnouncePolicy(public_url="https://m.example")}
     )
@@ -928,7 +1296,7 @@ def test_card_renews_when_reconcile_is_budget_blocked(tmp_path, capture, withdra
             time.sleep(0.1)
         cards = read_peers((ledger.path / "peers.json").read_bytes())
         if withdrawn:
-            # A taken-down model never appears in the card: no card at all.
+            # A withheld model never appears in the card: no card at all.
             assert cards == []
             assert not public(ledger.path, capture.identity).exists()
         else:
@@ -1571,3 +1939,107 @@ def test_owner_only_paths_are_kept(tmp_path, capture):
     )
     Announcer(ledger).publish(frozenset())
     assert not os.stat(ledger.path / "peers.json").st_mode & 0o077
+
+
+# Withdrawal advisories with intake, quickstart and all-or-nothing config ---------
+
+
+def test_withheld_or_blocked_copy_stays_unserved_whatever_the_advisory(
+    tmp_path, capture
+):
+    from foxlight_model_preservation.mirror import configure_intake, withhold
+    from foxlight_model_preservation.mirror_models import IntakePolicy
+    from foxlight_model_preservation.mirror_native import NativeMirrors
+
+    ledger, publisher = mirror(tmp_path, capture)
+    cycle(ledger)
+    configure_intake(
+        ledger, IntakePolicy(share="chosen", licenses=("test-only",), definition=1)
+    )
+    withhold(ledger, capture.identity, withheld=True)
+    publisher.publish(version=2, manifest="b" * 64)
+    cycle(ledger)
+    model_action(ledger, capture.identity, "acknowledge")
+    native = NativeMirrors(ledger, lambda _state: True)
+    for following in (False, True):
+        configure_mirror(ledger, {"follow_withdrawals": following})
+        held = ledger.read().models[capture.identity]
+        assert held.blocked and held.withdrawal is not None
+        assert held.withdrawal.acknowledged
+        assert not _served(ledger, capture.identity)
+        assert not native._allowed(ledger.read(), capture.identity)
+    # Releasing it (the owner's choice) serves the acknowledged copy again.
+    withhold(ledger, capture.identity, withheld=False)
+    assert _served(ledger, capture.identity)
+    assert native._allowed(ledger.read(), capture.identity)
+
+
+def test_quickstart_reviews_preflights_and_keeps_follow_withdrawals(tmp_path, capture):
+    path = collection(tmp_path, capture)
+    loaded, document = load_collection(path)
+    text, summary = review(loaded, document, settings())
+    assert "withdrawal is advisory" in text and summary["follow_withdrawals"] is False
+    text, summary = review(loaded, document, settings(follow_withdrawals=True))
+    assert "withdrawal is followed (your choice)" in text
+    assert summary["follow_withdrawals"] is True
+    target = tmp_path / "quick"
+    apply_quickstart(target, loaded, document, settings(), consented=True)
+    assert not MirrorLedger(target).read().follow_withdrawals
+    # A refused quickstart (disk below what is retained) writes nothing,
+    # including the withdrawal choice.
+    other, other_document = load_collection(collection(tmp_path, capture))
+    before = (target / "mirror.json").read_bytes()
+    tight = settings(disk_bytes=HEADROOM + 1, max_bytes=1024, follow_withdrawals=True)
+    with pytest.raises(PreservationError, match="disk admission"):
+        apply_quickstart(target, other, other_document, tight, consented=True)
+    assert (target / "mirror.json").read_bytes() == before
+    # Choosing it is reviewed policy: the grant is renewed for the new policy.
+    _ledger, receipt = apply_quickstart(
+        target, loaded, document, settings(follow_withdrawals=True), consented=True
+    )
+    state = MirrorLedger(target).read()
+    assert receipt["policy_changed"] and state.follow_withdrawals
+    assert restart_allowed(state)
+    # The CLI keeps an existing mirror's choice unless one is given.
+    base = (
+        "mirror",
+        "quickstart",
+        "--dir",
+        str(target),
+        "--collection",
+        str(path),
+        "--name",
+        "Quick",
+        "--disk-bytes",
+        "2G",
+        "--ingress-daily",
+        "1G",
+        "--egress-daily",
+        "1G",
+        "--egress-monthly",
+        "8G",
+    )
+    kept = cli(*base, "--plan-only")
+    assert kept.returncode == 0, kept.stderr
+    assert json.loads(kept.stdout)["review"]["follow_withdrawals"] is True
+    off = cli(*base, "--follow-withdrawals", "off", "--yes-i-consent-to-public-serving")
+    assert off.returncode == 0, off.stderr
+    assert not MirrorLedger(target).read().follow_withdrawals
+
+
+def test_config_validates_follow_withdrawals_with_everything_else(tmp_path, capture):
+    ledger, _ = mirror(tmp_path, capture)
+    before = (ledger.path / "mirror.json").read_bytes()
+    refused = cli(
+        "mirror",
+        "config",
+        "--dir",
+        str(ledger.path),
+        "--follow-withdrawals",
+        "on",
+        "--serve-start",
+        "25",
+    )
+    assert refused.returncode != 0
+    assert (ledger.path / "mirror.json").read_bytes() == before
+    assert not ledger.read().follow_withdrawals

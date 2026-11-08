@@ -152,6 +152,8 @@ class QuickstartSettings:
     announce: AnnouncePolicy | None = None
     resume_seconds: int = 180 * 86400
     max_bytes: int | None = None
+    # The operator's choice; never a publisher's. Off: withdrawal is advisory.
+    follow_withdrawals: bool = False
 
 
 def model_limit(collection: MirrorCollection, settings: QuickstartSettings) -> int:
@@ -261,8 +263,20 @@ def review(
             if announce
             else []
         ),
-        "Not exposed: private keys, the ledger, partial or unverified bytes,",
-        "  blocked models and models withdrawn from every followed catalog.",
+        "Not exposed: private keys, the ledger, partial or unverified bytes",
+        "  and models you block.",
+        *(
+            [
+                "Catalog withdrawal is followed (your choice): a copy a followed",
+                "  catalog stops listing stops being served until it is relisted.",
+            ]
+            if settings.follow_withdrawals
+            else [
+                "Catalog withdrawal is advisory: a copy a publisher stops listing",
+                "  keeps serving and is flagged in status. You decide; block it to",
+                "  stop serving.",
+            ]
+        ),
     ]
     if warnings:
         lines += ["", "Warnings:", *("  ! " + item for item in warnings)]
@@ -280,6 +294,7 @@ def review(
         "bind": settings.bind,
         "port": settings.port,
         "announce": announce.model_dump(mode="json") if announce else None,
+        "follow_withdrawals": settings.follow_withdrawals,
         "restart_expires": expires,
         "warnings": list(warnings),
         "anonymous": False,
@@ -364,6 +379,7 @@ def apply_quickstart(
         "bind": settings.bind,
         "port": settings.port,
         "announce": settings.announce,
+        "follow_withdrawals": settings.follow_withdrawals,
     }
     grant = SourceGrant(
         trust=collection.trust,

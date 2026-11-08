@@ -410,12 +410,18 @@ def test_router_loss_stops_owned_session_and_keeps_inputs(
         except BaseException as error:
             failures.append(error)
 
+    def connected():
+        # Surface an early host failure instead of waiting out the bound.
+        if failures:
+            raise failures[0]
+        current = native_status(profile)
+        return current if current.connected else None
+
     worker = threading.Thread(target=host)
     worker.start()
     try:
-        status = wait_until(
-            lambda: s if (s := native_status(profile)).connected else None, seconds=60
-        )
+        # Joining the private network can take as long as in the transfer test.
+        status = wait_until(connected, seconds=150)
         # Allow the Python observer to see the connected state before router loss.
         time.sleep(0.5)
         native_network[3][7].kill()

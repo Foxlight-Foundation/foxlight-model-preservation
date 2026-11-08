@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import fcntl
+import json
+import logging
 import os
 import secrets
 import stat
@@ -12,7 +14,9 @@ from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TypeVar
+from typing import TypeVar, cast
+
+from pydantic import JsonValue
 
 from .licences import licence_status
 from .mirror_models import (
@@ -31,6 +35,7 @@ T = TypeVar("T")
 MAX_STATE = 16 * 1024**2
 HEADROOM = 256 * 1024**2
 DIRECTORIES = (".", "store", "public", "discovery", "scratch")
+LOG = logging.getLogger(__name__)
 
 
 def encode_state(state: MirrorState) -> bytes:
@@ -42,10 +47,12 @@ def encode_state(state: MirrorState) -> bytes:
     for held in value["models"].values():
         if held.get("deferred") is None:
             held.pop("deferred", None)
-        if held.get("withdrawn") is False:
-            held.pop("withdrawn", None)
+        if held.get("withdrawal") is None:
+            held.pop("withdrawal", None)
     if state.announce is None:
         value.pop("announce")
+    if not state.follow_withdrawals:
+        value.pop("follow_withdrawals")
     if state.intake is None:
         value.pop("intake")
     if not reached(state.schema_version, "foxlight.mirror-state.v5"):
@@ -63,6 +70,69 @@ def encode_state(state: MirrorState) -> bytes:
     from .signing import canonical_bytes
 
     return canonical_bytes(value)
+
+
+def _legacy_withdrawn(value: JsonValue) -> dict[str, dict[str, JsonValue]]:
+    """Find selections carrying an earlier release's ``withdrawn`` receipt."""
+    models = value.get("models") if isinstance(value, dict) else None
+    if not isinstance(models, dict):
+        return {}
+    return {
+        identity: cast(dict[str, JsonValue], held)
+        for identity, held in models.items()
+        if isinstance(held, dict) and "withdrawn" in held
+    }
+
+
+def decode_state(raw: bytes) -> tuple[MirrorState, tuple[str, ...]]:
+    """Parse a bounded ledger, reading older ``withdrawn`` receipts as advisories.
+
+    Earlier releases recorded ``withdrawn: true`` and stopped serving the copy.
+    It is read as a withdrawal advisory whose source is the selection's own
+    and whose catalog and time are unknown. Serving then follows the current
+    rule: advisory unless the operator follows withdrawals. The next write
+    stores the advisory form, which those releases refuse as an unknown field.
+    Also returns the selections such a receipt had withheld from serving.
+    """
+    value = strict_json(raw, maximum_bytes=MAX_STATE)
+    legacy = _legacy_withdrawn(value)
+    withheld = tuple(
+        sorted(
+            identity
+            for identity, held in legacy.items()
+            if held.get("withdrawn") is True
+        )
+    )
+    for held in legacy.values():
+        withdrawn = held.pop("withdrawn")
+        if withdrawn is True:
+            if held.get("withdrawal") is not None:
+                raise PreservationError("selection has two withdrawal receipts")
+            held["withdrawal"] = {"source_id": held.get("source_id")}
+        elif withdrawn is not False:
+            raise PreservationError("legacy withdrawal receipt must be a boolean")
+    if legacy:
+        raw = json.dumps(value).encode()
+    return MirrorState.model_validate_json(raw), withheld
+
+
+def _log_conversion(path: Path, state: MirrorState, legacy: tuple[str, ...]) -> None:
+    """Say, once, what reading old withdrawn receipts as advisories changes."""
+    LOG.warning(
+        "Catalog withdrawal is now advisory: a publisher's catalog cannot take "
+        "down this mirror's copies. %d copies an earlier release stopped serving "
+        "because a followed catalog withdrew them are %s: %s. To stop serving "
+        "one, run 'model-preserve mirror block --dir %s --manifest <id>'; to "
+        "stop serving withdrawn copies automatically, run 'model-preserve mirror "
+        "config --dir %s --follow-withdrawals on'.",
+        len(legacy),
+        "still withheld (follow-withdrawals is on)"
+        if state.follow_withdrawals
+        else "served again",
+        ", ".join(legacy),
+        path,
+        path,
+    )
 
 
 # One in-process lock per ledger directory, shared by every MirrorLedger made
@@ -153,10 +223,11 @@ class MirrorLedger:
 
     def read(self) -> MirrorState:
         """Read offline state without connecting, serving or granting authority."""
+        return self._read()[0]
+
+    def _read(self) -> tuple[MirrorState, tuple[str, ...]]:
         with self._mutex, self.root() as root, open_file(root, "mirror.json") as stream:
-            raw = stream.read(MAX_STATE + 1)
-            strict_json(raw, maximum_bytes=MAX_STATE)
-            state = MirrorState.model_validate_json(raw)
+            state, legacy = decode_state(stream.read(MAX_STATE + 1))
             if hasattr(self, "_identity") and state.identity != self._identity:
                 raise PreservationError("mirror identity changed")
             # Check disk identities even on the first open after process restart.
@@ -168,18 +239,30 @@ class MirrorLedger:
                     raise PreservationError("mirror directory identity changed")
             if set(state.identity) != set(DIRECTORIES):
                 raise PreservationError("incomplete mirror directory identities")
-            return state
+            return state, legacy
+
+    def legacy_withdrawals(self) -> tuple[str, ...]:
+        """List selections an earlier release recorded as withdrawn (unserved).
+
+        Such receipts are read as advisories, so those copies serve again under
+        the default policy. The first write stores the advisory form and logs
+        what changed, so this is empty after it.
+        """
+        return self._read()[1]
 
     def update(self, action: Callable[[MirrorState], MirrorState]) -> MirrorState:
         """Fsync a complete transaction; contention refuses safely."""
         with self._mutex, self.root() as root, writer_lock(root):
+            current, legacy = self._read()
             state = MirrorState.model_validate(
-                upgrade_profile(action(self.read())).model_dump()
+                upgrade_profile(action(current)).model_dump()
             )
             raw = encode_state(state)
             if len(raw) > MAX_STATE:
                 raise PreservationError("mirror state exceeds its bound")
             atomic_bytes(root, "mirror.json", raw)
+            if legacy:
+                _log_conversion(self.path, state, legacy)
             return state
 
     @contextmanager
@@ -340,6 +423,22 @@ def serving_hour(state: MirrorState, hour: int) -> bool:
     return a == b or (a <= hour < b if a < b else hour >= a or hour < b)
 
 
+def withdrawal_withholds(state: MirrorState, held: HeldModel) -> bool:
+    """Whether a catalog withdrawal stops serving this copy: only by operator choice.
+
+    Withdrawal is advisory unless the operator turned on ``follow_withdrawals``;
+    even then, a copy whose advisory the operator acknowledged keeps serving.
+    Blocking (including withheld copies, which are always blocked) is the
+    operator's separate, unconditional serving control; no advisory or
+    acknowledgement overrides it.
+    """
+    return bool(
+        state.follow_withdrawals
+        and held.withdrawal is not None
+        and not held.withdrawal.acknowledged
+    )
+
+
 def intake_covers(state: MirrorState, held: HeldModel) -> bool:
     """Whether the standing intake policy already covers one local selection.
 
@@ -388,7 +487,7 @@ def policy_id(state: MirrorState) -> str:
                                 "error": None,
                                 "verified_at": None,
                                 "deferred": None,
-                                "withdrawn": False,
+                                "withdrawal": None,
                             }
                         )
                         for identity, held in state.models.items()

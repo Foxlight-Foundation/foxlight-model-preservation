@@ -46,6 +46,8 @@ services:
       # existing mirror keeps the caps it has. "none" removes them.
       SOVEREIGN_MIRROR_EGRESS_DAILY: ${SOVEREIGN_MIRROR_EGRESS_DAILY:-}
       SOVEREIGN_MIRROR_EGRESS_MONTHLY: ${SOVEREIGN_MIRROR_EGRESS_MONTHLY:-}
+      # Catalog withdrawal is advisory unless you choose "on"; empty keeps it.
+      SOVEREIGN_MIRROR_FOLLOW_WITHDRAWALS: ${SOVEREIGN_MIRROR_FOLLOW_WITHDRAWALS:-}
       SOVEREIGN_MIRROR_GRANT: ${SOVEREIGN_MIRROR_GRANT:-180d}
       SOVEREIGN_MIRROR_COLLECTION: /config/collection.json
       SOVEREIGN_MIRROR_CONSENT: ${SOVEREIGN_MIRROR_CONSENT:-}

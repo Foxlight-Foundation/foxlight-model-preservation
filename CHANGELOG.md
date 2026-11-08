@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- Catalog withdrawal is now advisory: no catalog publisher, Foxlight
+  included, can take down a mirror's copies. Catalogs are discovery, not
+  authority. When a followed catalog stops listing a retained copy, the mirror
+  keeps serving it. It records which source withdrew it, the exact catalog ID
+  and when, and `mirror status` lists it under `withdrawal_advisories` with the
+  `mirror block` command for that copy. Takedown stays with each operator:
+  `mirror block` is immediate and persistent. `mirror config
+  --follow-withdrawals on` (also on `mirror quickstart` and
+  `SOVEREIGN_MIRROR_FOLLOW_WITHDRAWALS` in the container) is an opt-in, off by default, that restores the
+  previous behaviour with its safeguards. It is reviewed policy and clears the
+  restart grant. The new `mirror acknowledge` records that you reviewed an
+  advisory, and that copy then keeps serving even with following on.
+  `mirror unwithdraw` is a deprecated alias. Discovery is unchanged: a
+  withdrawn entry is not newly admitted or fetched. **Upgrade:** a ledger's old
+  `withdrawn: true` receipts are read as advisories, so those copies serve
+  again unless you block them or follow withdrawals. The first write after
+  upgrade stores the new form and logs a warning listing them. Earlier releases
+  refuse a ledger with an advisory or the setting.
+
 - Licences come in one canonical, versioned family definition
   (`foxlight_model_preservation.licences`, `licence_families_v1.json`). The
   defaults follow Hugging Face: Permissive, Attribution, Copyleft, Responsible
