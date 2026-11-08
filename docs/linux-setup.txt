@@ -1,4 +1,4 @@
-Sovereign guided Linux APT setup 0.1.3
+Sovereign guided Linux APT setup 0.1.4
 
 APT-based Linux desktop, 64-bit Intel/AMD or ARM, Python 3.11+. No Skulk, account or GPU required.
 
@@ -33,7 +33,7 @@ on another drive so you can recover even if the original machine disappears.
 
 For an additional independent provenance check with GitHub CLI, download all
 four release files, verify SHA256SUMS, then:
-gh attestation verify Install-Sovereign.py --repo Foxlight-Foundation/foxlight-model-preservation --bundle linux-setup.sigstore.json --signer-workflow Foxlight-Foundation/foxlight-model-preservation/.github/workflows/linux-setup-release.yml --source-ref refs/tags/sovereign-setup-v0.1.3 --deny-self-hosted-runners
+gh attestation verify Install-Sovereign.py --repo Foxlight-Foundation/foxlight-model-preservation --bundle linux-setup.sigstore.json --signer-workflow Foxlight-Foundation/foxlight-model-preservation/.github/workflows/linux-setup-release.yml --source-ref refs/tags/sovereign-setup-v0.1.4 --deny-self-hosted-runners
 
 Installer signing, software archive signing, and model provenance are separate.
 Installing the app grants no trust to a model, publisher or capture key.
