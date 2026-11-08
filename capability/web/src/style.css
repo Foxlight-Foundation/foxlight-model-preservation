@@ -138,7 +138,7 @@ h1:focus,h2:focus {outline:none;}
 .sk-count {display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:1px 7px;border-radius:var(--radius-pill);background:var(--foxlight);color:var(--on-foxlight);font:600 11px/1 var(--sans);text-shadow:none;}
 .sk-nav-item:not([aria-current="page"]) .sk-count {min-width:7px;width:7px;height:7px;padding:0;font-size:0;color:transparent;box-shadow:0 0 8px var(--foxlight);}
 .sk-header-actions {justify-self:end;display:flex;align-items:center;gap:4px;}
-.sk-header-actions > .sk-btn {color:var(--text-3);font-weight:600;text-shadow:var(--shadow-text);}
+.sk-header-actions > .sk-btn {color:var(--text-3);font-weight:600;text-shadow:var(--shadow-text);white-space:nowrap;}
 .sk-header-actions > .sk-btn:hover {color:var(--text-1);}
 .sk-header-actions > .sk-btn .sk-icon {display:none;}
 .sk-header-actions > .sk-btn:focus-within {outline:2px solid var(--starlight);outline-offset:2px;}

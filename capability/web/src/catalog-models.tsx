@@ -3,6 +3,11 @@ import {bytes} from './client';
 import {ModelInformation,modalityLabels,type ModelDetails} from './model-info';
 import {Details,Help,Mono} from './ui';
 
+/** Which everyday apps can open a file format, in plain words. */
+export function formatHint(format:string):string|null {
+  return ({mlx:'For Macs with Apple silicon (M1 or newer), in apps such as LM Studio.',gguf:'For apps such as LM Studio, Ollama and Jan, on most computers.'} as Record<string,string>)[format.toLowerCase()]??null;
+}
+
 export interface CatalogListing {details?:ModelDetails;download_support?:string;selection?:string;file_label?:string|null;publisher?:string;card_id:string;name:string;format:string;quantization:string;size_bytes:number|null;workloads:string[];complete_file_map:boolean}
 
 const sentence=(items:string[]|undefined)=>{const words=(items??[]).filter(item=>Object.hasOwn(modalityLabels,item)).map(item=>modalityLabels[item]).join(', ');return words?words[0].toUpperCase()+words.slice(1):'';};
@@ -26,8 +31,8 @@ export function CatalogModels({models,busy,onReview,explainError}:{models:Catalo
     const first=variants[0],multiple=variants.length>1;
     const sizes=variants.map(model=>model.size_bytes).filter((size):size is number=>size!=null&&size>0);
     const choices=<div className="sk-variants">{variants.map(model=><section className="sk-variant" key={model.card_id} aria-label={`${model.format} ${model.quantization} version`}>
-        <div className="sk-variant-heading"><h3>{model.format.toUpperCase()}{model.quantization&&` · ${model.quantization}`} <Help label="About this file variant">This is the file format and weight-precision label from the card. Use a variant supported by your model app. Smaller files are not a guarantee that the model will run on your device.</Help></h3><span className="sk-meta">{model.size_bytes?`${bytes(model.size_bytes)} ${model.download_support==='ready'?'complete download':'listed files'}`:'Size not listed'}</span></div>
-        {model.file_label&&<p className="sk-hint sk-wrap">{model.file_label}</p>}
+        <div className="sk-variant-heading"><h3>{model.format.toUpperCase()}{model.quantization&&` · ${model.quantization}`} <Help label="About this file version">The first part is the file format; the second is how tightly the model is compressed. Smaller files need less space, but a small file doesn’t guarantee the model runs on your computer.</Help></h3><span className="sk-meta">{model.size_bytes?`${bytes(model.size_bytes)} ${model.download_support==='ready'?'complete download':'listed files'}`:'Size not listed'}</span></div>
+        {formatHint(model.format)&&<p className="sk-hint">{formatHint(model.format)}</p>}{model.file_label&&<p className="sk-hint sk-wrap">{model.file_label}</p>}
         <p className="sk-hint">Required companion files and the complete total are shown before you download. <Help label="About download size">File size is storage space, not the memory needed to run the model. The final review includes required companion files.</Help></p>
         <div className="sk-actions"><button className="sk-btn sk-solid" disabled={busy||Boolean(model.download_support&&model.download_support!=='ready')} onClick={()=>onReview(model)}>Keep a copy</button>{model.download_support&&model.download_support!=='ready'&&<p className="sk-hint">{explainError(model.download_support)}</p>}</div>
         <Details summary="Verification details"><p>This listing was authenticated against Foxlight’s saved catalog. That checks where the card came from; it does not rate model quality or prove it will run on your device.</p><Mono value={model.card_id} label="card identity"/><p>Keep this fingerprint when you need to compare the exact card with a trusted source. The complete download is reviewed separately.</p></Details>

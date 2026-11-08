@@ -6,6 +6,19 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Plainer first-time wording. The save review is titled "Keep a copy",
+  explains checking and privacy without jargon, and says why saving briefly
+  needs extra free space. Choosing Keep a copy is the confirmation: the
+  separate "Proceed with this exact private selection" box is gone (kept only
+  for an older historical selection). Each file version says which apps can
+  open it ("For Macs with Apple silicon…", "For apps such as LM Studio, Ollama
+  and Jan…"). Getting started is rewritten in plain words. Smaller fixes: the
+  search placeholders fit, file-opening buttons share one name ("Open a
+  sharing file", "Open a recovery kit"), the header button stays on one line,
+  Activity no longer repeats a job's name, the Library match count is
+  grammatical and only shown while searching, and Sharing explains the
+  licence choice without "your list" or protocol names.
+
 - Find is clearer for newcomers. Getting listings shows a loader instead of a
   silent wait, and the leftover "Listing update started" notice is gone.
   Browsing without a search lists saveable chat models first. The

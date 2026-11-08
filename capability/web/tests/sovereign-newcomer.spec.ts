@@ -16,17 +16,17 @@ test('first-launch choices and help start no network job or trust grant',async({
   page.on('request',r=>{if(/\/api\/desktop-(start|refresh|plan|source-follow|sharing-review)/.test(r.url()))effects.push(r.url());});
   await page.goto('/');
   await expect(page.getByRole('heading',{name:'What would you like to do?',exact:true})).toBeVisible();
-  await expect(page.getByRole('button',{name:'Choose a recovery kit',exact:true})).toBeVisible();
-  await expect(page.getByRole('button',{name:'Choose a sharing file',exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Open a recovery kit',exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Open a sharing file',exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Getting started',exact:true}).click();
   await expect(page.getByRole('heading',{name:'Your model, kept safe',exact:true})).toBeVisible();
-  await expect(page.getByText('Software signing, model verification and permission to run code are separate.',{exact:false})).toBeVisible();
+  await expect(page.getByText('Sovereign doesn’t run models. It keeps and restores their files.',{exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Close getting started'}).click();
   expect(effects).toEqual([]);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
 });
 
-for(const [button,input] of [['Choose a recovery kit','Open recovery kit'],['Choose a sharing file','Open sharing file']])test(`${button} reaches the existing native file choice without a job`,async({page})=>{
+for(const [button,input] of [['Open a recovery kit','Open recovery kit'],['Open a sharing file','Open sharing file']])test(`${button} reaches the existing native file choice without a job`,async({page})=>{
   await page.goto('/');
   const chooser=page.waitForEvent('filechooser');
   await page.getByRole('button',{name:button,exact:true}).click();
@@ -74,27 +74,26 @@ test('low working space is explained before an explicit download can start',asyn
   await page.route('**/api/desktop-plan',r=>r.fulfill({json:{plan_id:id,kind:'receive',name:copy.name,size_bytes:1024,required_free_bytes:4096,free_bytes:2048,expires_at:9999999999}}));
   await page.route('**/api/desktop-start',r=>{starts++;return r.fulfill({json:{}});});
   await page.goto('/');await page.getByRole('button',{name:'Keep a copy',exact:true}).click();
-  await expect(page.getByText('Free space needed during download',{exact:true})).toBeVisible();
+  await expect(page.getByText('Free space needed while saving',{exact:true})).toBeVisible();
   await expect(page.getByText('There is not enough working space on this device.',{exact:false})).toBeVisible();
-  await page.getByLabel('Proceed with this exact private selection.',{exact:true}).check();
-  await expect(page.getByRole('button',{name:'Download & preserve',exact:true})).toBeDisabled();expect(starts).toBe(0);
+  await expect(page.getByRole('dialog').getByRole('button',{name:'Keep a copy',exact:true})).toBeDisabled();expect(starts).toBe(0);
 });
 
 test('Getting started covers the active review and closing it preserves consent',async({page})=>{
   const model={card_id:'card_'+ 'c'.repeat(52),name:copy.name,format:'gguf',quantization:'Q4',size_bytes:1024,workloads:['TextGeneration'],complete_file_map:true};
   await page.route('**/api/desktop-search',r=>r.fulfill({json:{catalog_id:id,results:[model],total:1,next_offset:null}}));
-  await page.route('**/api/desktop-plan',r=>r.fulfill({json:{plan_id:id,kind:'receive',name:copy.name,size_bytes:1024,expires_at:9999999999}}));
+  await page.route('**/api/desktop-plan',r=>r.fulfill({json:{plan_id:id,kind:'receive',name:copy.name,size_bytes:1024,historical:true,expires_at:9999999999}}));
   await page.goto('/');await page.getByRole('button',{name:'Keep a copy',exact:true}).click();
-  await page.getByLabel('Proceed with this exact private selection.',{exact:true}).check();
+  await page.getByLabel('I accept this exact historical selection for private preservation.',{exact:true}).check();
   await page.getByRole('button',{name:'Getting started',exact:true}).click();
   // A real pointer click must reach the visible guide above the older review.
   await page.getByRole('button',{name:'Close getting started',exact:true}).click();
-  await expect(page.getByLabel('Proceed with this exact private selection.',{exact:true})).toBeChecked();
+  await expect(page.getByLabel('I accept this exact historical selection for private preservation.',{exact:true})).toBeChecked();
   await page.getByRole('button',{name:'Getting started',exact:true}).click();
   await page.keyboard.press('Escape');
   await expect(page.getByRole('heading',{name:'Your model, kept safe',exact:true})).toHaveCount(0);
   await expect(page.getByRole('dialog')).toHaveCount(1);
-  await expect(page.getByLabel('Proceed with this exact private selection.',{exact:true})).toBeChecked();
+  await expect(page.getByLabel('I accept this exact historical selection for private preservation.',{exact:true})).toBeChecked();
 });
 
 test('a sharing-file receive review also refuses low working space after consent',async({page})=>{
@@ -108,7 +107,7 @@ test('a sharing-file receive review also refuses low working space after consent
   await page.goto('/');await page.getByLabel('Open sharing file',{exact:true}).setInputFiles({name:'model.foxhandoff',mimeType:'application/json',buffer:Buffer.alloc(16)});
   await page.getByRole('checkbox',{name:/I independently checked/}).check();
   await page.getByRole('button',{name:'Review download & preserve',exact:true}).click();
-  await expect(page.getByText('Free space needed during download',{exact:true})).toBeVisible();
+  await expect(page.getByText('Free space needed while saving',{exact:true})).toBeVisible();
   await page.getByLabel('Preserve this exact copy privately. This grants no registry authority or permission to run code.',{exact:true}).check();
   await expect(page.getByRole('button',{name:'Download & preserve',exact:true})).toBeDisabled();expect(starts).toBe(0);
 });

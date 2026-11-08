@@ -132,7 +132,7 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
    <CloudStorage state={state} sharing behindRouter={reachability.status!=='public_address'} onState={value=>{if(live.current)setState(value);}}/>
    <div className="sk-actions"><button className="sk-btn sk-outline" disabled={busy} onClick={()=>open()}>Change what’s shared</button><button className="sk-btn sk-outline" disabled={busy} onClick={()=>void act('desktop-community-configure',{enabled:false})}>Turn off</button></div>
   </>:<>
-   <p>{eligible>0?`${eligible} ${eligible===1?'backup':'backups'} can be shared under your licence list.`:'Your backups join as soon as one has a licence on your list.'} Sharing uses almost no extra disk space: the mirror reuses your backup’s files.</p>
+   <p>{eligible>0?`${eligible} ${eligible===1?'backup':'backups'} can be shared under the licences you’ve chosen.`:'Your backups join as soon as one has a licence you’ve chosen to share.'} Sharing uses almost no extra disk space: the mirror reuses your backup’s files.</p>
    <div className="sk-actions"><button className="sk-btn sk-solid" disabled={busy} onClick={()=>open()}>Turn on</button></div>
    {/* A connected bucket stays visible while off: its withdrawal and Disconnect. */}
    {state.bucket&&<CloudStorage state={state} sharing={false} behindRouter={false} onState={value=>{if(live.current)setState(value);}}/>}
