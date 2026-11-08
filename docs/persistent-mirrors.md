@@ -17,6 +17,10 @@ Mirrors carry both public preservation-v1 bundles and draft
 [PMF over the network](#pmf-over-the-network)). Standalone 0.13 and later include
 separately opted-in [persistent IPFS/BitTorrent sessions](persistent-peers.md).
 
+For a provider walkthrough (server choice, firewall, DNS, Docker and costs),
+see [host a server mirror on Hetzner](mirror-hosting/hetzner-server.md) and
+[where to host a mirror](mirror-hosting/README.md).
+
 ## Quickstart: one reviewed collection file
 
 A **collection file** bundles everything an operator must independently review
@@ -85,6 +89,51 @@ Sizes everywhere accept bytes or binary units: `K`, `M`, `G`, `T` and `P` are
 powers of 1024 (`100G` is 100 × 1024³ bytes; `GiB`/`GB` spellings are the same).
 `--name` defaults to the host name.
 
+Upload caps are opt-in. A new mirror from quickstart (or `init`) has no daily
+or monthly upload cap unless you pass `--egress-daily` and `--egress-monthly`:
+uploads are still counted and reported, but never refused. The review says so,
+and warns that uncapped serving can use a lot of bandwidth, which costs money
+on metered hosting. The disk budget is always bounded, and the daily download
+budget (`--ingress-daily`, 50G by default) protects your own connection. An
+existing mirror keeps the caps it already has when quickstart runs again
+without them; pass `none` (for example `--egress-daily none`) to remove one.
+
+## Choose how to run it
+
+There are three ways to keep a mirror running. Pick whichever suits the
+machine; each one runs the same `mirror run --resume` under your reviewed
+grant, so they differ only in how the process is packaged and isolated.
+
+| Option | Suits | Proxy |
+| --- | --- | --- |
+| [Container](#run-in-a-container) | A VPS or any host with Docker. The simplest route. | Caddy in the same compose project |
+| [System service](#system-service-optional) (optional) | Always-on Linux servers and NAS boxes without Docker | The distro's Caddy package with the same Caddyfile |
+| [User service](#user-service-desktop) | A desktop or laptop you use yourself | Any TLS reverse proxy you run |
+
+What each one isolates:
+
+- **Container.** The mirror runs as an unprivileged account inside its own
+  filesystem, process and network namespaces, with Docker's default capability
+  and system call restrictions. It sees only its data volume and the read-only
+  collection directory; Caddy shares only its network namespace. The Docker
+  daemon itself runs as root, and a kernel bug is shared with the host.
+- **System service.** The mirror runs as the dedicated `sovereign` system
+  account with no login shell, no capabilities and a system call filter. It
+  cannot see `/home` or `/root`, sees the rest of the filesystem read-only and
+  can write only its own state directory. It shares the host's network and can
+  still read world-readable files outside home directories (for example most
+  of `/etc`).
+- **User service.** The mirror runs as your login account, with only
+  `NoNewPrivileges`. A bug in this internet-facing process could reach
+  everything your account can: your home directory, SSH keys, browser
+  profiles and other files. That is a reasonable trade on a desktop you
+  attend; on an always-on machine the system service or the container keeps
+  the mirror away from your own files.
+
+Synology, QNAP and TrueNAS manage their own system services and file layout,
+so on those NAS systems the container route (Container Manager, Container
+Station or TrueNAS apps) is usually the practical one.
+
 ## Run in a container
 
 [`deploy/mirror/`](../deploy/mirror/README.md) packages a multi-arch image
@@ -107,7 +156,10 @@ docker compose --env-file deploy/mirror/mirror.env \
 ```
 
 `SOVEREIGN_MIRROR_DOMAIN`, `SOVEREIGN_MIRROR_CONTACT`, `SOVEREIGN_MIRROR_BUDGET`,
-the collection directory and `SOVEREIGN_MIRROR_CONSENT` configure it. Until
+the collection directory and `SOVEREIGN_MIRROR_CONSENT` configure it. Upload
+caps (`SOVEREIGN_MIRROR_EGRESS_DAILY`, `SOVEREIGN_MIRROR_EGRESS_MONTHLY`) are
+unset by default, so a new container mirror has none; set them to cap uploads,
+or to `none` to remove caps an existing mirror already has. Until
 `SOVEREIGN_MIRROR_CONSENT=yes-i-consent-to-public-serving` is set, the container
 runs plan-only: it prints the review and serves nothing. With consent, every
 start re-applies the collection and policy, renews the grant and serves. A
@@ -118,10 +170,69 @@ interrupted init) is printed and the container idles instead of looping; use
 
 ## Run as a service
 
+### System service (optional)
+
+[`sovereign-mirror@.service`](../deploy/mirror/sovereign-mirror@.service) is
+an optional systemd system unit for always-on Linux hosts without Docker. It
+runs as the unprivileged `sovereign` system account with the hardening listed
+in the unit (`ProtectSystem=strict`, `ProtectHome=yes`, no capabilities, a
+`@system-service` system call filter, `MemoryDenyWriteExecute` and more);
+`systemd-analyze security` rates it 1.1 ("OK") on systemd 257, the remainder
+being the network access a mirror exists to use. The layout follows the
+[installer](installation.md):
+
+| Path | Holds |
+| --- | --- |
+| `/opt/sovereign/<version>` | The release, installed with `install.py --directory` (root-owned). |
+| `/opt/sovereign/current` | A link to the version in use; repoint it and restart to upgrade. |
+| `/etc/sovereign/mirrors/<instance>` | The reviewed collection file and its source file (read-only). |
+| `/var/lib/sovereign/mirrors/<instance>` | The mirror's state (`StateDirectory=`, mode 0700). |
+
+Nothing installs or enables it unless you choose to. The setup script
+[`install-system-service.sh`](../deploy/mirror/install-system-service.sh), run
+as root, prints each step. Before changing anything it authenticates the
+release archive with `gh attestation verify` (or an independently obtained
+SHA-256) and refuses an unverified one, prints the `mirror quickstart` review
+and asks you to type `serve`. Then it creates the account, installs the
+release, sets up the mirror as `sovereign`, installs the unit and enables
+`sovereign-mirror@<instance>`. Running it again is safe; use it to upgrade or
+to change settings.
+
+```sh
+sudo deploy/mirror/install-system-service.sh \
+  --archive foxlight-model-preservation-0.28.1-install.zip \
+  --bundle release.sigstore.json \
+  --collection collection.json --instance example \
+  -- --public-url https://mirror.example.org --disk-bytes 500G
+journalctl -u sovereign-mirror@example
+```
+
+It needs Python 3.11+ outside `/home` and `/root` (the distro's `python3`),
+`uv`, `unzip` and, for `--bundle`, the GitHub CLI. The default
+`requirements-mirror.lock` profile includes libtorrent; choose
+`--requirements requirements.lock` where no libtorrent wheel exists. Add
+`-- --plan-only` to read the review only: nothing on the host changes and a
+running service keeps running.
+
+The mirror listens on `127.0.0.1:8080`. Use the distro's Caddy package with the
+repository's [Caddyfile](../deploy/mirror/Caddyfile) rather than writing
+another: copy it to `/etc/caddy/Caddyfile` (or merge its site block into the
+existing one) and give Caddy the domain with `systemctl edit caddy`:
+
+```ini
+[Service]
+Environment=SOVEREIGN_MIRROR_DOMAIN=mirror.example.org
+```
+
+then `systemctl restart caddy`. Ports 80 and 443 must reach the host. Caddy
+writes no access log unless you add a `log` directive.
+
+### User service (desktop)
+
 The [systemd user unit](../deploy/mirror/model-preserve-mirror@.service) matches
 the [installer](installation.md): software in `~/sovereign` (a link to the
-installed release) and mirrors in `~/sovereign-mirrors/<instance>`. It only runs
-`mirror run --resume`, which refuses without a current restart grant.
+installed release) and mirrors in `~/sovereign-mirrors/<instance>`. It runs as
+your login account (see [what each option isolates](#choose-how-to-run-it)).
 
 ```sh
 install -Dm0644 deploy/mirror/model-preserve-mirror@.service \
@@ -135,6 +246,11 @@ The intended layout keeps the mirror on loopback behind a TLS reverse proxy
 (such as Caddy) that you run separately. The Python server does not terminate
 TLS itself.
 
+Both units only run `mirror run --resume`, which refuses without a current
+restart grant. A refusal is logged and retried a few times, then the unit stays
+failed rather than looping; a grant that runs out ends serving cleanly. Renew
+it with `mirror grant-resume` or by running quickstart again.
+
 ## Change configuration later
 
 ```sh
@@ -144,7 +260,7 @@ model-preserve mirror config --dir ~/sovereign-mirrors/example \
 
 `config` changes the name, budgets, bind (`127.0.0.1`, `::1`, `0.0.0.0` or `::`),
 port, UTC serving window, refresh interval, public URL, contact, announcement
-choices and whether to [follow catalog withdrawals](#catalog-withdrawal-is-advisory-takedown-is-yours). Stop the controller first. Any effective change alters the policy
+choices and whether to [follow catalog withdrawals](#catalog-withdrawal-is-advisory-takedown-is-yours). `--egress-daily none` or `--egress-monthly none` removes an upload cap. Stop the controller first. Any effective change alters the policy
 identity and clears the standing restart grant; grant it again after review.
 Retained bytes are never touched. Per-model limits that were derived from the
 old disk budget follow the new one; limits set explicitly stay.
@@ -152,7 +268,60 @@ old disk budget follow the new one; limits set explicitly stay.
 An announcement policy, `--follow-withdrawals on` and the deferred and
 withdrawal-advisory receipts below are written to the owner state only when used, so an unchanged mirror keeps its exact encoding
 and restart grant across this upgrade. A release that predates them refuses such
-a ledger rather than silently ignoring it.
+a ledger rather than silently ignoring it. Likewise, "no upload cap" and a
+standing intake policy need the `foxlight.mirror-state.v6` owner profile, which
+the mirror writes only when one of them is chosen; older releases refuse a v6
+ledger outright instead of misreading it. Existing caps stay exactly as they
+were until you change them.
+
+## Licences travel with every copy
+
+Public intake requires each member to name its licence, a terms reference and
+at least one notice file (the upstream `LICENSE`/`NOTICE`), and a manifest whose
+notice files aren't among the member's files is refused. A mirror serves a
+model's notice files with its weights, so every copy downloaded from it carries
+its licence. A quantized or otherwise converted model is a *modified* work:
+licences that require marking changes (for example Llama's or the Apache
+licence's) apply to such conversions, and their notices must say so. The
+licence families describe common terms in plain words; they are not legal
+advice, and operators are responsible for the law where they run a mirror. A
+public mirror is not anonymous.
+
+## Standing intake policy
+
+Without a standing policy, every local selection (`mirror retain`) is part of
+the restart grant's policy identity, so retaining a new copy clears the grant
+and serving needs fresh consent. A **standing intake policy** lets an owner
+consent once to a rule instead:
+
+```sh
+model-preserve mirror config --dir ~/sovereign-mirrors/example \
+  --share all --licence-families permissive,attribution,copyleft,responsible-ai \
+  --licenses eupl-1.2
+model-preserve mirror grant-resume --dir ~/sovereign-mirrors/example \
+  --for 365d --confirm-resume
+```
+
+- `--share all` admits every local public selection whose reviewed terms all
+  name a selected licence; `--share chosen` keeps consenting to each copy
+  separately. `--licence-families` expands the [licence families](sovereign-desktop.md#help-keep-models-available)
+  (`permissive`, `attribution`, `copyleft`, `responsible-ai`, `custom`) and
+  `--licenses` adds exact identifiers; without either, the default families
+  are used. Identifiers that name no licence (`unknown`, `other`, blank) are
+  refused. The policy stores the resolved list and the licence-definition
+  version it was reviewed under, so a later definition never widens it.
+- The grant's policy identity includes the standing policy as a whole, not each
+  selection it covers. Retaining a copy the policy covers keeps the grant: stop
+  the controller, `mirror retain` it (still exact, public intake only and fully
+  verified before serving), and `mirror run --resume` continues under the same
+  consent. A copy the policy does not cover is bound individually and clears
+  the grant, as before.
+- Changing the share mode or licences, adopting a policy on an existing mirror,
+  or clearing it (`--clear-intake`) changes what the grant covers, so it clears
+  the grant and serving needs fresh consent.
+- `mirror withhold --manifest ID` keeps a copy back: it is blocked from serving
+  and, if not yet retained, will be admitted blocked. `mirror release` shares it
+  again. Withholding only narrows, so it never clears the grant.
 
 ## Announce the mirror
 
@@ -215,8 +384,10 @@ neither records nor clears an advisory.
 
 To stop serving a copy, for example after a legal notice, block it. Blocking
 takes effect on the next request or chunk, persists across restarts, and no
-catalog change undoes it. Retained bytes stay under the ordinary retention
-rules (pin, block and explicit prune):
+catalog change undoes it. A [withheld](#standing-intake-policy) copy is
+always blocked. An advisory or an acknowledgement never makes a blocked or
+withheld copy serve. Retained bytes stay under the ordinary retention rules
+(pin, block and explicit prune):
 
 ```sh
 model-preserve mirror block --dir ~/sovereign-mirrors/example --manifest MANIFEST_SHA256
@@ -243,7 +414,11 @@ Bytes are kept. A relisting by a current catalog resumes serving; expiry, a lost
 source or one source's budget failure never withholds a copy. An acknowledged
 copy is your per-copy exception and keeps serving until it is relisted and then
 withdrawn again. The setting is part of the reviewed policy, so changing it
-clears the standing restart grant; review and grant again.
+clears the standing restart grant; review and grant again. `mirror quickstart`
+takes the same `--follow-withdrawals on|off`, shows it in its review and checks
+it with the other settings before writing anything. An existing mirror keeps
+its choice unless you give one. The container reads
+`SOVEREIGN_MIRROR_FOLLOW_WITHDRAWALS`.
 
 ### Upgrading from an earlier release
 
@@ -283,7 +458,7 @@ only weights loses source floors, policy and accounting.
 
 ```sh
 model-preserve mirror init --dir ~/sovereign-mirrors/example \
-  --disk-bytes 100G --ingress-daily 50G --egress-daily 50G --egress-monthly 1T
+  --disk-bytes 100G --ingress-daily 50G   # add --egress-daily/--egress-monthly to cap uploads
 ```
 
 The parent must exist and belong to you; the selected directory must be new.
@@ -685,13 +860,17 @@ They include unused and uncertain credit, survive crashes and are not refunded
 on retry, deferral, withdrawal or prune. Selected HTTP response bodies are fully reserved
 and fsynced before sending; interrupted responses keep the entire reservation.
 Headers, TLS/TCP overhead and HTTP error responses are outside that body budget.
+Upload caps are optional: without one, response reservations are still recorded
+(for status), but uploads are never refused for volume. Native BitTorrent/IPFS
+sessions keep their explicit per-session byte threshold and rate; uncapped,
+each new session's reservation is always granted.
 Daily/monthly windows use UTC; forward rollover resets only its own window.
 Clock rollback refuses new credit rather than reopening an earlier window.
 
 An optional UTC serving window is selected at init or with `mirror config`
 using `--serve-start HOUR` and `--serve-end HOUR`; equal values mean all day and overnight ranges work.
-Budget/window/pause/grant refusal returns 503 with `Retry-After` and an empty
-body. The server checks local policy between chunks. Metadata acquisition and
+Budget (when capped)/window/pause/grant refusal returns 503 with `Retry-After`
+and an empty body. The server checks local policy between chunks. Metadata acquisition and
 model object budgets remain distinct; no hard total wire quota is claimed.
 
 ## Delete only when you choose

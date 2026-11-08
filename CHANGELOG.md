@@ -9,7 +9,8 @@
   and when, and `mirror status` lists it under `withdrawal_advisories` with the
   `mirror block` command for that copy. Takedown stays with each operator:
   `mirror block` is immediate and persistent. `mirror config
-  --follow-withdrawals on` is an opt-in, off by default, that restores the
+  --follow-withdrawals on` (also on `mirror quickstart` and
+  `SOVEREIGN_MIRROR_FOLLOW_WITHDRAWALS` in the container) is an opt-in, off by default, that restores the
   previous behaviour with its safeguards. It is reviewed policy and clears the
   restart grant. The new `mirror acknowledge` records that you reviewed an
   advisory, and that copy then keeps serving even with following on.
@@ -19,6 +20,63 @@
   again unless you block them or follow withdrawals. The first write after
   upgrade stores the new form and logs a warning listing them. Earlier releases
   refuse a ledger with an advisory or the setting.
+
+- Licences come in one canonical, versioned family definition
+  (`foxlight_model_preservation.licences`, `licence_families_v1.json`). The
+  defaults follow Hugging Face: Permissive, Attribution, Copyleft, Responsible
+  AI, a new Non-commercial family (switch it off for a commercial mirror) and
+  makers' own terms that allow redistribution (Llama 2 to 4, Gemma 1 to 3,
+  Qwen, Tongyi Qianwen) are on. Grok 2, DeepFloyd IF and Apple's research
+  licence stay off because we couldn't confirm they allow redistribution. Llama
+  3.2 and Llama 4 have their own switches and an EU notice. Unknown, "other"
+  and blank licences still never match. Policies saved earlier keep their
+  exact licence lists. This is not legal advice; operators are responsible
+  for their jurisdiction.
+
+- Keeping or downloading a model whose licence has use restrictions or
+  conditions to pass on (or can't be identified) now asks, as Hugging Face's
+  gated models do, for an explicit "I accept these terms" after showing each
+  licence's name, a plain summary and a link to its full text. Sovereign
+  refuses a start without exactly that acceptance (`terms_acceptance_required`)
+  and records it in `terms-acceptance/<job>.json` before any download. Receive
+  plans carry a `terms` review. Plain permissive licences need no tick.
+
+- Upload caps are opt-in and off by default for the desktop community mirror,
+  the CLI persistent mirror, quickstart and the container. "No cap" is `None`
+  in the community policy (`sovereign.community-mirror.v2`) and the mirror
+  ledger (`foxlight.mirror-state.v6`); uploads are still counted, but never
+  refused or answered with 503 for volume. Pass `--egress-daily none` (or the
+  `none` environment value) to remove a cap. Stored policies and ledgers keep
+  the caps they have; older releases refuse the new formats rather than
+  misread them. The disk budget and the daily download budget stay bounded.
+
+- The persistent mirror can keep a standing intake policy (`mirror config
+  --share all|chosen --licence-families ... --licenses ...`, `mirror
+  withhold`/`release`). The restart grant covers the policy as a whole, so
+  retaining a newly matching public copy keeps the grant; changing the policy,
+  or adopting one on an existing mirror, clears it and needs fresh consent.
+  Withholding a copy only narrows and never clears the grant.
+
+- `mirror quickstart` is now all or nothing on an existing mirror. It checks
+  the settings, the source's bootstrap ID, disk admission under the new budget
+  and the grant length before writing anything, and restores the previous
+  ledger if a later step still refuses. A refused reconfiguration (for example
+  a new source with a disk budget below what is already retained) previously
+  cleared the restart grant, so the existing service could no longer resume.
+
+- Add an optional hardened systemd system service for the headless mirror,
+  `deploy/mirror/sovereign-mirror@.service`, for always-on Linux servers and
+  NAS boxes without Docker. It runs as the unprivileged `sovereign` system
+  account from `/opt/sovereign/current`, keeps state in
+  `/var/lib/sovereign/mirrors/<instance>` and cannot see home directories or
+  write outside its state. `deploy/mirror/install-system-service.sh` sets it
+  up as root, refusing an unauthenticated release archive. The container and
+  the per-user unit are unchanged; the docs now compare what each of the three
+  options isolates.
+
+- Add a Hetzner Object Storage bucket preset (`hetzner`): the location code
+  (`fsn1`, `nbg1` or `hel1`) gives the endpoint, signing region and public
+  address. A bucket target saved with it is not readable by older versions.
 
 ## 0.28.1
 

@@ -69,9 +69,17 @@ def test_presets_need_only_a_few_answers() -> None:
     assert b2.public_url == "https://models.s3.us-west-004.backblazeb2.com"
     s3 = target_for("s3", bucket="models", key_name="s3", region="eu-west-1")
     assert not s3.path_style and s3.public_url.endswith(".amazonaws.com")
+    hetzner = target_for("hetzner", bucket="models", key_name="h", region="fsn1")
+    assert hetzner.endpoint == "https://fsn1.your-objectstorage.com"
+    assert hetzner.region == "fsn1" and hetzner.path_style
+    assert hetzner.public_url == "https://models.fsn1.your-objectstorage.com"
     for bad in (
         lambda: target_for("r2", bucket="models", key_name="k", account_id="nope"),
         lambda: target_for("other", bucket="models", key_name="k", region="x"),
+        lambda: target_for("hetzner", bucket="models", key_name="k"),
+        lambda: target_for(
+            "hetzner", bucket="models", key_name="k", region="evil.example/x"
+        ),
         lambda: BucketTarget(
             provider="other",
             endpoint="http://storage.example",

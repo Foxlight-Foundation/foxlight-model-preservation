@@ -3,9 +3,11 @@
 One switch and one licence policy cover every backup. Eligible backups join on
 their own; there is no per-model step and no hour limit. Serving resumes after a
 restart only under the owner's single standing consent, which is bounded and
-revocable. Upload caps still apply. Only members whose licence is in the owner's
-selected set are ever published, and a backup with no identifiable licence stays
-private. Withholding or disabling blocks serving without deleting anything.
+revocable. Upload limits are the owner's choice and off unless turned on;
+the storage allowance is always bounded. Only members whose licence is in the
+owner's selected set are ever published, and a backup with no identifiable
+licence stays private. Withholding or disabling blocks serving without deleting
+anything.
 """
 
 from __future__ import annotations
@@ -27,7 +29,13 @@ from typing import Literal, Protocol, cast
 from urllib.parse import urlsplit
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from pydantic import Field, JsonValue, ValidationError, field_validator
+from pydantic import (
+    Field,
+    JsonValue,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from ..assurance import load_retained_card
 from ..bucket import (
@@ -45,6 +53,14 @@ from ..bucket import (
     target_for,
 )
 from ..cards import identity_json
+from ..licences import (
+    DEFAULT_LICENSES,
+    LICENCE_DEFINITION_VERSION,
+    UNIDENTIFIED,
+    definition_json,
+    identified_licences,
+    normalize_license,
+)
 from ..mirror import model_action, run_mirror
 from ..mirror_cards import (
     MAX_PEERS_BYTES,
@@ -76,65 +92,16 @@ from ..transfer import MirrorHTTPError, TransferPolicy, response
 from .presentation import card_summary
 from .sharing import MemberDecision, Sharing
 
-# Permissive by default; the owner can widen the set. Eligibility follows the
-# licence itself, never whether the original download was gated.
-DEFAULT_LICENSES = (
-    "apache-2.0",
-    "mit",
-    "bsd-2-clause",
-    "bsd-3-clause",
-    "bsd-3-clause-clear",
-    "0bsd",
-    "openrail",
-    "openrail-m",
-    "openrail++",
-    "creativeml-openrail-m",
-    "bigscience-openrail-m",
-    "bigcode-openrail-m",
-)
-# Values that identify no licence. A member carrying one is never published.
-UNIDENTIFIED = frozenset(
-    {
-        "",
-        "unknown",
-        "other",
-        "none",
-        "noassertion",
-        "unlicensed",
-        "unresolved",
-        "unresolved-owner-capture",
-        "see-original-card",
-    }
-)
+# The licence families live in one canonical, versioned definition
+# (foxlight_model_preservation.licences). Permissive, attribution, copyleft and
+# responsible-AI licences are on by default; makers' custom terms are off.
+# Eligibility follows the licence itself, never whether the download was gated.
 # The address check reaches public routes only, like any other visitor would.
 ADDRESS_CHECK_POLICY = TransferPolicy(allow_http=True, timeout=10, deadline_seconds=30)
 _CAPTURE_NOTICE = ".foxlight-capture-notice.txt"
 _LICENSE_NAMES = ("license", "licence", "copying")
 DEFAULT_PORT = 8743
 CONSENT_SECONDS = 365 * 86400
-
-
-# Common spelled-out names that cards use instead of an SPDX identifier.
-_ALIASES = {
-    "apache-license-2.0": "apache-2.0",
-    "apache-license,-version-2.0": "apache-2.0",
-    "apache-2": "apache-2.0",
-    "apache": "apache-2.0",
-    "mit-license": "mit",
-    "the-mit-license": "mit",
-    "bsd-2-clause-license": "bsd-2-clause",
-    "bsd-3-clause-license": "bsd-3-clause",
-    "openrail-m-license": "openrail-m",
-}
-
-
-def normalize_license(value: str) -> str:
-    """Compare licence identifiers case-insensitively, with spaces as dashes.
-
-    A few common spelled-out names map to their SPDX identifiers.
-    """
-    folded = "-".join(value.strip().casefold().split())
-    return _ALIASES.get(folded, folded)
 
 
 class Holding(Protocol):
@@ -152,19 +119,35 @@ class Holding(Protocol):
     def trust(self) -> TrustProfile: ...
 
 
-class CommunityPolicy(Record):
-    """The owner's one standing choice; changing it never deletes retained bytes."""
+__all__ = [
+    "CONSENT_SECONDS",
+    "DEFAULT_LICENSES",
+    "UNIDENTIFIED",
+    "CommunityMirror",
+    "CommunityPolicy",
+    "normalize_license",
+]
 
-    schema_version: Literal["sovereign.community-mirror.v1"] = (
-        "sovereign.community-mirror.v1"
-    )
+
+class CommunityPolicy(Record):
+    """The owner's one standing choice; changing it never deletes retained bytes.
+
+    Upload limits are opt-in: ``None`` means no daily or monthly cap (bytes are
+    still counted for the status). Only the v2 policy can say "no cap"; an
+    older app refuses a v2 file rather than misreading it. A v1 policy keeps
+    whatever caps it already had.
+    """
+
+    schema_version: Literal[
+        "sovereign.community-mirror.v1", "sovereign.community-mirror.v2"
+    ] = "sovereign.community-mirror.v2"
     enabled: bool = False
     share: Literal["eligible", "chosen"] = "eligible"
     licenses: tuple[str, ...] = Field(default=DEFAULT_LICENSES, max_length=128)
     chosen: tuple[Digest, ...] = Field(default=(), max_length=256)
     withheld: tuple[Digest, ...] = Field(default=(), max_length=256)
-    daily_upload_bytes: int = Field(default=20 * 1024**3, ge=1, le=2**53 - 1)
-    monthly_upload_bytes: int = Field(default=300 * 1024**3, ge=1, le=2**53 - 1)
+    daily_upload_bytes: int | None = Field(default=None, ge=1, le=2**53 - 1)
+    monthly_upload_bytes: int | None = Field(default=None, ge=1, le=2**53 - 1)
     port: int = Field(default=DEFAULT_PORT, ge=1024, le=65535)
     public_url: str | None = Field(default=None, min_length=8, max_length=2048)
     announce_dht: bool = True
@@ -208,10 +191,20 @@ class CommunityPolicy(Record):
     @classmethod
     def identified(cls, values: tuple[str, ...]) -> tuple[str, ...]:
         """Keep normalized, identified licences only, once each."""
-        result = tuple(dict.fromkeys(normalize_license(value) for value in values))
-        if any(value in UNIDENTIFIED or len(value) > 200 for value in result):
-            raise PreservationError("community_license_unidentified")
-        return result
+        return identified_licences(values)
+
+    @model_validator(mode="after")
+    def upload_limits(self) -> CommunityPolicy:
+        """Only v2 says "no cap".
+
+        A saved policy always loads as earlier releases accepted it: a daily
+        limit above the monthly one stays readable (the monthly limit binds).
+        Only a change to the limits themselves must keep daily within monthly.
+        """
+        uncapped = self.daily_upload_bytes is None or self.monthly_upload_bytes is None
+        if uncapped and self.schema_version == "sovereign.community-mirror.v1":
+            raise PreservationError("community_policy_version")
+        return self
 
 
 def _url_port(value: str) -> int | None:
@@ -497,11 +490,27 @@ class CommunityMirror:
         if disclosed and body["announce_disclosure"] != ANNOUNCE_DISCLOSURE:
             raise PreservationError("invalid_control")
         policy = self.policy()
-        changes = {
+        changes: dict[str, JsonValue] = {
             key: value
             for key, value in body.items()
             if key not in {"consent", "announce_disclosure"}
         }
+        # Any change this version saves is written as v2, which older apps
+        # refuse instead of misreading; stored caps stay exactly as they were.
+        changes["schema_version"] = "sovereign.community-mirror.v2"
+        if {"daily_upload_bytes", "monthly_upload_bytes"} & set(body):
+            # Only limits the owner sets now must keep daily within monthly;
+            # limits saved earlier are kept exactly, whatever they were.
+            daily = changes.get("daily_upload_bytes", policy.daily_upload_bytes)
+            monthly = changes.get("monthly_upload_bytes", policy.monthly_upload_bytes)
+            if (
+                isinstance(daily, int)
+                and isinstance(monthly, int)
+                and not isinstance(daily, bool)
+                and not isinstance(monthly, bool)
+                and daily > monthly
+            ):
+                raise PreservationError("community_upload_limit_invalid")
         if body.get("enabled") is True:
             if body.get("consent") is not True:
                 raise PreservationError("community_consent_required")
@@ -935,9 +944,10 @@ class CommunityMirror:
         Unwanted models are withdrawn first, by removing only their manifest, so
         a failing upload can never keep a withheld model public. Turning sharing
         off withdraws them all. Each served model is then uploaded (only missing
-        objects travel, manifest last), charged to the same daily and monthly
-        upload limits as serving. One model's failure does not stop the others;
-        failures are recorded and retried later.
+        objects travel, manifest last), counted against the same daily and
+        monthly upload limits as serving when the owner set them. One model's
+        failure does not stop the others; failures are recorded and retried
+        later.
         """
         with self._bucket_sync_lock:
             return self._sync_bucket(control)
@@ -1336,6 +1346,8 @@ class CommunityMirror:
             "policy": policy.model_dump(mode="json"),
             "consented": self.consented(policy),
             "default_licenses": list(DEFAULT_LICENSES),
+            "licence_families": definition_json(),
+            "licence_definition": LICENCE_DEFINITION_VERSION,
             "copies": cast(
                 list[JsonValue],
                 [{k: v for k, v in row.items() if k != "decisions"} for row in rows],

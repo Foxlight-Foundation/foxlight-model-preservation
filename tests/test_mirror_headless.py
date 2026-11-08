@@ -1550,6 +1550,48 @@ def test_interactive_consent_prompt(tmp_path, capture, monkeypatch):
     assert restart_allowed(MirrorLedger(tmp_path / "mirror").read())
 
 
+def _granted_quickstart_mirror(tmp_path: Path, capture: Capture) -> Path:
+    target = tmp_path / "granted"
+    loaded, document = load_collection(collection(tmp_path, capture))
+    apply_quickstart(target, loaded, document, settings(), consented=True)
+    assert restart_allowed(MirrorLedger(target).read())
+    return target
+
+
+def test_refused_quickstart_keeps_the_existing_mirror_and_grant(tmp_path, capture):
+    target = _granted_quickstart_mirror(tmp_path, capture)
+    before = (target / "mirror.json").read_bytes()
+    state = MirrorLedger(target).read()
+    # A different source with a disk budget below retained usage plus headroom.
+    other, document = load_collection(collection(tmp_path, capture))
+    assert other.expected_bootstrap_id not in str(state.model_dump())
+    tight = settings(disk_bytes=HEADROOM + 1, max_bytes=1024, name="Changed")
+    with pytest.raises(PreservationError, match="disk admission"):
+        apply_quickstart(target, other, document, tight, consented=True)
+    after = MirrorLedger(target).read()
+    assert (target / "mirror.json").read_bytes() == before
+    assert policy_id(after) == policy_id(state) and after.restart == state.restart
+    assert restart_allowed(after)
+
+
+def test_unforeseen_quickstart_refusal_restores_the_ledger(
+    tmp_path, capture, monkeypatch
+):
+    target = _granted_quickstart_mirror(tmp_path, capture)
+    before = (target / "mirror.json").read_bytes()
+    other, document = load_collection(collection(tmp_path, capture))
+
+    def refuse(*_args: object, **_kwargs: object) -> str:
+        raise PreservationError("cache import would roll back trusted roots")
+
+    monkeypatch.setattr("foxlight_model_preservation.mirror_quickstart.follow", refuse)
+    changed = settings(disk_bytes=4 * 1024**3, name="Changed")
+    with pytest.raises(PreservationError, match="roll back"):
+        apply_quickstart(target, other, document, changed, consented=True)
+    assert (target / "mirror.json").read_bytes() == before
+    assert restart_allowed(MirrorLedger(target).read())
+
+
 # Restart idempotency (the container re-runs quickstart on every start) --------
 
 
@@ -1814,11 +1856,67 @@ def test_deploy_files_match_the_installer_and_proxy_model():
     assert not re.search(r"^\s*log\b", caddyfile, re.MULTILINE)
     dockerfile = (deploy / "Dockerfile").read_text()
     assert "USER" in dockerfile and "bittorrent" in dockerfile
+    # The optional system unit: a dedicated account, owner-only state, hardening.
+    system = (deploy / "sovereign-mirror@.service").read_text()
+    directives = {
+        line.partition("=")[0]: line.partition("=")[2]
+        for line in system.splitlines()
+        if "=" in line and not line.startswith("#")
+    }
+    run = "/opt/sovereign/current/bin/model-preserve mirror run"
+    assert directives["ExecStart"] == (
+        run + " --dir /var/lib/sovereign/mirrors/%i --resume"
+    )
+    assert directives["User"] == "sovereign"
+    assert directives["StateDirectory"] == "sovereign/mirrors/%i"
+    assert directives["StateDirectoryMode"] == "0700"
+    assert directives["ReadWritePaths"] == "/var/lib/sovereign/mirrors/%i"
+    for key, value in {
+        "NoNewPrivileges": "yes",
+        "CapabilityBoundingSet": "",
+        "UMask": "0077",
+        "ProtectSystem": "strict",
+        "ProtectHome": "yes",
+        "PrivateTmp": "yes",
+        "PrivateDevices": "yes",
+        "ProtectKernelTunables": "yes",
+        "ProtectKernelModules": "yes",
+        "ProtectKernelLogs": "yes",
+        "ProtectControlGroups": "yes",
+        "ProtectClock": "yes",
+        "ProtectHostname": "yes",
+        "RestrictNamespaces": "yes",
+        "RestrictRealtime": "yes",
+        "RestrictSUIDSGID": "yes",
+        "LockPersonality": "yes",
+        "MemoryDenyWriteExecute": "yes",
+        "PrivateUsers": "yes",
+        "SystemCallArchitectures": "native",
+        "Restart": "on-failure",
+        "KillSignal": "SIGTERM",
+    }.items():
+        assert directives[key] == value, key
+    assert "SystemCallFilter=@system-service" in system
+    families = set(directives["RestrictAddressFamilies"].split())
+    assert families <= {"AF_UNIX", "AF_INET", "AF_INET6", "AF_NETLINK"}
+    assert "%h" not in system and "WantedBy=multi-user.target" in system
+    # Its setup script refuses unauthenticated archives and is opt-in.
+    setup = (deploy / "install-system-service.sh").read_text()
+    assert "gh attestation verify" in setup and "--deny-self-hosted-runners" in setup
+    assert "refusing an unverified archive" in setup
+    assert "curl" not in setup and "runuser -u sovereign" in setup
+    # Every refusal, the review and consent come before the first change.
+    first_change = setup.index("# --- Changes")
+    for guard in ("refusing an unverified archive", "--plan-only", "Plan only:"):
+        assert setup.index(guard) < first_change, guard
+    for change in ("useradd --system", 'systemctl stop "', "mv -Tf", "install -o root"):
+        assert setup.index(change) > first_change, change
 
 
 def test_no_anonymity_claims_in_mirror_text():
     paths = [
         ROOT / "docs/persistent-mirrors.md",
+        *sorted((ROOT / "docs/mirror-hosting").glob("*.md")),
         *sorted((ROOT / "deploy/mirror").iterdir()),
         ROOT / "src/foxlight_model_preservation/mirror_quickstart.py",
         ROOT / "src/foxlight_model_preservation/mirror_announce.py",
@@ -1841,3 +1939,107 @@ def test_owner_only_paths_are_kept(tmp_path, capture):
     )
     Announcer(ledger).publish(frozenset())
     assert not os.stat(ledger.path / "peers.json").st_mode & 0o077
+
+
+# Withdrawal advisories with intake, quickstart and all-or-nothing config ---------
+
+
+def test_withheld_or_blocked_copy_stays_unserved_whatever_the_advisory(
+    tmp_path, capture
+):
+    from foxlight_model_preservation.mirror import configure_intake, withhold
+    from foxlight_model_preservation.mirror_models import IntakePolicy
+    from foxlight_model_preservation.mirror_native import NativeMirrors
+
+    ledger, publisher = mirror(tmp_path, capture)
+    cycle(ledger)
+    configure_intake(
+        ledger, IntakePolicy(share="chosen", licenses=("test-only",), definition=1)
+    )
+    withhold(ledger, capture.identity, withheld=True)
+    publisher.publish(version=2, manifest="b" * 64)
+    cycle(ledger)
+    model_action(ledger, capture.identity, "acknowledge")
+    native = NativeMirrors(ledger, lambda _state: True)
+    for following in (False, True):
+        configure_mirror(ledger, {"follow_withdrawals": following})
+        held = ledger.read().models[capture.identity]
+        assert held.blocked and held.withdrawal is not None
+        assert held.withdrawal.acknowledged
+        assert not _served(ledger, capture.identity)
+        assert not native._allowed(ledger.read(), capture.identity)
+    # Releasing it (the owner's choice) serves the acknowledged copy again.
+    withhold(ledger, capture.identity, withheld=False)
+    assert _served(ledger, capture.identity)
+    assert native._allowed(ledger.read(), capture.identity)
+
+
+def test_quickstart_reviews_preflights_and_keeps_follow_withdrawals(tmp_path, capture):
+    path = collection(tmp_path, capture)
+    loaded, document = load_collection(path)
+    text, summary = review(loaded, document, settings())
+    assert "withdrawal is advisory" in text and summary["follow_withdrawals"] is False
+    text, summary = review(loaded, document, settings(follow_withdrawals=True))
+    assert "withdrawal is followed (your choice)" in text
+    assert summary["follow_withdrawals"] is True
+    target = tmp_path / "quick"
+    apply_quickstart(target, loaded, document, settings(), consented=True)
+    assert not MirrorLedger(target).read().follow_withdrawals
+    # A refused quickstart (disk below what is retained) writes nothing,
+    # including the withdrawal choice.
+    other, other_document = load_collection(collection(tmp_path, capture))
+    before = (target / "mirror.json").read_bytes()
+    tight = settings(disk_bytes=HEADROOM + 1, max_bytes=1024, follow_withdrawals=True)
+    with pytest.raises(PreservationError, match="disk admission"):
+        apply_quickstart(target, other, other_document, tight, consented=True)
+    assert (target / "mirror.json").read_bytes() == before
+    # Choosing it is reviewed policy: the grant is renewed for the new policy.
+    _ledger, receipt = apply_quickstart(
+        target, loaded, document, settings(follow_withdrawals=True), consented=True
+    )
+    state = MirrorLedger(target).read()
+    assert receipt["policy_changed"] and state.follow_withdrawals
+    assert restart_allowed(state)
+    # The CLI keeps an existing mirror's choice unless one is given.
+    base = (
+        "mirror",
+        "quickstart",
+        "--dir",
+        str(target),
+        "--collection",
+        str(path),
+        "--name",
+        "Quick",
+        "--disk-bytes",
+        "2G",
+        "--ingress-daily",
+        "1G",
+        "--egress-daily",
+        "1G",
+        "--egress-monthly",
+        "8G",
+    )
+    kept = cli(*base, "--plan-only")
+    assert kept.returncode == 0, kept.stderr
+    assert json.loads(kept.stdout)["review"]["follow_withdrawals"] is True
+    off = cli(*base, "--follow-withdrawals", "off", "--yes-i-consent-to-public-serving")
+    assert off.returncode == 0, off.stderr
+    assert not MirrorLedger(target).read().follow_withdrawals
+
+
+def test_config_validates_follow_withdrawals_with_everything_else(tmp_path, capture):
+    ledger, _ = mirror(tmp_path, capture)
+    before = (ledger.path / "mirror.json").read_bytes()
+    refused = cli(
+        "mirror",
+        "config",
+        "--dir",
+        str(ledger.path),
+        "--follow-withdrawals",
+        "on",
+        "--serve-start",
+        "25",
+    )
+    assert refused.returncode != 0
+    assert (ledger.path / "mirror.json").read_bytes() == before
+    assert not ledger.read().follow_withdrawals

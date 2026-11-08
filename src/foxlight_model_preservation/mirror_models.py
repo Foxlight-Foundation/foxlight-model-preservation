@@ -2,13 +2,35 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Literal, get_args
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
+from .licences import identified_licences
 from .mirror_cards import base_url
 from .models import Digest, Identifier, PreservationError, Record, TrustProfile
 from .torrent import TorrentExport
+
+StateVersion = Literal[
+    "foxlight.mirror-state.v1",
+    "foxlight.mirror-state.v2",
+    "foxlight.mirror-state.v3",
+    "foxlight.mirror-state.v4",
+    "foxlight.mirror-state.v5",
+    "foxlight.mirror-state.v6",
+]
+_VERSIONS: tuple[StateVersion, ...] = get_args(StateVersion)
+
+
+def reached(current: StateVersion, minimum: StateVersion) -> bool:
+    """Whether a ledger profile is at least the given one."""
+    return _VERSIONS.index(current) >= _VERSIONS.index(minimum)
+
+
+def at_least(current: StateVersion, minimum: StateVersion) -> StateVersion:
+    """Raise a ledger profile to a minimum; never lower a newer one."""
+    return current if reached(current, minimum) else minimum
+
 
 NativeCustodyName = Annotated[str, Field(pattern=r"^[a-f0-9]{64}-[a-f0-9]{24}$")]
 
@@ -200,23 +222,54 @@ class SourceIntake(Record):
     authority_sha256: Digest
 
 
+class IntakePolicy(Record):
+    """The owner's standing public intake, covered by the restart grant.
+
+    ``share="eligible"`` admits every local public selection whose reviewed
+    terms all name a selected licence, without new consent: such selections are
+    part of what the grant already covers. ``"chosen"`` admits nothing on its
+    own, so each selection is consented to individually, as without a policy.
+    ``licenses`` is the exact resolved selection (families expanded, custom
+    identifiers included) reviewed against licence ``definition``. A later
+    definition never widens it. ``withheld`` copies are kept back from serving
+    and from standing intake; withholding only narrows, so it is not part of
+    the grant's policy identity. Changing anything else needs fresh consent.
+    """
+
+    share: Literal["eligible", "chosen"] = "eligible"
+    licenses: tuple[str, ...] = Field(min_length=1, max_length=128)
+    definition: int = Field(ge=1, le=1000)
+    withheld: tuple[Digest, ...] = Field(default=(), max_length=1000)
+
+    @field_validator("licenses")
+    @classmethod
+    def identified(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        """Store normalized identified licences once each, so identity is stable."""
+        if identified_licences(values) != values:
+            raise PreservationError("intake licences must be normalized and unique")
+        return values
+
+    @field_validator("withheld")
+    @classmethod
+    def once(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        """List each withheld copy once."""
+        if len(set(values)) != len(values):
+            raise PreservationError("withheld copies must be unique")
+        return values
+
+
 class MirrorState(Record):
     """One atomic owner-only policy/ledger with conservative durable reservations."""
 
-    schema_version: Literal[
-        "foxlight.mirror-state.v1",
-        "foxlight.mirror-state.v2",
-        "foxlight.mirror-state.v3",
-        "foxlight.mirror-state.v4",
-        "foxlight.mirror-state.v5",
-    ] = "foxlight.mirror-state.v1"
+    schema_version: StateVersion = "foxlight.mirror-state.v1"
     identity: dict[str, tuple[int, int]]
     name: str = Field(min_length=1, max_length=200)
     salt: Digest
     disk_bytes: int = Field(ge=256 * 1024**2, le=2**53 - 1)
     ingress_daily: int = Field(ge=1, le=2**53 - 1)
-    egress_daily: int = Field(ge=1, le=2**53 - 1)
-    egress_monthly: int = Field(ge=1, le=2**53 - 1)
+    # None is no upload cap (v6): bytes are still counted, never refused.
+    egress_daily: int | None = Field(ge=1, le=2**53 - 1)
+    egress_monthly: int | None = Field(ge=1, le=2**53 - 1)
     bind: Literal["127.0.0.1", "0.0.0.0", "::1", "::"] = "127.0.0.1"  # noqa: S104
     port: int = Field(default=8080, ge=0, le=65535)
     http_enabled: bool = True
@@ -242,6 +295,7 @@ class MirrorState(Record):
         default_factory=dict, max_length=1000
     )
     announce: AnnouncePolicy | None = None
+    intake: IntakePolicy | None = None
     follow_withdrawals: bool = Field(
         default=False,
         description="Operator's choice to stop serving copies a followed catalog "
@@ -250,33 +304,68 @@ class MirrorState(Record):
 
     @model_validator(mode="after")
     def native_profile_version(self) -> MirrorState:
-        """Require native v2, local v3 and independent HTTP v4 policy or later."""
+        """Require native v2, local v3, HTTP v4, source v5 and uncapped/intake v6."""
         if (
             self.native_policy or self.native_models
         ) and self.schema_version == "foxlight.mirror-state.v1":
             raise PreservationError("native mirror policy requires state v2")
         if self.native_models and self.native_policy is None:
             raise PreservationError("native custody requires its enrolled policy")
-        if any(
-            held.origin == "local" for held in self.models.values()
-        ) and self.schema_version not in {
-            "foxlight.mirror-state.v3",
-            "foxlight.mirror-state.v4",
-            "foxlight.mirror-state.v5",
-        }:
-            raise PreservationError("local mirror selection requires state v3")
-        if not self.http_enabled and self.schema_version not in {
-            "foxlight.mirror-state.v4",
-            "foxlight.mirror-state.v5",
-        }:
-            raise PreservationError("separate HTTP transport policy requires state v4")
-        if (
-            any(
-                held.origin == "source"
-                and (held.envelope_sha256 is not None or held.catalog_id is not None)
-                for held in self.models.values()
-            )
-            and self.schema_version != "foxlight.mirror-state.v5"
+        if any(held.origin == "local" for held in self.models.values()) and not reached(
+            self.schema_version, "foxlight.mirror-state.v3"
         ):
+            raise PreservationError("local mirror selection requires state v3")
+        if not self.http_enabled and not reached(
+            self.schema_version, "foxlight.mirror-state.v4"
+        ):
+            raise PreservationError("separate HTTP transport policy requires state v4")
+        if any(
+            held.origin == "source"
+            and (held.envelope_sha256 is not None or held.catalog_id is not None)
+            for held in self.models.values()
+        ) and not reached(self.schema_version, "foxlight.mirror-state.v5"):
             raise PreservationError("source metadata custody requires state v5")
+        if self.intake is not None and any(
+            identity in self.models and not self.models[identity].blocked
+            for identity in self.intake.withheld
+        ):
+            raise PreservationError("a withheld mirror selection must stay blocked")
+        if needs_v6(self) and not reached(
+            self.schema_version, "foxlight.mirror-state.v6"
+        ):
+            raise PreservationError(
+                "uncapped uploads or a standing intake policy require state v6"
+            )
         return self
+
+
+def needs_v6(state: MirrorState) -> bool:
+    """Whether a state uses a choice that only the v6 profile can express."""
+    return (
+        state.egress_daily is None
+        or state.egress_monthly is None
+        or state.intake is not None
+    )
+
+
+def withheld(state: MirrorState, identity: str) -> bool:
+    """Whether the standing intake policy keeps this exact identity back."""
+    return state.intake is not None and identity in state.intake.withheld
+
+
+def upgrade_profile(state: MirrorState) -> MirrorState:
+    """Raise the profile to v6 when needed, so older readers refuse the file.
+
+    Older releases accept only v1 to v5 and reject unknown fields, so they
+    refuse a v6 ledger outright instead of misreading "no cap" or ignoring a
+    standing intake policy.
+    """
+    if needs_v6(state):
+        return state.model_copy(
+            update={
+                "schema_version": at_least(
+                    state.schema_version, "foxlight.mirror-state.v6"
+                )
+            }
+        )
+    return state

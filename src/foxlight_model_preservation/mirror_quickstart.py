@@ -26,8 +26,14 @@ from .mirror import (
     follow,
 )
 from .mirror_announce import DISCLOSURE, dht_port
-from .mirror_models import AnnouncePolicy, SourceGrant, Terms
-from .mirror_state import MirrorLedger, grant_restart, policy_id
+from .mirror_models import AnnouncePolicy, SourceGrant, Terms, upgrade_profile
+from .mirror_state import (
+    HEADROOM,
+    MirrorLedger,
+    MirrorState,
+    grant_restart,
+    policy_id,
+)
 from .models import Digest, PreservationError, Record, TrustProfile
 from .signing import canonical_bytes, load_trust, strict_json
 
@@ -138,13 +144,16 @@ class QuickstartSettings:
     name: str
     disk_bytes: int
     ingress_daily: int
-    egress_daily: int
-    egress_monthly: int
+    # None is no upload cap: uploads are counted but never refused.
+    egress_daily: int | None
+    egress_monthly: int | None
     bind: str = "127.0.0.1"
     port: int = 8080
     announce: AnnouncePolicy | None = None
     resume_seconds: int = 180 * 86400
     max_bytes: int | None = None
+    # The operator's choice; never a publisher's. Off: withdrawal is advisory.
+    follow_withdrawals: bool = False
 
 
 def model_limit(collection: MirrorCollection, settings: QuickstartSettings) -> int:
@@ -184,6 +193,12 @@ def review(
             "listener binds every interface: it is directly reachable without "
             "the reverse proxy"
         )
+    if settings.egress_daily is None and settings.egress_monthly is None:
+        warnings.append(
+            "uploads are not capped: serving can use a lot of bandwidth, and "
+            "on metered hosting that costs money. Set --egress-daily and "
+            "--egress-monthly to cap it"
+        )
     expires = int(time.time()) + settings.resume_seconds
     limit = model_limit(collection, settings)
     lines = [
@@ -211,8 +226,13 @@ def review(
         f"Per-model limit: {format_size(limit)}",
         f"Disk budget:     {format_size(settings.disk_bytes)}",
         f"Ingress budget:  {format_size(settings.ingress_daily)} per UTC day",
-        f"Egress budget:   {format_size(settings.egress_daily)} per UTC day, "
-        f"{format_size(settings.egress_monthly)} per UTC month",
+        "Upload cap:      "
+        + (
+            "none (uploads are counted, never refused)"
+            if settings.egress_daily is None and settings.egress_monthly is None
+            else f"{_cap_text(settings.egress_daily)} per UTC day, "
+            f"{_cap_text(settings.egress_monthly)} per UTC month"
+        ),
         f"Listener:        {settings.bind} port {settings.port}",
         f"Public URL:      {announce.public_url if announce else 'none'}",
         "Announcement:    "
@@ -245,8 +265,18 @@ def review(
         ),
         "Not exposed: private keys, the ledger, partial or unverified bytes",
         "  and models you block.",
-        "Catalog withdrawal is advisory: a copy a publisher stops listing keeps",
-        "  serving and is flagged in status. You decide; block it to stop serving.",
+        *(
+            [
+                "Catalog withdrawal is followed (your choice): a copy a followed",
+                "  catalog stops listing stops being served until it is relisted.",
+            ]
+            if settings.follow_withdrawals
+            else [
+                "Catalog withdrawal is advisory: a copy a publisher stops listing",
+                "  keeps serving and is flagged in status. You decide; block it to",
+                "  stop serving.",
+            ]
+        ),
     ]
     if warnings:
         lines += ["", "Warnings:", *("  ! " + item for item in warnings)]
@@ -264,11 +294,16 @@ def review(
         "bind": settings.bind,
         "port": settings.port,
         "announce": announce.model_dump(mode="json") if announce else None,
+        "follow_withdrawals": settings.follow_withdrawals,
         "restart_expires": expires,
         "warnings": list(warnings),
         "anonymous": False,
     }
     return "\n".join(lines), summary
+
+
+def _cap_text(value: int | None) -> str:
+    return "no cap" if value is None else format_size(value)
 
 
 def _items(value: JsonValue) -> list[JsonValue]:
@@ -285,6 +320,28 @@ def _wrap(text: str, width: int = 74) -> list[str]:
         else:
             current = f"{current} {word}".strip()
     return [*lines, current] if current else lines
+
+
+def preflight_settings(config: dict[str, object]) -> MirrorState:
+    """Validate a new mirror's settings exactly as ``initialize`` would, offline.
+
+    Nothing is created. Upload caps of ``None`` select the v6 profile, as
+    ``MirrorLedger.initialize`` does, so "no cap" is checked like any other
+    value.
+    """
+    fields: dict[str, object] = {
+        **config,
+        "identity": {},
+        "salt": "0" * 64,
+        "clock_floor": 0,
+    }
+    if (
+        config.get("egress_daily") is None
+        or config.get("egress_monthly") is None
+        or config.get("intake") is not None
+    ):
+        fields["schema_version"] = "foxlight.mirror-state.v6"
+    return MirrorState.model_validate(fields)
 
 
 def apply_quickstart(
@@ -304,7 +361,10 @@ def apply_quickstart(
     reimporting the collection's possibly older snapshot, so a later refresh
     never turns into a rollback refusal. A paused or departed mirror refuses:
     quickstart never resumes or rejoins it. Without consent nothing is written.
-    No network is used; ``mirror run`` starts serving separately.
+    Every refusal it can foresee (settings, source identity, disk admission,
+    grant length) is checked before anything is written, and a later refusal
+    restores the previous ledger, so an existing mirror keeps its settings and
+    restart grant. No network is used; ``mirror run`` starts serving separately.
     """
     if not consented:
         raise PreservationError(
@@ -319,6 +379,7 @@ def apply_quickstart(
         "bind": settings.bind,
         "port": settings.port,
         "announce": settings.announce,
+        "follow_withdrawals": settings.follow_withdrawals,
     }
     grant = SourceGrant(
         trust=collection.trust,
@@ -328,48 +389,78 @@ def apply_quickstart(
     )
     source = inspect_source(document)
     source_id = str(source["source_id"])
+    if source["bootstrap_id"] != collection.expected_bootstrap_id:
+        raise PreservationError(
+            "source file differs from the collection's expected bootstrap ID"
+        )
+    if not 0 < settings.resume_seconds <= 366 * 86400:
+        raise PreservationError("resume expiry must be within the next 366 days")
+    existing: MirrorLedger | None = None
+    previous: MirrorState | None = None
     if (directory / "mirror.json").exists():
-        ledger = MirrorLedger(directory)
-        state = ledger.read()
-        if state.left:
+        existing = MirrorLedger(directory)
+        previous = existing.read()
+        if previous.left:
             raise PreservationError(
                 "this mirror has left; quickstart does not rejoin it. Use a new "
                 "mirror directory to serve again"
             )
-        if state.paused:
+        if previous.paused:
             raise PreservationError(
                 "this mirror is paused; run `mirror resume` first if you want it "
                 "to serve again"
             )
-        before = policy_id(state)
-        configure_mirror(ledger, config)
-        created = False
+        # The new settings must validate before anything is written, including
+        # "no upload cap", which only the v6 profile can store.
+        MirrorState.model_validate(
+            upgrade_profile(previous.model_copy(update=config)).model_dump()
+        )
+        followed = {
+            status.source_id: status.bootstrap_id
+            for status in list_sources(existing.path / "discovery")
+        }
+        reimported = not (
+            source_id in previous.sources
+            and followed.get(source_id) == collection.expected_bootstrap_id
+        )
+        usage = existing.usage()
     elif directory.exists():
         raise PreservationError(
             "mirror directory exists without mirror.json (an interrupted init?); "
             "inspect it and remove it before running quickstart again"
         )
     else:
+        reimported, usage = True, 0
+        # A new mirror's settings validate before its directory is created.
+        preflight_settings(config)
+    # Following admits nothing once retained bytes fill the new disk budget.
+    if reimported and usage + HEADROOM > settings.disk_bytes:
+        raise PreservationError(
+            "mirror disk admission budget exhausted: the disk budget must exceed "
+            "the bytes already retained plus headroom"
+        )
+    if existing is None:
         ledger = MirrorLedger.initialize(directory, **config)
-        before = None
-        created = True
-    followed = {
-        status.source_id: status.bootstrap_id
-        for status in list_sources(ledger.path / "discovery")
-    }
-    reimported = not (
-        source_id in ledger.read().sources
-        and followed.get(source_id) == collection.expected_bootstrap_id
-    )
-    if reimported:
-        follow(ledger, document, collection.expected_bootstrap_id, grant)
     else:
-        apply_source_grant(ledger, source_id, grant)
-    changed = before is None or policy_id(ledger.read()) != before
-    expires = int(time.time()) + settings.resume_seconds
-    grant_restart(ledger, expires)
+        ledger = existing
+        configure_mirror(ledger, config)
+    try:
+        if reimported:
+            follow(ledger, document, collection.expected_bootstrap_id, grant)
+        else:
+            apply_source_grant(ledger, source_id, grant)
+        changed = previous is None or policy_id(ledger.read()) != policy_id(previous)
+        expires = int(time.time()) + settings.resume_seconds
+        grant_restart(ledger, expires)
+    except BaseException:
+        if previous is not None:
+            # An unforeseen refusal leaves the mirror as it was, grant included.
+            restored = previous
+            with ledger.service_lock():
+                ledger.update(lambda _current: restored)
+        raise
     return ledger, {
-        "initialized": created,
+        "initialized": previous is None,
         "source_id": source_id,
         "source_reimported": reimported,
         "policy_changed": changed,

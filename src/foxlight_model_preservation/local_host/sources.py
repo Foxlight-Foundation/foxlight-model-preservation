@@ -34,6 +34,7 @@ from ..invitations import (
     invitation_from_envelope,
     normalize_mirror_bases,
 )
+from ..licences import member_terms, terms_review
 from ..models import Digest, PreservationError, Record, TrustProfile
 from ..operations import OperationControl
 from ..pmf_models import PMFManifest
@@ -562,6 +563,7 @@ class SourceLibrary:
             "size_bytes": manifest.total_bytes,
             "members": member_names(manifest),
             "member_count": len(manifest.members),
+            "terms": terms_review(member_terms(manifest.members)),
             "trust": trust.model_dump(mode="json"),
             "mirrors": list(self.http_mirrors(record.mirrors)),
         }

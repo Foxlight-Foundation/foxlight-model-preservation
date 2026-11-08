@@ -18,7 +18,15 @@ from typing import TypeVar, cast
 
 from pydantic import JsonValue
 
-from .mirror_models import HeldModel, MirrorState, RestartGrant
+from .licences import licence_status
+from .mirror_models import (
+    HeldModel,
+    MirrorState,
+    RestartGrant,
+    at_least,
+    reached,
+    upgrade_profile,
+)
 from .models import PreservationError
 from .signing import digest, strict_json
 from .storage import atomic_bytes, directory, open_file, writer_lock
@@ -45,17 +53,16 @@ def encode_state(state: MirrorState) -> bytes:
         value.pop("announce")
     if not state.follow_withdrawals:
         value.pop("follow_withdrawals")
-    if state.schema_version != "foxlight.mirror-state.v5":
+    if state.intake is None:
+        value.pop("intake")
+    if not reached(state.schema_version, "foxlight.mirror-state.v5"):
         for held in value["models"].values():
             held.pop("catalog_id")
     if state.schema_version in {"foxlight.mirror-state.v1", "foxlight.mirror-state.v2"}:
         for held in value["models"].values():
             held.pop("origin")
             held.pop("envelope_sha256")
-    if state.schema_version not in {
-        "foxlight.mirror-state.v4",
-        "foxlight.mirror-state.v5",
-    }:
+    if not reached(state.schema_version, "foxlight.mirror-state.v4"):
         value.pop("http_enabled")
     if state.native_policy is None and not state.native_models:
         value.pop("native_policy")
@@ -163,14 +170,20 @@ class MirrorLedger:
                     os.mkdir(name, 0o700, dir_fd=root)
                 info = os.stat(name, dir_fd=root, follow_symlinks=False)
                 identities[name] = (info.st_dev, info.st_ino)
-            state = MirrorState.model_validate(
-                dict(
-                    config,
-                    identity=identities,
-                    salt=secrets.token_hex(32),
-                    clock_floor=int(time.time()),
-                )
+            fields = dict(
+                config,
+                identity=identities,
+                salt=secrets.token_hex(32),
+                clock_floor=int(time.time()),
             )
+            if "schema_version" not in fields and (
+                fields.get("egress_daily") is None
+                or fields.get("egress_monthly") is None
+                or fields.get("intake") is not None
+            ):
+                # No upload cap (or a standing intake policy) is a v6 choice.
+                fields["schema_version"] = "foxlight.mirror-state.v6"
+            state = MirrorState.model_validate(fields)
             atomic_bytes(root, "mirror.json", encode_state(state))
         return MirrorLedger(path)
 
@@ -241,7 +254,9 @@ class MirrorLedger:
         """Fsync a complete transaction; contention refuses safely."""
         with self._mutex, self.root() as root, writer_lock(root):
             current, legacy = self._read()
-            state = MirrorState.model_validate(action(current).model_dump())
+            state = MirrorState.model_validate(
+                upgrade_profile(action(current)).model_dump()
+            )
             raw = encode_state(state)
             if len(raw) > MAX_STATE:
                 raise PreservationError("mirror state exceeds its bound")
@@ -380,9 +395,14 @@ class MirrorLedger:
                         + ((operation,) if operation else ()),
                     }
                 )
+            # An uncapped allowance (None) still counts bytes for status, but
+            # never refuses them.
             if (
-                state.egress_day_used + count > state.egress_daily
-                or state.egress_month_used + count > state.egress_monthly
+                state.egress_daily is not None
+                and state.egress_day_used + count > state.egress_daily
+            ) or (
+                state.egress_monthly is not None
+                and state.egress_month_used + count > state.egress_monthly
             ):
                 return state
             accepted = True
@@ -408,7 +428,9 @@ def withdrawal_withholds(state: MirrorState, held: HeldModel) -> bool:
 
     Withdrawal is advisory unless the operator turned on ``follow_withdrawals``;
     even then, a copy whose advisory the operator acknowledged keeps serving.
-    Blocking is the operator's separate, unconditional serving control.
+    Blocking (including withheld copies, which are always blocked) is the
+    operator's separate, unconditional serving control; no advisory or
+    acknowledgement overrides it.
     """
     return bool(
         state.follow_withdrawals
@@ -417,12 +439,42 @@ def withdrawal_withholds(state: MirrorState, held: HeldModel) -> bool:
     )
 
 
+def intake_covers(state: MirrorState, held: HeldModel) -> bool:
+    """Whether the standing intake policy already covers one local selection.
+
+    Only an "all eligible" policy covers anything, and only a local public
+    selection whose every reviewed licence is identified and selected. Being
+    withheld does not change coverage: withholding narrows serving and never
+    re-scopes the grant.
+    """
+    intake = state.intake
+    return bool(
+        intake is not None
+        and intake.share == "eligible"
+        and held.origin == "local"
+        and licence_status(
+            [terms.license_id for terms in held.grant.terms], intake.licenses
+        )
+        == "eligible"
+    )
+
+
 def policy_id(state: MirrorState) -> str:
-    """Bind restart authority to directory, sources, model trust and resource policy."""
+    """Bind restart authority to directory, sources, model trust and resource policy.
+
+    A standing intake policy is bound as a whole (less its withheld list, which
+    only narrows). Local selections it covers are then not bound one by one, so
+    admitting a newly matching public copy keeps the grant; any other local
+    selection is bound exactly, as before. A ledger without an intake policy
+    hashes exactly as earlier releases did.
+    """
     return digest(
         encode_state(
             state.model_copy(
                 update={
+                    "intake": state.intake.model_copy(update={"withheld": ()})
+                    if state.intake is not None
+                    else None,
                     # Source grants already bind dynamic catalog intake. Local
                     # selections instead bind their exact identity and accepted
                     # policy; live block/pin/verification receipts grant nothing.
@@ -439,7 +491,7 @@ def policy_id(state: MirrorState) -> str:
                             }
                         )
                         for identity, held in state.models.items()
-                        if held.origin == "local"
+                        if held.origin == "local" and not intake_covers(state, held)
                     },
                     "restart": None,
                     "paused": False,
@@ -485,7 +537,11 @@ def grant_restart(ledger: MirrorLedger, expires: int) -> MirrorState:
         # old-profile restart may not silently acquire a new policy identity.
         if state.sources:
             state = state.model_copy(
-                update={"schema_version": "foxlight.mirror-state.v5"}
+                update={
+                    "schema_version": at_least(
+                        state.schema_version, "foxlight.mirror-state.v5"
+                    )
+                }
             )
         return state.model_copy(
             update={

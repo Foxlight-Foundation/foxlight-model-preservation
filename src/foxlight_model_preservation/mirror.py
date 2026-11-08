@@ -22,11 +22,16 @@ from .mirror_announce import Announcer, remove_peers
 from .mirror_cards import PEERS_PATH
 from .mirror_models import (
     HeldModel,
+    IntakePolicy,
     MirrorObservation,
     MirrorState,
     SourceGrant,
     SourceIntake,
     WithdrawalAdvisory,
+    at_least,
+    reached,
+    upgrade_profile,
+    withheld,
 )
 from .mirror_native import NativeMirrors, PeerSessionRunner
 from .mirror_state import (
@@ -107,7 +112,9 @@ def follow(
             lambda state: state.model_copy(
                 update={
                     "sources": dict(state.sources, **{status.source_id: grant}),
-                    "schema_version": "foxlight.mirror-state.v5",
+                    "schema_version": at_least(
+                        state.schema_version, "foxlight.mirror-state.v5"
+                    ),
                     "restart": None,
                 }
             )
@@ -135,7 +142,9 @@ def apply_source_grant(
             lambda current: current.model_copy(
                 update={
                     "sources": dict(current.sources, **{source_id: grant}),
-                    "schema_version": "foxlight.mirror-state.v5",
+                    "schema_version": at_least(
+                        current.schema_version, "foxlight.mirror-state.v5"
+                    ),
                     "restart": None,
                 }
             )
@@ -249,9 +258,9 @@ def configure_http(ledger: MirrorLedger, *, enabled: bool) -> MirrorState:
         return ledger.update(
             lambda state: state.model_copy(
                 update={
-                    "schema_version": "foxlight.mirror-state.v5"
-                    if state.schema_version == "foxlight.mirror-state.v5"
-                    else "foxlight.mirror-state.v4",
+                    "schema_version": at_least(
+                        state.schema_version, "foxlight.mirror-state.v4"
+                    ),
                     "http_enabled": enabled,
                     "restart": None,
                 }
@@ -305,7 +314,7 @@ def configure_mirror(ledger: MirrorLedger, changes: dict[str, object]) -> Mirror
                     for source, grant in state.sources.items()
                 }
             candidate = MirrorState.model_validate(
-                state.model_copy(update=update).model_dump()
+                upgrade_profile(state.model_copy(update=update)).model_dump()
             )
             if policy_id(candidate) == policy_id(state):
                 return state
@@ -315,6 +324,70 @@ def configure_mirror(ledger: MirrorLedger, changes: dict[str, object]) -> Mirror
         if "announce" in changes and state.announce is None:
             remove_peers(ledger)
         return state
+
+
+def configure_intake(ledger: MirrorLedger, intake: IntakePolicy | None) -> MirrorState:
+    """Set or clear the standing public intake policy offline.
+
+    The policy (share mode, licences and the licence definition they were
+    reviewed under) is part of what the restart grant covers, so any effective
+    change clears the grant and serving needs fresh consent. A change to the
+    withheld list alone never does: withholding only narrows, and every copy
+    it names is blocked from serving at once (releasing one unblocks it).
+    Nothing is retained, deleted or served here; stop the controller first.
+    """
+    with ledger.service_lock():
+
+        def apply(state: MirrorState) -> MirrorState:
+            before = set(state.intake.withheld) if state.intake else set[str]()
+            after = set(intake.withheld) if intake else set[str]()
+            models = {
+                identity: held.model_copy(update={"blocked": True})
+                if identity in after - before
+                else held.model_copy(update={"blocked": False})
+                if identity in before - after
+                else held
+                for identity, held in state.models.items()
+            }
+            candidate = MirrorState.model_validate(
+                upgrade_profile(
+                    state.model_copy(update={"intake": intake, "models": models})
+                ).model_dump()
+            )
+            if policy_id(candidate) == policy_id(state):
+                return candidate
+            return candidate.model_copy(update={"restart": None})
+
+        return ledger.update(apply)
+
+
+def withhold(ledger: MirrorLedger, manifest_id: str, *, withheld: bool) -> MirrorState:
+    """Keep one copy back from serving and standing intake, or share it again.
+
+    Neither direction changes what the restart grant covers, so serving goes on
+    under the same consent. A copy that is not yet retained is simply refused
+    by standing intake while it is withheld. Nothing is deleted.
+    """
+
+    def apply(state: MirrorState) -> MirrorState:
+        intake = state.intake
+        if intake is None:
+            raise PreservationError("set a standing intake policy first")
+        listed = tuple(item for item in intake.withheld if item != manifest_id)
+        if withheld:
+            listed = (*listed, manifest_id)
+        models = dict(state.models)
+        held = models.get(manifest_id)
+        if held is not None:
+            models[manifest_id] = held.model_copy(update={"blocked": withheld})
+        return state.model_copy(
+            update={
+                "intake": intake.model_copy(update={"withheld": listed}),
+                "models": models,
+            }
+        )
+
+    return ledger.update(apply)
 
 
 def retry_selection(
@@ -467,6 +540,22 @@ def record_model(
             raise PreservationError("unknown retained mirror selection")
         models = dict(state.models)
         selected_changes = dict(changes)
+        intake = state.intake
+        if (
+            changes.get("blocked") is False
+            and intake is not None
+            and withheld(state, manifest_id)
+        ):
+            # An explicit unblock is the owner sharing it again: it leaves the
+            # withheld list too, so nothing serves a copy still listed as kept
+            # back. Withholding is not bound into the grant, so neither is this.
+            intake = intake.model_copy(
+                update={
+                    "withheld": tuple(
+                        item for item in intake.withheld if item != manifest_id
+                    )
+                }
+            )
         if (
             changes.get("state") == "pending"
             and state.models[manifest_id].origin == "local"
@@ -491,7 +580,9 @@ def record_model(
         native = dict(state.native_models)
         if changes.get("state") == "pending" and manifest_id in native:
             native[manifest_id] = native[manifest_id].model_copy(update={"error": None})
-        return state.model_copy(update={"models": models, "native_models": native})
+        return state.model_copy(
+            update={"models": models, "native_models": native, "intake": intake}
+        )
 
     return ledger.update(apply)
 
@@ -613,10 +704,12 @@ def _retain_source_envelope(
             raise PreservationError("mirror selection changed before source intake")
         return state.model_copy(
             update={
-                "schema_version": "foxlight.mirror-state.v5",
+                "schema_version": at_least(
+                    state.schema_version, "foxlight.mirror-state.v5"
+                ),
                 "models": dict(state.models, **{identity: selected}),
                 "restart": state.restart
-                if state.schema_version == "foxlight.mirror-state.v5"
+                if reached(state.schema_version, "foxlight.mirror-state.v5")
                 else None,
             }
         )
@@ -889,10 +982,21 @@ def reconcile(ledger: MirrorLedger, control: OperationControl) -> None:
         ledger.update(
             lambda current, identity=result.manifest, selected=held: current.model_copy(
                 update={
-                    "schema_version": "foxlight.mirror-state.v5",
-                    "models": dict(current.models, **{identity: selected}),
+                    "schema_version": at_least(
+                        current.schema_version, "foxlight.mirror-state.v5"
+                    ),
+                    # A copy the owner withheld is selected blocked: nothing is
+                    # fetched or served until the owner releases it.
+                    "models": dict(
+                        current.models,
+                        **{
+                            identity: selected.model_copy(
+                                update={"blocked": withheld(current, identity)}
+                            )
+                        },
+                    ),
                     "restart": current.restart
-                    if current.schema_version == "foxlight.mirror-state.v5"
+                    if reached(current.schema_version, "foxlight.mirror-state.v5")
                     else None,
                 }
             )
@@ -1346,7 +1450,9 @@ def run_mirror(
             and (state.native_policy.ipfs_binary or state.native_policy.torrent)
         ):
             raise PreservationError("select at least one mirror serving transport")
-        if state.sources and state.schema_version != "foxlight.mirror-state.v5":
+        if state.sources and not reached(
+            state.schema_version, "foxlight.mirror-state.v5"
+        ):
             if resume or state.paused or state.left:
                 raise PreservationError(
                     "source custody upgrade needs explicit run or renewed restart grant"
@@ -1354,7 +1460,9 @@ def run_mirror(
             state = ledger.update(
                 lambda current: current.model_copy(
                     update={
-                        "schema_version": "foxlight.mirror-state.v5",
+                        "schema_version": at_least(
+                            current.schema_version, "foxlight.mirror-state.v5"
+                        ),
                         "restart": None,
                     }
                 )

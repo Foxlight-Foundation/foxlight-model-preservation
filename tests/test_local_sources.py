@@ -91,6 +91,17 @@ def test_independent_follow_search_receive_and_offline_restore(tmp_path, capture
             assert len(model_requests) == 1  # following never enrolls model keys
             request["keys"] = reference["keys"]
             receive_plan = owner.control("plan", request)
+            # The fixture's own "test-only" terms are gated like a maker's terms.
+            assert receive_plan["terms"]["accept"] == ["test-only"]
+            with pytest.raises(PreservationError, match="terms_acceptance_required"):
+                owner.control(
+                    "start",
+                    {
+                        "plan_id": receive_plan["plan_id"],
+                        "operation_id": "o" * 32,
+                        "confirmed": True,
+                    },
+                )
             received = finish(owner, submit(owner, receive_plan))
             assert received["state"] == "succeeded", received
             assert model_requests.count("/" + manifest_path(capture.identity)) == 1

@@ -16,6 +16,7 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from foxlight_model_preservation.mirror import (
+    configure_intake,
     model_action,
     public_selection,
     reconcile,
@@ -26,6 +27,7 @@ from foxlight_model_preservation.mirror import (
 from foxlight_model_preservation.mirror_intake import retain_local
 from foxlight_model_preservation.mirror_models import (
     HeldModel,
+    IntakePolicy,
     MirrorState,
     SourceGrant,
     Terms,
@@ -377,10 +379,18 @@ def test_complete_crash_intent_recovers_offline_and_prune_does_not_readmit(
         retain_local(ledger, capture.store, capture.identity, local_grant(capture))
 
 
+@pytest.mark.parametrize("standing", [False, True])
 def test_removed_local_retry_cannot_wedge_prune_and_reintake_needs_fresh_consent(
-    tmp_path, capture
+    tmp_path, capture, standing
 ):
     ledger = local_mirror(tmp_path)
+    if standing:
+        # An "all eligible" policy covering this licence still never lets a
+        # removed copy come back under the old grant.
+        configure_intake(
+            ledger,
+            IntakePolicy(share="eligible", licenses=("test-only",), definition=1),
+        )
     first = capture.identity
     other = pack(
         capture.recipe.model_copy(update={"name": "other selected model"}),

@@ -38,6 +38,7 @@ from .contracts import (
 from .discovery import discovery_control
 from .mirrors import mirror_control, prepared_mirror_kit
 from .sharing_switch import ShareSwitch, share_control
+from .terms import accepted_terms, with_terms
 
 #: The exact built interface files this screen serves. A ``None`` type uses the
 #: platform registry; fonts are explicit because ``mimetypes`` may not know
@@ -305,8 +306,12 @@ class LibraryServer:
             return {"copy_id": copy_id, "manifest_id": manifest_id}
         if action == "delivery-plan":
             delivery = DeliveryInput.model_validate(body)
-            return await self.client.request(
-                "POST", "plans", delivery.model_dump(mode="json", exclude_unset=True)
+            return with_terms(
+                await self.client.request(
+                    "POST",
+                    "plans",
+                    delivery.model_dump(mode="json", exclude_unset=True),
+                )
             )
         if action == "publisher-setup":
             if body:
@@ -360,6 +365,7 @@ class LibraryServer:
                     "allow_repository_code",
                     "restore_deleted",
                     "public_participation",
+                    "accepted_terms",
                 }
                 or any(
                     type(body[key]) is not bool
@@ -380,6 +386,7 @@ class LibraryServer:
             ):
                 raise CoreRefused("invalid_submission")
             selected_plan = await self.client.request("GET", "plans/" + plan_id)
+            body = accepted_terms(selected_plan, body)
             owner = (
                 self.client.sharing_owner_id
                 if selected_plan.get("kind")
