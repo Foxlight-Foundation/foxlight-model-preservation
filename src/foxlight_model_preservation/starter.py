@@ -67,8 +67,8 @@ from .storage import (
     atomic_bytes,
     directory,
     object_path,
-    parent_directory,
     read_metadata,
+    verify_object,
 )
 from .transfer import TransferPolicy, fetch, inspect_envelope
 
@@ -493,46 +493,6 @@ def _intent(
         return None
 
 
-def seed_staging(ledger: MirrorLedger, store: Path, manifest: ArchiveManifest) -> int:
-    """Hard-link objects the mirror store already holds into a staging store.
-
-    ``fetch`` then hashes each linked object and requests only what is
-    missing, so files shared with retained models are neither downloaded nor
-    stored twice. Only regular files of the right size are linked; ``fetch``
-    still verifies every one, and it publishes replacements by renaming a new
-    file, never by writing into a linked one. A link that fails (another
-    volume) is skipped and that object is fetched. Returns the bytes linked.
-    """
-    linked = 0
-    with ledger.child("store") as source, directory(store, create=True) as target:
-        for file in archive_objects(manifest):
-            path = object_path(file.sha256)
-            try:
-                info = os.stat(path, dir_fd=source, follow_symlinks=False)
-            except FileNotFoundError:
-                continue
-            if not stat.S_ISREG(info.st_mode) or info.st_size != file.size:
-                continue
-            try:
-                with (
-                    parent_directory(source, path) as (from_dir, name),
-                    parent_directory(target, path, create=True) as (to_dir, _name),
-                ):
-                    os.link(
-                        name,
-                        name,
-                        src_dir_fd=from_dir,
-                        dst_dir_fd=to_dir,
-                        follow_symlinks=False,
-                    )
-            except FileExistsError:
-                continue
-            except OSError:
-                continue
-            linked += file.size
-    return linked
-
-
 def missing_objects(
     ledger: MirrorLedger, manifests: Iterable[ArchiveManifest]
 ) -> dict[str, FileIdentity]:
@@ -567,38 +527,204 @@ def missing_bytes(ledger: MirrorLedger, manifests: Iterable[ArchiveManifest]) ->
     return sum(file.size for file in missing_objects(ledger, manifests).values())
 
 
-def staged_bytes(
-    staging: Path, manifest_ids: Iterable[str], missing: dict[str, FileIdentity]
-) -> int:
-    """Bytes of missing objects an earlier, interrupted import already staged.
+# Staging and disk accounting --------------------------------------------------
+#
+# An import stages through one content-addressed pool shared by every entry
+# (``<staging>/pool``) and a per-entry view (``<staging>/<manifest>``) that
+# ``fetch`` writes into. Before each fetch the view is seeded with hard links
+# to every object the mirror store or the pool already holds, and after it the
+# view's objects are linked into the pool, so an object is downloaded at most
+# once per import (and kept for a rerun if the import is interrupted).
+#
+# ``disk_requirements`` models every later step from that layout, and admission
+# approves only when all of them hold. The invariant: an approved import never
+# fails a later step's own space check (``fetch``'s free-space check on the
+# view, ``retain_local``'s budget and free-space checks on the mirror), as
+# long as nothing outside the import changes the disks meanwhile.
 
-    A complete staged object of the right size counts in full, a partial
-    download by its length. They need no new space on the staging volume
-    (``fetch`` verifies and resumes them; retaining hard-links them in), so
-    the free-space estimate subtracts them. Entries are retained one by one,
-    so an object staged once is never needed twice.
+POOL = "pool"
+# Signed wrappers and small records an import writes: each retained entry
+# writes its wrapper twice (private intent and published manifest); fetch
+# writes one into the view; the ledger and acceptance records are rewritten.
+METADATA_SLACK = 1024**2
+
+
+def _regular_size(path: Path) -> int | None:
+    try:
+        info = path.lstat()
+    except OSError:
+        return None
+    return info.st_size if stat.S_ISREG(info.st_mode) else None
+
+
+def _link(source: Path, target: Path) -> bool:
+    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        os.link(source, target, follow_symlinks=False)
+    except FileExistsError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def consolidate_pool(
+    staging: Path, needed: dict[str, FileIdentity], views: Iterable[str]
+) -> None:
+    """Gather complete objects an earlier run staged in any view into the pool.
+
+    Only objects this import needs are considered, and each is hashed before
+    it joins the pool, so the pool holds verified objects only.
     """
-    total = 0
-    stores = [staging / identity for identity in manifest_ids]
-    for sha, file in missing.items():
-        best = 0
-        for store in stores:
-            for candidate, complete in (
-                (store / object_path(sha), True),
-                (store / ".partial" / sha, False),
-            ):
-                try:
-                    info = candidate.lstat()
-                except OSError:
-                    continue
-                if not stat.S_ISREG(info.st_mode):
-                    continue
-                if complete and info.st_size == file.size:
-                    best = file.size
-                elif not complete:
-                    best = max(best, min(info.st_size, file.size))
-        total += best
-    return total
+    pool = staging / POOL
+    for sha, file in needed.items():
+        if _regular_size(pool / object_path(sha)) == file.size:
+            continue
+        for view in views:
+            candidate = staging / view / object_path(sha)
+            if _regular_size(candidate) != file.size:
+                continue
+            try:
+                with directory(staging / view) as root:
+                    verify_object(root, file)
+            except (OSError, ValueError):
+                continue
+            if _link(candidate, pool / object_path(sha)):
+                break
+
+
+def seed_view(
+    ledger: MirrorLedger, staging: Path, view: str, manifest: ArchiveManifest
+) -> None:
+    """Hard-link objects the store or the pool holds into one entry's view.
+
+    ``fetch`` hashes every linked object and requests only what is missing; it
+    replaces a bad object by renaming a new file, never by writing into a
+    linked one. A link that cannot be made (another volume) is skipped.
+    """
+    target = staging / view
+    target.mkdir(parents=True, exist_ok=True, mode=0o700)
+    for file in archive_objects(manifest):
+        path = object_path(file.sha256)
+        if _regular_size(target / path) == file.size:
+            continue
+        for source in (ledger.path / "store" / path, staging / POOL / path):
+            if _regular_size(source) == file.size and _link(source, target / path):
+                break
+
+
+def publish_view(staging: Path, view: str, manifest: ArchiveManifest) -> None:
+    """Link a fetched view's verified objects into the shared pool."""
+    for file in archive_objects(manifest):
+        path = object_path(file.sha256)
+        source = staging / view / path
+        if _regular_size(source) == file.size:
+            _link(source, staging / POOL / path)
+
+
+def prune_pool(ledger: MirrorLedger, staging: Path) -> None:
+    """Drop pool links to objects the store now holds; keep the rest for a rerun."""
+    objects = staging / POOL / "objects" / "sha256"
+    if not objects.is_dir():
+        return
+    for entry in objects.iterdir():
+        held = _regular_size(ledger.path / "store" / object_path(entry.name))
+        if held is not None and held == _regular_size(entry):
+            entry.unlink(missing_ok=True)
+    for folder in (objects, objects.parent, staging / POOL):
+        try:
+            folder.rmdir()
+        except OSError:
+            break
+
+
+@dataclass(frozen=True)
+class DiskRequirements:
+    """What an import needs, modelled on the steps that will run.
+
+    ``logical`` is added to the mirror's budget (missing from the store).
+    ``downloads`` is new data on the staging volume (missing from the store
+    and the pool, less partial downloads a view already holds). ``metadata``
+    bounds the small files the steps write.
+    """
+
+    logical: int
+    downloads: int
+    metadata: int
+    same_volume: bool
+
+    def refusal(
+        self, usage: int, budget: int, staging_free: int, mirror_free: int
+    ) -> str | None:
+        """Why admission must refuse, or None when every later step will pass.
+
+        - ``retain_local`` refuses unless the mirror's logical usage plus the
+          entry's missing objects and wrappers plus HEADROOM fit the budget.
+        - On one volume, objects are hard-linked from staging into the store,
+          so the volume must hold every download, the metadata and
+          ``retain_local``'s HEADROOM (which exceeds ``fetch``'s margin).
+        - On two volumes, the staging volume must hold the downloads and
+          ``fetch``'s margin, and the mirror volume the copied objects, the
+          metadata and HEADROOM.
+        """
+        if usage + self.logical + self.metadata + HEADROOM > budget:
+            return "the mirror's disk budget"
+        if self.same_volume:
+            if self.downloads + self.metadata + HEADROOM > staging_free:
+                return "the free space on the mirror's volume"
+            return None
+        if self.downloads + self.metadata + PHYSICAL_MARGIN > staging_free:
+            return "the free space on the staging volume"
+        if self.logical + self.metadata + HEADROOM > mirror_free:
+            return "the free space on the mirror's volume"
+        return None
+
+
+def disk_requirements(
+    ledger: MirrorLedger,
+    staging: Path,
+    order: list[tuple[str, bytes, ArchiveManifest]],
+) -> DiskRequirements:
+    """Compute logical and physical needs for entries fetched in this order.
+
+    ``order`` lists (view name, signed wrapper, file table). Each object
+    missing from the store counts once toward the budget. It is downloaded
+    only if the pool lacks it, by the first entry that needs it, which can
+    resume a partial download in its own view.
+    """
+    missing = missing_objects(ledger, [manifest for _view, _env, manifest in order])
+    staging.mkdir(parents=True, exist_ok=True, mode=0o700)
+    same = same_volume(ledger, staging)
+    first_view: dict[str, str] = {}
+    every: dict[str, FileIdentity] = {}
+    for view, _envelope, manifest in order:
+        for file in archive_objects(manifest):
+            first_view.setdefault(file.sha256, view)
+            every.setdefault(file.sha256, file)
+    # On one volume, objects the store holds are hard-linked into views. On
+    # two, they cannot be, so each view needs its own copy (taken from the
+    # local store, not the network) and every object of the import counts.
+    downloads = 0
+    for sha, file in (missing if same else every).items():
+        if _regular_size(staging / POOL / object_path(sha)) == file.size:
+            continue
+        view = staging / first_view[sha]
+        if _regular_size(view / object_path(sha)) == file.size:
+            continue
+        partial = _regular_size(view / ".partial" / sha) or 0
+        downloads += file.size - min(partial, file.size)
+    metadata = METADATA_SLACK + sum(3 * len(envelope) for _v, envelope, _m in order)
+    return DiskRequirements(
+        logical=sum(file.size for file in missing.values()),
+        downloads=downloads,
+        metadata=metadata,
+        same_volume=same,
+    )
+
+
+def same_volume(ledger: MirrorLedger, staging: Path) -> bool:
+    """Whether staging and the mirror store share a filesystem (hard links)."""
+    return os.stat(staging).st_dev == os.stat(ledger.path / "store").st_dev
 
 
 def _free(path: Path) -> int:
@@ -873,33 +999,42 @@ def import_starter(
             failure(entry, error)
     ready = [entry for entry in plan.new_entries if entry.entry_id in tables]
 
-    # Phase 2, exact admission. Each missing object counts once, against the
-    # mirror's logical budget and the staging volume's free space. The peak is
-    # one copy: staging receives only missing objects (the rest are hard links
-    # to the store), retaining hard-links them in, and each entry's staging is
-    # removed once it is retained.
-    # The logical budget counts every missing object; the staging volume
-    # needs only what is not already staged there from an interrupted run.
-    missing = missing_objects(ledger, [tables[e.entry_id][1] for e in ready])
-    logical = sum(file.size for file in missing.values())
-    physical = logical - staged_bytes(
-        staging, [entry.manifest for entry in ready], missing
-    )
-    staging.parent.mkdir(parents=True, exist_ok=True)
-    free = _free(staging.parent)
-    if ready and (
-        plan.usage + logical + HEADROOM > plan.disk_bytes
-        or physical + PHYSICAL_MARGIN > free
-    ):
-        for entry in ready:
-            failure(
-                entry,
-                "budget_exceeded"
-                if chosen.keep_going
-                else "starter import exceeds the mirror disk budget (or the free "
-                "space on its volume); raise it or choose a smaller tier",
-            )
-        ready = []
+    # Phase 2, exact admission from one model of every later step.
+    if staging.resolve().is_relative_to(ledger.path.resolve()):
+        raise PreservationError("the staging directory must be outside the mirror")
+    order = [
+        (entry.manifest, tables[entry.entry_id][0], tables[entry.entry_id][1])
+        for entry in ready
+    ]
+    if ready:
+        consolidate_pool(
+            staging,
+            missing_objects(ledger, [manifest for _v, _e, manifest in order]),
+            [p.name for p in staging.iterdir() if p.is_dir() and p.name != POOL]
+            if staging.is_dir()
+            else [],
+        )
+        needs = disk_requirements(ledger, staging, order)
+        reason = needs.refusal(
+            plan.usage,
+            plan.disk_bytes,
+            _free(staging),
+            _free(ledger.path / "store"),
+        )
+        if reason is not None:
+            try:
+                staging.rmdir()  # Created only for the measurement.
+            except OSError:
+                pass
+            for entry in ready:
+                failure(
+                    entry,
+                    "budget_exceeded"
+                    if chosen.keep_going
+                    else f"starter import exceeds {reason}; raise it or choose a "
+                    "smaller tier",
+                )
+            ready = []
     if required and ready:
         record = StarterAcceptance(
             list_id=list_id,
@@ -916,26 +1051,33 @@ def import_starter(
                 encode_record(record),
             )
 
-    # Phase 3, transfer: seed staging from the store, fetch the rest, retain.
+    # Phase 3, transfer: seed each view from the store and the pool, fetch
+    # the rest, share it through the pool, retain.
     for entry in ready:
         if chosen.progress is not None:
             chosen.progress(entry.entry_id, "fetching")
         envelope, table = tables[entry.entry_id]
-        store = staging / entry.manifest
+        view = staging / entry.manifest
         try:
-            seed_staging(ledger, store, table)
+            seed_view(ledger, staging, entry.manifest, table)
+            # On another volume, objects the store holds are copied from it
+            # locally rather than downloaded again.
+            local = (
+                () if same_volume(ledger, staging) else (str(ledger.path / "store"),)
+            )
             fetch(
                 entry.manifest,
                 starter.bundle_trust,
-                (*chosen.mirrors, *entry.mirrors)[:16],
-                store,
+                (*local, *chosen.mirrors, *entry.mirrors)[:16],
+                view,
                 _policy(entry, chosen),
                 control=control.fork() if control is not None else None,
                 envelope=envelope,
             )
+            publish_view(staging, entry.manifest, table)
             retain_local(
                 ledger,
-                store,
+                view,
                 entry.manifest,
                 entry_grant(starter, entry),
                 control=control.fork() if control is not None else None,
@@ -944,12 +1086,14 @@ def import_starter(
         except (ValueError, OSError) as error:
             failure(entry, error)
             continue
-        shutil.rmtree(store, ignore_errors=True)
+        shutil.rmtree(view, ignore_errors=True)
         imported.append(entry.entry_id)
+    if ready:
+        prune_pool(ledger, staging)
     try:
         staging.rmdir()
     except OSError:
-        pass  # Absent, or a failed entry's partial store is kept for a rerun.
+        pass  # Absent, or kept: a failed entry's view or pooled objects.
     return {
         "list_id": list_id,
         "tier": tier,

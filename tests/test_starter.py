@@ -7,7 +7,10 @@ import hashlib
 import http.client
 import importlib.util
 import json
+import os
 import queue
+import shutil
+import stat
 import subprocess
 import sys
 import threading
@@ -35,7 +38,6 @@ from foxlight_model_preservation.mirror_state import (
     withdrawal_withholds,
 )
 from foxlight_model_preservation.models import (
-    FileIdentity,
     PreservationError,
     Recipe,
     TrustProfile,
@@ -445,7 +447,7 @@ def test_disk_budget_is_enforced_before_any_download(tmp_path, collection):
 
 
 def test_shared_objects_count_once_in_disk_admission(tmp_path):
-    shared = b"S" * 200_000
+    shared = b"S" * 2_000_000
     collection = Collection(
         tmp_path, ("one", "two"), payloads={"one": shared, "two": shared}
     )
@@ -453,10 +455,16 @@ def test_shared_objects_count_once_in_disk_admission(tmp_path):
     list_id = list_identity(starter)
     ledger = mirror(tmp_path, disk=HEADROOM + 2 * 1024**2)
     # Fit one copy of the shared weights (plus metadata), not two.
-    budget = ledger.usage() + HEADROOM + 200_000 + 64 * 1024
+    budget = (
+        ledger.usage()
+        + HEADROOM
+        + 2_000_000
+        + starter_module.METADATA_SLACK
+        + 64 * 1024
+    )
     ledger.update(lambda state: state.model_copy(update={"disk_bytes": budget}))
     plan = plan_import(ledger, starter, list_id, "standard")
-    assert plan.new_bytes > 400_000 and not plan.fits  # the upper bound
+    assert plan.new_bytes > 4_000_000 and not plan.fits  # the upper bound
     receipt = import_starter(
         ledger,
         starter,
@@ -471,7 +479,7 @@ def test_shared_objects_count_once_in_disk_admission(tmp_path):
 
 def test_resume_needs_disk_only_for_the_missing_objects(tmp_path, monkeypatch):
     big = "resume" + "x" * 54
-    collection = Collection(tmp_path, (big,))
+    collection = Collection(tmp_path, (big,), payloads={big: b"R" * 3_000_000})
     starter = collection.listing(big)
     list_id = list_identity(starter)
     manifest = starter.entries[0].manifest
@@ -503,7 +511,13 @@ def test_resume_needs_disk_only_for_the_missing_objects(tmp_path, monkeypatch):
     remainder = plan.disk_needed
     assert remainder is not None and remainder < size
     # A budget that fits the remainder (plus metadata) but not the whole bundle.
-    budget = ledger.usage() + HEADROOM + remainder + 32 * 1024
+    budget = (
+        ledger.usage()
+        + HEADROOM
+        + remainder
+        + starter_module.METADATA_SLACK
+        + 64 * 1024
+    )
     assert ledger.usage() + size + HEADROOM > budget
     ledger.update(lambda state: state.model_copy(update={"disk_bytes": budget}))
     assert plan_import(ledger, starter, list_id, "small").fits
@@ -1617,7 +1631,7 @@ def test_shared_objects_are_linked_from_the_store_not_fetched_again(tmp_path):
     shared_sha = hashlib.sha256(shared).hexdigest()
     (collection.store / object_path(shared_sha)).unlink()
     # No room for a second copy of the shared weights.
-    budget = ledger.usage() + HEADROOM + 64 * 1024
+    budget = ledger.usage() + HEADROOM + starter_module.METADATA_SLACK + 64 * 1024
     ledger.update(lambda state: state.model_copy(update={"disk_bytes": budget}))
     receipt = import_starter(
         ledger,
@@ -1710,55 +1724,289 @@ def test_container_serves_what_it_holds_when_one_bundle_is_unavailable(
     assert restart_allowed(state)
 
 
-def test_free_space_counts_only_what_is_not_already_staged(tmp_path):
-    gib, mib = 1024**3, 1024**2
-    sha = "a" * 64
-    big = FileIdentity(path="model.bin", size=gib, sha256=sha)
-    staging = tmp_path / "staging"
-    partial = staging / ("b" * 64) / ".partial" / sha
-    partial.parent.mkdir(parents=True)
-    with partial.open("wb") as stream:
-        stream.truncate(896 * mib)  # sparse: no real disk needed
-    staged = starter_module.staged_bytes(staging, ["b" * 64], {sha: big})
-    assert staged == 896 * mib
-    # 1 GiB bundle, 896 MiB staged: 128 MiB more, which fits 192 MiB free.
-    assert gib - staged + starter_module.PHYSICAL_MARGIN <= 192 * mib
-    complete = staging / ("c" * 64) / object_path(sha)
-    complete.parent.mkdir(parents=True)
-    with complete.open("wb") as stream:
-        stream.truncate(gib)
-    assert starter_module.staged_bytes(staging, ["b" * 64, "c" * 64], {sha: big}) == gib
+# One disk model: admission approves only what every later step accepts ---------
 
 
-def test_an_import_with_staged_objects_proceeds_on_little_free_space(
-    tmp_path, collection, monkeypatch
-):
-    ledger = mirror(tmp_path)
-    starter = collection.listing("alpha")
-    entry = starter.entries[0]
-    margin = starter_module.PHYSICAL_MARGIN
-    weights = hashlib.sha256(b"alpha" * 1000).hexdigest()
-    monkeypatch.setattr(starter_module, "_free", lambda path: margin + 1024)
-    # Nothing staged: 5 KB of weights do not fit 1 KiB above the margin.
-    with pytest.raises(PreservationError, match="free"):
-        import_starter(
+class SimulatedDisks:
+    """Report free space from capacities and the files actually written.
+
+    Each volume is a directory tree with a capacity; used space counts every
+    regular file once per inode. ``shutil.disk_usage`` is answered for paths
+    and directory descriptors alike, so ``fetch``, ``retain_local`` and the
+    import's admission all see the same numbers a real volume would report.
+    """
+
+    def __init__(self, volumes: dict[Path, int]):
+        self.volumes = {path.resolve(): capacity for path, capacity in volumes.items()}
+
+    @staticmethod
+    def _used(root: Path) -> int:
+        seen: set[tuple[int, int]] = set()
+        total = 0
+        for folder, _dirs, files in os.walk(root):
+            for name in files:
+                try:
+                    info = os.lstat(os.path.join(folder, name))
+                except FileNotFoundError:
+                    continue
+                if (
+                    stat.S_ISREG(info.st_mode)
+                    and (info.st_dev, info.st_ino) not in seen
+                ):
+                    seen.add((info.st_dev, info.st_ino))
+                    total += info.st_size
+        return total
+
+    def _volume(self, where: object) -> Path:
+        if isinstance(where, int):
+            if sys.platform == "darwin":
+                import fcntl
+
+                raw = fcntl.fcntl(where, 50, b"\0" * 1024)  # F_GETPATH
+                path = Path(raw.split(b"\0", 1)[0].decode())
+            else:
+                path = Path(os.readlink(f"/proc/self/fd/{where}"))
+        else:
+            path = Path(str(where))
+        path = path.resolve()
+        for root in self.volumes:
+            if path == root or path.is_relative_to(root):
+                return root
+        raise AssertionError(f"disk_usage outside the simulated volumes: {path}")
+
+    def usage(self, where: object):
+        root = self._volume(where)
+        capacity = self.volumes[root]
+        used = self._used(root)
+        return shutil._ntuple_diskusage(capacity, used, max(capacity - used, 0))  # type: ignore[attr-defined]
+
+
+def _attempt(disks, monkeypatch, run) -> str:
+    """Run an import on simulated disks: 'ok', 'refused' (admission) or raise."""
+    with monkeypatch.context() as patched:
+        patched.setattr(shutil, "disk_usage", disks.usage)
+        try:
+            receipt = run()
+        except PreservationError as error:
+            if "starter import exceeds" in str(error):
+                return "refused"
+            raise AssertionError(
+                f"a later step refused after admission: {error}"
+            ) from error
+    assert not receipt["failed"], receipt
+    return "ok"
+
+
+def _scenario(kind: str, root: Path, monkeypatch):
+    """Build one scenario; return (ledger, volume, run) ready to import."""
+    volume = root / "vol"
+    volume.mkdir(mode=0o700)
+    source = root / "src"
+    source.mkdir()
+    shared = b"S" * 1_500_000
+    if kind == "shared":
+        collection = Collection(
+            source, ("one", "two"), payloads={"one": shared, "two": shared}
+        )
+        names, tier, formats = ("one", "two"), "standard", ("gguf",)
+    elif kind == "mlx":
+        collection = Collection(
+            source,
+            ("chat", "chat-mlx", "big"),
+            formats={"chat-mlx": "mlx"},
+            payloads={"chat": shared, "chat-mlx": b"M" * 1_200_000, "big": shared},
+        )
+        names, tier, formats = ("chat", "chat-mlx", "big"), "standard", ("gguf", "mlx")
+    else:
+        collection = Collection(
+            source, ("alpha",), payloads={"alpha": b"P" * 2_000_000}
+        )
+        names, tier, formats = ("alpha",), "small", ("gguf",)
+    starter = collection.listing(*names)
+    list_id = list_identity(starter)
+    ledger = mirror(volume, disk=50 * 1024**3)
+    if kind == "partial":
+        weights = hashlib.sha256(b"P" * 2_000_000).hexdigest()
+        partial = (
+            volume
+            / "mirror.starter-import"
+            / starter.entries[0].manifest
+            / ".partial"
+            / weights
+        )
+        partial.parent.mkdir(parents=True)
+        partial.write_bytes(b"P" * 1_300_000)
+    if kind == "resumed":
+        real_copy = intake_module.copy_verified_object
+        copied: list[str] = []
+
+        def interrupted(source_fd, path, target, file, *args, **kwargs):
+            if copied:
+                raise OSError("interrupted")
+            copied.append(file.path)
+            return real_copy(source_fd, path, target, file, *args, **kwargs)
+
+        with monkeypatch.context() as broken:
+            broken.setattr(intake_module, "copy_verified_object", interrupted)
+            with pytest.raises(OSError):
+                import_starter(
+                    ledger,
+                    starter,
+                    list_id,
+                    tier,
+                    consented=True,
+                    options=collection.options(),
+                )
+        retry_selection(ledger, starter.entries[0].manifest)
+
+    def run():
+        return import_starter(
             ledger,
             starter,
-            list_identity(starter),
-            "small",
+            list_id,
+            tier,
+            consented=True,
+            formats=formats,
+            options=collection.options(),
+        )
+
+    return ledger, volume, run
+
+
+@pytest.mark.parametrize("kind", ["shared", "partial", "resumed", "mlx"])
+def test_admission_never_approves_what_a_later_step_refuses(
+    tmp_path, monkeypatch, kind
+):
+    outcomes = []
+    floor = HEADROOM + starter_module.METADATA_SLACK
+    for step, extra in enumerate(range(-400_000, 5_000_001, 450_000)):
+        root = tmp_path / f"run{step}"
+        root.mkdir()
+        ledger, volume, run = _scenario(kind, root, monkeypatch)
+        used = SimulatedDisks._used(volume)
+        disks = SimulatedDisks({volume: used + floor + extra})
+        outcomes.append(_attempt(disks, monkeypatch, run))
+    # The sweep crosses the threshold, and never fails after approval.
+    assert outcomes[0] == "refused" and outcomes[-1] == "ok"
+    assert outcomes == sorted(outcomes, key=lambda o: o == "ok")
+
+
+def test_the_logical_budget_is_the_same_model(tmp_path, monkeypatch):
+    outcomes = []
+    for step, extra in enumerate(range(-400_000, 5_000_001, 450_000)):
+        root = tmp_path / f"run{step}"
+        root.mkdir()
+        ledger, _volume, run = _scenario("shared", root, monkeypatch)
+        budget = ledger.usage() + HEADROOM + starter_module.METADATA_SLACK + extra
+        ledger.update(
+            lambda state, b=budget: state.model_copy(update={"disk_bytes": b})
+        )
+        try:
+            run()
+            outcomes.append("ok")
+        except PreservationError as error:
+            assert "disk budget" in str(error), f"a later step refused: {error}"
+            outcomes.append("refused")
+    assert outcomes[0] == "refused" and outcomes[-1] == "ok"
+    assert outcomes == sorted(outcomes, key=lambda o: o == "ok")
+
+
+def test_retain_headroom_is_reserved_not_only_the_fetch_margin(tmp_path, monkeypatch):
+    # Codex's first case: room for the downloads and fetch's 16 MiB margin,
+    # but not retain_local's HEADROOM, must be refused at admission.
+    ledger, volume, run = _scenario("partial", tmp_path, monkeypatch)
+    used = SimulatedDisks._used(volume)
+    downloads = 2_000_000 - 1_300_000
+    tight = (
+        used
+        + downloads
+        + starter_module.METADATA_SLACK
+        + starter_module.PHYSICAL_MARGIN
+    )
+    assert _attempt(SimulatedDisks({volume: tight}), monkeypatch, run) == "refused"
+    roomy = used + downloads + starter_module.METADATA_SLACK + HEADROOM + 64 * 1024
+    assert _attempt(SimulatedDisks({volume: roomy}), monkeypatch, run) == "ok"
+
+
+def test_objects_staged_by_another_entry_are_reused_through_the_pool(
+    tmp_path, monkeypatch
+):
+    # Codex's second case: an object an earlier run staged in a different
+    # entry's view is credited only because every entry can now reuse it.
+    volume = tmp_path / "vol"
+    volume.mkdir(mode=0o700)
+    shared = b"Z" * 2_000_000
+    (tmp_path / "src").mkdir()
+    collection = Collection(
+        tmp_path / "src", ("one", "two"), payloads={"one": shared, "two": shared}
+    )
+    sha = hashlib.sha256(shared).hexdigest()
+    other_view = volume / "mirror.starter-import" / collection.entries["one"].manifest
+    (other_view / object_path(sha)).parent.mkdir(parents=True)
+    (other_view / object_path(sha)).write_bytes(shared)
+    (collection.store / object_path(sha)).unlink()  # no source can supply it
+    ledger = mirror(volume, disk=50 * 1024**3)
+    only_two = collection.listing("two")
+    used = SimulatedDisks._used(volume)
+    disks = SimulatedDisks(
+        {volume: used + HEADROOM + starter_module.METADATA_SLACK + 64 * 1024}
+    )
+
+    def run():
+        return import_starter(
+            ledger,
+            only_two,
+            list_identity(only_two),
+            "standard",
             consented=True,
             options=collection.options(),
         )
-    # An interrupted run staged the weights: only the small files remain.
-    staged = tmp_path / "mirror.starter-import" / entry.manifest / object_path(weights)
-    staged.parent.mkdir(parents=True)
-    staged.write_bytes((collection.store / object_path(weights)).read_bytes())
-    receipt = import_starter(
-        ledger,
-        starter,
-        list_identity(starter),
-        "small",
-        consented=True,
-        options=collection.options(),
-    )
-    assert receipt["imported"] == ["alpha"]
+
+    assert _attempt(disks, monkeypatch, run) == "ok"
+    assert collection.entries["two"].manifest in ledger.read().models
+
+
+def test_staging_on_a_separate_volume_is_modelled_per_volume(tmp_path, monkeypatch):
+    outcomes = []
+    for step, extra in enumerate(range(-400_000, 5_000_001, 450_000)):
+        root = tmp_path / f"run{step}"
+        root.mkdir()
+        mirror_volume = root / "vol"
+        mirror_volume.mkdir(mode=0o700)
+        staging_volume = root / "stage"
+        staging_volume.mkdir(mode=0o700)
+        (root / "src").mkdir()
+        shared = b"V" * 1_500_000
+        collection = Collection(
+            root / "src", ("one", "two"), payloads={"one": shared, "two": shared}
+        )
+        starter = collection.listing("one", "two")
+        ledger = mirror(mirror_volume, disk=50 * 1024**3)
+        monkeypatch.setattr(
+            starter_module, "same_volume", lambda ledger, staging: False
+        )
+        disks = SimulatedDisks(
+            {
+                staging_volume: starter_module.PHYSICAL_MARGIN
+                + starter_module.METADATA_SLACK
+                + extra,
+                mirror_volume: SimulatedDisks._used(mirror_volume)
+                + HEADROOM
+                + starter_module.METADATA_SLACK
+                + 3_100_000,
+            }
+        )
+
+        def run(starter=starter, ledger=ledger, collection=collection, root=root):
+            return import_starter(
+                ledger,
+                starter,
+                list_identity(starter),
+                "standard",
+                consented=True,
+                options=collection.options(staging=root / "stage" / "staging"),
+            )
+
+        outcomes.append(_attempt(disks, monkeypatch, run))
+    assert outcomes[0] == "refused" and outcomes[-1] == "ok"
+    assert outcomes == sorted(outcomes, key=lambda o: o == "ok")

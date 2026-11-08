@@ -198,22 +198,24 @@ Import refuses before it downloads anything unless:
 - the list is exactly the one the ID names, and its signature meets the
   threshold of the signing keys inside it (add `--list-trust keys.json` to also
   require keys you enrolled independently);
-- the new models fit the mirror's disk budget, with headroom. Each missing
-  file counts once: files shared between bundles, already in the mirror for
-  models you hold, or already copied by an interrupted import cost nothing.
-  The review shows the download size and an upper estimate of the disk
-  needed. After consent the import fetches only the signed file lists and
-  decides exactly, before any weights download, against both the mirror's
-  budget (every missing file) and the free space on the staging volume (only
-  what an interrupted run has not already staged, completely or in part). The peak is one copy of
-  each missing file: staging starts with hard links to files the mirror
-  already holds (so they are neither downloaded nor stored again), downloads
-  are renamed into place rather than copied, retaining hard-links them into
-  the mirror, and each model's staging is removed once it is kept. A
-  `--staging` directory on another volume cannot be hard-linked, so it needs
-  a second copy's worth of space there. With quickstart (and the container),
-  a bundle whose file list can't be fetched, or a budget refusal, is reported
-  in the receipt and the mirror starts serving what it holds;
+- the new models fit, by one model of every later step. Downloads go through
+  one shared, content-addressed pool beside the mirror: before each model is
+  fetched, its staging view gets hard links to every file the mirror or the
+  pool already holds, and what it fetches joins the pool. So each file is
+  downloaded at most once per import, files shared between models or held
+  already cost nothing, and an interrupted import's files (and partial
+  downloads) are reused by every model that needs them. Admission checks the
+  mirror's budget (each file missing from the mirror, its metadata and
+  headroom) and the free space the transfer and retention steps will check
+  for: on one volume, every new download plus metadata plus the retention
+  headroom; with `--staging` on another volume, the downloads plus the
+  download margin there and the copied files plus headroom on the mirror's
+  volume. **The invariant: an approved import never fails a later step's own
+  space check, provided nothing else changes the disks meanwhile.** The review
+  shows the download size and an upper estimate first; the exact check runs
+  after consent, using only the signed file lists. With quickstart (and the
+  container), a bundle whose file list can't be fetched, or a refusal, is
+  reported in the receipt and the mirror starts serving what it holds;
 - the mirror controller is stopped;
 - you consent. The review lists every model with its licence, base model and
   size, the signing keys, the total download and the disk budget. Type
