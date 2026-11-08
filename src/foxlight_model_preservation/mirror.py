@@ -587,6 +587,35 @@ def record_model(
     return ledger.update(apply)
 
 
+def _record_verified(ledger: MirrorLedger, identity: str) -> None:
+    """Record a cycle's successful verification unless it was overtaken.
+
+    The cycle verifies a snapshot of the selection. A failure reported meanwhile
+    (a concurrent reader saw the bytes change, say) or a removal is newer than
+    that success, so it stands: only an explicit retry clears an error.
+    """
+
+    def apply(state: MirrorState) -> MirrorState:
+        current = state.models.get(identity)
+        if current is None or current.error or current.state == "removed":
+            return state
+        verified = HeldModel.model_validate(
+            current.model_copy(
+                update={
+                    "state": "retained",
+                    "verified_at": int(time.time()),
+                    "error": None,
+                    "deferred": None,
+                }
+            ).model_dump()
+        )
+        return state.model_copy(
+            update={"models": dict(state.models, **{identity: verified})}
+        )
+
+    ledger.update(apply)
+
+
 def require_terms(manifest: ArchiveManifest, grant: SourceGrant) -> None:
     """Require every member to match independently reviewed public intake terms."""
     accepted = {(item.license_id, item.terms_reference) for item in grant.terms}
@@ -1122,16 +1151,7 @@ def reconcile(ledger: MirrorLedger, control: OperationControl) -> None:
                 )
             with ledger.child("store") as store:
                 verify_retained(store, identity, held, control.fork(), ledger=ledger)
-            record_model(
-                ledger,
-                identity,
-                {
-                    "state": "retained",
-                    "verified_at": int(time.time()),
-                    "error": None,
-                    "deferred": None,
-                },
-            )
+            _record_verified(ledger, identity)
         except OperationCancelled:
             raise
         except MirrorBudgetDeferred as deferral:

@@ -6,6 +6,18 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Guided setup 0.1.4 and graphical setup 0.1.6 install Linux revision 6
+  (core 0.29 / Library 0.25), now served by the signed apt channel; package pins
+  amd64 61d9198e… and arm64 31fe8dde…, documented bootstrap hash 5f3c50b5….
+
+- Prepare Mac build 11 and Linux revision 6 from the authenticated core 0.29 /
+  Library 0.25 installation archive (sha256 8c7b1030…, source d66ab33f), which
+  adds one-switch sharing for Skulk, licence families and opt-in upload caps,
+  advisory catalog withdrawal, the Hetzner preset and bucket fixes. Native
+  signing, notarization, apt publication and qualification remain separate gates.
+
+## 0.25.0
+
 - Both sharing sheets (Sovereign and Library mode) show licence families with
   a switch each, a per-licence checklist (with summaries, notes and the EU
   notice for Llama 3.2 and Llama 4), a custom licence id field and how many of

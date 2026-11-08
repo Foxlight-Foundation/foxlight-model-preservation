@@ -104,7 +104,9 @@ def test_real_share_receive_stop_and_concurrent_private_kit(tmp_path, capture):
             "plan", {"kind": "share", "public_id": public["public_id"]}
         )
         shared = submit(owner, plan)
-        for _ in range(500):
+        # A deadline, not a count, so a slow runner gets the same wall time.
+        end = time.monotonic() + 60
+        while time.monotonic() < end:
             job = next(
                 item
                 for item in owner.read()["jobs"]
@@ -421,7 +423,8 @@ def test_explicit_address_shares_on_lan_without_any_default_route(
         )
         monkeypatch.setattr(socket, "socket", local_only)
         job = submit(owner, plan)
-        for _ in range(500):
+        end = time.monotonic() + 60
+        while time.monotonic() < end:
             row = next(
                 item for item in owner.read()["jobs"] if item["job_id"] == job["job_id"]
             )

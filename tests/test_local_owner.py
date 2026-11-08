@@ -103,8 +103,11 @@ def accepted_catalog(
     return catalog, repo, data
 
 
-def finish(owner, receipt):
-    for _ in range(200):
+def finish(owner, receipt, seconds: float = 60.0):
+    # A deadline, not a count: 200 polls was about two seconds of wall time,
+    # which a loaded CI runner can spend on one capture or publication.
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
         job = next(
             item for item in owner.read()["jobs"] if item["job_id"] == receipt["job_id"]
         )

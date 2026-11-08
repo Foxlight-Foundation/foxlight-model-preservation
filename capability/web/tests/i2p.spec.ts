@@ -54,7 +54,7 @@ test('I2P source metadata and model download keep independent consent and no dir
  await page.route('**/api/delivery-plan',route=>{reviewed=route.request().postDataJSON();return route.fulfill({json:plan});});
  await page.route('**/api/start',route=>{downloads.push(route.request().postDataJSON());return route.fulfill({json:{}});});
  await find(page);expect(starts).toHaveLength(0);await page.getByRole('button',{name:'Review model',exact:true}).click();
- await expect(page.getByRole('heading',{name:'Portable model',exact:true})).toBeVisible();expect(starts[0]).toMatchObject({transport:'i2p',allow_i2p:true,i2p_policy_id:source.i2p_policy_id,accept_source_keys:true});
+ await expect(page.getByRole('dialog').getByRole('heading',{name:'Portable model',exact:true})).toBeVisible();expect(starts[0]).toMatchObject({transport:'i2p',allow_i2p:true,i2p_policy_id:source.i2p_policy_id,accept_source_keys:true});
  await page.getByLabel('Use this source’s saved reference').check();await expect(page.getByRole('button',{name:'Review download',exact:true})).toBeDisabled();
  await page.getByLabel('Allow I2P connections through this proxy').check();await page.getByRole('button',{name:'Review download',exact:true}).click();
  await expect(page.getByRole('heading',{name:'Download this signed copy'})).toBeVisible();expect(reviewed).toMatchObject({allow_i2p:true,i2p_proxy:proxy,accepted_key_ids:[key]});expect(reviewed).not.toHaveProperty('allow_http');expect(downloads).toHaveLength(0);

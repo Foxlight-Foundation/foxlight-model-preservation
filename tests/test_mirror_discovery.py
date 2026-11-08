@@ -409,22 +409,29 @@ def test_spot_checks_skip_dropped_mirrors(tmp_path: Path, capture: Capture) -> N
 def test_bounded_crawls_rotate_through_every_known_mirror(tmp_path: Path) -> None:
     from foxlight_model_preservation import mirror_directory as module
 
-    directory = MirrorDirectory(tmp_path / "d")
+    # A seeded shuffle keeps the test exact: with the system RNG, 30 rounds of
+    # 3 out of 12 miss some mirror about once in 500 runs.
+    directory = MirrorDirectory(tmp_path / "d", rng=random.Random(20261107))  # noqa: S311 - test order only
     addresses = [f"https://m{index}.example" for index in range(12)]
     directory.ingest(
         issue_card(Ed25519PrivateKey.generate(), (address,), set())
         for address in addresses
     )
     asked: set[str] = set()
+    rounds: list[list[str]] = []
 
     def offline(base: str, *args: object, **kwargs: object) -> bytes:
         asked.add(base)
+        rounds[-1].append(base)
         raise OSError("unreachable")
 
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(module, "_bounded_read", offline)
         for _ in range(30):
+            rounds.append([])
             directory.crawl((), LAB, max_documents=3)
+    # Each round stays within its bound, and the rounds together reach all.
+    assert all(len(set(round_)) == len(round_) == 3 for round_ in rounds)
     assert asked == set(addresses)
 
 
