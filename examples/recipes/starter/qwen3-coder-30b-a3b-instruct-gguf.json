@@ -1,0 +1,77 @@
+{
+  "attestation": "owner-capture",
+  "members": [
+    {
+      "artifact_identity": "qwen3-coder-30b-a3b-instruct-gguf:weights",
+      "dependencies": [
+        "notices"
+      ],
+      "files": [
+        {
+          "expected_sha256": "fadc3e5f8d42bf7e894a785b05082e47daee4df26680389817e2093056f088ad",
+          "path": "Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf"
+        },
+        {
+          "expected_sha256": "35a481e3814ea1679eb2b10c2c79f9ffdb554d324ce9a246f28a67ba7530be63",
+          "path": "README.md"
+        }
+      ],
+      "format": "gguf",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model Qwen/Qwen3-Coder-30B-A3B-Instruct@b2cff646eb4bb1d68355c01b18ae02e7cf42d120 card and licence file; the conversion unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF@b17cb02dd882d5b6ab62fc777ad2995f19668350 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "README.md"
+        ],
+        "terms_reference": "https://huggingface.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF/blob/b17cb02dd882d5b6ab62fc777ad2995f19668350/README.md"
+      },
+      "loader_root": null,
+      "member_id": "weights",
+      "origin_repository": "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF",
+      "origin_revision": "b17cb02dd882d5b6ab62fc777ad2995f19668350",
+      "retained_card": null,
+      "role": "primary"
+    },
+    {
+      "artifact_identity": "qwen3-coder-30b-a3b-instruct-gguf:notices",
+      "dependencies": [],
+      "files": [
+        {
+          "expected_sha256": "832dd9e00a68dd83b3c3fb9f5588dad7dcf337a0db50f7d9483f310cd292e92e",
+          "path": "LICENSE"
+        },
+        {
+          "expected_sha256": "98e8f0e00f2d6c7f1743fc4ef2b6297dcc57bec73d71f36588aed984370ac3f3",
+          "path": "README.md"
+        }
+      ],
+      "format": "text",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model Qwen/Qwen3-Coder-30B-A3B-Instruct@b2cff646eb4bb1d68355c01b18ae02e7cf42d120 card and licence file; the conversion unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF@b17cb02dd882d5b6ab62fc777ad2995f19668350 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "LICENSE",
+          "README.md"
+        ],
+        "terms_reference": "https://huggingface.co/Qwen/Qwen3-Coder-30B-A3B-Instruct/blob/b2cff646eb4bb1d68355c01b18ae02e7cf42d120/LICENSE"
+      },
+      "loader_root": null,
+      "member_id": "notices",
+      "origin_repository": "Qwen/Qwen3-Coder-30B-A3B-Instruct",
+      "origin_revision": "b2cff646eb4bb1d68355c01b18ae02e7cf42d120",
+      "retained_card": null,
+      "role": "notices"
+    }
+  ],
+  "name": "qwen3-coder-30b-a3b-instruct-gguf",
+  "root_member": "weights",
+  "runtime_requirements": [
+    "llama.cpp (or a runtime built on it: Ollama, LM Studio, Jan) with Qwen3 MoE support; engine not bundled"
+  ],
+  "schema_version": "foxlight.model-preservation.v1",
+  "workloads": [
+    "text-generation"
+  ]
+}

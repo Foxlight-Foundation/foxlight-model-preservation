@@ -1,0 +1,131 @@
+{
+  "attestation": "owner-capture",
+  "members": [
+    {
+      "artifact_identity": "gemma-4-26b-a4b-it-gguf:weights",
+      "dependencies": [
+        "apache-text",
+        "notices",
+        "projector"
+      ],
+      "files": [
+        {
+          "expected_sha256": "2aa6033c9e4e644d657f64feb85ff69e949816531b4eb5c59403e31110e3ccf8",
+          "path": "README.md"
+        },
+        {
+          "expected_sha256": "f2c28b3dc4776931ac6f879e11f203dec637ea0f14267a86ec8f6165f63f293f",
+          "path": "gemma-4-26B-A4B-it-UD-Q4_K_M.gguf"
+        }
+      ],
+      "format": "gguf",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model google/gemma-4-26B-A4B-it@4d7ae4984b7db7de8f8457170b3f1a419ee76d52 card and licence file; the conversion unsloth/gemma-4-26B-A4B-it-GGUF@c099eb48e663fd284577b04978a94ffccb261841 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "README.md"
+        ],
+        "terms_reference": "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/blob/c099eb48e663fd284577b04978a94ffccb261841/README.md"
+      },
+      "loader_root": null,
+      "member_id": "weights",
+      "origin_repository": "unsloth/gemma-4-26B-A4B-it-GGUF",
+      "origin_revision": "c099eb48e663fd284577b04978a94ffccb261841",
+      "retained_card": null,
+      "role": "primary"
+    },
+    {
+      "artifact_identity": "gemma-4-26b-a4b-it-gguf:projector",
+      "dependencies": [],
+      "files": [
+        {
+          "expected_sha256": "2aa6033c9e4e644d657f64feb85ff69e949816531b4eb5c59403e31110e3ccf8",
+          "path": "README.md"
+        },
+        {
+          "expected_sha256": "418a6d8723067cd712235facbbc5cba6c8fbbd413fc1292d2aace5a027d5a42f",
+          "path": "mmproj-F16.gguf"
+        }
+      ],
+      "format": "gguf",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model google/gemma-4-26B-A4B-it@4d7ae4984b7db7de8f8457170b3f1a419ee76d52 card and licence file; the conversion unsloth/gemma-4-26B-A4B-it-GGUF@c099eb48e663fd284577b04978a94ffccb261841 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "README.md"
+        ],
+        "terms_reference": "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/blob/c099eb48e663fd284577b04978a94ffccb261841/README.md"
+      },
+      "loader_root": null,
+      "member_id": "projector",
+      "origin_repository": "unsloth/gemma-4-26B-A4B-it-GGUF",
+      "origin_revision": "c099eb48e663fd284577b04978a94ffccb261841",
+      "retained_card": null,
+      "role": "projector"
+    },
+    {
+      "artifact_identity": "gemma-4-26b-a4b-it-gguf:notices",
+      "dependencies": [],
+      "files": [
+        {
+          "expected_sha256": "4f463225c4fe49ec120115b0f9bb6713ff1556293a909903ffdae3df7bf974da",
+          "path": "README.md"
+        }
+      ],
+      "format": "text",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model google/gemma-4-26B-A4B-it@4d7ae4984b7db7de8f8457170b3f1a419ee76d52 card and licence file; the conversion unsloth/gemma-4-26B-A4B-it-GGUF@c099eb48e663fd284577b04978a94ffccb261841 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "README.md"
+        ],
+        "terms_reference": "https://huggingface.co/google/gemma-4-26B-A4B-it/blob/4d7ae4984b7db7de8f8457170b3f1a419ee76d52/README.md"
+      },
+      "loader_root": null,
+      "member_id": "notices",
+      "origin_repository": "google/gemma-4-26B-A4B-it",
+      "origin_revision": "4d7ae4984b7db7de8f8457170b3f1a419ee76d52",
+      "retained_card": null,
+      "role": "notices"
+    },
+    {
+      "artifact_identity": "gemma-4-26b-a4b-it-gguf:apache-text",
+      "dependencies": [],
+      "files": [
+        {
+          "expected_sha256": "eca0a31232d967855093e0e50eb602bbd873be9f2dc1e5f0074799b3bbede523",
+          "path": "LICENSE"
+        }
+      ],
+      "format": "text",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model google/gemma-4-26B-A4B-it@4d7ae4984b7db7de8f8457170b3f1a419ee76d52 card and licence file; the conversion unsloth/gemma-4-26B-A4B-it-GGUF@c099eb48e663fd284577b04978a94ffccb261841 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "LICENSE"
+        ],
+        "terms_reference": "https://github.com/Foxlight-Foundation/foxlight-model-preservation/blob/45d5b20f69a411d63b17e198efe9f42d670d9036/LICENSE"
+      },
+      "loader_root": null,
+      "member_id": "apache-text",
+      "origin_repository": "github.com/Foxlight-Foundation/foxlight-model-preservation",
+      "origin_revision": "45d5b20f69a411d63b17e198efe9f42d670d9036",
+      "retained_card": null,
+      "role": "notices"
+    }
+  ],
+  "name": "gemma-4-26b-a4b-it-gguf",
+  "root_member": "weights",
+  "runtime_requirements": [
+    "llama.cpp (or a runtime built on it: Ollama, LM Studio, Jan) with Gemma 4 and mtmd support; engine not bundled"
+  ],
+  "schema_version": "foxlight.model-preservation.v1",
+  "workloads": [
+    "text-generation",
+    "vision-text-generation"
+  ]
+}

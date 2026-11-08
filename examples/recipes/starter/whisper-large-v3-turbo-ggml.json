@@ -4,8 +4,8 @@
     {
       "artifact_identity": "whisper-large-v3-turbo-ggml:weights",
       "dependencies": [
-        "notices",
-        "mit-text"
+        "mit-text",
+        "notices"
       ],
       "files": [
         {
@@ -20,7 +20,7 @@
       "format": "ggml",
       "intake": {
         "audience": "public",
-        "decision": "Strict starter intake (category A). Licence resolved from the base model openai/whisper-large-v3-turbo@41f01f3fe87f28c78e2fbf8b568835947dd65ed9 (card and licence file): MIT. The conversion ggerganov/whisper.cpp@5359861c739e955e79d9a303bcbc70fb988958b1 declares the same licence. Upstream LICENSE/NOTICE texts are carried (injected where a repository ships none). No inference qualification or upstream signature asserted.",
+        "decision": "Starter intake (MIT). Licence resolved from the base model openai/whisper-large-v3-turbo@41f01f3fe87f28c78e2fbf8b568835947dd65ed9 card and licence file; the conversion ggerganov/whisper.cpp@5359861c739e955e79d9a303bcbc70fb988958b1 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
         "license_id": "MIT",
         "notice_paths": [
           "README.md"
@@ -46,7 +46,7 @@
       "format": "text",
       "intake": {
         "audience": "public",
-        "decision": "Strict starter intake (category A). Licence resolved from the base model openai/whisper-large-v3-turbo@41f01f3fe87f28c78e2fbf8b568835947dd65ed9 (card and licence file): MIT. The conversion ggerganov/whisper.cpp@5359861c739e955e79d9a303bcbc70fb988958b1 declares the same licence. Upstream LICENSE/NOTICE texts are carried (injected where a repository ships none). No inference qualification or upstream signature asserted.",
+        "decision": "Starter intake (MIT). Licence resolved from the base model openai/whisper-large-v3-turbo@41f01f3fe87f28c78e2fbf8b568835947dd65ed9 card and licence file; the conversion ggerganov/whisper.cpp@5359861c739e955e79d9a303bcbc70fb988958b1 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
         "license_id": "MIT",
         "notice_paths": [
           "README.md"
@@ -72,7 +72,7 @@
       "format": "text",
       "intake": {
         "audience": "public",
-        "decision": "Upstream MIT licence text with its copyright notice, injected because the Hugging Face repositories ship no LICENSE file.",
+        "decision": "Starter intake (MIT). Licence resolved from the base model openai/whisper-large-v3-turbo@41f01f3fe87f28c78e2fbf8b568835947dd65ed9 card and licence file; the conversion ggerganov/whisper.cpp@5359861c739e955e79d9a303bcbc70fb988958b1 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
         "license_id": "MIT",
         "notice_paths": [
           "LICENSE"
@@ -90,7 +90,7 @@
   "name": "whisper-large-v3-turbo-ggml",
   "root_member": "weights",
   "runtime_requirements": [
-    "whisper.cpp compatible with ggml large-v3-turbo q5_0; engine not bundled"
+    "whisper.cpp compatible with ggml q5_0 models; engine not bundled"
   ],
   "schema_version": "foxlight.model-preservation.v1",
   "workloads": [

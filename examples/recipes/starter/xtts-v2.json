@@ -1,0 +1,73 @@
+{
+  "attestation": "owner-capture",
+  "members": [
+    {
+      "artifact_identity": "xtts-v2:weights",
+      "dependencies": [],
+      "files": [
+        {
+          "expected_sha256": "190f6d7c19b8984f91b97712b94ce92d2b2e640fc677dacab966e955ece9d043",
+          "path": "LICENSE.txt"
+        },
+        {
+          "expected_sha256": "1cfa85b3293f685b3a6537f8da3d94820fd111270e553589073885dea3facfb7",
+          "path": "README.md"
+        },
+        {
+          "expected_sha256": "ef262b1454dd2a77e1461b0b2cd53e19b8a7624cc131b837d36df67356bc75e8",
+          "path": "config.json"
+        },
+        {
+          "expected_sha256": "b29bc227d410d4991e0a8c09b858f77415013eeb9fba9650258e96095557d97a",
+          "path": "dvae.pth"
+        },
+        {
+          "expected_sha256": "ef2e25fc4639bb81c6c5048740c1ee8268606a160548abaa2e2fe03b12278c54",
+          "path": "hash.md5"
+        },
+        {
+          "expected_sha256": "1f69422a8a8f344c4fca2f0c6b8d41d2151d6615b7321e48e6bb15ae949b119c",
+          "path": "mel_stats.pth"
+        },
+        {
+          "expected_sha256": "c7ea20001c6a0a841c77e252d8409f6a74fb423e79b3206a0771ba5989776187",
+          "path": "model.pth"
+        },
+        {
+          "expected_sha256": "f0f6137c19a4eab0cbbe4c99b5babacf68b1746e50da90807708c10e645b943b",
+          "path": "speakers_xtts.pth"
+        },
+        {
+          "expected_sha256": "928260878a59da8a72a2a5b7687fea29d5106137669d90945430fe17e415304a",
+          "path": "vocab.json"
+        }
+      ],
+      "format": "pytorch",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (coqui-public-model-license). Licence resolved from the base model coqui/XTTS-v2@6c2b0d75eae4b7047358e3b6bd9325f857d43f77 card and licence file. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "coqui-public-model-license",
+        "notice_paths": [
+          "LICENSE.txt",
+          "README.md"
+        ],
+        "terms_reference": "https://huggingface.co/coqui/XTTS-v2/blob/6c2b0d75eae4b7047358e3b6bd9325f857d43f77/LICENSE.txt"
+      },
+      "loader_root": null,
+      "member_id": "weights",
+      "origin_repository": "coqui/XTTS-v2",
+      "origin_revision": "6c2b0d75eae4b7047358e3b6bd9325f857d43f77",
+      "retained_card": null,
+      "role": "primary"
+    }
+  ],
+  "name": "xtts-v2",
+  "root_member": "weights",
+  "runtime_requirements": [
+    "Coqui TTS (Python); engine not bundled. The .pth files are PyTorch pickles: load only with a trusted runtime"
+  ],
+  "schema_version": "foxlight.model-preservation.v1",
+  "workloads": [
+    "text-to-speech"
+  ]
+}

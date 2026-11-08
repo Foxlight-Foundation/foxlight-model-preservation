@@ -4,9 +4,9 @@
     {
       "artifact_identity": "gemma-4-e4b-it-gguf:weights",
       "dependencies": [
-        "projector",
+        "apache-text",
         "notices",
-        "apache-text"
+        "projector"
       ],
       "files": [
         {
@@ -21,7 +21,7 @@
       "format": "gguf",
       "intake": {
         "audience": "public",
-        "decision": "Strict starter intake (category A). Licence resolved from the base model google/gemma-4-E4B-it@4ecc2ba63bcac23ba4a767fc87025b1450f84c9c (card and licence file): Apache-2.0. The conversion unsloth/gemma-4-E4B-it-GGUF@bfc15c382204943c3a8fff0c750b94ae2364d7a3 declares the same licence. Upstream LICENSE/NOTICE texts are carried (injected where a repository ships none). No inference qualification or upstream signature asserted.",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model google/gemma-4-E4B-it@4ecc2ba63bcac23ba4a767fc87025b1450f84c9c card and licence file; the conversion unsloth/gemma-4-E4B-it-GGUF@bfc15c382204943c3a8fff0c750b94ae2364d7a3 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
         "license_id": "Apache-2.0",
         "notice_paths": [
           "README.md"
@@ -37,10 +37,7 @@
     },
     {
       "artifact_identity": "gemma-4-e4b-it-gguf:projector",
-      "dependencies": [
-        "notices",
-        "apache-text"
-      ],
+      "dependencies": [],
       "files": [
         {
           "expected_sha256": "d741f0752fcf433cc3960ae20c609dbb159c25ce269da3b004246e8fd34245a3",
@@ -54,7 +51,7 @@
       "format": "gguf",
       "intake": {
         "audience": "public",
-        "decision": "Strict starter intake (category A). Licence resolved from the base model google/gemma-4-E4B-it@4ecc2ba63bcac23ba4a767fc87025b1450f84c9c (card and licence file): Apache-2.0. The conversion unsloth/gemma-4-E4B-it-GGUF@bfc15c382204943c3a8fff0c750b94ae2364d7a3 declares the same licence. Upstream LICENSE/NOTICE texts are carried (injected where a repository ships none). No inference qualification or upstream signature asserted.",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model google/gemma-4-E4B-it@4ecc2ba63bcac23ba4a767fc87025b1450f84c9c card and licence file; the conversion unsloth/gemma-4-E4B-it-GGUF@bfc15c382204943c3a8fff0c750b94ae2364d7a3 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
         "license_id": "Apache-2.0",
         "notice_paths": [
           "README.md"
@@ -80,7 +77,7 @@
       "format": "text",
       "intake": {
         "audience": "public",
-        "decision": "Strict starter intake (category A). Licence resolved from the base model google/gemma-4-E4B-it@4ecc2ba63bcac23ba4a767fc87025b1450f84c9c (card and licence file): Apache-2.0. The conversion unsloth/gemma-4-E4B-it-GGUF@bfc15c382204943c3a8fff0c750b94ae2364d7a3 declares the same licence. Upstream LICENSE/NOTICE texts are carried (injected where a repository ships none). No inference qualification or upstream signature asserted.",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model google/gemma-4-E4B-it@4ecc2ba63bcac23ba4a767fc87025b1450f84c9c card and licence file; the conversion unsloth/gemma-4-E4B-it-GGUF@bfc15c382204943c3a8fff0c750b94ae2364d7a3 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
         "license_id": "Apache-2.0",
         "notice_paths": [
           "README.md"
@@ -106,7 +103,7 @@
       "format": "text",
       "intake": {
         "audience": "public",
-        "decision": "Complete unmodified Apache-2.0 text, injected because the upstream repository ships no LICENSE file. It grants nothing beyond the licence itself.",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model google/gemma-4-E4B-it@4ecc2ba63bcac23ba4a767fc87025b1450f84c9c card and licence file; the conversion unsloth/gemma-4-E4B-it-GGUF@bfc15c382204943c3a8fff0c750b94ae2364d7a3 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
         "license_id": "Apache-2.0",
         "notice_paths": [
           "LICENSE"
@@ -124,7 +121,7 @@
   "name": "gemma-4-e4b-it-gguf",
   "root_member": "weights",
   "runtime_requirements": [
-    "llama.cpp (or a runtime built on it) with Gemma 4 and mtmd support; engine not bundled"
+    "llama.cpp (or a runtime built on it: Ollama, LM Studio, Jan) with Gemma 4 and mtmd support; engine not bundled"
   ],
   "schema_version": "foxlight.model-preservation.v1",
   "workloads": [

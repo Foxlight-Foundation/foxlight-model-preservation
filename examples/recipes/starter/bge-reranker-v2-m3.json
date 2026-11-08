@@ -41,7 +41,7 @@
       "format": "safetensors",
       "intake": {
         "audience": "public",
-        "decision": "Strict starter intake (category A). Licence resolved from the base model BAAI/bge-reranker-v2-m3@953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e (card and licence file): Apache-2.0. Upstream LICENSE/NOTICE texts are carried (injected where a repository ships none). No inference qualification or upstream signature asserted. It is initialized from BAAI/bge-m3@5617a9f61b028005a4858fdac845db406aefb181 (MIT); that card and BAAI's MIT text are carried too.",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model BAAI/bge-reranker-v2-m3@953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e card and licence file. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. It is initialized from BAAI/bge-m3 (MIT); that card and BAAI's MIT text are carried too. No inference qualification or upstream signature asserted; not legal advice.",
         "license_id": "Apache-2.0",
         "notice_paths": [
           "README.md"
@@ -56,32 +56,6 @@
       "role": "primary"
     },
     {
-      "artifact_identity": "bge-reranker-v2-m3:apache-text",
-      "dependencies": [],
-      "files": [
-        {
-          "expected_sha256": "eca0a31232d967855093e0e50eb602bbd873be9f2dc1e5f0074799b3bbede523",
-          "path": "LICENSE"
-        }
-      ],
-      "format": "text",
-      "intake": {
-        "audience": "public",
-        "decision": "Complete unmodified Apache-2.0 text, injected because the upstream repository ships no LICENSE file. It grants nothing beyond the licence itself.",
-        "license_id": "Apache-2.0",
-        "notice_paths": [
-          "LICENSE"
-        ],
-        "terms_reference": "https://github.com/Foxlight-Foundation/foxlight-model-preservation/blob/45d5b20f69a411d63b17e198efe9f42d670d9036/LICENSE"
-      },
-      "loader_root": null,
-      "member_id": "apache-text",
-      "origin_repository": "github.com/Foxlight-Foundation/foxlight-model-preservation",
-      "origin_revision": "45d5b20f69a411d63b17e198efe9f42d670d9036",
-      "retained_card": null,
-      "role": "notices"
-    },
-    {
       "artifact_identity": "bge-reranker-v2-m3:base-notices",
       "dependencies": [],
       "files": [
@@ -93,7 +67,7 @@
       "format": "text",
       "intake": {
         "audience": "public",
-        "decision": "Strict starter intake (category A). Licence resolved from the base model BAAI/bge-reranker-v2-m3@953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e (card and licence file): Apache-2.0. Upstream LICENSE/NOTICE texts are carried (injected where a repository ships none). No inference qualification or upstream signature asserted. It is initialized from BAAI/bge-m3@5617a9f61b028005a4858fdac845db406aefb181 (MIT); that card and BAAI's MIT text are carried too.",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model BAAI/bge-reranker-v2-m3@953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e card and licence file. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. It is initialized from BAAI/bge-m3 (MIT); that card and BAAI's MIT text are carried too. No inference qualification or upstream signature asserted; not legal advice.",
         "license_id": "MIT",
         "notice_paths": [
           "README.md"
@@ -119,7 +93,7 @@
       "format": "text",
       "intake": {
         "audience": "public",
-        "decision": "Upstream MIT licence text with its copyright notice, injected because the MIT base model's repository ships no LICENSE file.",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model BAAI/bge-reranker-v2-m3@953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e card and licence file. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. It is initialized from BAAI/bge-m3 (MIT); that card and BAAI's MIT text are carried too. No inference qualification or upstream signature asserted; not legal advice.",
         "license_id": "MIT",
         "notice_paths": [
           "LICENSE"
@@ -130,6 +104,32 @@
       "member_id": "mit-text",
       "origin_repository": "github.com/FlagOpen/FlagEmbedding",
       "origin_revision": "897baa67c0ffddbfccf4e6776ff55310d67809d4",
+      "retained_card": null,
+      "role": "notices"
+    },
+    {
+      "artifact_identity": "bge-reranker-v2-m3:apache-text",
+      "dependencies": [],
+      "files": [
+        {
+          "expected_sha256": "eca0a31232d967855093e0e50eb602bbd873be9f2dc1e5f0074799b3bbede523",
+          "path": "LICENSE"
+        }
+      ],
+      "format": "text",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model BAAI/bge-reranker-v2-m3@953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e card and licence file. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. It is initialized from BAAI/bge-m3 (MIT); that card and BAAI's MIT text are carried too. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "LICENSE"
+        ],
+        "terms_reference": "https://github.com/Foxlight-Foundation/foxlight-model-preservation/blob/45d5b20f69a411d63b17e198efe9f42d670d9036/LICENSE"
+      },
+      "loader_root": null,
+      "member_id": "apache-text",
+      "origin_repository": "github.com/Foxlight-Foundation/foxlight-model-preservation",
+      "origin_revision": "45d5b20f69a411d63b17e198efe9f42d670d9036",
       "retained_card": null,
       "role": "notices"
     }

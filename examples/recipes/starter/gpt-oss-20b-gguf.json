@@ -19,7 +19,7 @@
       "format": "gguf",
       "intake": {
         "audience": "public",
-        "decision": "Strict starter intake (category A). Licence resolved from the base model openai/gpt-oss-20b@6cee5e81ee83917806bbde320786a8fb61efebee (card and licence file): Apache-2.0. The conversion ggml-org/gpt-oss-20b-GGUF@15dcfc7e7c608c6161507211ed43c5b590801b4b declares the same licence. Upstream LICENSE/NOTICE texts are carried (injected where a repository ships none). No inference qualification or upstream signature asserted.",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model openai/gpt-oss-20b@6cee5e81ee83917806bbde320786a8fb61efebee card and licence file; the conversion ggml-org/gpt-oss-20b-GGUF@15dcfc7e7c608c6161507211ed43c5b590801b4b declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
         "license_id": "Apache-2.0",
         "notice_paths": [
           "README.md"
@@ -53,11 +53,11 @@
       "format": "text",
       "intake": {
         "audience": "public",
-        "decision": "Strict starter intake (category A). Licence resolved from the base model openai/gpt-oss-20b@6cee5e81ee83917806bbde320786a8fb61efebee (card and licence file): Apache-2.0. The conversion ggml-org/gpt-oss-20b-GGUF@15dcfc7e7c608c6161507211ed43c5b590801b4b declares the same licence. Upstream LICENSE/NOTICE texts are carried (injected where a repository ships none). No inference qualification or upstream signature asserted.",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model openai/gpt-oss-20b@6cee5e81ee83917806bbde320786a8fb61efebee card and licence file; the conversion ggml-org/gpt-oss-20b-GGUF@15dcfc7e7c608c6161507211ed43c5b590801b4b declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
         "license_id": "Apache-2.0",
         "notice_paths": [
-          "README.md",
           "LICENSE",
+          "README.md",
           "USAGE_POLICY"
         ],
         "terms_reference": "https://huggingface.co/openai/gpt-oss-20b/blob/6cee5e81ee83917806bbde320786a8fb61efebee/LICENSE"
@@ -73,7 +73,7 @@
   "name": "gpt-oss-20b-gguf",
   "root_member": "weights",
   "runtime_requirements": [
-    "llama.cpp (or a runtime built on it) with gpt-oss MXFP4 support; engine not bundled"
+    "llama.cpp (or a runtime built on it: Ollama, LM Studio, Jan) with gpt-oss MXFP4 support; engine not bundled"
   ],
   "schema_version": "foxlight.model-preservation.v1",
   "workloads": [

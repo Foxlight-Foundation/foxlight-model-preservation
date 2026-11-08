@@ -4,8 +4,8 @@
     {
       "artifact_identity": "qwen3.5-9b-gguf:weights",
       "dependencies": [
-        "projector",
-        "notices"
+        "notices",
+        "projector"
       ],
       "files": [
         {
@@ -20,7 +20,7 @@
       "format": "gguf",
       "intake": {
         "audience": "public",
-        "decision": "Strict starter intake (category A). Licence resolved from the base model Qwen/Qwen3.5-9B@c202236235762e1c871ad0ccb60c8ee5ba337b9a (card and licence file): Apache-2.0. The conversion unsloth/Qwen3.5-9B-GGUF@3885219b6810b007914f3a7950a8d1b469d598a5 declares the same licence. Upstream LICENSE/NOTICE texts are carried (injected where a repository ships none). No inference qualification or upstream signature asserted.",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model Qwen/Qwen3.5-9B@c202236235762e1c871ad0ccb60c8ee5ba337b9a card and licence file; the conversion unsloth/Qwen3.5-9B-GGUF@3885219b6810b007914f3a7950a8d1b469d598a5 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
         "license_id": "Apache-2.0",
         "notice_paths": [
           "README.md"
@@ -36,9 +36,7 @@
     },
     {
       "artifact_identity": "qwen3.5-9b-gguf:projector",
-      "dependencies": [
-        "notices"
-      ],
+      "dependencies": [],
       "files": [
         {
           "expected_sha256": "e50f8066e39c38cbc2da5dd94b9a9a2712b64c4921f107a5adb4b3ca5b6bbac0",
@@ -52,7 +50,7 @@
       "format": "gguf",
       "intake": {
         "audience": "public",
-        "decision": "Strict starter intake (category A). Licence resolved from the base model Qwen/Qwen3.5-9B@c202236235762e1c871ad0ccb60c8ee5ba337b9a (card and licence file): Apache-2.0. The conversion unsloth/Qwen3.5-9B-GGUF@3885219b6810b007914f3a7950a8d1b469d598a5 declares the same licence. Upstream LICENSE/NOTICE texts are carried (injected where a repository ships none). No inference qualification or upstream signature asserted.",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model Qwen/Qwen3.5-9B@c202236235762e1c871ad0ccb60c8ee5ba337b9a card and licence file; the conversion unsloth/Qwen3.5-9B-GGUF@3885219b6810b007914f3a7950a8d1b469d598a5 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
         "license_id": "Apache-2.0",
         "notice_paths": [
           "README.md"
@@ -82,11 +80,11 @@
       "format": "text",
       "intake": {
         "audience": "public",
-        "decision": "Strict starter intake (category A). Licence resolved from the base model Qwen/Qwen3.5-9B@c202236235762e1c871ad0ccb60c8ee5ba337b9a (card and licence file): Apache-2.0. The conversion unsloth/Qwen3.5-9B-GGUF@3885219b6810b007914f3a7950a8d1b469d598a5 declares the same licence. Upstream LICENSE/NOTICE texts are carried (injected where a repository ships none). No inference qualification or upstream signature asserted.",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model Qwen/Qwen3.5-9B@c202236235762e1c871ad0ccb60c8ee5ba337b9a card and licence file; the conversion unsloth/Qwen3.5-9B-GGUF@3885219b6810b007914f3a7950a8d1b469d598a5 declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
         "license_id": "Apache-2.0",
         "notice_paths": [
-          "README.md",
-          "LICENSE"
+          "LICENSE",
+          "README.md"
         ],
         "terms_reference": "https://huggingface.co/Qwen/Qwen3.5-9B/blob/c202236235762e1c871ad0ccb60c8ee5ba337b9a/LICENSE"
       },
@@ -101,7 +99,7 @@
   "name": "qwen3.5-9b-gguf",
   "root_member": "weights",
   "runtime_requirements": [
-    "llama.cpp (or a runtime built on it) with Qwen3.5 and mtmd vision support; engine not bundled"
+    "llama.cpp (or a runtime built on it: Ollama, LM Studio, Jan) with Qwen3.5 and mtmd vision support; engine not bundled"
   ],
   "schema_version": "foxlight.model-preservation.v1",
   "workloads": [

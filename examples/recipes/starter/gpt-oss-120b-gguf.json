@@ -1,0 +1,82 @@
+{
+  "attestation": "owner-capture",
+  "members": [
+    {
+      "artifact_identity": "gpt-oss-120b-gguf:weights",
+      "dependencies": [
+        "notices"
+      ],
+      "files": [
+        {
+          "expected_sha256": "db1fe98191c12ab2cb5d91512326fe487c57fc48ba54c174570c124c53142c16",
+          "path": "README.md"
+        },
+        {
+          "expected_sha256": "582bd40f6886200101f4c4ed9f25f3fe80cc14c86e9e2b37746cd8904a0c622d",
+          "path": "gpt-oss-120b-MXFP4.gguf"
+        }
+      ],
+      "format": "gguf",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model openai/gpt-oss-120b@b5c939de8f754692c1647ca79fbf85e8c1e70f8a card and licence file; the conversion ggml-org/gpt-oss-120b-GGUF@7200b74bea78b0a2964ef9f3897eefa401e890ff declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "README.md"
+        ],
+        "terms_reference": "https://huggingface.co/ggml-org/gpt-oss-120b-GGUF/blob/7200b74bea78b0a2964ef9f3897eefa401e890ff/README.md"
+      },
+      "loader_root": null,
+      "member_id": "weights",
+      "origin_repository": "ggml-org/gpt-oss-120b-GGUF",
+      "origin_revision": "7200b74bea78b0a2964ef9f3897eefa401e890ff",
+      "retained_card": null,
+      "role": "primary"
+    },
+    {
+      "artifact_identity": "gpt-oss-120b-gguf:notices",
+      "dependencies": [],
+      "files": [
+        {
+          "expected_sha256": "58d1e17ffe5109a7ae296caafcadfdbe6a7d176f0bc4ab01e12a689b0499d8bd",
+          "path": "LICENSE"
+        },
+        {
+          "expected_sha256": "92b0408cf5dce04e4c5e4e5f2be0361da710d3650baefd7d7519badd1c687919",
+          "path": "README.md"
+        },
+        {
+          "expected_sha256": "fc48d386a7a7ff8b066f743cfe62df683ab16892450f5bb7357bb4de261cd037",
+          "path": "USAGE_POLICY"
+        }
+      ],
+      "format": "text",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model openai/gpt-oss-120b@b5c939de8f754692c1647ca79fbf85e8c1e70f8a card and licence file; the conversion ggml-org/gpt-oss-120b-GGUF@7200b74bea78b0a2964ef9f3897eefa401e890ff declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "LICENSE",
+          "README.md",
+          "USAGE_POLICY"
+        ],
+        "terms_reference": "https://huggingface.co/openai/gpt-oss-120b/blob/b5c939de8f754692c1647ca79fbf85e8c1e70f8a/LICENSE"
+      },
+      "loader_root": null,
+      "member_id": "notices",
+      "origin_repository": "openai/gpt-oss-120b",
+      "origin_revision": "b5c939de8f754692c1647ca79fbf85e8c1e70f8a",
+      "retained_card": null,
+      "role": "notices"
+    }
+  ],
+  "name": "gpt-oss-120b-gguf",
+  "root_member": "weights",
+  "runtime_requirements": [
+    "llama.cpp (or a runtime built on it: Ollama, LM Studio, Jan) with gpt-oss MXFP4 support; engine not bundled"
+  ],
+  "schema_version": "foxlight.model-preservation.v1",
+  "workloads": [
+    "text-generation"
+  ]
+}

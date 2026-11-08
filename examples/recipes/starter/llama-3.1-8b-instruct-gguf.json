@@ -1,0 +1,104 @@
+{
+  "attestation": "owner-capture",
+  "members": [
+    {
+      "artifact_identity": "llama-3.1-8b-instruct-gguf:weights",
+      "dependencies": [
+        "licence-text",
+        "llama-notice"
+      ],
+      "files": [
+        {
+          "expected_sha256": "b3bdbf23b47d7e6bb791c99b206deb169cd5a96362a9e3399028df2faacdc506",
+          "path": "Llama-3.1-8B-Instruct-Q4_K_M.gguf"
+        },
+        {
+          "expected_sha256": "7e47fd5409cea94ae7a8bca5e7bb5b291d7edccf20db116f373530df31e592af",
+          "path": "README.md"
+        }
+      ],
+      "format": "gguf",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (llama3.1). Licence resolved from the base model meta-llama/Llama-3.1-8B-Instruct@0e9e39f249a16976918f6564b8830bc894c89659 card and licence file; the conversion unsloth/Llama-3.1-8B-Instruct-GGUF@600b0020115fd6b17f0752848fe7b5a1be686bcd declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. The gated base repository's own files are not mirrored; Meta's Llama 3.1 licence and Acceptable Use Policy are carried from meta-llama/llama-models, with the required NOTICE and \"Built with Llama\". No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "llama3.1",
+        "notice_paths": [
+          "README.md"
+        ],
+        "terms_reference": "https://huggingface.co/unsloth/Llama-3.1-8B-Instruct-GGUF/blob/600b0020115fd6b17f0752848fe7b5a1be686bcd/README.md"
+      },
+      "loader_root": null,
+      "member_id": "weights",
+      "origin_repository": "unsloth/Llama-3.1-8B-Instruct-GGUF",
+      "origin_revision": "600b0020115fd6b17f0752848fe7b5a1be686bcd",
+      "retained_card": null,
+      "role": "primary"
+    },
+    {
+      "artifact_identity": "llama-3.1-8b-instruct-gguf:licence-text",
+      "dependencies": [],
+      "files": [
+        {
+          "expected_sha256": "bf2eac60b81e5c5f779fc3b4849d3bfacfd63f97f3eb68b44e9c6868c5801712",
+          "path": "models/llama3_1/LICENSE"
+        },
+        {
+          "expected_sha256": "f456a3f5b15ab588c84d06cf095a245bfee0bbc1620b48ed00af2cca4a711735",
+          "path": "models/llama3_1/USE_POLICY.md"
+        }
+      ],
+      "format": "text",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (llama3.1). Licence resolved from the base model meta-llama/Llama-3.1-8B-Instruct@0e9e39f249a16976918f6564b8830bc894c89659 card and licence file; the conversion unsloth/Llama-3.1-8B-Instruct-GGUF@600b0020115fd6b17f0752848fe7b5a1be686bcd declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. The gated base repository's own files are not mirrored; Meta's Llama 3.1 licence and Acceptable Use Policy are carried from meta-llama/llama-models, with the required NOTICE and \"Built with Llama\". No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "llama3.1",
+        "notice_paths": [
+          "models/llama3_1/LICENSE",
+          "models/llama3_1/USE_POLICY.md"
+        ],
+        "terms_reference": "https://github.com/meta-llama/llama-models/blob/0e0b8c519242d5833d8c11bffc1232b77ad7f301/models/llama3_1/LICENSE"
+      },
+      "loader_root": null,
+      "member_id": "licence-text",
+      "origin_repository": "github.com/meta-llama/llama-models",
+      "origin_revision": "0e0b8c519242d5833d8c11bffc1232b77ad7f301",
+      "retained_card": null,
+      "role": "notices"
+    },
+    {
+      "artifact_identity": "llama-3.1-8b-instruct-gguf:llama-notice",
+      "dependencies": [],
+      "files": [
+        {
+          "expected_sha256": "338093c198c7366c1da6690d149cd487c776175877c6d229ebb77858505a0af0",
+          "path": "examples/starter/notices/llama3.1/NOTICE"
+        }
+      ],
+      "format": "text",
+      "intake": {
+        "audience": "public",
+        "decision": "Starter intake (llama3.1). Licence resolved from the base model meta-llama/Llama-3.1-8B-Instruct@0e9e39f249a16976918f6564b8830bc894c89659 card and licence file; the conversion unsloth/Llama-3.1-8B-Instruct-GGUF@600b0020115fd6b17f0752848fe7b5a1be686bcd declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. The gated base repository's own files are not mirrored; Meta's Llama 3.1 licence and Acceptable Use Policy are carried from meta-llama/llama-models, with the required NOTICE and \"Built with Llama\". No inference qualification or upstream signature asserted; not legal advice.",
+        "license_id": "llama3.1",
+        "notice_paths": [
+          "examples/starter/notices/llama3.1/NOTICE"
+        ],
+        "terms_reference": "https://github.com/Foxlight-Foundation/foxlight-model-preservation/blob/b2b6c118a09bb4140056c97ff2f348f9cde8da8a/examples/starter/notices/llama3.1/NOTICE"
+      },
+      "loader_root": null,
+      "member_id": "llama-notice",
+      "origin_repository": "github.com/Foxlight-Foundation/foxlight-model-preservation",
+      "origin_revision": "b2b6c118a09bb4140056c97ff2f348f9cde8da8a",
+      "retained_card": null,
+      "role": "notices"
+    }
+  ],
+  "name": "llama-3.1-8b-instruct-gguf",
+  "root_member": "weights",
+  "runtime_requirements": [
+    "llama.cpp (or a runtime built on it: Ollama, LM Studio, Jan) with Llama 3.1 support; engine not bundled"
+  ],
+  "schema_version": "foxlight.model-preservation.v1",
+  "workloads": [
+    "text-generation"
+  ]
+}

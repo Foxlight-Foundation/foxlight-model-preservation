@@ -4,8 +4,8 @@
     {
       "artifact_identity": "nomic-embed-text-v1.5-gguf:weights",
       "dependencies": [
-        "notices",
-        "apache-text"
+        "apache-text",
+        "notices"
       ],
       "files": [
         {
@@ -20,7 +20,7 @@
       "format": "gguf",
       "intake": {
         "audience": "public",
-        "decision": "Strict starter intake (category A). Licence resolved from the base model nomic-ai/nomic-embed-text-v1.5@e9b6763023c676ca8431644204f50c2b100d9aab (card and licence file): Apache-2.0. The conversion nomic-ai/nomic-embed-text-v1.5-GGUF@0188c9bf409793f810680a5a431e7b899c46104c declares the same licence. Upstream LICENSE/NOTICE texts are carried (injected where a repository ships none). No inference qualification or upstream signature asserted.",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model nomic-ai/nomic-embed-text-v1.5@e9b6763023c676ca8431644204f50c2b100d9aab card and licence file; the conversion nomic-ai/nomic-embed-text-v1.5-GGUF@0188c9bf409793f810680a5a431e7b899c46104c declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
         "license_id": "Apache-2.0",
         "notice_paths": [
           "README.md"
@@ -46,7 +46,7 @@
       "format": "text",
       "intake": {
         "audience": "public",
-        "decision": "Strict starter intake (category A). Licence resolved from the base model nomic-ai/nomic-embed-text-v1.5@e9b6763023c676ca8431644204f50c2b100d9aab (card and licence file): Apache-2.0. The conversion nomic-ai/nomic-embed-text-v1.5-GGUF@0188c9bf409793f810680a5a431e7b899c46104c declares the same licence. Upstream LICENSE/NOTICE texts are carried (injected where a repository ships none). No inference qualification or upstream signature asserted.",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model nomic-ai/nomic-embed-text-v1.5@e9b6763023c676ca8431644204f50c2b100d9aab card and licence file; the conversion nomic-ai/nomic-embed-text-v1.5-GGUF@0188c9bf409793f810680a5a431e7b899c46104c declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
         "license_id": "Apache-2.0",
         "notice_paths": [
           "README.md"
@@ -72,7 +72,7 @@
       "format": "text",
       "intake": {
         "audience": "public",
-        "decision": "Complete unmodified Apache-2.0 text, injected because the upstream repository ships no LICENSE file. It grants nothing beyond the licence itself.",
+        "decision": "Starter intake (Apache-2.0). Licence resolved from the base model nomic-ai/nomic-embed-text-v1.5@e9b6763023c676ca8431644204f50c2b100d9aab card and licence file; the conversion nomic-ai/nomic-embed-text-v1.5-GGUF@0188c9bf409793f810680a5a431e7b899c46104c declares the same licence. Upstream LICENSE/NOTICE texts are carried, injected from pinned sources where a repository ships none. No inference qualification or upstream signature asserted; not legal advice.",
         "license_id": "Apache-2.0",
         "notice_paths": [
           "LICENSE"
@@ -90,7 +90,7 @@
   "name": "nomic-embed-text-v1.5-gguf",
   "root_member": "weights",
   "runtime_requirements": [
-    "llama.cpp (or a runtime built on it, such as Ollama) with nomic-bert support; engine not bundled"
+    "llama.cpp (or a runtime built on it: Ollama, LM Studio, Jan) with nomic-bert support; engine not bundled"
   ],
   "schema_version": "foxlight.model-preservation.v1",
   "workloads": [
