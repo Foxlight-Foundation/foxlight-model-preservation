@@ -37,8 +37,10 @@ from .mirror_models import (
     AnnouncePolicy,
     IntakePolicy,
     MirrorObservation,
+    MirrorState,
     SourceGrant,
     Terms,
+    upgrade_profile,
 )
 from .mirror_native import configure, export_reference, write_reference
 from .mirror_prune import prune
@@ -741,10 +743,24 @@ def run_mirror_command(
         if announce != before.announce:
             changes["announce"] = announce
         intake = _intake(arguments, before.intake)
-        after = configure_mirror(ledger, changes) if changes else before
-        if intake != before.intake:
-            after = configure_intake(ledger, intake)
-            changes["intake"] = True
+        # Preflight: settings, caps and the intake policy validate together
+        # before anything is written; a later refusal restores the ledger.
+        MirrorState.model_validate(
+            upgrade_profile(
+                before.model_copy(update={**changes, "intake": intake})
+            ).model_dump()
+        )
+        try:
+            after = configure_mirror(ledger, changes) if changes else before
+            if intake != before.intake:
+                after = configure_intake(ledger, intake)
+                changes["intake"] = True
+        except BaseException:
+            if ledger.read() != before:
+                restored = before
+                with ledger.service_lock():
+                    ledger.update(lambda _current: restored)
+            raise
         return {
             "configured": [cast(JsonValue, key) for key in sorted(changes)],
             "network_started": False,

@@ -26,7 +26,7 @@ from .mirror import (
     follow,
 )
 from .mirror_announce import DISCLOSURE, dht_port
-from .mirror_models import AnnouncePolicy, SourceGrant, Terms
+from .mirror_models import AnnouncePolicy, SourceGrant, Terms, upgrade_profile
 from .mirror_state import (
     HEADROOM,
     MirrorLedger,
@@ -307,6 +307,28 @@ def _wrap(text: str, width: int = 74) -> list[str]:
     return [*lines, current] if current else lines
 
 
+def preflight_settings(config: dict[str, object]) -> MirrorState:
+    """Validate a new mirror's settings exactly as ``initialize`` would, offline.
+
+    Nothing is created. Upload caps of ``None`` select the v6 profile, as
+    ``MirrorLedger.initialize`` does, so "no cap" is checked like any other
+    value.
+    """
+    fields: dict[str, object] = {
+        **config,
+        "identity": {},
+        "salt": "0" * 64,
+        "clock_floor": 0,
+    }
+    if (
+        config.get("egress_daily") is None
+        or config.get("egress_monthly") is None
+        or config.get("intake") is not None
+    ):
+        fields["schema_version"] = "foxlight.mirror-state.v6"
+    return MirrorState.model_validate(fields)
+
+
 def apply_quickstart(
     directory: Path,
     collection: MirrorCollection,
@@ -372,8 +394,11 @@ def apply_quickstart(
                 "this mirror is paused; run `mirror resume` first if you want it "
                 "to serve again"
             )
-        # The new settings must validate before anything is written.
-        MirrorState.model_validate(previous.model_copy(update=config).model_dump())
+        # The new settings must validate before anything is written, including
+        # "no upload cap", which only the v6 profile can store.
+        MirrorState.model_validate(
+            upgrade_profile(previous.model_copy(update=config)).model_dump()
+        )
         followed = {
             status.source_id: status.bootstrap_id
             for status in list_sources(existing.path / "discovery")
@@ -390,6 +415,8 @@ def apply_quickstart(
         )
     else:
         reimported, usage = True, 0
+        # A new mirror's settings validate before its directory is created.
+        preflight_settings(config)
     # Following admits nothing once retained bytes fill the new disk budget.
     if reimported and usage + HEADROOM > settings.disk_bytes:
         raise PreservationError(

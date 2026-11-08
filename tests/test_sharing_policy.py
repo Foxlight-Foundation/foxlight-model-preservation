@@ -641,3 +641,61 @@ def test_quickstart_is_uncapped_when_new_and_keeps_an_existing_mirrors_caps(
     removed = cli(*base, "--egress-daily", "none", "--egress-monthly", "none")
     assert removed.returncode == 0, removed.stderr
     assert MirrorLedger(target).read().egress_monthly is None
+
+
+def test_quickstart_and_config_preflight_caps_and_intake_before_writing(
+    tmp_path, capture
+):
+    from test_mirror_headless import collection
+
+    path = collection(tmp_path, capture)
+    # A new mirror's settings, "no cap" included, validate before any directory.
+    target = tmp_path / "new"
+    refused = cli(
+        "mirror",
+        "quickstart",
+        "--dir",
+        str(target),
+        "--collection",
+        str(path),
+        "--disk-bytes",
+        "1M",
+        "--yes-i-consent-to-public-serving",
+    )
+    assert refused.returncode != 0 and not target.exists()
+    # An existing capped (v1) mirror switches caps off through the preflight.
+    (tmp_path / "old").mkdir()
+    capped = mirror(tmp_path / "old")
+    assert capped.read().schema_version == "foxlight.mirror-state.v1"
+    before = capped.read()
+    # Settings, caps and intake are checked together; nothing is half applied.
+    bad = cli(
+        "mirror",
+        "config",
+        "--dir",
+        str(capped.path),
+        "--egress-daily",
+        "none",
+        "--share",
+        "all",
+        "--port",
+        "70000",
+    )
+    assert bad.returncode != 0
+    assert capped.read() == before
+    good = cli(
+        "mirror",
+        "config",
+        "--dir",
+        str(capped.path),
+        "--egress-daily",
+        "none",
+        "--egress-monthly",
+        "none",
+        "--share",
+        "all",
+    )
+    assert good.returncode == 0, good.stderr
+    after = capped.read()
+    assert after.egress_daily is None and after.intake is not None
+    assert after.schema_version == "foxlight.mirror-state.v6"
