@@ -810,7 +810,16 @@ def test_committed_starter_plan_and_recipes_are_pinned_with_notices():
     assert {k for k, v in formats.items() if v == "mlx"} == {
         "gemma-4-e4b-it-mlx",
         "qwen3-8-27b-mlx",
+        "parakeet-tdt-0-6b-v3",
     }
+    # Apple-only builds are exactly the add-on: no MLX member in a default entry.
+    for entry in plan.entries:
+        apple = any(m.format == "mlx" for m in recipes[entry.entry_id].members)
+        assert apple == (entry.format == "mlx"), entry.entry_id
+    # Without the add-on, standard still has speech to text (Whisper, small).
+    default = {e.entry_id for e in plan.entries if e.format == "gguf"}
+    assert "whisper-large-v3-turbo" in default
+    assert "parakeet-tdt-0-6b-v3" not in default
     assert {k for k, v in tiers.items() if v == "small"} == {
         "qwen3-5-4b",
         "gemma-4-e4b-it",
@@ -1224,3 +1233,18 @@ def test_cli_formats_flag_and_container_env(tmp_path, mlx_collection):
         )
         arguments = log.read_text().split()
         assert arguments[arguments.index("--starter-formats") + 1] == expected
+
+
+def test_pipeline_check_refuses_an_mlx_build_outside_the_add_on(tmp_path):
+    (plan, recipes), hub = _pipeline(tmp_path)
+    recipe = recipes["piped"]
+    members = tuple(
+        m.model_copy(update={"format": "mlx"}) if m.member_id == "weights" else m
+        for m in recipe.members
+    )
+    mislabelled = {"piped": recipe.model_copy(update={"members": members})}
+    with pytest.raises(PreservationError, match="format mlx"):
+        starter_build.check(plan, mislabelled, hub, say=lambda _line: None)
+    entry = plan.entries[0].model_copy(update={"format": "mlx"})
+    labelled = plan.model_copy(update={"entries": (entry,)})
+    assert starter_build.check(labelled, mislabelled, hub, say=lambda _l: None)[0]["ok"]

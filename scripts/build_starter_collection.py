@@ -411,6 +411,12 @@ def check(
                 raise LicenceRefused(
                     "a recipe member declares a licence the plan policy refuses"
                 )
+            apple_only = any(member.format == "mlx" for member in recipe.members)
+            if apple_only != (entry.format == "mlx"):
+                raise PreservationError(
+                    "an entry with MLX members must be format mlx (the Apple "
+                    "add-on), and only such an entry"
+                )
             if not any(
                 licence_text(member.origin_repository, file.path)
                 for member in recipe.members

@@ -225,7 +225,7 @@
     {
       "entry_id": "parakeet-tdt-0-6b-v3",
       "tier": "standard",
-      "title": "Parakeet TDT 0.6B v3 (MLX)",
+      "title": "Parakeet TDT 0.6B v3 (MLX, Apple add-on)",
       "role": "Fast speech to text (Apple silicon)",
       "recipe": "parakeet-tdt-0.6b-v3-mlx.json",
       "licence": {
@@ -235,7 +235,8 @@
         "base_revision": "541d1f99c6b0c3cd0b11a95167540bb8edefd82b",
         "conversion": "mlx-community/parakeet-tdt-0.6b-v3",
         "conversion_revision": "ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15"
-      }
+      },
+      "format": "mlx"
     },
     {
       "entry_id": "qwen3-tts-1-7b",

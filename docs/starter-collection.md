@@ -53,7 +53,6 @@ Includes the small tier, plus:
 | Qwen2.5 Coder 7B instruct (Q4_K_M GGUF) | [unsloth/Qwen2.5-Coder-7B-Instruct-GGUF@0ecf1185](https://huggingface.co/unsloth/Qwen2.5-Coder-7B-Instruct-GGUF/tree/0ecf11859560b2bf42e703207f9371186d02245f) | Apache-2.0 ([Qwen/Qwen2.5-Coder-7B-Instruct@c03e6d35](https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct/tree/c03e6d358207e414f1eca0bb1891e29f1db0e242)) | none | 4.68 GB |
 | Llama 3.2 3B instruct (Q4_K_M GGUF) | [unsloth/Llama-3.2-3B-Instruct-GGUF@e7d0997e](https://huggingface.co/unsloth/Llama-3.2-3B-Instruct-GGUF/tree/e7d0997e49c9cb00d88b4c1a6a16aa894b0bbc31) | llama3.2 ([meta-llama/Llama-3.2-3B-Instruct@0cb88a4f](https://huggingface.co/meta-llama/Llama-3.2-3B-Instruct/tree/0cb88a4f764b7a12671c53f0838cd831a0843b95)) | accept Llama 3.2 licence + AUP | 2.02 GB |
 | GLM-OCR (bf16 safetensors) | [zai-org/GLM-OCR@2e85a628](https://huggingface.co/zai-org/GLM-OCR/tree/2e85a62840ccac27daa451df36c736c4636b8628) | MIT ([zai-org/GLM-OCR@2e85a628](https://huggingface.co/zai-org/GLM-OCR/tree/2e85a62840ccac27daa451df36c736c4636b8628)) | none | 2.66 GB |
-| Parakeet TDT 0.6B v3 (MLX) | [mlx-community/parakeet-tdt-0.6b-v3@ed2b7e8c](https://huggingface.co/mlx-community/parakeet-tdt-0.6b-v3/tree/ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15) | cc-by-4.0 ([nvidia/parakeet-tdt-0.6b-v3@541d1f99](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3/tree/541d1f99c6b0c3cd0b11a95167540bb8edefd82b)) | none | 2.51 GB |
 | Qwen3-TTS 12Hz 1.7B base (safetensors) | [Qwen/Qwen3-TTS-12Hz-1.7B-Base@fd4b2543](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-Base/tree/fd4b254389122332181a7c3db7f27e918eec64e3) | Apache-2.0 ([Qwen/Qwen3-TTS-12Hz-1.7B-Base@fd4b2543](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-Base/tree/fd4b254389122332181a7c3db7f27e918eec64e3)) | none | 4.54 GB |
 | BGE reranker v2 m3 (safetensors) | [BAAI/bge-reranker-v2-m3@953dc6f6](https://huggingface.co/BAAI/bge-reranker-v2-m3/tree/953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e) | Apache-2.0 ([BAAI/bge-reranker-v2-m3@953dc6f6](https://huggingface.co/BAAI/bge-reranker-v2-m3/tree/953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e)) | none | 2.29 GB |
 | Qwen3 Embedding 0.6B (Q8_0 GGUF) | [Qwen/Qwen3-Embedding-0.6B-GGUF@370f27d7](https://huggingface.co/Qwen/Qwen3-Embedding-0.6B-GGUF/tree/370f27d7550e0def9b39c1f16d3fbaa13aa67728) | Apache-2.0 ([Qwen/Qwen3-Embedding-0.6B@97b0c614](https://huggingface.co/Qwen/Qwen3-Embedding-0.6B/tree/97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3)) | none | 0.64 GB |
@@ -61,7 +60,8 @@ Includes the small tier, plus:
 | Granite Embedding small English R2 (safetensors) | [ibm-granite/granite-embedding-small-english-r2@2ab6fa8e](https://huggingface.co/ibm-granite/granite-embedding-small-english-r2/tree/2ab6fa8ea2d674564defd37171ae19079b864b33) | Apache-2.0 ([ibm-granite/granite-embedding-small-english-r2@2ab6fa8e](https://huggingface.co/ibm-granite/granite-embedding-small-english-r2/tree/2ab6fa8ea2d674564defd37171ae19079b864b33)) | none | 0.10 GB |
 | Z-Image Turbo (Q4_K_M GGUF + Qwen3-4B encoder + VAE) | [unsloth/Z-Image-Turbo-GGUF@b40f712c](https://huggingface.co/unsloth/Z-Image-Turbo-GGUF/tree/b40f712c569ecfff42f2307dcc43399ae1d71318) | Apache-2.0 ([Tongyi-MAI/Z-Image-Turbo@f332072a](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo/tree/f332072aa78be7aecdf3ee76d5c247082da564a6)) | none | 6.68 GB |
 
-The standard tier (with small) is about **80 GB**.
+The standard tier (with small) is about **78 GB**. Its speech to text is
+Whisper large-v3-turbo from the small tier; Parakeet is in the Apple add-on.
 
 ### Large tier
 
@@ -87,14 +87,16 @@ Includes the standard tier, plus:
 | FLUX.2 klein 4B (Q8_0 GGUF + Qwen3-4B encoder + VAE) | [unsloth/FLUX.2-klein-4B-GGUF@a09d5bb5](https://huggingface.co/unsloth/FLUX.2-klein-4B-GGUF/tree/a09d5bb51ac4000ccd9643d10e9db3ed14200508) | Apache-2.0 ([black-forest-labs/FLUX.2-klein-4B@e7b7dc27](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B/tree/e7b7dc27f91deacad38e78976d1f2b499d76a294)) | none | 7.13 GB |
 | Stable Diffusion XL base 1.0 (fp16 single file) | [stabilityai/stable-diffusion-xl-base-1.0@46216598](https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/tree/462165984030d82259a11f4367a4eed129e94a7b) | openrail++ ([stabilityai/stable-diffusion-xl-base-1.0@46216598](https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/tree/462165984030d82259a11f4367a4eed129e94a7b)) | accept OpenRAIL++-M use restrictions | 6.94 GB |
 
-The large tier (with standard and small) is about **312 GB**. The Z-Image and FLUX.2 bundles each carry the
+The large tier (with standard and small) is about **310 GB**. The Z-Image and FLUX.2 bundles each carry the
 same Qwen3-4B text encoder: it is counted in both sizes but stored once.
 
 ### Apple MLX add-on (opt-in)
 
-Tiers are GGUF-only by default. For Qwen3.8 27B and Gemma 4 E4B, Apple users
-download more MLX than GGUF, so their MLX 4-bit builds are offered as an
-**opt-in add-on**: choose formats `gguf,mlx` (`--formats` on `import-starter`,
+Tiers carry only builds that run on any platform by default. Builds that run
+only on Apple silicon form an **opt-in add-on**: the MLX 4-bit builds of
+Qwen3.8 27B and Gemma 4 E4B (for those two models Apple users download more MLX
+than GGUF) and the MLX checkpoint of Parakeet. Choose formats `gguf,mlx`
+(`--formats` on `import-starter`,
 `--starter-formats` on quickstart, `SOVEREIGN_MIRROR_STARTER_FORMATS` in the
 container). An MLX build is imported only when its tier is selected and `mlx`
 is among the formats; the review always shows the add-on's size.
@@ -103,8 +105,14 @@ is among the formats; the review always shows the add-on's size.
 | --- | --- | --- | --- | ---: |
 | Gemma 4 E4B instruct (MLX 4-bit, Apple add-on) [small] | [lmstudio-community/gemma-4-E4B-it-MLX-4bit@ce713a00](https://huggingface.co/lmstudio-community/gemma-4-E4B-it-MLX-4bit/tree/ce713a0013bb7090305edfb8e3773a07ccae35c1) | Apache-2.0 ([google/gemma-4-E4B-it@4ecc2ba6](https://huggingface.co/google/gemma-4-E4B-it/tree/4ecc2ba63bcac23ba4a767fc87025b1450f84c9c)) | none | 6.86 GB |
 | Qwen3.8 27B (MLX 4-bit, Apple add-on) [standard] | [lmstudio-community/Qwen3.8-27B-MLX-4bit@6067b15c](https://huggingface.co/lmstudio-community/Qwen3.8-27B-MLX-4bit/tree/6067b15cf581666a4aecf6af3afaba4bb5efc20c) | Apache-2.0 ([Qwen/Qwen3.8-27B@37561816](https://huggingface.co/Qwen/Qwen3.8-27B/tree/37561816e66b5b9153b1b64c10968c18c1e6f4a0)) | none | 16.08 GB |
+| Parakeet TDT 0.6B v3 (MLX, Apple add-on) [standard] | [mlx-community/parakeet-tdt-0.6b-v3@ed2b7e8c](https://huggingface.co/mlx-community/parakeet-tdt-0.6b-v3/tree/ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15) | cc-by-4.0 ([nvidia/parakeet-tdt-0.6b-v3@541d1f99](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3/tree/541d1f99c6b0c3cd0b11a95167540bb8edefd82b)) | none | 2.51 GB |
 
-The add-on adds about 6.9 GB to the small tier and 23 GB to standard or large.
+The add-on adds about 6.9 GB to the small tier and 25.5 GB to standard or
+large. `check` refuses an entry whose recipe has MLX members unless it is in
+the add-on, so no Apple-only build can enter a default tier. Builds that need one particular runtime but run on
+any platform (Kokoro, Qwen3-TTS, Chatterbox, XTTS v2, GLM-OCR and the
+safetensors embeddings, all on PyTorch) stay in their tiers; each recipe names
+its runtime.
 
 ### Notes on specific models
 
@@ -126,7 +134,8 @@ The add-on adds about 6.9 GB to the small tier and 23 GB to standard or large.
   only**. It is not in Sovereign's licence list, so the import always asks.
 - **SDXL base 1.0** carries the OpenRAIL++-M licence with its use
   restrictions (Attachment A).
-- **Parakeet** (CC BY 4.0) carries an attribution file, the licence text and
+- **Parakeet** (CC BY 4.0, in the Apple add-on) carries an attribution file,
+  the licence text and
   a note of changes.
 
 ### Left out
