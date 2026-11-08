@@ -19,6 +19,9 @@ async function stableView(page:Page,path:string){
   await page.screenshot({path,fullPage:false});
 }
 
+/** The advanced controls' own region. The one-switch panel above polls the same mirror and offers its own Stop sharing once it sees the controller. */
+const advanced=(page:Page)=>page.getByRole('region',{name:'Keep models available',exact:true});
+
 /** Mocked browser contract only; actual host/archive acceptance is separate. */
 async function host(page:Page,options:{configured?:boolean;terms?:boolean;held?:boolean;pinned?:boolean;offPageRemoved?:boolean;recovery?:boolean}={}) {
   const state={
@@ -105,10 +108,10 @@ test('exact lookup finds removed selections outside the displayed page before in
 test('an older recovery contract keeps existing controller Stop available',async({page})=>{
   const state=await host(page,{held:true,recovery:false});
   state.snapshot.controller_job_id='f'.repeat(64);
-  await expect(page.getByRole('button',{name:'Stop sharing',exact:true})).toBeVisible();
+  await expect(advanced(page).getByRole('button',{name:'Stop sharing',exact:true})).toBeVisible();
   await page.getByText('Keep another public copy',{exact:true}).click();
   await expect(page.getByText(/exact retained-selection lookup and recovery kits/)).toBeVisible();
-  await page.getByRole('button',{name:'Stop sharing',exact:true}).click();
+  await advanced(page).getByRole('button',{name:'Stop sharing',exact:true}).click();
   expect(state.stops).toEqual(['f'.repeat(64)]);expect(state.starts).toHaveLength(0);
 });
 
@@ -152,10 +155,10 @@ test('standing permission does not start sharing and Stop preserves retained mod
   await expect(page.getByRole('button',{name:'Share retained copies',exact:true})).toBeDisabled();
   await page.getByRole('checkbox',{name:/Allow this mirror to serve these retained public copies/}).check();
   await page.getByRole('button',{name:'Share retained copies',exact:true}).click();
-  await expect(page.getByRole('button',{name:'Stop sharing',exact:true})).toBeVisible();
+  await expect(advanced(page).getByRole('button',{name:'Stop sharing',exact:true})).toBeVisible();
   const controller=state.snapshot.controller_job_id;
   expect(state.starts.at(-1)).toMatchObject({kind:'run',mode:'resume',public_participation:true,policy_id:initialPolicy});
-  await page.getByRole('button',{name:'Stop sharing',exact:true}).click();
+  await advanced(page).getByRole('button',{name:'Stop sharing',exact:true}).click();
   await expect(page.getByRole('button',{name:'Start sharing',exact:true})).toBeVisible();
   expect(state.stops).toEqual([controller]);
   expect(state.snapshot.models[0].state).toBe('retained');
@@ -166,10 +169,10 @@ test('standing permission does not start sharing and Stop preserves retained mod
 test('an older terms contract keeps Stop available even without live activity details',async({page})=>{
   const state=await host(page,{held:true,terms:false});
   const owned='f'.repeat(64);state.snapshot.controller_job_id=owned;state.snapshot.activity=null;
-  await expect(page.getByRole('button',{name:'Stop sharing',exact:true})).toBeVisible();
+  await expect(advanced(page).getByRole('button',{name:'Stop sharing',exact:true})).toBeVisible();
   await page.getByText('Keep another public copy',{exact:true}).click();
   await expect(page.getByText(/Existing Stop controls remain available/)).toBeVisible();
-  await page.getByRole('button',{name:'Stop sharing',exact:true}).click();
+  await advanced(page).getByRole('button',{name:'Stop sharing',exact:true}).click();
   expect(state.stops).toEqual([owned]);
   expect(state.snapshot.models[0].state).toBe('retained');
 });
@@ -224,7 +227,7 @@ test('unavailable storage is not presented as an empty mirror and Stop remains u
   await expect(page.getByText(/An unavailable observation does not mean the mirror is empty/)).toBeVisible();
   await expect(page.getByText(/No retained selections yet/)).toHaveCount(0);
   await expect(page.getByRole('button',{name:'Mirror settings',exact:true})).toBeDisabled();
-  await page.getByRole('button',{name:'Stop sharing',exact:true}).click();
+  await advanced(page).getByRole('button',{name:'Stop sharing',exact:true}).click();
   expect(state.stops).toEqual([owned]);
 });
 
@@ -238,8 +241,8 @@ test('a slow intake cancellation does not disable the current controller Stop',a
     await page.getByText('Mirror activity and decisions',{exact:true}).click();
     const request=page.waitForRequest(request=>request.url().endsWith('/api/mirror-stop')&&request.postDataJSON().job_id===intake);
     await page.getByRole('button',{name:'Stop this operation',exact:true}).click();await request;
-    await expect(page.getByRole('button',{name:'Stop sharing',exact:true})).toBeEnabled();
-    await page.getByRole('button',{name:'Stop sharing',exact:true}).click();
+    await expect(advanced(page).getByRole('button',{name:'Stop sharing',exact:true})).toBeEnabled();
+    await advanced(page).getByRole('button',{name:'Stop sharing',exact:true}).click();
     expect(state.stops).toEqual([intake,controller]);
     expect(state.snapshot.models[0].state).toBe('retained');
   }finally{release();}
