@@ -32,6 +32,15 @@ def private_mirror_directory(
     return path
 
 
+@pytest.fixture(autouse=True)
+def no_packaged_seed_mirrors(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No test may contact the real starter mirror the package ships.
+
+    The environment switch reaches child processes too (CLI tests).
+    """
+    monkeypatch.setenv("SOVEREIGN_PACKAGED_SEED_MIRRORS", "off")
+
+
 @pytest.fixture
 def capture(tmp_path: Path) -> Capture:
     sources = {}

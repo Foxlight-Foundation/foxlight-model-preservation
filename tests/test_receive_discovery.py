@@ -9,6 +9,7 @@ import threading
 from collections.abc import Generator, Iterator
 from contextlib import contextmanager
 from dataclasses import replace
+from importlib.resources import files
 from pathlib import Path
 
 import pytest
@@ -392,7 +393,15 @@ def test_a_resumed_operation_keeps_its_discovered_sources(tmp_path: Path) -> Non
 
 
 def test_seed_lists_are_untrusted_bounded_and_user_extendable(tmp_path: Path) -> None:
-    assert load_seeds() == ()  # The shipped list is a placeholder for now.
+    # The shipped list names Foxlight's starter bucket mirror, and only that.
+    # (Tests otherwise replace it so no test contacts the real mirror.)
+    shipped = (
+        files("foxlight_model_preservation")
+        .joinpath("resources/seed-mirrors.json")
+        .read_bytes()
+    )
+    assert read_seed_list(shipped) == ("https://starter.foxlight.ai",)
+    assert load_seeds() == ()  # Switched off for tests by conftest.
     own = tmp_path / "seeds.json"
     own.write_text(
         '{"schema_version":"sovereign.seed-mirrors.v1",'
@@ -1396,3 +1405,14 @@ def test_a_final_primary_attempt_shows_its_outcome_on_the_callers_control(
         assert control.progress.stage == "failed"
         assert control.progress.operation == "fetch"
         assert _terminal(events) == ["failed"]
+
+
+def test_the_shipped_starter_list_can_be_switched_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from foxlight_model_preservation import mirror_directory
+
+    monkeypatch.setenv("SOVEREIGN_PACKAGED_SEED_MIRRORS", "on")
+    assert mirror_directory.packaged_seeds() == ("https://starter.foxlight.ai",)
+    monkeypatch.setenv("SOVEREIGN_PACKAGED_SEED_MIRRORS", "OFF")
+    assert mirror_directory.packaged_seeds() == ()
