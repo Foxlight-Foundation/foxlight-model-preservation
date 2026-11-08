@@ -106,13 +106,14 @@ class MirrorArguments(argparse.Namespace):
     announce_dht: bool | None
     confirm_public_announcement: bool
     collection: Path | None
-    starter_list: Path | None
-    starter_tier: Tier
-    expected_list_id: str | None
-    list_trust: Path | None
-    starter_mirror: list[str]
-    accept_starter: bool
-    starter_staging: Path | None
+    # Defaults keep programmatic callers that predate the starter list working.
+    starter_list: Path | None = None
+    starter_tier: Tier = "small"
+    expected_list_id: str | None = None
+    list_trust: Path | None = None
+    starter_mirror: tuple[str, ...] | list[str] = ()
+    accept_starter: bool = False
+    starter_staging: Path | None = None
     resume_for: int | None
     plan_only: bool
     consent_public_serving: bool
