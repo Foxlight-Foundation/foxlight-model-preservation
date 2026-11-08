@@ -311,3 +311,78 @@ def test_bucket_checks_get_time_for_their_real_outcome() -> None:
     # Three requests of at most 15 s each, then up to two 30 s keychain calls.
     assert CONTROL_TIMEOUTS["desktop-community-bucket-connect"] > 3 * 15 + 2 * 30
     assert CONTROL_TIMEOUTS["desktop-community-bucket-disconnect"] > 30
+
+
+async def test_bucket_handoff_downloads_as_a_file_and_refuses_plainly(
+    tmp_path, monkeypatch
+):
+    """The bucket's verification file is a download; failures stay stable codes."""
+    from foxlight_model_preservation.models import PreservationError
+
+    client = DesktopClient(tmp_path / "owner")
+    document = b'{"schema_version":"foxlight.model-preservation.handoff.v1"}'
+    identity = "ab" * 32
+    asked: list[str] = []
+
+    def handoff(manifest_id):
+        asked.append(manifest_id)
+        if manifest_id == "c" * 64:
+            raise PreservationError("bucket_model_unavailable")
+        if manifest_id == "d" * 64:
+            raise PreservationError("private detail /Users/someone")
+        return document
+
+    monkeypatch.setattr(client.owner, "bucket_handoff", handoff)
+    server = LibraryServer(None, client, asyncio.get_running_loop())
+    server.start()
+    try:
+        async with httpx.AsyncClient(trust_env=False) as browser:
+            path = server.url + "api/desktop-bucket-handoff/"
+            response = await browser.get(path + identity)
+            assert response.status_code == 200
+            assert response.content == document
+            assert response.headers["Content-Disposition"] == (
+                'attachment; filename="Sovereign-bucket-'
+                + identity[:12]
+                + '.foxhandoff"'
+            )
+            assert response.headers["Cache-Control"] == "no-store"
+            missing = await browser.get(path + "c" * 64)
+            assert missing.status_code == 409
+            assert missing.json() == {"error": "bucket_model_unavailable"}
+            hidden = await browser.get(path + "d" * 64)
+            assert hidden.json() == {"error": "invalid_or_unsafe"}
+            assert (await browser.get(path + "not-an-id")).status_code != 200
+            assert (
+                await browser.get(
+                    path + identity, headers={"Origin": "https://attacker.invalid"}
+                )
+            ).status_code == 403
+            assert asked == [identity, "c" * 64, "d" * 64]
+    finally:
+        await asyncio.to_thread(server.close)
+        await client.close()
+
+
+async def test_bucket_contents_is_an_allowed_control(tmp_path):
+    client = DesktopClient(tmp_path / "owner")
+    server = LibraryServer(None, client, asyncio.get_running_loop())
+    server.start()
+    try:
+        async with httpx.AsyncClient(trust_env=False) as browser:
+            response = await browser.post(
+                server.url + "api/desktop-community-bucket-contents",
+                json={"offset": 0},
+                headers={"X-Preservation-Action": "operator"},
+            )
+            assert response.status_code == 200
+            assert response.json() == {
+                "models": [],
+                "total": 0,
+                "offset": 0,
+                "next_offset": None,
+                "public_url": None,
+            }
+    finally:
+        await asyncio.to_thread(server.close)
+        await client.close()

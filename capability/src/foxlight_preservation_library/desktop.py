@@ -148,6 +148,9 @@ class DesktopClient(CoreClient):
                 "bucket_account_id_invalid",
                 "bucket_credentials_invalid",
                 "bucket_keychain_unavailable",
+                "bucket_public_url_invalid",
+                "bucket_model_unavailable",
+                "bucket_handoff_unavailable",
                 "insufficient_space",
             }
             raise CoreRefused(
@@ -166,6 +169,20 @@ class DesktopClient(CoreClient):
         self, method: str, path: str, body: dict[str, JsonValue] | None = None
     ) -> bytes:
         """Read one bounded own public-review document outside compact controls."""
+        from foxlight_model_preservation.models import PreservationError
+
+        handoff = re.fullmatch(r"desktop-bucket-handoff/([0-9a-f]{64})", path)
+        if method == "GET" and handoff is not None and body is None:
+            try:
+                return await asyncio.to_thread(self.owner.bucket_handoff, handoff[1])
+            except PreservationError as error:
+                code = str(error)
+                raise CoreRefused(
+                    code
+                    if code
+                    in {"bucket_model_unavailable", "bucket_handoff_unavailable"}
+                    else "invalid_or_unsafe"
+                ) from None
         match = re.fullmatch(r"desktop-public-review/([0-9a-f]{64})", path)
         if method != "GET" or match is None or body is not None:
             raise CoreRefused("sovereign_operation_unavailable")

@@ -74,6 +74,26 @@
   the per-user unit are unchanged; the docs now compare what each of the three
   options isolates.
 
+- The Amazon S3 bucket preset takes an optional public address, such as a
+  CloudFront distribution in front of a private bucket (Origin Access
+  Control). Uploads still go to S3; the setup check downloads through that
+  address, so **ready** proves the whole CDN path. It must be a plain
+  `https://` address (`bucket_public_url_invalid` otherwise). Left empty, the
+  public bucket's own address is used as before. Presets now say which
+  answers are optional.
+- The Cloudflare R2 preset takes an optional jurisdiction (`eu`, `fedramp` or
+  `us`) and uses that jurisdiction's S3 endpoint,
+  `https://ACCOUNT_ID.JURISDICTION.r2.cloudflarestorage.com`. Nothing new is
+  stored: the jurisdiction is part of the saved endpoint.
+- The Cloud storage panel lists the models the bucket serves (name, manifest
+  ID, size, upload time) from the app's own records, and **Export
+  verification info** saves the ordinary one-file handoff for each one: the
+  signed manifest, its signer's public trust profile and the bucket's public
+  address, with no keys or local paths.
+- The bucket state records upload times as `sovereign.community-bucket.v2`.
+  A state without them is still written as version 1, unchanged; older
+  versions refuse a version 2 file rather than misread it.
+
 - Add a Hetzner Object Storage bucket preset (`hetzner`): the location code
   (`fsn1`, `nbg1` or `hel1`) gives the endpoint, signing region and public
   address. A bucket target saved with it is not readable by older versions.

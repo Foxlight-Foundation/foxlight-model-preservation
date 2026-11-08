@@ -525,10 +525,29 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         """Keep ticket paths, operator addresses and model choices out of logs."""
 
     def _reply(
-        self, status: int, data: bytes, content_type: str = "application/json"
+        self,
+        status: int,
+        data: bytes,
+        content_type: str = "application/json",
+        *,
+        attachment: int | None = None,
     ) -> None:
+        """Send a bounded reply with fixed security headers.
+
+        ``attachment`` makes the browser save the reply as
+        ``Sovereign-bucket-<12 hex digits>.foxhandoff``. The name is formatted
+        from a 48-bit integer under a fixed template, so no request text can
+        reach the header (no CR/LF, quotes or other separators).
+        """
         self.send_response(status)
         self.send_header("Content-Type", content_type)
+        if attachment is not None:
+            if not 0 <= attachment < 1 << 48:
+                raise ValueError("attachment name out of range")
+            self.send_header(
+                "Content-Disposition",
+                f'attachment; filename="Sovereign-bucket-{attachment:012x}.foxhandoff"',
+            )
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("Referrer-Policy", "no-referrer")
@@ -577,6 +596,23 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             return
         if re.fullmatch(r"api/desktop-handoff/[0-9a-f]{64}", relative):
             self._local_download(app, relative.rsplit("/", 1)[1], handoff=True)
+            return
+        bucket_handoff = re.fullmatch(
+            r"api/desktop-bucket-handoff/([0-9a-f]{64})", relative
+        )
+        if bucket_handoff is not None:
+            if app.startup is not None:
+                self._reply(403, b'{"error":"operator_screen_required"}')
+            else:
+                identity = bucket_handoff[1]
+                self._metadata(
+                    app,
+                    "GET",
+                    "desktop-bucket-handoff/" + identity,
+                    # Only a number derived from the validated identity names
+                    # the file; the request text never reaches a header.
+                    attachment=int(identity[:12], 16),
+                )
             return
         if re.fullmatch(r"api/desktop-public-review/[0-9a-f]{64}", relative):
             if app.startup is not None:
@@ -673,6 +709,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                         "api/desktop-community-choose",
                         "api/desktop-community-bucket-connect",
                         "api/desktop-community-bucket-disconnect",
+                        "api/desktop-community-bucket-contents",
+                        "api/desktop-community-bucket-keys",
                         "api/desktop-community-check-address",
                         "api/desktop-source-follow",
                         "api/desktop-source-remove",
@@ -778,13 +816,24 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         method: str,
         path: str,
         body: dict[str, JsonValue] | None = None,
+        *,
+        attachment: int | None = None,
     ) -> None:
-        """Serve bounded public metadata; the private screen URL is never shared."""
+        """Serve bounded public metadata; the private screen URL is never shared.
+
+        ``attachment`` makes the browser save the reply (see ``_reply``).
+        """
         future = asyncio.run_coroutine_threadsafe(
             app.client.metadata(method, path, body), app.loop
         )
         try:
-            self._reply(200, future.result(timeout=12), "application/json")
+            data = future.result(timeout=12)
+            if attachment is not None:
+                self._reply(
+                    200, data, "application/octet-stream", attachment=attachment
+                )
+                return
+            self._reply(200, data, "application/json")
         except concurrent.futures.TimeoutError:
             _ = future.cancel()
             self._reply(503, b'{"error":"host_unavailable"}')

@@ -626,6 +626,16 @@ class LocalOwner:
                 return {"removed": True}
             if action == "community-read" and not body:
                 return self.community.read(self._journal.copies)
+            if action == "community-bucket-contents" and set(body) <= {"offset"}:
+                offset = body.get("offset", 0)
+                if type(offset) is not int or not 0 <= offset <= 1000:
+                    raise PreservationError("invalid_control")
+                return self.community.bucket_contents(offset)
+            if action == "community-bucket-keys" and set(body) == {"manifest_id"}:
+                manifest_id = body["manifest_id"]
+                if not isinstance(manifest_id, str):
+                    raise PreservationError("invalid_control")
+                return self.community.bucket_model_keys(manifest_id)
             if action == "community-configure":
                 try:
                     policy = self.community.configure(body)
@@ -1769,6 +1779,16 @@ class LocalOwner:
             if digest(document) != plan["public_review_sha256"]:
                 raise PreservationError("public_copy_review_changed")
             return document
+
+    def bucket_handoff(self, manifest_id: str) -> bytes:
+        """Return the one-file handoff for one model the connected bucket serves.
+
+        Public metadata only: the signed manifest, the public trust profile of
+        its signing key and the bucket's public address. Never a bucket key.
+        """
+        with self._lock:
+            self._check()
+            return self.community.bucket_handoff(manifest_id)
 
     def _handoff_ready(self, job: Job) -> bool:
         if (

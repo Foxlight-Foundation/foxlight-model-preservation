@@ -474,3 +474,151 @@ def test_an_endpoint_behind_a_path_prefix_works(capture: Capture) -> None:
         assert check_bucket(client, LOCAL)["status"] == "ready"
         publish_to_bucket(capture.store, capture.identity, capture.trust, client)
         assert manifest_path(capture.identity) in server.objects
+
+
+def test_amazon_s3_can_take_a_cloudfront_public_address() -> None:
+    """Empty keeps the public bucket address; set, it replaces it (HTTPS only)."""
+    plain = target_for("s3", bucket="models", key_name="s3", region="eu-west-1")
+    assert plain.public_url == "https://models.s3.eu-west-1.amazonaws.com"
+    for empty in (None, ""):
+        assert (
+            target_for(
+                "s3",
+                bucket="models",
+                key_name="s3",
+                region="eu-west-1",
+                public_url=empty,
+            ).public_url
+            == plain.public_url
+        )
+    for address in ("https://d1234abcd.cloudfront.net", "https://models.example.org/"):
+        cdn = target_for(
+            "s3", bucket="models", key_name="s3", region="eu-west-1", public_url=address
+        )
+        # Uploads still go to S3 itself; only downloads use the CDN.
+        assert cdn.endpoint == "https://s3.eu-west-1.amazonaws.com"
+        assert cdn.public_url == address.rstrip("/")
+    for unsafe in (
+        "http://d1234abcd.cloudfront.net",
+        "https://user:pass@d1234abcd.cloudfront.net",
+        "https://d1234abcd.cloudfront.net/?token=x",
+        "https://d1234abcd.cloudfront.net/#x",
+        "https://d1234abcd.cloudfront.net:99999",
+        "ftp://d1234abcd.cloudfront.net",
+        "d1234abcd.cloudfront.net",
+    ):
+        with pytest.raises(PreservationError, match="bucket_public_url_invalid"):
+            target_for(
+                "s3",
+                bucket="models",
+                key_name="s3",
+                region="eu-west-1",
+                public_url=unsafe,
+            )
+
+
+def test_r2_jurisdictions_use_their_own_endpoints() -> None:
+    """Endpoints from developers.cloudflare.com/r2/reference/data-location/."""
+    account = "0123456789abcdef" * 2
+    for jurisdiction, host in (
+        (None, f"{account}.r2.cloudflarestorage.com"),
+        ("", f"{account}.r2.cloudflarestorage.com"),
+        ("eu", f"{account}.eu.r2.cloudflarestorage.com"),
+        ("fedramp", f"{account}.fedramp.r2.cloudflarestorage.com"),
+        ("us", f"{account}.us.r2.cloudflarestorage.com"),
+    ):
+        target = target_for(
+            "r2",
+            bucket="models",
+            key_name="r2",
+            account_id=account,
+            public_url="https://mirror.example.org",
+            jurisdiction=jurisdiction,
+        )
+        assert target.endpoint == "https://" + host
+        assert target.region == "auto" and target.path_style
+        assert module.r2_jurisdiction(target) == (jurisdiction or None)
+    for bad in (
+        lambda: target_for(
+            "r2",
+            bucket="models",
+            key_name="r2",
+            account_id=account,
+            public_url="https://mirror.example.org",
+            jurisdiction="apac",
+        ),
+        lambda: target_for(
+            "s3", bucket="models", key_name="s3", region="us-east-1", jurisdiction="eu"
+        ),
+    ):
+        with pytest.raises(PreservationError, match="bucket_details_invalid"):
+            bad()
+    other = target_for("s3", bucket="models", key_name="s3", region="us-east-1")
+    assert module.r2_jurisdiction(other) is None
+
+
+def test_presets_say_which_answers_are_optional() -> None:
+    for preset in module.PRESETS.values():
+        assert set(preset.optional) <= set(preset.asks)
+        assert set(preset.choices) <= set(preset.asks)
+    assert module.PRESETS["s3"].optional == ("public_url",)
+    assert module.PRESETS["r2"].optional == ("jurisdiction",)
+    values = [value for value, _ in module.PRESETS["r2"].choices["jurisdiction"]]
+    assert values == ["", "eu", "fedramp", "us"]
+    # Every other answer stays required.
+    assert module.PRESETS["other"].optional == ()
+    assert "CloudFront" in module.PRESETS["s3"].note
+
+
+class _Cdn(http.server.ThreadingHTTPServer):
+    """Stands in for CloudFront: the only reader of a private bucket (OAC)."""
+
+    daemon_threads = True
+
+    def __init__(self, origin: _Bucket) -> None:
+        super().__init__(("127.0.0.1", 0), _CdnHandler)
+        self.origin = origin
+        self.requests: list[str] = []
+
+
+class _CdnHandler(http.server.BaseHTTPRequestHandler):
+    def log_message(self, format: str, *args: object) -> None:
+        """Keep the test output quiet."""
+
+    def do_GET(self) -> None:
+        cdn: _Cdn = self.server  # type: ignore[assignment]
+        cdn.requests.append(self.path)
+        data = cdn.origin.objects.get(unquote(self.path).removeprefix("/"))
+        if data is None:
+            self.send_response(403)  # What S3 behind OAC answers for a miss.
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+
+def test_the_check_downloads_through_the_cloudfront_address() -> None:
+    """A private bucket is ready only when its CDN address serves the upload."""
+    with bucket() as (server, client):
+        server.public = False  # Nobody reads the bucket directly.
+        assert check_bucket(client, LOCAL)["status"] == "public"
+        cdn = _Cdn(server)
+        thread = threading.Thread(target=cdn.serve_forever, daemon=True)
+        thread.start()
+        try:
+            behind = BucketClient(
+                client.target.model_copy(
+                    update={"public_url": f"http://127.0.0.1:{cdn.server_address[1]}"}
+                ),
+                KEYS,
+                LOCAL,
+            )
+            assert check_bucket(behind, LOCAL)["status"] == "ready"
+            assert cdn.requests == ["/" + module.CHECK_PATH]
+            assert module.CHECK_PATH not in server.objects
+        finally:
+            cdn.shutdown()
+            cdn.server_close()
