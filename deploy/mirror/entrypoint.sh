@@ -4,7 +4,8 @@
 # Without SOVEREIGN_MIRROR_CONSENT=yes-i-consent-to-public-serving the
 # container only prints the quickstart review (plan-only), changes nothing and
 # serves nothing. With it, each start re-applies the reviewed collection and
-# policy, renews the restart grant and serves until stopped or the grant ends.
+# policy, imports any opted-in starter models it does not hold yet, renews the
+# restart grant and serves until stopped or the grant ends.
 set -eu
 
 dir="${SOVEREIGN_MIRROR_DIR:-/data/mirror}"
@@ -13,12 +14,30 @@ consent="${SOVEREIGN_MIRROR_CONSENT:-}"
 
 set -- mirror quickstart \
   --dir "$dir" \
-  --collection "$collection" \
   --bind 127.0.0.1 \
   --port "${SOVEREIGN_MIRROR_PORT:-8080}" \
   --disk-bytes "${SOVEREIGN_MIRROR_BUDGET:-100G}" \
   --ingress-daily "${SOVEREIGN_MIRROR_INGRESS_DAILY:-50G}" \
   --resume-for "${SOVEREIGN_MIRROR_GRANT:-180d}"
+
+# The starter collection is opt-in: a signed one-time import list, verified
+# against its independently obtained list ID. Imported models become this
+# mirror's own selections; a later list never changes or removes them. With a
+# starter list the collection file is optional (no source is then followed).
+starter="${SOVEREIGN_MIRROR_STARTER_LIST:-}"
+if [ -n "$starter" ]; then
+  if [ -z "${SOVEREIGN_MIRROR_STARTER_LIST_ID:-}" ]; then
+    echo "SOVEREIGN_MIRROR_STARTER_LIST needs SOVEREIGN_MIRROR_STARTER_LIST_ID (the published list ID)." >&2
+  fi
+  set -- "$@" --starter-list "$starter" \
+    --expected-starter-list-id "${SOVEREIGN_MIRROR_STARTER_LIST_ID:-}" \
+    --starter-tier "${SOVEREIGN_MIRROR_STARTER_TIER:-small}"
+  if [ -e "$collection" ]; then
+    set -- "$@" --collection "$collection"
+  fi
+else
+  set -- "$@" --collection "$collection"
+fi
 
 # Upload caps are opt-in. Unset: a new mirror has none and an existing mirror
 # keeps the caps it has. A size caps uploads; "none" removes the cap.

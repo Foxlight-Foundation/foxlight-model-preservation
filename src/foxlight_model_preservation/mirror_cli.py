@@ -64,6 +64,19 @@ from .mirror_state import MAX_STATE, MirrorLedger, grant_restart
 from .models import PreservationError
 from .operations import OperationControl
 from .signing import load_trust
+from .starter import (
+    STARTER_CONSENT_FLAG,
+    TIERS,
+    ImportOptions,
+    StarterList,
+    StarterPlan,
+    Tier,
+    import_starter,
+    plan_import,
+    review_import,
+    select_tier,
+    verify_starter_list,
+)
 
 
 class MirrorArguments(argparse.Namespace):
@@ -92,7 +105,14 @@ class MirrorArguments(argparse.Namespace):
     announce_nostr: bool | None
     announce_dht: bool | None
     confirm_public_announcement: bool
-    collection: Path
+    collection: Path | None
+    starter_list: Path | None
+    starter_tier: Tier
+    expected_list_id: str | None
+    list_trust: Path | None
+    starter_mirror: list[str]
+    accept_starter: bool
+    starter_staging: Path | None
     resume_for: int | None
     plan_only: bool
     consent_public_serving: bool
@@ -286,6 +306,7 @@ def register_mirror_commands(
         "inspect",
         "export-kit",
         "recover",
+        "import-starter",
     ):
         command = actions.add_parser(
             name,
@@ -293,6 +314,8 @@ def register_mirror_commands(
                 "acknowledge": "acknowledge a catalog withdrawal advisory and "
                 "keep serving the copy (block it to stop serving)",
                 "unwithdraw": "deprecated alias of acknowledge",
+                "import-starter": "one-time import of a signed starter list's "
+                "bundles as your own local selections (no follow relationship)",
             }.get(name),
         )
         command.add_argument("--dir", dest="mirror_dir", type=Path, required=True)
@@ -395,8 +418,9 @@ def register_mirror_commands(
             command.add_argument(
                 "--collection",
                 type=Path,
-                required=True,
-                help="reviewable collection file (sovereign.mirror-collection.v1)",
+                default=None,
+                help="reviewable collection file (sovereign.mirror-collection.v1); "
+                "optional with --starter-list",
             )
             command.add_argument(
                 "--resume-for",
@@ -427,6 +451,34 @@ def register_mirror_commands(
                 dest="run_after",
                 action="store_true",
                 help="then serve under the new restart grant until stopped",
+            )
+        if name in ("quickstart", "import-starter"):
+            _starter_arguments(command, quickstart=name == "quickstart")
+        if name == "import-starter":
+            command.add_argument(
+                "--plan-only",
+                action="store_true",
+                help="print the review and change nothing",
+            )
+            command.add_argument(
+                STARTER_CONSENT_FLAG,
+                dest="accept_starter",
+                action="store_true",
+                help="consent non-interactively to the printed import review",
+            )
+            for flag in ("allow-http", "allow-private"):
+                command.add_argument(
+                    "--" + flag,
+                    action="store_true",
+                    help="permit plaintext or private-address mirror hints",
+                )
+            command.add_argument(
+                "--staging",
+                dest="starter_staging",
+                type=Path,
+                default=None,
+                help="download staging directory on the mirror's filesystem "
+                "(default: beside the mirror directory)",
             )
         if name in ("follow", "retain"):
             command.add_argument(
@@ -520,6 +572,108 @@ def register_mirror_commands(
                 help="duration such as 365d, at most 366d",
             )
             command.add_argument("--confirm-resume", action="store_true", required=True)
+
+
+def _starter_arguments(command: argparse.ArgumentParser, *, quickstart: bool) -> None:
+    """The signed starter list, its tier and its independently obtained ID."""
+    prefix = "starter-" if quickstart else ""
+    command.add_argument(
+        "--starter-list" if quickstart else "--list",
+        dest="starter_list",
+        type=Path,
+        required=not quickstart,
+        default=None,
+        help="signed starter list (sovereign.starter-list.v1); a one-time import"
+        + (", optional" if quickstart else ""),
+    )
+    command.add_argument(
+        f"--{prefix}tier",
+        dest="starter_tier",
+        choices=list(TIERS),
+        default="small",
+        help="small (default) or standard (includes small)",
+    )
+    command.add_argument(
+        "--expected-starter-list-id" if quickstart else "--expected-list-id",
+        dest="expected_list_id",
+        required=not quickstart,
+        default=None,
+        help="the list's SHA-256 identity, obtained independently",
+    )
+    command.add_argument(
+        f"--{prefix}list-trust",
+        dest="list_trust",
+        type=Path,
+        default=None,
+        help="optional independently enrolled keys the list signature must meet",
+    )
+    command.add_argument(
+        f"--{prefix}mirror",
+        dest="starter_mirror",
+        action="append",
+        default=[],
+        help="extra source for the bundles (URL or local store), tried first",
+    )
+
+
+def _load_starter(arguments: MirrorArguments) -> tuple[StarterList, str] | None:
+    """Authenticate the selected starter list against its expected ID."""
+    if arguments.starter_list is None:
+        if arguments.expected_list_id is not None:
+            raise PreservationError("an expected starter list ID needs a list")
+        return None
+    if arguments.expected_list_id is None:
+        raise PreservationError("a starter list needs its expected list ID")
+    trust = (
+        load_trust(_input(arguments.list_trust))
+        if arguments.list_trust is not None
+        else None
+    )
+    starter = verify_starter_list(
+        _input(arguments.starter_list), arguments.expected_list_id, trust=trust
+    )
+    return starter, arguments.expected_list_id
+
+
+def _import_starter(
+    arguments: MirrorArguments, control: OperationControl
+) -> dict[str, JsonValue]:
+    """Review a verified starter list, require consent, then import once."""
+    loaded = _load_starter(arguments)
+    if loaded is None:  # pragma: no cover - argparse requires the list
+        raise PreservationError("a starter list is required")
+    starter, list_id = loaded
+    ledger = MirrorLedger(arguments.mirror_dir)
+    text, summary = review_import(
+        starter, plan_import(ledger, starter, list_id, arguments.starter_tier)
+    )
+    print(text, file=sys.stderr, flush=True)
+    if arguments.plan_only:
+        return {"review": summary, "consented": False, "changed": False}
+    consented = arguments.accept_starter
+    if not consented and sys.stdin.isatty():
+        print(
+            "\nType 'import' to import these models as reviewed: ",
+            end="",
+            file=sys.stderr,
+            flush=True,
+        )
+        consented = sys.stdin.readline().strip() == "import"
+    receipt = import_starter(
+        ledger,
+        starter,
+        list_id,
+        arguments.starter_tier,
+        consented=consented,
+        options=ImportOptions(
+            mirrors=tuple(arguments.starter_mirror),
+            allow_http=arguments.allow_http,
+            allow_private=arguments.allow_private,
+            staging=arguments.starter_staging,
+        ),
+        control=control,
+    )
+    return {"review": summary, "consented": True, **receipt}
 
 
 def _input(path: Path) -> bytes:
@@ -647,8 +801,20 @@ def _model_limit(arguments: MirrorArguments, ledger: MirrorLedger) -> int:
 def _quickstart(
     arguments: MirrorArguments, control: OperationControl
 ) -> dict[str, JsonValue]:
-    """Review one collection, require explicit consent, then set up and grant."""
-    collection, document = load_collection(arguments.collection)
+    """Review one collection and/or starter list, require consent, then set up.
+
+    A starter list is imported once after setup (it downloads), then the
+    restart grant is recorded again so it covers the imported selections. An
+    entry that fails to import is reported; re-running quickstart retries it.
+    """
+    if arguments.collection is None and arguments.starter_list is None:
+        raise PreservationError("quickstart needs --collection or --starter-list")
+    collection, document = (
+        load_collection(arguments.collection)
+        if arguments.collection is not None
+        else (None, None)
+    )
+    starter = _load_starter(arguments)
     # Quickstart states the whole policy: no public URL means no announcement.
     announce = _announce(arguments, None)
     # Upload caps are opt-in. An existing mirror keeps the caps it has unless
@@ -683,6 +849,12 @@ def _quickstart(
         else existing is not None and existing.follow_withdrawals,
     )
     text, summary = review(collection, document, settings)
+    if starter is not None:
+        starter_text, starter_summary = _starter_review(
+            arguments, existing, starter, settings.disk_bytes
+        )
+        text += "\n\n" + starter_text
+        summary["starter"] = starter_summary
     print(text, file=sys.stderr, flush=True)
     if arguments.plan_only:
         return {
@@ -709,11 +881,65 @@ def _quickstart(
         **receipt,
         "mirror_key": mirror_key_id(ledger) if announce else None,
     }
+    if starter is not None:
+        result["starter"] = import_starter(
+            ledger,
+            starter[0],
+            starter[1],
+            arguments.starter_tier,
+            consented=True,
+            options=ImportOptions(
+                mirrors=tuple(arguments.starter_mirror), keep_going=True
+            ),
+            control=control,
+        )
+        # The import adds selections; grant again so the grant covers them.
+        expires = receipt["restart_expires"]
+        if isinstance(expires, int):
+            grant_restart(ledger, expires)
     if arguments.run_after:
         result["run"] = run_mirror(
             ledger, resume=True, control=control, prepared=_prepared
         )
     return result
+
+
+def _starter_review(
+    arguments: MirrorArguments,
+    existing: MirrorState | None,
+    starter: tuple[StarterList, str],
+    disk_bytes: int,
+) -> tuple[str, dict[str, JsonValue]]:
+    """Review a starter import against the disk budget quickstart will set."""
+    if existing is not None:
+        ledger = MirrorLedger(arguments.mirror_dir)
+        plan = plan_import(ledger, starter[0], starter[1], arguments.starter_tier)
+        plan = StarterPlan(
+            list_id=plan.list_id,
+            tier=plan.tier,
+            entries=plan.entries,
+            status=plan.status,
+            new_bytes=plan.new_bytes,
+            usage=plan.usage,
+            disk_bytes=disk_bytes,
+        )
+    else:
+        entries = select_tier(starter[0], arguments.starter_tier)
+        plan = StarterPlan(
+            list_id=starter[1],
+            tier=arguments.starter_tier,
+            entries=entries,
+            status={entry.entry_id: "new" for entry in entries},
+            new_bytes=sum(entry.size_bytes for entry in entries),
+            usage=0,
+            disk_bytes=disk_bytes,
+        )
+    if not plan.fits:
+        raise PreservationError(
+            "starter import exceeds the disk budget; raise --disk-bytes or "
+            "choose a smaller tier"
+        )
+    return review_import(starter[0], plan)
 
 
 def run_mirror_command(
@@ -745,6 +971,8 @@ def run_mirror_command(
         }
     if action == "quickstart":
         return _quickstart(arguments, control)
+    if action == "import-starter":
+        return _import_starter(arguments, control)
     ledger = MirrorLedger(arguments.mirror_dir)
     if action == "config":
         before = ledger.read()
