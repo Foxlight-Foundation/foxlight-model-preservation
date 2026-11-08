@@ -180,6 +180,9 @@ else has failed, so Foxlight sees only those requests. A user can add their own 
 `--seed-mirrors` or `$SOVEREIGN_SEED_MIRRORS`; its entries are added after the
 shipped ones. A seed grants nothing: it is only a place to ask when everything
 else failed (the fallback stage above).
+Set `SOVEREIGN_PACKAGED_SEED_MIRRORS=off` to ignore the shipped list entirely,
+so no receive ever contacts Foxlight's starter mirror; your own seed file still
+applies.
 
 **Privacy.** Contacting a seed shows this computer's network address, and the
 fact that it is looking for mirrors, to whoever runs that seed. That is why a

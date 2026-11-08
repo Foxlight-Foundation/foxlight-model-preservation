@@ -34,10 +34,11 @@ def private_mirror_directory(
 
 @pytest.fixture(autouse=True)
 def no_packaged_seed_mirrors(monkeypatch: pytest.MonkeyPatch) -> None:
-    """No test may contact the real starter mirror the package ships."""
-    from foxlight_model_preservation import mirror_directory
+    """No test may contact the real starter mirror the package ships.
 
-    monkeypatch.setattr(mirror_directory, "packaged_seeds", lambda: ())
+    The environment switch reaches child processes too (CLI tests).
+    """
+    monkeypatch.setenv("SOVEREIGN_PACKAGED_SEED_MIRRORS", "off")
 
 
 @pytest.fixture

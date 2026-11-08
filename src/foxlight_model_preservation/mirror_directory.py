@@ -107,6 +107,7 @@ RECEIVE_CRAWL_SECONDS = 20.0
 RECEIVE_CRAWL_TIMEOUT = 5.0
 DIRECTORY_ENV = "SOVEREIGN_MIRROR_DIRECTORY"
 SEEDS_ENV = "SOVEREIGN_SEED_MIRRORS"
+PACKAGED_SEEDS_ENV = "SOVEREIGN_PACKAGED_SEED_MIRRORS"
 SEED_RESOURCE = "resources/seed-mirrors.json"
 
 _LOCKS: dict[Path, threading.Lock] = {}
@@ -230,7 +231,13 @@ def read_seed_list(data: bytes) -> tuple[str, ...]:
 
 
 def packaged_seeds() -> tuple[str, ...]:
-    """The seed list shipped with this package."""
+    """The seed list shipped with this package.
+
+    ``SOVEREIGN_PACKAGED_SEED_MIRRORS=off`` ignores it, so a receive never
+    contacts Foxlight's starter mirror; a user's own seed file still applies.
+    """
+    if os.environ.get(PACKAGED_SEEDS_ENV, "").strip().lower() == "off":
+        return ()
     return read_seed_list(
         files("foxlight_model_preservation").joinpath(SEED_RESOURCE).read_bytes()
     )
