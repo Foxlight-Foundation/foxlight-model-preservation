@@ -324,6 +324,35 @@ def test_corruption_withdraws_serving_without_deleting_retention(tmp_path, captu
     assert path.exists() and ledger.read().models[capture.identity].error
 
 
+def test_an_error_reported_during_a_cycle_check_is_not_cleared_by_it(
+    tmp_path, capture, monkeypatch
+):
+    from foxlight_model_preservation import mirror as module
+    from foxlight_model_preservation.mirror import record_model
+
+    ledger, _ = mirror(tmp_path, capture)
+    cycle(ledger)
+    assert ledger.read().models[capture.identity].state == "retained"
+    real = module.verify_retained
+
+    def overtaken(*args, **kwargs):
+        result = real(*args, **kwargs)
+        # A concurrent reader reports a failure after this check read the bytes.
+        record_model(ledger, capture.identity, {"error": "transient: changed"})
+        return result
+
+    monkeypatch.setattr(module, "verify_retained", overtaken)
+    cycle(ledger)
+    held = ledger.read().models[capture.identity]
+    # The newer failure stands until an explicit retry; the older success
+    # neither clears it nor resumes serving.
+    assert held.error == "transient: changed" and held.state == "retained"
+    monkeypatch.setattr(module, "verify_retained", real)
+    model_action(ledger, capture.identity, "retry")
+    cycle(ledger)
+    assert not ledger.read().models[capture.identity].error
+
+
 def test_replaced_root_and_symlink_refuse_without_recreating(tmp_path, capture):
     ledger, _ = mirror(tmp_path, capture)
     saved = ledger.path.with_name("old")
