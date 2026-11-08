@@ -283,7 +283,7 @@ def test_manifest_response_failures_remain_observable(
     class FailedManifest(SeedHandler):
         def do_GET(self):
             if fault == "headers":
-                time.sleep(0.8)
+                time.sleep(STALL)
                 return
             if fault == "protocol":
                 self.connection.sendall(b"PRIVATE_INVALID_STATUS\r\n\r\n")
@@ -292,7 +292,7 @@ def test_manifest_response_failures_remain_observable(
             self.send_header("Content-Length", "0" if fault == "status" else "10")
             self.end_headers()
             if fault == "body":
-                time.sleep(0.8)
+                time.sleep(STALL)
 
     server = SeedServer(
         ("127.0.0.1", 0), capture.store, (capture.identity,), capture.trust
@@ -314,7 +314,7 @@ def test_manifest_response_failures_remain_observable(
                 (f"http://{host}.b32.i2p",),
                 target,
                 I2PTransferPolicy(
-                    proxy=I2PHTTPProxy(port=server.server_port), timeout=0.2
+                    proxy=I2PHTTPProxy(port=server.server_port), timeout=TIMEOUT
                 ),
             )
         assert transfer.response is original
