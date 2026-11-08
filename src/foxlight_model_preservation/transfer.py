@@ -10,10 +10,10 @@ import socket
 import ssl
 import time
 from collections.abc import Callable, Generator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
-from typing import BinaryIO
+from typing import BinaryIO, TypeVar
 from urllib.parse import urlsplit
 
 from . import __version__
@@ -32,6 +32,7 @@ from .operations import (
     OperationControl,
     OperationError,
     OperationPlan,
+    StorageFailed,
 )
 from .signing import (
     Envelope,
@@ -270,6 +271,26 @@ def _metadata(
     return data
 
 
+_T = TypeVar("_T")
+
+
+def _local(action: Callable[[], _T]) -> _T:
+    """Run one receiver-side storage step; its OS failure is never a supplier's.
+
+    A full disk, a failed write, sync or rename, or an unsafe entry on the
+    destination becomes :class:`StorageFailed`, which propagates at once
+    instead of being counted against the source being read and ending as
+    :class:`SourcesExhausted`. Only destination steps are wrapped, so every
+    failure here is the receiver's.
+    """
+    try:
+        return action()
+    except OperationError:
+        raise
+    except (OSError, ValueError) as error:
+        raise StorageFailed("receiver storage failed") from error
+
+
 def _bounded_copy(
     origin: BinaryIO | http.client.HTTPResponse,
     output: BinaryIO,
@@ -286,7 +307,7 @@ def _bounded_copy(
         if budget.remaining <= 0:
             raise BudgetExceeded("cumulative transfer budget exceeded")
         amount = min(65536, remaining, budget.remaining)
-        budget.reserve(amount)
+        _local(lambda size=amount: budget.reserve(size))  # A durable receipt write.
         try:
             chunk = (
                 origin.read1(amount)
@@ -300,7 +321,7 @@ def _bounded_copy(
             raise PreservationError("mirror ended before the expected file length")
         budget.consume(len(chunk))
         control.advance(received=len(chunk))
-        output.write(chunk)
+        _local(lambda data=chunk: output.write(data))
         remaining -= len(chunk)
     # HTTP framing was checked against the exact signed size; filesystem input
     # has its full length checked separately. No unbudgeted overrun probe.
@@ -318,17 +339,22 @@ def _download(
     control.checkpoint()
     policy = _remaining_policy(policy, deadline)
     pending = ".partial/" + file.sha256
-    with open_file(target, pending, write=True) as output:
-        output.seek(0, os.SEEK_END)
-        offset = output.tell()
+    # Every step on the destination goes through ``_local``; only reading
+    # from the source can fail as the supplier's fault.
+    with ExitStack() as stack:
+        output = _local(
+            lambda: stack.enter_context(open_file(target, pending, write=True))
+        )
+        offset = _local(lambda: output.seek(0, os.SEEK_END))
         if offset == file.size:
-            observed = file_identity(target, pending, file.size, control=control)
+            observed = _local(
+                lambda: file_identity(target, pending, file.size, control=control)
+            )
             if observed.sha256 == file.sha256:
                 _publish_partial(target, pending, file, control)
                 return
         if offset >= file.size:
-            output.seek(0)
-            output.truncate()
+            _local(lambda: (output.seek(0), output.truncate()))
             offset = 0
         if not _is_remote(source):
             with (
@@ -353,8 +379,7 @@ def _download(
             ) as received:
                 if received.status == 200:
                     offset = 0
-                    output.seek(0)
-                    output.truncate()
+                    _local(lambda: (output.seek(0), output.truncate()))
                 else:
                     expected = f"bytes {offset}-{file.size - 1}/{file.size}"
                     if received.getheader("Content-Range") != expected:
@@ -373,21 +398,30 @@ def _download(
                 _bounded_copy(
                     received, output, file.size - offset, deadline, budget, control
                 )
-        output.flush()
-        os.fsync(output.fileno())
+        _local(lambda: (output.flush(), os.fsync(output.fileno())))
     control.phase("checking")
-    observed = file_identity(target, pending, control=control)
+    observed = _local(lambda: file_identity(target, pending, control=control))
     if (observed.size, observed.sha256) != (file.size, file.sha256):
-        with open_file(target, pending, write=True) as output:
-            output.truncate(0)
+        _local(lambda: _truncate(target, pending))
         raise PreservationError("mirror object hash differs from signed identity")
     _publish_partial(target, pending, file, control)
+
+
+def _truncate(target: int, pending: str) -> None:
+    with open_file(target, pending, write=True) as output:
+        output.truncate(0)
 
 
 def _publish_partial(
     target: int, pending: str, file: FileIdentity, control: OperationControl
 ) -> None:
     control.checkpoint()
+    _local(lambda: _publish(target, pending, file, control))
+
+
+def _publish(
+    target: int, pending: str, file: FileIdentity, control: OperationControl
+) -> None:
     with parent_directory(target, pending) as (pending_parent, pending_name):
         with parent_directory(target, object_path(file.sha256), create=True) as (
             parent,
@@ -395,7 +429,14 @@ def _publish_partial(
         ):
             os.replace(pending_name, name, src_dir_fd=pending_parent, dst_dir_fd=parent)
             os.fsync(parent)
-    verify_object(target, file, control=control)
+    try:
+        verify_object(target, file, control=control)
+    except OperationError:
+        raise
+    except PreservationError as error:
+        # The bytes were verified before the rename: a mismatch now is the
+        # receiver's storage, never the supplier's.
+        raise StorageFailed("receiver storage changed a verified object") from error
 
 
 def request_digest(
@@ -514,6 +555,7 @@ def fetch(
     source_outcome: Callable[[str, bool], None] | None = None,
     manifest_failure: Callable[[str], None] | None = None,
     request_sources: tuple[str, ...] | None = None,
+    allowance: TransferBudget | None = None,
 ) -> ArchiveManifest:
     """Receive exact trusted content with optional control and persistent allowance.
 
@@ -536,7 +578,15 @@ def fetch(
     prefix of ``sources``. A later stage then extends the same bound request
     with sources the caller fixed durably when it first used them, so a resume
     keeps one allowance. By default the receipt binds ``sources`` exactly.
+    Without an operation ID, ``allowance`` lets several calls draw on one
+    in-memory allowance (``TransferBudget(policy.max_bytes)``), so staged
+    calls together never move more than ``policy.max_bytes`` of objects.
+
+    Failures of the destination's own storage raise :class:`StorageFailed` at
+    once; :class:`SourcesExhausted` means only the sources failed.
     """
+    if allowance is not None and operation_id is not None:
+        raise PreservationError("a named operation keeps its own durable allowance")
     bound = sources if request_sources is None else request_sources
     if sources[: len(bound)] != bound:
         raise PreservationError("a staged request must extend its bound sources")
@@ -606,11 +656,15 @@ def fetch(
                         }
                     )
                 )
-                budget = TransferBudget(
-                    policy.max_bytes,
-                    root=target,
-                    operation_id=operation_id,
-                    request_digest=binding,
+                budget = (
+                    allowance
+                    if allowance is not None
+                    else TransferBudget(
+                        policy.max_bytes,
+                        root=target,
+                        operation_id=operation_id,
+                        request_digest=binding,
+                    )
                 )
                 missing, _reused, partial = observe_objects(
                     target, files, active, include_partials=True

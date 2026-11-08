@@ -21,7 +21,11 @@
   provisional child controls (`OperationControl.fork(provisional=True)`,
   `resume_after`, `settle`, `conclude`). Progress observers, including the
   Library and `--progress`, never see the primary stage's failure as terminal;
-  only the receive's final outcome is.
+  only the receive's final outcome is. Without `--operation-id` both stages
+  share one in-memory `max_bytes` allowance. A failure of the receiver's own
+  storage (full disk, failed write or sync) now raises
+  `operations.StorageFailed` (`storage_error`) at once instead of counting
+  against the source being read, so it never triggers the fallback.
 
 - Guided setup 0.1.4 and graphical setup 0.1.6 install Linux revision 6
   (core 0.29 / Library 0.25), now served by the signed apt channel; package pins

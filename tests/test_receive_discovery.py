@@ -8,6 +8,7 @@ import shutil
 import threading
 from collections.abc import Generator, Iterator
 from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -963,3 +964,127 @@ def test_cli_progress_shows_only_the_final_outcome_of_a_fallback(
     stages = [json.loads(line)["stage"] for line in result.stderr.splitlines()]
     assert [stage for stage in stages if stage in TERMINAL] == ["complete"]
     assert stages[-1] == "complete"
+
+
+def test_an_unnamed_receive_shares_one_allowance_across_both_stages(
+    tmp_path: Path, capture: Capture
+) -> None:
+    """Bytes the primary stage used are not available again to the fallback."""
+    from foxlight_model_preservation.operations import (
+        BudgetExceeded,
+        OperationControl,
+    )
+    from foxlight_model_preservation.transfer import SourcesExhausted, fetch
+
+    corrupt = tmp_path / "corrupt"
+    shutil.copytree(capture.store, corrupt)
+    verified = verify_store(capture.store, capture.identity, capture.trust)
+    weights = verified.members[0]
+    vouched = tmp_path / "seed-peers.json"
+    with (
+        holding(corrupt, capture) as hint,
+        holding(capture.store, capture) as holder,
+        peers_only(vouched) as (seed, seed_requests),
+    ):
+        target = corrupt / object_path(weights.files[0].sha256)
+        target.chmod(0o600)
+        target.write_bytes(b"x" * weights.files[0].size)
+        vouched.write_bytes(build_peers(None, (_card_for(capture.identity, holder),)))
+        # Measure what the primary stage alone moves before it fails.
+        probe = OperationControl()
+        with pytest.raises(SourcesExhausted):
+            fetch(
+                capture.identity,
+                capture.trust,
+                (hint,),
+                tmp_path / "probe",
+                LAB,
+                control=probe,
+            )
+        used = probe.progress.bytes_received
+        needed = verified.total_bytes - sum(
+            path.stat().st_size
+            for path in (tmp_path / "probe/objects").rglob("*")
+            if path.is_file()
+        )
+        assert used > 0 and needed > 0
+        # Enough for the first stage, and for the whole model, but not for
+        # the first stage's spent bytes plus what the fallback still needs.
+        limit = max(used, verified.total_bytes, used + needed - 1)
+        assert used + needed > limit
+        bounded = TransferPolicy(
+            allow_http=True, allow_private=True, timeout=3, max_bytes=limit
+        )
+        with pytest.raises(BudgetExceeded):
+            fetch_with_mirrors(
+                capture.identity,
+                capture.trust,
+                (hint,),
+                tmp_path / "bounded",
+                bounded,
+                mirrors=MirrorDirectory(tmp_path / "d"),
+                seeds=(seed,),
+            )
+        assert seed_requests == [PEERS]  # The fallback did start.
+        # With room for both stages (the fallback tries the hint again first)
+        # the same receive completes.
+        roomy = replace(bounded, max_bytes=2 * used + needed)
+        fetch_with_mirrors(
+            capture.identity,
+            capture.trust,
+            (hint,),
+            tmp_path / "roomy",
+            roomy,
+            mirrors=MirrorDirectory(tmp_path / "d2"),
+            seeds=(seed,),
+        )
+    assert verify_store(tmp_path / "roomy", capture.identity, capture.trust)
+
+
+def test_a_full_disk_during_the_primary_stage_never_reaches_the_seeds(
+    tmp_path: Path, capture: Capture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A receiver's own storage failure surfaces at once; no supplier is blamed."""
+    import errno
+
+    from foxlight_model_preservation import transfer
+    from foxlight_model_preservation.operations import StorageFailed, failure_code
+
+    real = transfer.open_file
+
+    class Full:
+        def __init__(self, stream: object) -> None:
+            self._stream = stream
+
+        def write(self, _data: bytes) -> int:
+            raise OSError(errno.ENOSPC, "No space left on device")
+
+        def __getattr__(self, name: str) -> object:
+            return getattr(self._stream, name)
+
+    @contextmanager
+    def full_disk(root: int, path: str, *, write: bool = False) -> Generator[object]:
+        with real(root, path, write=write) as stream:
+            yield Full(stream) if write and path.startswith(".partial/") else stream
+
+    monkeypatch.setattr(transfer, "open_file", full_disk)
+    directory = MirrorDirectory(tmp_path / "d")
+    with (
+        holding(capture.store, capture) as hint,
+        peers_only(tmp_path / "seed.json") as (seed, seed_requests),
+    ):
+        with pytest.raises(StorageFailed) as raised:
+            fetch_with_mirrors(
+                capture.identity,
+                capture.trust,
+                (hint,),
+                tmp_path / "received",
+                LAB,
+                mirrors=directory,
+                seeds=(seed,),
+            )
+    assert failure_code(raised.value) == "storage_error"
+    assert isinstance(raised.value.__cause__, OSError)
+    assert raised.value.__cause__.errno == errno.ENOSPC
+    assert seed_requests == []
+    assert directory.read_fallbacks().entries == ()

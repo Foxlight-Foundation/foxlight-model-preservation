@@ -38,7 +38,7 @@ from urllib.parse import urlsplit
 from pydantic import Field, JsonValue, field_validator
 
 from .archives import ArchiveManifest
-from .ledger import receipt_path
+from .ledger import TransferBudget, receipt_path
 from .mirror_cards import (
     MAX_PEERS,
     MAX_PEERS_BYTES,
@@ -1413,8 +1413,10 @@ def fetch_with_mirrors(
     With ``operation_id`` the receipt binds the primary stage's sources, and a
     fallback stage, fixed beside the receipt when first used, extends that
     same request: a resume after it goes straight to the recorded fallback
-    stage and never trips :class:`RequestChanged`. Each remote source's outcome
-    is recorded afterwards, success or failure, even when the fetch fails. The
+    stage and never trips :class:`RequestChanged`. Without one, both stages
+    draw on one in-memory allowance of ``policy.max_bytes``. Each remote
+    source's outcome is recorded afterwards, success or failure, even when the
+    fetch fails. The
     manifest and every object are still verified against ``trust``, which the
     caller chose independently; no discovered mirror can change it.
     """
@@ -1459,6 +1461,11 @@ def fetch_with_mirrors(
         if source in discovered:
             observe(source, False)
 
+    # A named operation's durable receipt spans both stages; an unnamed
+    # receive shares one in-memory allowance, so together they never move
+    # more than ``policy.max_bytes``.
+    allowance = TransferBudget(policy.max_bytes) if operation_id is None else None
+
     def attempt(
         plan: SourcePlan, stage: OperationControl, request: tuple[str, ...] | None
     ) -> ArchiveManifest:
@@ -1474,6 +1481,7 @@ def fetch_with_mirrors(
             source_outcome=observe,
             manifest_failure=refused,
             request_sources=request,
+            allowance=allowance,
         )
 
     key = (

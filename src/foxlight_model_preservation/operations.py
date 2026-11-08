@@ -82,6 +82,15 @@ class DeadlineExceeded(OperationError):
     code: ClassVar[ErrorCode] = "deadline_exceeded"
 
 
+class StorageFailed(OperationError):
+    """The receiver's own storage failed: a full disk, a failed write or sync.
+
+    Another supplier cannot fix it, so supplier fallback never swallows it.
+    """
+
+    code: ClassVar[ErrorCode] = "storage_error"
+
+
 class RequestChanged(OperationError):
     """An operation identity was reused with different immutable inputs."""
 
