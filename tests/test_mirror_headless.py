@@ -73,6 +73,13 @@ ROOT = Path(__file__).resolve().parents[1]
 TERMS = (Terms(license_id="test-only", terms_reference="LICENSE"),)
 
 
+# A mirror verifies every retained byte before it serves; on a loaded CI runner
+# that, plus the listener coming up, has taken longer than 10 s. Each wait is a
+# readiness condition bounded by SERVE_WAIT, and a bounded run outlasts two.
+SERVE_WAIT = 45.0
+SERVE_WINDOW = 120
+
+
 def cli(*arguments: str, stdin: str | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(  # noqa: S603 - isolated test CLI, no shell
         [sys.executable, "-m", "foxlight_model_preservation.cli", *arguments],
@@ -723,8 +730,8 @@ def test_followed_withdrawal_survives_restart_before_public_selection(
     )
     thread.start()
     try:
-        port = ready.get(timeout=10)
-        end = time.monotonic() + 10
+        port = ready.get(timeout=SERVE_WAIT)
+        end = time.monotonic() + SERVE_WAIT
         while public(ledger.path, capture.identity).exists():
             assert time.monotonic() < end
             time.sleep(0.05)
@@ -856,11 +863,11 @@ def test_block_is_immediate_persistent_and_independent_of_catalogs(tmp_path, cap
             target=lambda: run_mirror(target, resume=True, ready=ready.put)
         )
         thread.start()
-        return thread, ready.get(timeout=10)
+        return thread, ready.get(timeout=SERVE_WAIT)
 
     thread, port = serve(ledger)
     try:
-        end = time.monotonic() + 10
+        end = time.monotonic() + SERVE_WAIT
         while _get(port, capture.identity) != 200:
             assert time.monotonic() < end
             time.sleep(0.05)
@@ -889,7 +896,7 @@ def test_block_is_immediate_persistent_and_independent_of_catalogs(tmp_path, cap
     assert restarted.read().models[capture.identity].blocked
     thread, port = serve(restarted)
     try:
-        end = time.monotonic() + 10
+        end = time.monotonic() + SERVE_WAIT
         while public(ledger.path, capture.identity).exists():
             assert time.monotonic() < end
             time.sleep(0.05)
@@ -913,6 +920,12 @@ def test_upgrade_reads_old_withdrawn_receipts_as_advisories(tmp_path, capture, c
     ledger, publisher = mirror(tmp_path, capture)
     cycle(ledger)
     publisher.publish(version=2, manifest="b" * 64)
+    # An earlier release wrote its receipt after accepting the withdrawing
+    # catalog, so the cache holds it too. Planted beside the older catalog that
+    # still lists the copy, the receipt was cleared whenever the running
+    # mirror's first cycle (cut short by the pause below on a slow runner)
+    # recorded what that cached catalog said.
+    cycle(ledger)
     _legacy(ledger, capture.identity)
     upgraded = MirrorLedger(ledger.path)
     assert upgraded.legacy_withdrawals() == (capture.identity,)
@@ -928,12 +941,14 @@ def test_upgrade_reads_old_withdrawn_receipts_as_advisories(tmp_path, capture, c
     caplog.set_level("WARNING", logger="foxlight_model_preservation.mirror_state")
     ready: queue.Queue[int] = queue.Queue()
     thread = threading.Thread(
-        target=lambda: run_mirror(upgraded, public=True, seconds=60, ready=ready.put)
+        target=lambda: run_mirror(
+            upgraded, public=True, seconds=SERVE_WINDOW, ready=ready.put
+        )
     )
     thread.start()
     try:
-        port = ready.get(timeout=10)
-        end = time.monotonic() + 10
+        port = ready.get(timeout=SERVE_WAIT)
+        end = time.monotonic() + SERVE_WAIT
         while _get(port, capture.identity) != 200:
             assert time.monotonic() < end
             time.sleep(0.05)
@@ -1285,12 +1300,14 @@ def test_card_renews_when_reconcile_is_budget_blocked(tmp_path, capture, withdra
     configure_mirror(ledger, {"ingress_daily": 1024**2})
     ready: queue.Queue[int] = queue.Queue()
     thread = threading.Thread(
-        target=lambda: run_mirror(ledger, public=True, seconds=60, ready=ready.put)
+        target=lambda: run_mirror(
+            ledger, public=True, seconds=SERVE_WINDOW, ready=ready.put
+        )
     )
     thread.start()
     try:
-        ready.get(timeout=10)
-        end = time.monotonic() + 20
+        ready.get(timeout=SERVE_WAIT)
+        end = time.monotonic() + SERVE_WAIT
         while not (ledger.path / "peers.json").exists() or not ledger.read().last_error:
             assert time.monotonic() < end
             time.sleep(0.1)
@@ -1319,12 +1336,14 @@ def test_running_mirror_serves_its_peers_document_over_ipv6(tmp_path, capture):
     )
     ready: queue.Queue[int] = queue.Queue()
     thread = threading.Thread(
-        target=lambda: run_mirror(ledger, public=True, seconds=60, ready=ready.put)
+        target=lambda: run_mirror(
+            ledger, public=True, seconds=SERVE_WINDOW, ready=ready.put
+        )
     )
     thread.start()
     try:
-        port = ready.get(timeout=10)
-        end = time.monotonic() + 20
+        port = ready.get(timeout=SERVE_WAIT)
+        end = time.monotonic() + SERVE_WAIT
         while True:
             client = http.client.HTTPConnection("::1", port, timeout=3)
             client.request("GET", "/" + PEERS_PATH)
