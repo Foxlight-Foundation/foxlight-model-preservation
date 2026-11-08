@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Prepare Mac build 11 and Linux revision 6 from the authenticated core 0.29 /
+  Library 0.25 installation archive (sha256 8c7b1030…, source d66ab33f), which
+  adds one-switch sharing for Skulk, licence families and opt-in upload caps,
+  advisory catalog withdrawal, the Hetzner preset and bucket fixes. Native
+  signing, notarization, apt publication and qualification remain separate gates.
+
 ## 0.29.0
 
 - Catalog withdrawal is now advisory: no catalog publisher, Foxlight

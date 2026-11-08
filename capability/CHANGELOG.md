@@ -6,6 +6,12 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Prepare Mac build 11 and Linux revision 6 from the authenticated core 0.29 /
+  Library 0.25 installation archive (sha256 8c7b1030…, source d66ab33f), which
+  adds one-switch sharing for Skulk, licence families and opt-in upload caps,
+  advisory catalog withdrawal, the Hetzner preset and bucket fixes. Native
+  signing, notarization, apt publication and qualification remain separate gates.
+
 ## 0.25.0
 
 - Both sharing sheets (Sovereign and Library mode) show licence families with
