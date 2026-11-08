@@ -129,7 +129,7 @@ def purpose_ids(tasks: list[str], capabilities: list[str]) -> list[str]:
     )
 
 
-def _card_license(body: dict[str, JsonValue]) -> str | None:
+def card_license(body: dict[str, JsonValue]) -> str | None:
     """Return the licence a card names for itself, if any."""
     license_info = body.get("license")
     license_fields = license_info if isinstance(license_info, dict) else {}
@@ -183,7 +183,7 @@ def model_summary(
             "languages": cast(
                 list[JsonValue], _strings(body.get("languages") or body.get("language"))
             ),
-            "license": _card_license(body),
+            "license": card_license(body),
             "attribution": _text(license_fields.get("display_name")),
             "license_notice": _text(license_fields.get("notice")),
             "runtime_requirements": [],
@@ -221,7 +221,7 @@ def card_summary(
     # Ask the card itself, not the size-bounded summary: a licence the card
     # names must never be replaced by the catalog's.
     catalog_license = metadata.get("license") if metadata else None
-    if _card_license(card.card) is None and isinstance(catalog_license, str):
+    if card_license(card.card) is None and isinstance(catalog_license, str):
         summary = {**summary, "license": _text(catalog_license, 64)}
     return summary
 
