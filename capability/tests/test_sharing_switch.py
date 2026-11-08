@@ -117,6 +117,8 @@ class FakeCore:
         self.hold_retain = False
         # Something outside this setup changes the standing intake policy.
         self.tamper_intake = False
+        # Something outside this setup withholds another copy meanwhile.
+        self.tamper_withheld: str | None = None
         # When set, mirror reads wait so a Stop can overtake an admission.
         self.gate: asyncio.Event | None = None
         # POSTs of these kinds wait, so a Stop can land while one is in flight.
@@ -225,12 +227,15 @@ class FakeCore:
                         "definition": 1,
                         "withheld": [],
                     }
+                intake = self.page.get("intake")
                 self.page["models"].append(
                     {
                         "manifest_id": decision["manifest_id"],
                         "state": "retained",
                         "pinned": False,
-                        "blocked": False,
+                        # As core does: a withheld copy is admitted blocked.
+                        "blocked": isinstance(intake, dict)
+                        and decision["manifest_id"] in intake["withheld"],
                     }
                 )
                 self.page["restart_expires"] = None
@@ -246,6 +251,23 @@ class FakeCore:
                 for model in self.page["models"]:
                     if model["manifest_id"] == decision["manifest_id"]:
                         model["blocked"] = decision["action"] == "block"
+                intake = self.page.get("intake")
+                if decision["action"] == "unblock" and isinstance(intake, dict):
+                    # As core does: an explicit unblock releases a withheld copy.
+                    self.page["intake"] = {
+                        **intake,
+                        "withheld": [
+                            item
+                            for item in intake["withheld"]
+                            if item != decision["manifest_id"]
+                        ],
+                    }
+                if self.tamper_withheld is not None and isinstance(intake, dict):
+                    current = self.page["intake"]
+                    self.page["intake"] = {
+                        **current,
+                        "withheld": [*current["withheld"], self.tamper_withheld],
+                    }
             elif kind == "revoke_resume":
                 self.page["restart_expires"] = None
             elif kind == "grant_resume":
@@ -984,3 +1006,70 @@ async def test_an_intake_policy_changed_during_setup_is_never_authorized(
     assert progress["error_code"] == "mirror_changed_during_setup"
     kinds = [decision["kind"] for decision in fake.decisions]
     assert "grant_resume" not in kinds and "run" not in kinds
+
+
+def withheld_mirror(fake: FakeCore) -> None:
+    """MIT is retained but withheld under a saved chosen-mode intake policy."""
+    existing(fake, APACHE, MIT, blocked=(MIT,))
+    fake.page["intake"] = {
+        "share": "chosen",
+        "licenses": ["apache-2.0", "mit"],
+        "definition": 1,
+        "withheld": [MIT],
+    }
+
+
+async def test_choosing_a_withheld_copy_shares_it_again(core: Any) -> None:
+    fake, app = core
+    withheld_mirror(fake)
+    await app.dispatch(
+        "mirror-share-start",
+        start_body(fake, share="chosen", copies=[copy(APACHE), copy(MIT)]),
+    )
+    progress = await finished(app)
+    assert progress["state"] == "done", progress
+    # Our own unblock released it from the withheld list; that is expected.
+    assert fake.served() == {APACHE, MIT}
+    assert fake.page["intake"]["withheld"] == []
+    kinds = [(d["kind"], d.get("action")) for d in fake.decisions]
+    assert ("model", "unblock") in kinds and kinds[-2:] == [
+        ("grant_resume", None),
+        ("run", None),
+    ]
+
+
+async def test_an_unrelated_withheld_change_still_aborts(core: Any) -> None:
+    fake, app = core
+    withheld_mirror(fake)
+    # Someone else withholds a different copy while this setup runs.
+    fake.tamper_withheld = "9" * 64
+    await app.dispatch(
+        "mirror-share-start",
+        start_body(fake, share="chosen", copies=[copy(APACHE), copy(MIT)]),
+    )
+    progress = await finished(app)
+    assert progress["state"] == "failed"
+    assert progress["error_code"] == "mirror_changed_during_setup"
+    kinds = [decision["kind"] for decision in fake.decisions]
+    assert "grant_resume" not in kinds and "run" not in kinds
+
+
+async def test_a_withheld_copy_kept_for_the_first_time_follows_the_share_mode(
+    core: Any,
+) -> None:
+    fake, app = core
+    existing(fake, APACHE)
+    fake.page["intake"] = {
+        "share": "eligible",
+        "licenses": ["apache-2.0", "mit"],
+        "definition": 1,
+        "withheld": [MIT],
+    }
+    # All eligible: Core admits the withheld copy blocked, and it stays back.
+    await app.dispatch(
+        "mirror-share-start", start_body(fake, copies=[copy(APACHE), copy(MIT)])
+    )
+    progress = await finished(app)
+    assert progress["state"] == "done", progress
+    assert fake.served() == {APACHE}
+    assert fake.page["intake"]["withheld"] == [MIT]

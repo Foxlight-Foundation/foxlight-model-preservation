@@ -160,6 +160,10 @@ def licence_status(
 
 # A preservation archive holds at most 256 members (v1 and PMF alike).
 MAX_TERMS_MEMBERS = 256
+# A link longer than this is left out; the reference itself is still shown.
+MAX_LINK = 4096
+# Unicode case folding expands a character to at most three.
+MAX_NORMALIZED_LICENCE = 600
 
 
 class TermsReference(Record):
@@ -171,13 +175,14 @@ class TermsReference(Record):
 
     members: tuple[str, ...] = Field(min_length=1, max_length=MAX_TERMS_MEMBERS)
     reference: str = Field(min_length=1, max_length=2048)
-    url: str | None = Field(default=None, max_length=4096)
+    url: str | None = Field(default=None, max_length=MAX_LINK)
 
 
 class LicenceTerms(Record):
     """What a person accepts for one licence before keeping a model under it."""
 
-    license_id: str = Field(max_length=200)
+    # Normalizing (case folding) can lengthen a 200-character identifier.
+    license_id: str = Field(max_length=MAX_NORMALIZED_LICENCE)
     name: str = Field(min_length=1, max_length=200)
     family: str | None = None
     summary: str = Field(min_length=1, max_length=300)
@@ -190,11 +195,14 @@ class LicenceTerms(Record):
 class MemberTerms(Record):
     """One member's declared licence and where its full text is."""
 
-    member: str = Field(min_length=1, max_length=200)
+    # As wide as the manifest formats: v1 and PMF member ids are at most 64
+    # characters, a licence id and terms reference 200 and 2048, a PMF origin
+    # repository 2048 (v1: 512) and its revision 512.
+    member: str = Field(min_length=1, max_length=64)
     license_id: str = Field(max_length=200)
     reference: str = Field(min_length=1, max_length=2048)
-    repository: str | None = Field(default=None, max_length=400)
-    revision: str | None = Field(default=None, max_length=200)
+    repository: str | None = Field(default=None, max_length=2048)
+    revision: str | None = Field(default=None, max_length=512)
 
 
 _UNKNOWN_SUMMARY = (
@@ -215,7 +223,7 @@ def _reference_url(member: MemberTerms) -> str | None:
     if reference.startswith("https://huggingface.co/") and not any(
         character.isspace() for character in reference
     ):
-        return reference
+        return reference if len(reference) <= MAX_LINK else None
     if (
         member.repository is None
         or member.revision is None
@@ -226,10 +234,12 @@ def _reference_url(member: MemberTerms) -> str | None:
         or ":" in reference
     ):
         return None
-    return (
+    url = (
         f"https://huggingface.co/{member.repository}/blob/{member.revision}/"
         f"{quote(reference)}"
     )
+    # Link metadata that can't be represented is omitted, never refused.
+    return url if len(url) <= MAX_LINK else None
 
 
 class _Intake(Protocol):
@@ -247,19 +257,22 @@ class _Member(Protocol):
 
 
 def member_terms(
-    members: Iterable[_Member], *, fallback: str = ""
+    members: Iterable[_Member],
+    *,
+    fallback: str = "",
+    fallback_origin: tuple[str, str] | None = None,
 ) -> list[MemberTerms]:
     """Each member's declared licence and terms reference, for a terms review.
 
     A member that declares no identified licence (for example a registry
     capture, which says "see-original-card") takes ``fallback``, the licence
-    its original model card names, when there is one.
+    its original model card names, but only when the member comes from that
+    card's own repository and revision (``fallback_origin``). A companion
+    from another repository never inherits it: it stays unidentified unless
+    it names its own licence, so it needs acceptance or stays private.
     """
     result: list[MemberTerms] = []
     for member in members:
-        license_id = member.intake.license_id
-        if normalize_license(license_id) in UNIDENTIFIED and fallback:
-            license_id = fallback
         origin = getattr(member, "origin", None)
         repository = getattr(member, "origin_repository", None) or getattr(
             origin, "repository", None
@@ -267,9 +280,17 @@ def member_terms(
         revision = getattr(member, "origin_revision", None) or getattr(
             origin, "revision", None
         )
+        license_id = member.intake.license_id
+        if (
+            normalize_license(license_id) in UNIDENTIFIED
+            and fallback
+            and fallback_origin is not None
+            and (repository, revision) == fallback_origin
+        ):
+            license_id = fallback
         result.append(
             MemberTerms(
-                member=str(member.member_id)[:200],
+                member=str(member.member_id)[:64],
                 license_id=license_id[:200],
                 reference=member.intake.terms_reference,
                 repository=repository if isinstance(repository, str) else None,

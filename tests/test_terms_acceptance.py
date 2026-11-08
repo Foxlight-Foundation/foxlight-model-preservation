@@ -187,3 +187,67 @@ def test_a_256_member_receive_plan_records_its_acceptance(tmp_path):
         accepted_at=0,
     )
     assert len(record.accepted) == 256
+
+
+def _member(member_id: str, license_id: str, repository: str, revision: str) -> object:
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        member_id=member_id,
+        intake=SimpleNamespace(license_id=license_id, terms_reference="LICENSE"),
+        origin_repository=repository,
+        origin_revision=revision,
+    )
+
+
+def test_only_the_cards_own_members_inherit_its_licence():
+    from foxlight_model_preservation.licences import member_terms
+
+    primary = _member("weights", "see-original-card", "example/model", REVISION)
+    companion = _member("projector", "see-original-card", "other/companion", REVISION)
+    stated = _member("tokenizer", "Apache-2.0", "other/tokenizer", REVISION)
+    terms = member_terms(
+        [primary, companion, stated],  # type: ignore[list-item]
+        fallback="MIT",
+        fallback_origin=("example/model", REVISION),
+    )
+    licences = {item.member: item.license_id for item in terms}
+    assert licences == {
+        "weights": "MIT",
+        "projector": "see-original-card",
+        "tokenizer": "Apache-2.0",
+    }
+    review = terms_review(terms)
+    # The companion's terms are unknown, so they need acceptance; MIT doesn't.
+    assert review["accept"] == ["see-original-card"]
+    # Without a known origin, nothing inherits the card's licence.
+    assert {
+        item.license_id
+        for item in member_terms([primary], fallback="MIT")  # type: ignore[list-item]
+    } == {"see-original-card"}
+
+
+def test_the_largest_supported_origins_still_reach_review():
+    """PMF origins allow a 2048-character repository and a 512-character revision."""
+    from foxlight_model_preservation.licences import member_terms
+
+    long_repository = "o/" + "r" * 2046
+    pmf = _member("a" * 64, "llama3", long_repository, "f" * 512)
+    v1 = _member("b" * 64, "llama3", "o/" + "r" * 510, REVISION)
+    terms = member_terms([pmf, v1])  # type: ignore[list-item]
+    assert terms[0].repository == long_repository and terms[0].revision == "f" * 512
+    review = terms_review(
+        [
+            *terms,
+            member("llama3", member="c" * 64, reference="L" * 2048),
+            member("\u00df" * 200, member="d" * 64),
+        ]
+    )
+    assert "llama3" in review["accept"]
+    # A link that can't be represented is left out; the reference still shows.
+    for row in review["licences"]:  # type: ignore[union-attr]
+        for reference in row["references"]:  # type: ignore[index]
+            url = reference["url"]  # type: ignore[index]
+            assert url is None or len(url) <= 4096
+    ids = [row["license_id"] for row in review["licences"]]  # type: ignore[index,union-attr]
+    assert "ss" * 200 in ids

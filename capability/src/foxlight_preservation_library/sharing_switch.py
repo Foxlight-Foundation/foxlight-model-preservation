@@ -722,7 +722,12 @@ class ShareSwitch:
                         confirm_redistribution=True,
                     )
                 )
-                expected[copy.manifest_id] = ("held", False)
+                # Core admits a copy the owner withheld blocked; that is our
+                # own retain's effect, not an unreviewed change.
+                expected[copy.manifest_id] = (
+                    "held",
+                    self._is_withheld(copy.manifest_id),
+                )
                 policy = await self._adopt(wanted, expected)
             consented.add(copy.manifest_id)
             self._progress = {
@@ -828,8 +833,39 @@ class ShareSwitch:
                     )
                 )
                 expected[identity] = ("held", action == "block")
+                self._expect_released(identity, action)
                 policy = await self._adopt(wanted, expected)
         return policy
+
+    def _is_withheld(self, identity: str) -> bool:
+        """Whether the expected standing intake policy keeps this copy back."""
+        wanted = self._wanted_intake
+        withheld = wanted.get("withheld") if wanted is not None else None
+        return isinstance(withheld, list) and identity in withheld
+
+    def _expect_released(
+        self, identity: str, action: Literal["block", "unblock"]
+    ) -> None:
+        """Account for Core releasing a withheld copy on our explicit unblock.
+
+        Core keeps a withheld copy blocked, and an explicit unblock is the owner
+        sharing it again: it also leaves the standing intake policy's withheld
+        list. That change is ours, so the expected policy follows it; any other
+        change to the policy still aborts the setup.
+        """
+        wanted = self._wanted_intake
+        withheld = wanted.get("withheld") if wanted is not None else None
+        if (
+            action != "unblock"
+            or wanted is None
+            or not isinstance(withheld, list)
+            or identity not in withheld
+        ):
+            return
+        self._wanted_intake = {
+            **wanted,
+            "withheld": [item for item in withheld if item != identity],
+        }
 
     async def _settle_stopped(self, job_id: str) -> dict[str, JsonValue]:
         for _ in range(self.stop_attempts * 10):

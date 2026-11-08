@@ -103,6 +103,8 @@ def licence_status(
 
 # A preservation archive holds at most 256 members (v1 and PMF alike).
 MAX_TERMS_MEMBERS: Final = 256
+# A link longer than this is left out, as in the core.
+MAX_LINK: Final = 4096
 _UNKNOWN_SUMMARY: Final = (
     "The licence couldn't be identified. Read the terms that come with the "
     "model before using it."
@@ -122,7 +124,7 @@ def _reference_url(item: dict[str, JsonValue]) -> str | None:
     if reference.startswith("https://huggingface.co/") and not any(
         character.isspace() for character in reference
     ):
-        return reference
+        return reference if len(reference) <= MAX_LINK else None
     if (
         not isinstance(repository, str)
         or not isinstance(revision, str)
@@ -134,7 +136,9 @@ def _reference_url(item: dict[str, JsonValue]) -> str | None:
         or ":" in reference
     ):
         return None
-    return f"https://huggingface.co/{repository}/blob/{revision}/{quote(reference)}"
+    url = f"https://huggingface.co/{repository}/blob/{revision}/{quote(reference)}"
+    # Link metadata that can't be represented is omitted, never refused.
+    return url if len(url) <= MAX_LINK else None
 
 
 def terms_review(members: list[dict[str, JsonValue]]) -> dict[str, JsonValue]:
@@ -168,7 +172,7 @@ def terms_review(members: list[dict[str, JsonValue]]) -> dict[str, JsonValue]:
                 _text(item.get("reference"), 2048) or "not stated",
                 _reference_url(item),
             )
-            member = _text(item.get("member"), 200) or "member"
+            member = _text(item.get("member"), 64) or "member"
             sharing = shared.setdefault(key, [])
             if member not in sharing:
                 sharing.append(member)

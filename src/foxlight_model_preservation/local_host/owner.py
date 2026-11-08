@@ -850,6 +850,12 @@ class LocalOwner:
                                     fallback=card_license
                                     if isinstance(card_license, str)
                                     else "",
+                                    # Only the card's own artifact inherits its
+                                    # licence; companions keep their own.
+                                    fallback_origin=(
+                                        card.artifact.repository,
+                                        card.artifact.revision,
+                                    ),
                                 )
                             ),
                             "historical": historical,
