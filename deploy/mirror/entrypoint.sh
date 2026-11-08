@@ -29,6 +29,12 @@ if [ -n "${SOVEREIGN_MIRROR_EGRESS_MONTHLY:-}" ]; then
   set -- "$@" --egress-monthly "$SOVEREIGN_MIRROR_EGRESS_MONTHLY"
 fi
 
+# Following catalog withdrawals is the operator's opt-in (default off: a
+# withdrawal is only an advisory in status). Unset keeps an existing choice.
+if [ -n "${SOVEREIGN_MIRROR_FOLLOW_WITHDRAWALS:-}" ]; then
+  set -- "$@" --follow-withdrawals "$SOVEREIGN_MIRROR_FOLLOW_WITHDRAWALS"
+fi
+
 # A container's host name changes when it is recreated; prefer a stable name.
 name="${SOVEREIGN_MIRROR_NAME:-${SOVEREIGN_MIRROR_DOMAIN:-}}"
 if [ -n "$name" ]; then

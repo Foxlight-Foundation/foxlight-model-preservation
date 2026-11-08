@@ -81,6 +81,12 @@ def observations_module():
     return module
 
 
+# The injected stall must outlast the socket timeout, and the timeout must give a
+# loaded CI runner time for the honest retry to finish (0.2 s flaked on macOS).
+TIMEOUT = 1.0
+STALL = 2.5
+
+
 @pytest.mark.parametrize(
     "fault, category, phase",
     [
@@ -119,7 +125,7 @@ def test_observed_fetch_preserves_verification_and_distinguishes_failures(
             if self.path == object_url and not triggered.is_set():
                 triggered.set()
                 if fault == "headers":
-                    time.sleep(0.8)
+                    time.sleep(STALL)
                 elif fault == "body":
                     self.send_response(206)
                     self.send_header("Content-Length", str(file.size - 500))
@@ -127,7 +133,7 @@ def test_observed_fetch_preserves_verification_and_distinguishes_failures(
                         "Content-Range", f"bytes 500-{file.size - 1}/{file.size}"
                     )
                     self.end_headers()
-                    time.sleep(0.8)
+                    time.sleep(STALL)
                     return
                 else:
                     self.send_response(206)
@@ -167,7 +173,7 @@ def test_observed_fetch_preserves_verification_and_distinguishes_failures(
                 (f"http://{host}.b32.i2p/PRIVATE_ROUTE_MARKER",),
                 target,
                 I2PTransferPolicy(
-                    proxy=I2PHTTPProxy(port=server.server_port), timeout=0.2
+                    proxy=I2PHTTPProxy(port=server.server_port), timeout=TIMEOUT
                 ),
             )
         assert value == verify_store(target, capture.identity, capture.trust)
@@ -181,7 +187,7 @@ def test_observed_fetch_preserves_verification_and_distinguishes_failures(
         thread.join(3)
         server.server_close()
         # Finish the finite injected slow handler before closing its event sink.
-        time.sleep(0.85 if fault in {"headers", "body"} else 0)
+        time.sleep(STALL + 0.05 if fault in {"headers", "body"} else 0)
         summary = observations.close()
     raw = (tmp_path / "transfer-events.jsonl").read_text()
     assert not any(

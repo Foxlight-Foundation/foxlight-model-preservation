@@ -69,7 +69,11 @@ set `SOVEREIGN_MIRROR_CONSENT=yes-i-consent-to-public-serving` in `mirror.env`
 and run the same `up` command again. Each start re-applies the collection and
 settings and renews the restart grant (`SOVEREIGN_MIRROR_GRANT`, default 180d).
 Remove the consent value and restart to stop serving; retained models stay in
-the `mirror-data` volume. If setup is refused (for example the mirror was
+the `mirror-data` volume. A catalog that stops listing a model does not stop
+this mirror serving it: that is an advisory in `mirror status`, and you decide.
+To stop serving one model, for example after a legal notice, run
+`docker compose exec mirror model-preserve mirror block --dir /data/mirror --manifest ID`
+(see [withdrawal and takedown](../../docs/persistent-mirrors.md#catalog-withdrawal-is-advisory-takedown-is-yours)). If setup is refused (for example the mirror was
 paused), the reason is logged and the container idles; run
 `docker compose exec mirror model-preserve mirror resume --dir /data/mirror`
 or fix the collection, then restart.
