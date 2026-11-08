@@ -244,7 +244,7 @@ def fetch_invitation(
         operation_id: Retained identity for cumulative allowance across retries.
         mirrors: Optional private directory; discovered mirrors that pass the
             same policy are tried after the signed hints and scored afterwards.
-        seeds: Untrusted seed addresses offered while not yet scored.
+        seeds: Untrusted starter addresses, asked only after the others fail.
 
     Sender authentication fails before any source is contacted. The existing
     fetcher then reauthenticates the same manifest before weight requests and

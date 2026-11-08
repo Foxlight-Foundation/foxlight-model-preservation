@@ -84,7 +84,8 @@ under its data folder. It is never shared as-is. It is filled from:
   `--mirror` hints, a handoff's or invitation's signed hints, or a followed
   source's catalog hints. A handoff therefore seeds a new client's directory
   with every mirror its hints vouch for;
-- not-yet-scored entries of a seed list (below);
+- not-yet-scored entries of a seed list (below), only when a receive's own
+  sources have all failed;
 - `model-preserve mirrors import`, from a peers document another device
   exported;
 - `model-preserve mirrors crawl`, which follows peers documents outward from
@@ -95,16 +96,35 @@ under its data folder. It is never shared as-is. It is filled from:
 ### How a receive uses it
 
 `fetch`, `fetch-invitation`, `source-fetch` and `handoff-fetch` use discovered
-mirrors by default (`mirror_directory.fetch_with_mirrors`). Before the receive,
-the client reads the peers documents of its remote hints and of the seeds it is
-about to offer, without following them further, for at most 20 seconds. It then
-builds its source list:
+mirrors by default (`mirror_directory.fetch_with_mirrors`). A receive has up to
+two stages.
+
+**Primary stage.** Before the receive, the client reads the peers documents of
+its remote hints, without following them further, for at most 20 seconds. Its
+source list is:
 
 1. the explicit or signed hints, exactly as given and always first;
-2. up to eight more sources: mirrors whose card's Bloom filter claims this
-   manifest, then seeds that no card speaks for yet and that have never been
-   scored (at most four). Hints plus extras never exceed the receive's
-   `max_sources` (16 by default).
+2. up to eight more sources: mirrors already in the directory whose card's
+   Bloom filter claims this manifest. Hints plus extras never exceed the
+   receive's `max_sources` (16 by default).
+
+No starter (seed) mirror is contacted in this stage.
+
+**Fallback stage.** Only if every primary source failed for this manifest (none
+supplied the signed manifest, or some object could not be had from any of
+them), or there were none, does the client turn to the seed list. It picks at
+most four seeds it has never scored, reads their peers documents the same
+bounded way, and tries the primary sources again followed by mirrors that now
+claim the manifest and seeds that no card speaks for yet. Discovered sources
+across both stages stay within eight, all sources within `max_sources`, and one
+deadline and one byte allowance cover both stages: the fallback gets only
+what is left of the deadline, and with none left it contacts no seed. Cancellation, a deadline,
+a budget or a failure of the receiver's own storage (a full disk, a failed
+write or sync) never falls back. With no seed list, or no room left, the stage
+contacts nobody and the primary failure is reported. Progress observers (the
+app's Library and `--progress`) never see the primary stage's failure as a
+terminal event: the fallback stage continues the same progress, with byte
+counts carried over, and only the receive's final outcome is terminal.
 
 Every extra must pass the receiver's own policy: HTTPS only unless
 `--allow-http`, and no loopback, private, link-local or `.local` address unless
@@ -130,7 +150,12 @@ transfer receipt in the destination store
 (`.operations/<operation-id>.sources.json`) and reused on resume, so the
 operation's transfer allowance still binds the same request for as long as the
 receipt exists. The plan is created once (written, synced, then linked into
-place so it is never partial or replaced) before the receipt. Reusing the
+place so it is never partial or replaced) before the receipt. The receipt binds
+the primary stage's sources. A fallback stage is fixed the same way when first
+used (`.operations/<operation-id>.fallback.json`, including which starter
+mirrors it asked) and extends that same request, so a resume after it goes
+straight to the recorded fallback stage: it asks no further seed and does not
+trip the changed-request check. Reusing the
 operation ID with other hints or another manifest is refused before anything
 is written, even if an earlier attempt stopped before its receipt was created.
 If the private directory is damaged, the receive proceeds with the hints alone
@@ -150,7 +175,17 @@ The package ships an untrusted seed list,
 `resources/seed-mirrors.json` (`sovereign.seed-mirrors.v1`, a list of HTTP(S)
 base URLs). It is empty for now. A user can add their own file with
 `--seed-mirrors` or `$SOVEREIGN_SEED_MIRRORS`; its entries are added after the
-shipped ones. A seed grants nothing: it is only a place to ask first.
+shipped ones. A seed grants nothing: it is only a place to ask when everything
+else failed (the fallback stage above).
+
+**Privacy.** Contacting a seed shows this computer's network address, and the
+fact that it is looking for mirrors, to whoever runs that seed. That is why a
+receive asks seeds only after the mirrors it already knows have failed, and
+never when they work. Each time it does, the client notes it in its private
+directory (`fallbacks.json`: when, which manifest, which seeds were asked; the
+latest 64), shown as `starter_fallbacks` by `model-preserve mirrors list`.
+`mirrors crawl` asks seeds directly, because that command is an explicit
+request to explore.
 
 ### Looking further: an explicit privacy choice
 
@@ -180,7 +215,8 @@ The app's source and handoff receives use the same path, with the app's own
 directory and the shipped seed list. They read only the approved mirrors' peers
 documents, try discovered mirrors after the approved ones under the same
 HTTP and private-address choices the user made for that receive, and record each
-mirror's outcome. The approved mirrors are still checked against the reviewed
+mirror's outcome. Seeds are contacted only as the fallback stage, after the
+approved and known mirrors failed. The approved mirrors are still checked against the reviewed
 plan; discovered mirrors are never part of it and never change the accepted
 keys. An app receive never contacts the DHT or Nostr relays; only the
 explicitly enabled community mirror does. Registry receive downloads from the
@@ -210,9 +246,11 @@ explicit mirror role.
 - `mirror_directory.MirrorDirectory` provides `crawl`, `ingest`, `candidates`,
   `record`, `record_many`, `spot_check`, `gossip`, `listing` and
   `export_cards`.
-- `mirror_directory.plan_sources` returns the hints plus bounded discovered
-  sources for one manifest, and `fetch_with_mirrors` receives with them and
-  records outcomes. `permitted` applies the receiver's policy to one address,
+- `mirror_directory.plan_sources` returns the primary stage (the hints plus
+  bounded known mirrors) for one manifest, `plan_fallback` the starter-mirror
+  stage, and `fetch_with_mirrors` receives through both stages and records
+  outcomes. `MirrorDirectory.read_fallbacks` returns the private record of
+  receives that fell back. `permitted` applies the receiver's policy to one address,
   `load_seeds` reads the seed lists, and `look_further` is the explicit DHT and
   relay lookup.
 - `mirror_directory.fetch_discovered(manifest_id, trust, destination, directory,
@@ -226,5 +264,6 @@ explicit mirror role.
 
 Decentralization removes the single point of failure. It does not hide anyone:
 mirrors see the addresses of clients that connect to them, and a mirror's card
-publishes its own address. Sovereign makes no anonymity or
+publishes its own address. Keeping seeds as a fallback limits how many
+receivers a seed operator sees; it does not hide a receiver that falls back. Sovereign makes no anonymity or
 censorship-resistance claim.
