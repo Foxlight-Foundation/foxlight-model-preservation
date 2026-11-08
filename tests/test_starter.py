@@ -51,6 +51,7 @@ from foxlight_model_preservation.starter import (
     import_starter,
     list_identity,
     plan_import,
+    review_import,
     select_tier,
     sign_starter_list,
     verify_starter_list,
@@ -80,7 +81,7 @@ LICENCE = StarterLicence(
 )
 
 
-def fixture_recipe(name: str) -> dict:
+def fixture_recipe(name: str, licence: str = "Apache-2.0") -> dict:
     return {
         "schema_version": "foxlight.model-preservation.v1",
         "name": name,
@@ -98,7 +99,7 @@ def fixture_recipe(name: str) -> dict:
                 "dependencies": ["notices"],
                 "intake": {
                     "audience": "public",
-                    "license_id": "Apache-2.0",
+                    "license_id": licence,
                     "terms_reference": "https://example.test/README.md",
                     "decision": "synthetic fixture",
                     "notice_paths": ["README.md"],
@@ -115,7 +116,7 @@ def fixture_recipe(name: str) -> dict:
                 "dependencies": [],
                 "intake": {
                     "audience": "public",
-                    "license_id": "Apache-2.0",
+                    "license_id": licence,
                     "terms_reference": "https://example.test/LICENSE",
                     "decision": "synthetic fixture",
                     "notice_paths": ["LICENSE"],
@@ -129,7 +130,12 @@ def fixture_recipe(name: str) -> dict:
 class Collection:
     """Tiny packed bundles and a signer for building starter lists."""
 
-    def __init__(self, tmp_path: Path, names: tuple[str, ...]):
+    def __init__(
+        self,
+        tmp_path: Path,
+        names: tuple[str, ...],
+        licences: dict[str, str] | None = None,
+    ):
         self.key = Ed25519PrivateKey.generate()
         self.trust = TrustProfile(
             schema_version="foxlight.model-preservation.trust.v1",
@@ -140,7 +146,10 @@ class Collection:
         self.store = tmp_path / "published-store"
         self.entries: dict[str, StarterEntry] = {}
         for index, name in enumerate(names):
-            recipe = Recipe.model_validate_json(json.dumps(fixture_recipe(name)))
+            licence = (licences or {}).get(name, "Apache-2.0")
+            recipe = Recipe.model_validate_json(
+                json.dumps(fixture_recipe(name, licence))
+            )
             weights = tmp_path / "inputs" / name / "weights"
             notices = tmp_path / "inputs" / name / "notices"
             weights.mkdir(parents=True)
@@ -171,7 +180,7 @@ class Collection:
                 recipe=name,
                 recipe_sha256="0" * 64,
                 size_bytes=size,
-                licence=LICENCE,
+                licence=LICENCE.model_copy(update={"license_id": licence}),
                 terms=starter_build.unique_terms(recipe),
                 mirrors=("https://starter.placeholder.invalid",),
             )
@@ -856,3 +865,175 @@ def test_container_opts_into_the_starter_list(tmp_path):
     assert "--collection" not in opted and "--plan-only" in opted
     (tmp_path / "collection.json").write_text("{}")
     assert "--collection" in plan_call()
+
+
+# Gated licences -------------------------------------------------------------
+
+
+@pytest.fixture
+def gated_collection(tmp_path: Path) -> Collection:
+    return Collection(
+        tmp_path, ("open", "gemma-three"), licences={"gemma-three": "gemma"}
+    )
+
+
+def test_review_shows_the_gate_and_import_needs_exact_acceptance(
+    tmp_path, gated_collection
+):
+    ledger = mirror(tmp_path)
+    starter = gated_collection.listing("open", "gemma-three")
+    list_id = list_identity(starter)
+    small = plan_import(ledger, starter, list_id, "small")
+    assert small.accept == ()  # The small tier here has no gated model.
+    plan = plan_import(ledger, starter, list_id, "standard")
+    assert plan.accept == ("gemma",)
+    text, summary = review_import(starter, plan)
+    assert "Terms you must accept" in text and "--accept-terms gemma" in text
+    assert "terms to accept: gemma" in text
+    assert "https://example.test/LICENSE" in text
+    assert summary["accept"] == ["gemma"]
+    entries = {item["entry_id"]: item for item in summary["entries"]}
+    assert entries["gemma-three"]["requires_acceptance"] == ["gemma"]
+    assert entries["open"]["requires_acceptance"] == []
+    options = gated_collection.options()
+    for accepted in (None, (), ("apache-2.0",), ("gemma", "llama3.1")):
+        with pytest.raises(PreservationError, match="terms_acceptance_required"):
+            import_starter(
+                ledger,
+                starter,
+                list_id,
+                "standard",
+                consented=True,
+                accepted=accepted,
+                options=options,
+            )
+    assert not ledger.read().models
+    assert not (ledger.path / "scratch" / "starter-acceptance").exists()
+    receipt = import_starter(
+        ledger,
+        starter,
+        list_id,
+        "standard",
+        consented=True,
+        accepted=("Gemma",),
+        options=options,
+    )
+    assert receipt["imported"] == ["open", "gemma-three"]
+    assert receipt["accepted_terms"] == ["gemma"]
+    (record,) = (ledger.path / "scratch" / "starter-acceptance").iterdir()
+    saved = json.loads(record.read_text())
+    assert saved["accepted"] == ["gemma"] and saved["list_id"] == list_id
+    assert saved["entries"] == ["open", "gemma-three"]
+    # Nothing new to keep: nothing to accept on a rerun.
+    again = import_starter(
+        ledger, starter, list_id, "standard", consented=True, options=options
+    )
+    assert again["imported"] == [] and again["accepted_terms"] == []
+
+
+def test_cli_refuses_gated_models_without_accepted_terms(tmp_path, gated_collection):
+    ledger = mirror(tmp_path)
+    data, list_id = gated_collection.signed(
+        gated_collection.listing("open", "gemma-three")
+    )
+    listing = tmp_path / "starter.json"
+    listing.write_bytes(data)
+    base = [
+        "mirror",
+        "import-starter",
+        "--dir",
+        str(ledger.path),
+        "--list",
+        str(listing),
+        "--tier",
+        "standard",
+        "--expected-list-id",
+        list_id,
+        "--mirror",
+        str(gated_collection.store),
+        "--yes-i-accept-the-starter-list",
+    ]
+    refused = _cli(*base)
+    assert refused.returncode != 0 and not ledger.read().models
+    assert "terms_acceptance_required" in refused.stderr.decode()
+    done = _cli(*base, "--accept-terms", "gemma")
+    assert done.returncode == 0, done.stderr.decode()
+    assert json.loads(done.stdout)["accepted_terms"] == ["gemma"]
+
+
+def test_quickstart_refuses_gated_models_before_setup(tmp_path, gated_collection):
+    data, list_id = gated_collection.signed(
+        gated_collection.listing("open", "gemma-three")
+    )
+    listing = tmp_path / "starter.json"
+    listing.write_bytes(data)
+    directory = tmp_path / "quick"
+    base = [
+        "mirror",
+        "quickstart",
+        "--dir",
+        str(directory),
+        "--disk-bytes",
+        "2G",
+        "--port",
+        "0",
+        "--starter-list",
+        str(listing),
+        "--expected-starter-list-id",
+        list_id,
+        "--starter-tier",
+        "standard",
+        "--starter-mirror",
+        str(gated_collection.store),
+        "--yes-i-consent-to-public-serving",
+    ]
+    refused = _cli(*base)
+    assert refused.returncode != 0 and not directory.exists()
+    done = _cli(*base, "--accept-starter-terms", "gemma")
+    assert done.returncode == 0, done.stderr.decode()
+    assert json.loads(done.stdout)["starter"]["accepted_terms"] == ["gemma"]
+
+
+def test_known_licence_policy_admits_gated_terms_from_the_base_only():
+    resolve = starter_build.resolve_licence
+    refused = starter_build.LicenceRefused
+    with pytest.raises(refused, match="Apache-2.0 or MIT"):
+        resolve(_card("gemma"), _card("gemma"))
+    assert resolve(_card("gemma"), _card("gemma"), "known") == "gemma"
+    assert resolve(_card("apache-2.0"), None, "known") == "Apache-2.0"
+    assert starter_build.requires_acceptance("gemma")
+    assert not starter_build.requires_acceptance("apache-2.0")
+    # The base decides: a permissive conversion tag never hides Gemma's terms.
+    with pytest.raises(refused, match="does not match"):
+        resolve(_card("gemma"), _card("apache-2.0"), "known")
+    with pytest.raises(refused, match="known licence"):
+        resolve(_card("other"), _card("other"), "known")
+    with pytest.raises(refused, match="known licence"):
+        resolve(_card("my-own-terms"), None, "known")
+
+
+def test_container_passes_accepted_starter_terms(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "calls"
+    stub = bin_dir / "model-preserve"
+    stub.write_text(f'#!/bin/sh\necho "$@" >> "{log}"\n')
+    stub.chmod(0o755)
+    environment = {
+        "PATH": f"{bin_dir}:/usr/bin:/bin",
+        "SOVEREIGN_MIRROR_DIR": str(tmp_path / "data"),
+        "SOVEREIGN_MIRROR_COLLECTION": str(tmp_path / "collection.json"),
+        "SOVEREIGN_MIRROR_IDLE": "0",
+        "SOVEREIGN_MIRROR_STARTER_LIST": "/config/starter-list.json",
+        "SOVEREIGN_MIRROR_STARTER_LIST_ID": "a" * 64,
+        "SOVEREIGN_MIRROR_STARTER_ACCEPT_TERMS": "gemma,llama3.1",
+    }
+    script = Path(__file__).parents[1] / "deploy/mirror/entrypoint.sh"
+    subprocess.run(  # noqa: S603 - repository script, fixed arguments
+        ["/bin/sh", str(script)], env=environment, capture_output=True, timeout=30
+    )
+    (call,) = log.read_text().splitlines()
+    arguments = call.split()
+    assert arguments[arguments.index("--accept-starter-terms") + 1] == (
+        "gemma,llama3.1"
+    )

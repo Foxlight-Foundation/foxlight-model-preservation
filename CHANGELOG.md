@@ -22,8 +22,13 @@
   now optional) and the container's `SOVEREIGN_MIRROR_STARTER_LIST`,
   `_LIST_ID` and `_TIER` opt in. `scripts/build_starter_collection.py` checks
   every pin against the Hub without downloading weights, then packs, signs and
-  publishes the collection to a bucket mirror. Not legal advice; operators are
-  responsible for their jurisdiction.
+  publishes the collection to a bucket mirror. Lists may also carry models
+  under gated licences (non-commercial, responsible-AI, makers' own terms):
+  the review shows each one with its summary and full-text link, and import
+  refuses with `terms_acceptance_required` unless the operator accepts exactly
+  those licences (`--accept-terms`, `--accept-starter-terms`,
+  `SOVEREIGN_MIRROR_STARTER_ACCEPT_TERMS`), recording the acceptance first.
+  Not legal advice; operators are responsible for their jurisdiction.
 
 - Catalog withdrawal is now advisory: no catalog publisher, Foxlight
   included, can take down a mirror's copies. Catalogs are discovery, not

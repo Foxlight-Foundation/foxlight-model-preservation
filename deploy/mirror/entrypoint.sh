@@ -32,6 +32,11 @@ if [ -n "$starter" ]; then
   set -- "$@" --starter-list "$starter" \
     --expected-starter-list-id "${SOVEREIGN_MIRROR_STARTER_LIST_ID:-}" \
     --starter-tier "${SOVEREIGN_MIRROR_STARTER_TIER:-small}"
+  # Gated licences (non-commercial, makers' own terms) need your acceptance,
+  # exactly as the review lists them, before those models are imported.
+  if [ -n "${SOVEREIGN_MIRROR_STARTER_ACCEPT_TERMS:-}" ]; then
+    set -- "$@" --accept-starter-terms "$SOVEREIGN_MIRROR_STARTER_ACCEPT_TERMS"
+  fi
   if [ -e "$collection" ]; then
     set -- "$@" --collection "$collection"
   fi

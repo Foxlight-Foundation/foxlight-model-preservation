@@ -27,6 +27,13 @@ from typing import Literal
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from pydantic import Field, JsonValue, field_validator, model_validator
 
+from .licences import (
+    LICENCE_DEFINITION_VERSION,
+    MemberTerms,
+    definition,
+    normalize_license,
+    terms_review,
+)
 from .mirror_cards import base_url
 from .mirror_intake import retain_local
 from .mirror_models import SourceGrant, Terms
@@ -51,6 +58,7 @@ from .signing import (
     strict_json,
     verify_payload,
 )
+from .storage import atomic_bytes
 from .transfer import TransferPolicy, fetch
 
 STARTER_LIST_TYPE = "application/vnd.foxlight.sovereign.starter-list.v1+json"
@@ -199,6 +207,64 @@ def _size(value: int) -> str:
     return f"{value} B"
 
 
+def terms_gate(entries: tuple[StarterEntry, ...]) -> dict[str, JsonValue]:
+    """The licence terms review for these entries, as the core's terms gate has.
+
+    Every member licence of every entry is described from Sovereign's own
+    licence definition, never from the list: a licence with use restrictions
+    or conditions to pass on (responsible-AI, non-commercial, makers' own
+    terms) or one that can't be identified needs explicit acceptance. The
+    result's ``accept`` names exactly the licences to accept.
+    """
+    members = [
+        MemberTerms(
+            member=entry.entry_id[:64],
+            license_id=item.license_id,
+            reference=item.terms_reference,
+        )
+        for entry in entries
+        for item in entry.terms
+    ]
+    return terms_review(members)
+
+
+def gated(entry: StarterEntry) -> tuple[str, ...]:
+    """The licences of one entry that need explicit acceptance."""
+    accept = terms_gate((entry,))["accept"]
+    return tuple(str(item) for item in accept) if isinstance(accept, list) else ()
+
+
+def _notices(licences: set[str]) -> list[str]:
+    """Warnings and EU notices Sovereign's definition attaches to licences."""
+    lines: list[str] = []
+    for family in definition().families:
+        for licence in family.licences:
+            if licence.id not in licences:
+                continue
+            if licence.warning:
+                lines.append(f"  ! {licence.name}: {licence.warning}")
+            if licence.eu_subject:
+                lines.append(
+                    f"  ! {licence.name}: the maker's terms don't license "
+                    f"{licence.eu_subject} in the EU."
+                )
+    return lines
+
+
+class StarterAcceptance(Record):
+    """A local record that the operator accepted gated terms before importing."""
+
+    schema_version: Literal["sovereign.starter-acceptance.v1"] = (
+        "sovereign.starter-acceptance.v1"
+    )
+    list_id: Digest
+    tier: Tier
+    entries: tuple[Identifier, ...] = Field(min_length=1, max_length=1000)
+    definition: int = Field(ge=1)
+    accepted: tuple[str, ...] = Field(min_length=1, max_length=256)
+    accepted_at: int = Field(ge=0)
+
+
 @dataclass(frozen=True)
 class StarterPlan:
     """What one import would do, computed offline from the ledger."""
@@ -210,6 +276,22 @@ class StarterPlan:
     new_bytes: int
     usage: int
     disk_bytes: int
+
+    @property
+    def new_entries(self) -> tuple[StarterEntry, ...]:
+        """The entries this import would download."""
+        return tuple(e for e in self.entries if self.status[e.entry_id] == "new")
+
+    @property
+    def gate(self) -> dict[str, JsonValue]:
+        """The terms review for the entries this import would download."""
+        return terms_gate(self.new_entries)
+
+    @property
+    def accept(self) -> tuple[str, ...]:
+        """Exactly the licences the operator must accept for this import."""
+        value = self.gate["accept"]
+        return tuple(str(item) for item in value) if isinstance(value, list) else ()
 
     @property
     def fits(self) -> bool:
@@ -271,14 +353,37 @@ def review_import(
     for entry in plan.entries:
         licence = entry.licence
         source = licence.conversion or licence.base_model
+        needs = gated(entry)
         lines += [
             f"  {entry.title} [{entry.tier}] {_size(entry.size_bytes)}"
             + labels[plan.status[entry.entry_id]],
             f"    {entry.role}",
             f"    licence: {licence.license_id} (from {licence.base_model} "
             f"@ {licence.base_revision[:12]}); {licence.summary}",
+            *([f"    terms to accept: {', '.join(needs)}"] if needs else []),
             f"    weights: {source}; manifest {entry.manifest}",
         ]
+    gate = plan.gate
+    rows = gate["licences"] if isinstance(gate["licences"], list) else []
+    accept = plan.accept
+    if accept:
+        lines += [
+            "",
+            "Terms you must accept before importing (as on Hugging Face's gated",
+            "  models). Read each licence's full text first:",
+        ]
+        for row in rows:
+            if not isinstance(row, dict) or not row.get("requires_acceptance"):
+                continue
+            lines.append(f"  {row.get('name')} ({row.get('license_id')}):")
+            lines.append(f"    {row.get('summary')}")
+            references = row.get("references")
+            for reference in references if isinstance(references, list) else []:
+                if isinstance(reference, dict):
+                    shown = reference.get("url") or reference.get("reference")
+                    lines.append(f"    full text: {shown}")
+        lines += _notices({normalize_license(item) for item in accept})
+        lines.append("  Accept exactly these: --accept-terms " + ",".join(accept))
     lines += [
         "",
         f"Model-signing keys accepted for these bundles (threshold "
@@ -307,12 +412,15 @@ def review_import(
                 "entry_id": entry.entry_id,
                 "manifest": entry.manifest,
                 "license_id": entry.licence.license_id,
+                "requires_acceptance": list(gated(entry)),
                 "size_bytes": entry.size_bytes,
                 "status": plan.status[entry.entry_id],
             }
             for entry in plan.entries
         ],
         "model_keys": [key.key_id for key in trust.keys],
+        "terms": gate,
+        "accept": list(accept),
         "new_bytes": plan.new_bytes,
         "disk_bytes": plan.disk_bytes,
         "usage_bytes": plan.usage,
@@ -353,6 +461,7 @@ def import_starter(
     tier: Tier,
     *,
     consented: bool,
+    accepted: tuple[str, ...] | None = None,
     options: ImportOptions | None = None,
     control: OperationControl | None = None,
 ) -> dict[str, JsonValue]:
@@ -366,6 +475,13 @@ def import_starter(
     checked against the entry's size and terms, then hardlinked into the
     mirror store. No source is followed and nothing is scheduled: there is no
     relationship with the list or its publisher afterwards.
+
+    Gated licences work as the core's terms gate does: when any new entry's
+    licence needs acceptance, ``accepted`` must name exactly the reviewed
+    ``accept`` list, or the import refuses with ``terms_acceptance_required``
+    before any download. The acceptance is recorded in the mirror's private
+    scratch directory first. Accepting is the operator's decision; Sovereign's
+    licence summaries are not legal advice.
     """
     if not consented:
         raise PreservationError(
@@ -384,6 +500,28 @@ def import_starter(
             "starter import exceeds the mirror disk budget; raise it or choose "
             "a smaller tier"
         )
+    required = plan.accept
+    given = sorted(dict.fromkeys(normalize_license(item) for item in accepted or ()))
+    if given != sorted(required):
+        raise PreservationError(
+            "terms_acceptance_required"
+            + (": accept exactly " + ",".join(required) if required else "")
+        )
+    if required:
+        record = StarterAcceptance(
+            list_id=list_id,
+            tier=tier,
+            entries=tuple(entry.entry_id for entry in plan.new_entries),
+            definition=LICENCE_DEFINITION_VERSION,
+            accepted=tuple(sorted(required)),
+            accepted_at=int(time.time()),
+        )
+        with ledger.child("scratch") as scratch:
+            atomic_bytes(
+                scratch,
+                "starter-acceptance/" + digest(encode_record(record)) + ".json",
+                encode_record(record),
+            )
     staging = chosen.staging or ledger.path.parent / (
         ledger.path.name + ".starter-import"
     )
@@ -440,6 +578,7 @@ def import_starter(
         "imported": imported,
         "skipped": skipped,
         "failed": failed,
+        "accepted_terms": list(required),
         "follows_publisher": False,
         "restart_grant_invalidated": grant_before and ledger.read().restart is None,
         "recorded_at": int(time.time()),

@@ -56,7 +56,11 @@ from foxlight_model_preservation.bucket import (
     publish_peers,
     publish_to_bucket,
 )
-from foxlight_model_preservation.licences import normalize_license
+from foxlight_model_preservation.licences import (
+    KNOWN_LICENSES,
+    definition,
+    normalize_license,
+)
 from foxlight_model_preservation.mirror_cards import build_peers, issue_card
 from foxlight_model_preservation.mirror_models import Terms
 from foxlight_model_preservation.models import (
@@ -123,6 +127,9 @@ class Plan(Record):
     mirrors: tuple[str, ...] = Field(min_length=1, max_length=16)
     entries: tuple[PlanEntry, ...] = Field(min_length=1, max_length=1000)
     excluded: tuple[Excluded, ...] = ()
+    # strict: Apache-2.0 or MIT only. known: any licence in Sovereign's licence
+    # definition; gated ones need the operator's acceptance at import.
+    licence_policy: Literal["strict", "known"] = "strict"
 
 
 def load_plan(path: Path) -> tuple[Plan, dict[str, Recipe]]:
@@ -168,20 +175,43 @@ def card_bases(info: dict[str, Any]) -> tuple[str, ...]:
     return ()
 
 
+def allowed_licences(policy: str) -> frozenset[str]:
+    """Normalized licence identifiers a plan policy admits."""
+    return frozenset(STRICT) if policy == "strict" else KNOWN_LICENSES
+
+
+def spelled(licence: str) -> str:
+    """The identifier as recipes and lists spell it."""
+    return STRICT.get(licence, licence)
+
+
+def requires_acceptance(licence: str) -> bool:
+    """Whether Sovereign's definition gates this licence behind acceptance."""
+    for family in definition().families:
+        if any(item.id == licence for item in family.licences):
+            return family.acceptance
+    return True
+
+
 def resolve_licence(
-    base_info: dict[str, Any], conversion_info: dict[str, Any] | None
+    base_info: dict[str, Any],
+    conversion_info: dict[str, Any] | None,
+    policy: str = "strict",
 ) -> str:
     """Resolve the licence from the BASE model's card; never from a conversion.
 
-    The base card must name Apache-2.0 or MIT. A conversion's own tag must
-    then name the same licence: a missing, different or contradicting tag
+    The base card must name a licence the policy admits: Apache-2.0 or MIT
+    for ``strict``, any licence in Sovereign's definition for ``known`` (gated
+    ones are then accepted by the operator at import). A conversion's own tag
+    must name the same licence: a missing, different or contradicting tag
     refuses (it is not "clearly" the same terms), but it can never widen or
     replace what the base model's card says.
     """
     base = _card_licence(base_info)
-    if base not in STRICT:
+    if base not in allowed_licences(policy):
         raise LicenceRefused(
-            f"base model licence {base or 'unidentified'!r} is not Apache-2.0 or MIT"
+            f"base model licence {base or 'unidentified'!r} is not "
+            + ("Apache-2.0 or MIT" if policy == "strict" else "a known licence")
         )
     if conversion_info is not None:
         tagged = _card_licence(conversion_info)
@@ -190,7 +220,7 @@ def resolve_licence(
                 f"conversion licence tag {tagged or 'missing'!r} does not match "
                 f"the base model's {base!r}"
             )
-    return STRICT[base]
+    return spelled(base)
 
 
 # Hub access -----------------------------------------------------------------
@@ -284,6 +314,7 @@ def check(
     """
     report: list[dict[str, Any]] = []
     problems: list[str] = []
+    allowed = allowed_licences(plan.licence_policy)
     for entry in plan.entries:
         recipe = recipes[entry.entry_id]
         licence = entry.licence
@@ -295,22 +326,24 @@ def check(
                 if licence.conversion and licence.conversion_revision
                 else None
             )
-            resolved = resolve_licence(base, conversion)
-            if resolved != licence.license_id:
+            resolved = resolve_licence(base, conversion, plan.licence_policy)
+            if normalize_license(resolved) != normalize_license(licence.license_id):
                 raise LicenceRefused(
                     f"plan says {licence.license_id}, base resolves to {resolved}"
                 )
             ancestors: dict[str, str] = {}
             for ancestor in card_bases(base):
                 found = _card_licence(hub.info(ancestor, "main"))
-                if found not in STRICT:
+                if found not in allowed:
                     raise LicenceRefused(
                         f"declared base {ancestor} is {found or 'unidentified'!r}"
                     )
-                ancestors[ancestor] = STRICT[found]
+                ancestors[ancestor] = spelled(found)
             declared = {normalize_license(m.intake.license_id) for m in recipe.members}
-            if not declared <= set(STRICT):
-                raise LicenceRefused("a recipe member declares a non-strict licence")
+            if not declared <= allowed:
+                raise LicenceRefused(
+                    "a recipe member declares a licence the plan policy refuses"
+                )
             if not any(
                 file.path.rsplit("/", 1)[-1].upper().startswith("LICENSE")
                 for member in recipe.members
@@ -364,6 +397,9 @@ def check(
                 if conversion is not None
                 else None,
                 ancestors=ancestors,
+                requires_acceptance=sorted(
+                    item for item in declared if requires_acceptance(item)
+                ),
                 logical_bytes=total,
                 ok=True,
             )

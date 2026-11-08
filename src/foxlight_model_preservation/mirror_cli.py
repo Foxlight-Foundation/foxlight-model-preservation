@@ -17,6 +17,7 @@ from .licences import (
     LICENCE_DEFINITION_VERSION,
     definition,
     identified_licences,
+    normalize_license,
 )
 from .mirror import (
     configure_http,
@@ -114,6 +115,7 @@ class MirrorArguments(argparse.Namespace):
     starter_mirror: tuple[str, ...] | list[str] = ()
     accept_starter: bool = False
     starter_staging: Path | None = None
+    starter_accept: tuple[str, ...] | list[str] = ()
     resume_for: int | None
     plan_only: bool
     consent_public_serving: bool
@@ -609,6 +611,14 @@ def _starter_arguments(command: argparse.ArgumentParser, *, quickstart: bool) ->
         help="optional independently enrolled keys the list signature must meet",
     )
     command.add_argument(
+        "--accept-starter-terms" if quickstart else "--accept-terms",
+        dest="starter_accept",
+        action="append",
+        default=[],
+        help="accept these gated licences (comma-separated, exactly as the "
+        "review lists them) for the models this import keeps",
+    )
+    command.add_argument(
         f"--{prefix}mirror",
         dest="starter_mirror",
         action="append",
@@ -636,6 +646,33 @@ def _load_starter(arguments: MirrorArguments) -> tuple[StarterList, str] | None:
     return starter, arguments.expected_list_id
 
 
+def _accepted(arguments: MirrorArguments) -> tuple[str, ...]:
+    """The gated licences accepted on the command line, once each."""
+    return tuple(
+        dict.fromkeys(
+            item.strip()
+            for value in arguments.starter_accept
+            for item in value.split(",")
+            if item.strip()
+        )
+    )
+
+
+def _ask_terms(accept: tuple[str, ...], given: tuple[str, ...]) -> tuple[str, ...]:
+    """Ask interactively for gated terms not already accepted by flag."""
+    if not accept or given or not sys.stdin.isatty():
+        return given
+    print(
+        "\nThese models' licences need your acceptance: "
+        + ", ".join(accept)
+        + ".\nType 'I accept these terms' to accept exactly them: ",
+        end="",
+        file=sys.stderr,
+        flush=True,
+    )
+    return accept if sys.stdin.readline().strip() == "I accept these terms" else ()
+
+
 def _import_starter(
     arguments: MirrorArguments, control: OperationControl
 ) -> dict[str, JsonValue]:
@@ -645,9 +682,8 @@ def _import_starter(
         raise PreservationError("a starter list is required")
     starter, list_id = loaded
     ledger = MirrorLedger(arguments.mirror_dir)
-    text, summary = review_import(
-        starter, plan_import(ledger, starter, list_id, arguments.starter_tier)
-    )
+    plan = plan_import(ledger, starter, list_id, arguments.starter_tier)
+    text, summary = review_import(starter, plan)
     print(text, file=sys.stderr, flush=True)
     if arguments.plan_only:
         return {"review": summary, "consented": False, "changed": False}
@@ -660,12 +696,14 @@ def _import_starter(
             flush=True,
         )
         consented = sys.stdin.readline().strip() == "import"
+    accepted = _ask_terms(plan.accept, _accepted(arguments)) if consented else ()
     receipt = import_starter(
         ledger,
         starter,
         list_id,
         arguments.starter_tier,
         consented=consented,
+        accepted=accepted,
         options=ImportOptions(
             mirrors=tuple(arguments.starter_mirror),
             allow_http=arguments.allow_http,
@@ -883,12 +921,14 @@ def _quickstart(
         "mirror_key": mirror_key_id(ledger) if announce else None,
     }
     if starter is not None:
+        pending = plan_import(ledger, starter[0], starter[1], arguments.starter_tier)
         result["starter"] = import_starter(
             ledger,
             starter[0],
             starter[1],
             arguments.starter_tier,
             consented=True,
+            accepted=_ask_terms(pending.accept, _accepted(arguments)),
             options=ImportOptions(
                 mirrors=tuple(arguments.starter_mirror), keep_going=True
             ),
@@ -939,6 +979,18 @@ def _starter_review(
         raise PreservationError(
             "starter import exceeds the disk budget; raise --disk-bytes or "
             "choose a smaller tier"
+        )
+    if (
+        plan.accept
+        and sorted({normalize_license(item) for item in _accepted(arguments)})
+        != sorted(plan.accept)
+        and not arguments.plan_only
+        and not sys.stdin.isatty()
+    ):
+        # Refuse before quickstart changes anything, not after setup.
+        raise PreservationError(
+            "terms_acceptance_required: add --accept-starter-terms "
+            + ",".join(plan.accept)
         )
     return review_import(starter[0], plan)
 

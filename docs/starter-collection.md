@@ -109,6 +109,28 @@ Import refuses before it downloads anything unless:
   `import`, or pass `--yes-i-accept-the-starter-list` after reading the review
   (`--plan-only` prints it and changes nothing).
 
+### Licences that need your acceptance
+
+A starter list may also carry models whose licences have use restrictions or
+conditions to pass on: non-commercial licences, responsible-AI licences and
+makers' own terms (for example the Gemma Terms of Use or a Llama licence).
+The strict list above has none, but the format and import support them the
+same way the core's terms gate does, as Hugging Face's gated models do.
+
+Which licences need acceptance is decided by Sovereign's own
+[licence definition](sovereign-desktop.md#help-keep-models-available), never by
+the list. The review marks each such model ("terms to accept") and lists,
+under **Terms you must accept before importing**, each licence's name, a plain
+summary, a link to its full text, and any warning or EU notice the definition
+attaches. Import then refuses with `terms_acceptance_required`, before anything
+downloads, unless you accept **exactly** those licences: type
+`I accept these terms` when asked, or pass `--accept-terms gemma,llama3.1`
+(`--accept-starter-terms` on quickstart, `SOVEREIGN_MIRROR_STARTER_ACCEPT_TERMS`
+in the container). Your acceptance is recorded under the mirror's private
+`scratch/starter-acceptance/` before the import starts. Only models not yet
+held count, so a rerun that imports nothing asks for nothing. Serving such a
+model publicly may also be limited by its terms; deciding that is yours.
+
 Accepting the review accepts the list's model-signing keys **for the bundles in
 that list only**. Each bundle is downloaded from the list's mirror hints (add
 `--mirror URL_OR_STORE` to try your own source first, such as a copy on a USB
@@ -172,7 +194,7 @@ Each entry extends a signed catalog entry (`entry_id`, `manifest`, `mirrors`):
 | `recipe`, `recipe_sha256` | The recipe name and the SHA-256 of its canonical JSON. |
 | `size_bytes` | The bundle's total bytes; a different bundle refuses. |
 | `licence` | Licence ID, a plain summary, and the base model (and conversion) with exact revisions it was resolved from. |
-| `terms` | The exact licence and terms-reference pairs of every bundle member, kept as the selection's reviewed terms. |
+| `terms` | The exact licence and terms-reference pairs of every bundle member, kept as the selection's reviewed terms. Whether a licence needs acceptance comes from Sovereign's licence definition, not from the list. |
 | `mirrors` | 1–16 HTTP(S) addresses that hold the bundle. Hints only: you may use any source. |
 
 ## Build and publish it (maintainers)
@@ -196,6 +218,11 @@ uv run python scripts/build_starter_collection.py publish \
   --store /big/disk/starter/store --list starter-list.json --list-id LIST_SHA256 \
   --bucket-target bucket-target.json --card-key starter-mirror-card.pem
 ```
+
+The plan's `licence_policy` is `strict` (Apache-2.0 or MIT only, the default)
+or `known` (any licence in Sovereign's licence definition; `check` reports
+which need acceptance, and operators accept them at import). Either way the
+licence is resolved from the base model and a conversion tag must match it.
 
 `build` refuses placeholder mirror hints, so the list always names a real
 address. Its output is the signed list and the list ID to publish separately.
