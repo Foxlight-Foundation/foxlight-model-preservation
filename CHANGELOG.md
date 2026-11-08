@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+- The strict starter collection: a signed, one-time import list of widely used
+  Apache-2.0 and MIT models in two tiers. The small tier (default, about
+  4.2 GB) has Qwen3.5 4B with its vision projector, Whisper large-v3-turbo
+  (whisper.cpp), all-MiniLM-L6-v2 and BGE small en v1.5. The opt-in standard
+  tier (about 55 GB with small) adds Qwen3.8 27B, gpt-oss 20B, Qwen3.5 9B,
+  Gemma 4 E4B, Phi-4-mini, BGE reranker v2 m3, Qwen3 Embedding 0.6B and
+  nomic-embed-text v1.5. Recipes in `examples/recipes/starter/` pin exact
+  revisions and every file's SHA-256 and carry the base model's LICENSE and
+  NOTICE, added where a conversion ships none. Licences are resolved from the
+  base model, never a conversion's tag. Kokoro-82M (unlicensed declared base)
+  and BGE-M3 (no safetensors) are left out. `mirror import-starter` verifies
+  the list (`sovereign.starter-list.v1`, DSSE-signed, pinned by
+  `--expected-list-id`), shows one review of models, licences, signing keys and
+  total size against the disk budget, needs consent, then retains each bundle
+  as an ordinary local selection. Re-running is idempotent, removed models are
+  never re-imported, and nothing published later can stop or change an
+  imported copy. `mirror quickstart --starter-list` (where `--collection` is
+  now optional) and the container's `SOVEREIGN_MIRROR_STARTER_LIST`,
+  `_LIST_ID` and `_TIER` opt in. `scripts/build_starter_collection.py` checks
+  every pin against the Hub without downloading weights, then packs, signs and
+  publishes the collection to a bucket mirror. Not legal advice; operators are
+  responsible for their jurisdiction.
+
 - Catalog withdrawal is now advisory: no catalog publisher, Foxlight
   included, can take down a mirror's copies. Catalogs are discovery, not
   authority. When a followed catalog stops listing a retained copy, the mirror

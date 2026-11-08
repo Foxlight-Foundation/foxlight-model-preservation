@@ -98,6 +98,21 @@ budget (`--ingress-daily`, 50G by default) protects your own connection. An
 existing mirror keeps the caps it already has when quickstart runs again
 without them; pass `none` (for example `--egress-daily none`) to remove one.
 
+### Add the starter collection
+
+Quickstart can also import the [strict starter collection](starter-collection.md):
+a signed list of Apache-2.0 and MIT models in a small (about 4.2 GB) and a
+standard (about 55 GB) tier. Add `--starter-list FILE`
+`--expected-starter-list-id LIST_SHA256` and optionally `--starter-tier
+standard`; with a starter list, `--collection` is optional. The starter review
+is shown with the mirror review and covered by the same consent. On an
+existing mirror, `mirror import-starter` does the same on its own.
+
+It is a **one-time import**, not a followed source: each model becomes your own
+local selection, and nothing published later (a newer list, a list that omits a
+model) can stop, change or remove it. Quickstart downloads the starter models
+after consent, so unlike the rest of quickstart it uses the network.
+
 ## Choose how to run it
 
 There are three ways to keep a mirror running. Pick whichever suits the
@@ -156,7 +171,10 @@ docker compose --env-file deploy/mirror/mirror.env \
 ```
 
 `SOVEREIGN_MIRROR_DOMAIN`, `SOVEREIGN_MIRROR_CONTACT`, `SOVEREIGN_MIRROR_BUDGET`,
-the collection directory and `SOVEREIGN_MIRROR_CONSENT` configure it. Upload
+the collection directory and `SOVEREIGN_MIRROR_CONSENT` configure it. The
+[starter collection](starter-collection.md#with-quickstart-or-the-container) is
+opt-in with `SOVEREIGN_MIRROR_STARTER_LIST`, `SOVEREIGN_MIRROR_STARTER_LIST_ID`
+and `SOVEREIGN_MIRROR_STARTER_TIER`; with it, `collection.json` is optional. Upload
 caps (`SOVEREIGN_MIRROR_EGRESS_DAILY`, `SOVEREIGN_MIRROR_EGRESS_MONTHLY`) are
 unset by default, so a new container mirror has none; set them to cap uploads,
 or to `none` to remove caps an existing mirror already has. Until
@@ -517,7 +535,8 @@ model-preserve mirror status --dir ~/sovereign-mirrors/example
 ```
 
 A public kit can first be imported using the ordinary independently trusted
-`kit-import` workflow. The input must already declare every member public; this
+`kit-import` workflow. `mirror import-starter` retains every model of a signed
+[starter list](starter-collection.md) the same way, after one review. The input must already declare every member public; this
 command does not turn a private capture into a public publication or establish
 redistribution rights. It authenticates the selected manifest and terms, copies
 and verifies all required objects, and keeps the exact original signed wrapper,

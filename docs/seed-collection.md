@@ -1,5 +1,15 @@
 # Reference seed collection
 
+This page describes the tiny reference recipes used to exercise the
+preservation contract. For a curated set of widely used Apache-2.0 and MIT
+models that a mirror can import in one step, see the
+[strict starter collection](starter-collection.md). Its recipes in
+`examples/recipes/starter/` use the same format: pinned revisions, a SHA-256
+for every file, notice members and intake declarations. They also carry the
+base model's LICENSE and NOTICE (added where a conversion ships none), and
+their licences are resolved from the base model rather than the conversion's
+tag.
+
 The initial collection exercises three small, publicly declared Apache-2.0 model
 artifacts. Each recipe pins every file's SHA-256 and exact repository revision.
 These are measured owner captures, with upstream/derivative README declarations
