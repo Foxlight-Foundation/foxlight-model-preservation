@@ -229,6 +229,13 @@ def read_seed_list(data: bytes) -> tuple[str, ...]:
     return SeedList.model_validate_json(canonical_bytes(strict_json(data))).mirrors
 
 
+def packaged_seeds() -> tuple[str, ...]:
+    """The seed list shipped with this package."""
+    return read_seed_list(
+        files("foxlight_model_preservation").joinpath(SEED_RESOURCE).read_bytes()
+    )
+
+
 def load_seeds(path: Path | None = None, *, packaged: bool = True) -> tuple[str, ...]:
     """Return the shipped seed list plus an optional user-supplied one.
 
@@ -237,13 +244,7 @@ def load_seeds(path: Path | None = None, *, packaged: bool = True) -> tuple[str,
     """
     seeds: list[str] = []
     if packaged:
-        seeds.extend(
-            read_seed_list(
-                files("foxlight_model_preservation")
-                .joinpath(SEED_RESOURCE)
-                .read_bytes()
-            )
-        )
+        seeds.extend(packaged_seeds())
     selected = path
     if selected is None and os.environ.get(SEEDS_ENV):
         selected = Path(os.environ[SEEDS_ENV])

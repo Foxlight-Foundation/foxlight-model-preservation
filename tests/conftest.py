@@ -32,6 +32,14 @@ def private_mirror_directory(
     return path
 
 
+@pytest.fixture(autouse=True)
+def no_packaged_seed_mirrors(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No test may contact the real starter mirror the package ships."""
+    from foxlight_model_preservation import mirror_directory
+
+    monkeypatch.setattr(mirror_directory, "packaged_seeds", lambda: ())
+
+
 @pytest.fixture
 def capture(tmp_path: Path) -> Capture:
     sources = {}
