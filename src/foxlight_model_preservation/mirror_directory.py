@@ -38,7 +38,7 @@ from urllib.parse import urlsplit
 from pydantic import Field, JsonValue, field_validator
 
 from .archives import ArchiveManifest
-from .ledger import TransferBudget, receipt_path
+from .ledger import CreditCarry, TransferBudget, receipt_path
 from .mirror_cards import (
     MAX_PEERS,
     MAX_PEERS_BYTES,
@@ -1465,6 +1465,9 @@ def fetch_with_mirrors(
     # receive shares one in-memory allowance, so together they never move
     # more than ``policy.max_bytes``.
     allowance = TransferBudget(policy.max_bytes) if operation_id is None else None
+    # A named receive's durable reservations are never refunded, but the
+    # fallback stage keeps the primary stage's unused credit in this process.
+    carry = CreditCarry() if operation_id is not None else None
 
     def attempt(
         plan: SourcePlan, stage: OperationControl, request: tuple[str, ...] | None
@@ -1482,6 +1485,7 @@ def fetch_with_mirrors(
             manifest_failure=refused,
             request_sources=request,
             allowance=allowance,
+            carry=carry,
         )
 
     key = (

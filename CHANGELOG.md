@@ -31,6 +31,9 @@
   none left no seed is contacted. Nested crawls, spot checks, discovered
   fetches and manifest reads likewise never run past a deadline their
   control already carries (`OperationControl.deadline_after`).
+  A named receive's fallback stage keeps the primary stage's unused durable
+  reservation in the same process (`ledger.CreditCarry`), only while the
+  receipt on disk is unchanged; reservations are still never refunded.
 
 - Guided setup 0.1.4 and graphical setup 0.1.6 install Linux revision 6
   (core 0.29 / Library 0.25), now served by the signed apt channel; package pins

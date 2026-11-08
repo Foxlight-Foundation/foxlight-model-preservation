@@ -1190,3 +1190,99 @@ def test_no_time_left_after_the_primary_stage_contacts_no_seed(
     assert attempts == [("http://127.0.0.1:9",)]
     assert seed_requests == []
     assert MirrorDirectory(tmp_path / "d").read_fallbacks().entries == ()
+
+
+def test_a_named_fallback_keeps_the_primary_stages_unused_reservation(
+    tmp_path: Path, capture: Capture
+) -> None:
+    """A whole-allowance reservation from the first stage still serves the next."""
+    from foxlight_model_preservation.ledger import read_transfer_receipt
+
+    corrupt = tmp_path / "corrupt"
+    shutil.copytree(capture.store, corrupt)
+    verified = verify_store(capture.store, capture.identity, capture.trust)
+    weights = verified.members[0]
+    vouched = tmp_path / "seed-peers.json"
+    store = tmp_path / "received"
+    policy = TransferPolicy(
+        allow_http=True, allow_private=True, timeout=3, max_bytes=100_000
+    )
+    with (
+        holding(corrupt, capture) as hint,
+        holding(capture.store, capture) as holder,
+        peers_only(vouched) as (seed, seed_requests),
+    ):
+        target = corrupt / object_path(weights.files[0].sha256)
+        target.chmod(0o600)
+        target.write_bytes(b"x" * weights.files[0].size)
+        vouched.write_bytes(build_peers(None, (_card_for(capture.identity, holder),)))
+        manifest = fetch_with_mirrors(
+            capture.identity,
+            capture.trust,
+            (hint,),
+            store,
+            policy,
+            mirrors=MirrorDirectory(tmp_path / "d"),
+            seeds=(seed,),
+            operation_id="op",
+        )
+    assert seed_requests[0] == PEERS  # The fallback stage ran.
+    assert manifest == verify_store(store, capture.identity, capture.trust)
+    # The first read reserved the whole allowance on disk; it was never
+    # refunded, and the fallback stage used what was left of it.
+    receipt = read_transfer_receipt(store, "op")
+    assert verified.total_bytes < receipt.charged_bytes == policy.max_bytes
+
+
+def test_carried_credit_is_forfeit_once_the_receipt_changes(tmp_path: Path) -> None:
+    """Credit is adopted only against the exact receipt the earlier stage wrote."""
+    from foxlight_model_preservation.ledger import CreditCarry, TransferBudget
+    from foxlight_model_preservation.storage import CHUNK_SIZE
+    from foxlight_model_preservation.storage import directory as pinned
+
+    large = 8 * CHUNK_SIZE
+
+    with pinned(tmp_path / "store", create=True) as root:
+
+        def budget(carry: CreditCarry | None = None) -> TransferBudget:
+            return TransferBudget(
+                100_000,
+                root=root,
+                operation_id="op",
+                request_digest="1" * 64,
+                carry=carry,
+            )
+
+        carry = CreditCarry()
+        first = budget(carry)
+        first.reserve(10)
+        first.consume(10)
+        assert first.remaining == 100_000 - 10
+        # The next stage keeps the unused reservation.
+        assert budget(carry).remaining == 100_000 - 10
+        # A restart (no carry) forfeits it: reservations are never refunded.
+        assert budget().remaining == 0
+        # So does any charge written in between by another budget.
+        carry = CreditCarry()
+        stale = TransferBudget(
+            large,
+            root=root,
+            operation_id="other",
+            request_digest="2" * 64,
+            carry=carry,
+        )
+        stale.reserve(10)
+        meanwhile = TransferBudget(
+            large, root=root, operation_id="other", request_digest="2" * 64
+        )
+        meanwhile.reserve(1)  # Charges afresh: the receipt on disk moves on.
+        assert (
+            TransferBudget(
+                large,
+                root=root,
+                operation_id="other",
+                request_digest="2" * 64,
+                carry=carry,
+            ).remaining
+            == large - 2 * CHUNK_SIZE
+        )

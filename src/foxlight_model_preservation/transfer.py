@@ -19,7 +19,7 @@ from urllib.parse import urlsplit
 from . import __version__
 from .archives import ArchiveManifest, archive_objects, verify_archive_manifest
 from .i2p_http import I2PHTTPProxy, i2p_http_response
-from .ledger import TransferBudget, receipt_path
+from .ledger import CreditCarry, TransferBudget, receipt_path
 from .models import (
     MAX_METADATA_BYTES,
     FileIdentity,
@@ -556,6 +556,7 @@ def fetch(
     manifest_failure: Callable[[str], None] | None = None,
     request_sources: tuple[str, ...] | None = None,
     allowance: TransferBudget | None = None,
+    carry: CreditCarry | None = None,
 ) -> ArchiveManifest:
     """Receive exact trusted content with optional control and persistent allowance.
 
@@ -581,6 +582,9 @@ def fetch(
     Without an operation ID, ``allowance`` lets several calls draw on one
     in-memory allowance (``TransferBudget(policy.max_bytes)``), so staged
     calls together never move more than ``policy.max_bytes`` of objects.
+    With an operation ID, ``carry`` hands this call's unused durable
+    reservation credit to the next call of the same receive in this process,
+    while the receipt is unchanged, so a staged receive does not lose it.
 
     Failures of the destination's own storage raise :class:`StorageFailed` at
     once; :class:`SourcesExhausted` means only the sources failed.
@@ -666,6 +670,7 @@ def fetch(
                         root=target,
                         operation_id=operation_id,
                         request_digest=binding,
+                        carry=carry,
                     )
                 )
                 missing, _reused, partial = observe_objects(
