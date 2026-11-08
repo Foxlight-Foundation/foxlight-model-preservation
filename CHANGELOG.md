@@ -38,6 +38,23 @@
   or adopting one on an existing mirror, clears it and needs fresh consent.
   Withholding a copy only narrows and never clears the grant.
 
+- `mirror quickstart` is now all or nothing on an existing mirror. It checks
+  the settings, the source's bootstrap ID, disk admission under the new budget
+  and the grant length before writing anything, and restores the previous
+  ledger if a later step still refuses. A refused reconfiguration (for example
+  a new source with a disk budget below what is already retained) previously
+  cleared the restart grant, so the existing service could no longer resume.
+
+- Add an optional hardened systemd system service for the headless mirror,
+  `deploy/mirror/sovereign-mirror@.service`, for always-on Linux servers and
+  NAS boxes without Docker. It runs as the unprivileged `sovereign` system
+  account from `/opt/sovereign/current`, keeps state in
+  `/var/lib/sovereign/mirrors/<instance>` and cannot see home directories or
+  write outside its state. `deploy/mirror/install-system-service.sh` sets it
+  up as root, refusing an unauthenticated release archive. The container and
+  the per-user unit are unchanged; the docs now compare what each of the three
+  options isolates.
+
 - Add a Hetzner Object Storage bucket preset (`hetzner`): the location code
   (`fsn1`, `nbg1` or `hel1`) gives the endpoint, signing region and public
   address. A bucket target saved with it is not readable by older versions.

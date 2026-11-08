@@ -98,6 +98,42 @@ budget (`--ingress-daily`, 50G by default) protects your own connection. An
 existing mirror keeps the caps it already has when quickstart runs again
 without them; pass `none` (for example `--egress-daily none`) to remove one.
 
+## Choose how to run it
+
+There are three ways to keep a mirror running. Pick whichever suits the
+machine; each one runs the same `mirror run --resume` under your reviewed
+grant, so they differ only in how the process is packaged and isolated.
+
+| Option | Suits | Proxy |
+| --- | --- | --- |
+| [Container](#run-in-a-container) | A VPS or any host with Docker. The simplest route. | Caddy in the same compose project |
+| [System service](#system-service-optional) (optional) | Always-on Linux servers and NAS boxes without Docker | The distro's Caddy package with the same Caddyfile |
+| [User service](#user-service-desktop) | A desktop or laptop you use yourself | Any TLS reverse proxy you run |
+
+What each one isolates:
+
+- **Container.** The mirror runs as an unprivileged account inside its own
+  filesystem, process and network namespaces, with Docker's default capability
+  and system call restrictions. It sees only its data volume and the read-only
+  collection directory; Caddy shares only its network namespace. The Docker
+  daemon itself runs as root, and a kernel bug is shared with the host.
+- **System service.** The mirror runs as the dedicated `sovereign` system
+  account with no login shell, no capabilities and a system call filter. It
+  cannot see `/home` or `/root`, sees the rest of the filesystem read-only and
+  can write only its own state directory. It shares the host's network and can
+  still read world-readable files outside home directories (for example most
+  of `/etc`).
+- **User service.** The mirror runs as your login account, with only
+  `NoNewPrivileges`. A bug in this internet-facing process could reach
+  everything your account can: your home directory, SSH keys, browser
+  profiles and other files. That is a reasonable trade on a desktop you
+  attend; on an always-on machine the system service or the container keeps
+  the mirror away from your own files.
+
+Synology, QNAP and TrueNAS manage their own system services and file layout,
+so on those NAS systems the container route (Container Manager, Container
+Station or TrueNAS apps) is usually the practical one.
+
 ## Run in a container
 
 [`deploy/mirror/`](../deploy/mirror/README.md) packages a multi-arch image
@@ -134,10 +170,69 @@ interrupted init) is printed and the container idles instead of looping; use
 
 ## Run as a service
 
+### System service (optional)
+
+[`sovereign-mirror@.service`](../deploy/mirror/sovereign-mirror@.service) is
+an optional systemd system unit for always-on Linux hosts without Docker. It
+runs as the unprivileged `sovereign` system account with the hardening listed
+in the unit (`ProtectSystem=strict`, `ProtectHome=yes`, no capabilities, a
+`@system-service` system call filter, `MemoryDenyWriteExecute` and more);
+`systemd-analyze security` rates it 1.1 ("OK") on systemd 257, the remainder
+being the network access a mirror exists to use. The layout follows the
+[installer](installation.md):
+
+| Path | Holds |
+| --- | --- |
+| `/opt/sovereign/<version>` | The release, installed with `install.py --directory` (root-owned). |
+| `/opt/sovereign/current` | A link to the version in use; repoint it and restart to upgrade. |
+| `/etc/sovereign/mirrors/<instance>` | The reviewed collection file and its source file (read-only). |
+| `/var/lib/sovereign/mirrors/<instance>` | The mirror's state (`StateDirectory=`, mode 0700). |
+
+Nothing installs or enables it unless you choose to. The setup script
+[`install-system-service.sh`](../deploy/mirror/install-system-service.sh), run
+as root, prints each step. Before changing anything it authenticates the
+release archive with `gh attestation verify` (or an independently obtained
+SHA-256) and refuses an unverified one, prints the `mirror quickstart` review
+and asks you to type `serve`. Then it creates the account, installs the
+release, sets up the mirror as `sovereign`, installs the unit and enables
+`sovereign-mirror@<instance>`. Running it again is safe; use it to upgrade or
+to change settings.
+
+```sh
+sudo deploy/mirror/install-system-service.sh \
+  --archive foxlight-model-preservation-0.28.1-install.zip \
+  --bundle release.sigstore.json \
+  --collection collection.json --instance example \
+  -- --public-url https://mirror.example.org --disk-bytes 500G
+journalctl -u sovereign-mirror@example
+```
+
+It needs Python 3.11+ outside `/home` and `/root` (the distro's `python3`),
+`uv`, `unzip` and, for `--bundle`, the GitHub CLI. The default
+`requirements-mirror.lock` profile includes libtorrent; choose
+`--requirements requirements.lock` where no libtorrent wheel exists. Add
+`-- --plan-only` to read the review only: nothing on the host changes and a
+running service keeps running.
+
+The mirror listens on `127.0.0.1:8080`. Use the distro's Caddy package with the
+repository's [Caddyfile](../deploy/mirror/Caddyfile) rather than writing
+another: copy it to `/etc/caddy/Caddyfile` (or merge its site block into the
+existing one) and give Caddy the domain with `systemctl edit caddy`:
+
+```ini
+[Service]
+Environment=SOVEREIGN_MIRROR_DOMAIN=mirror.example.org
+```
+
+then `systemctl restart caddy`. Ports 80 and 443 must reach the host. Caddy
+writes no access log unless you add a `log` directive.
+
+### User service (desktop)
+
 The [systemd user unit](../deploy/mirror/model-preserve-mirror@.service) matches
 the [installer](installation.md): software in `~/sovereign` (a link to the
-installed release) and mirrors in `~/sovereign-mirrors/<instance>`. It only runs
-`mirror run --resume`, which refuses without a current restart grant.
+installed release) and mirrors in `~/sovereign-mirrors/<instance>`. It runs as
+your login account (see [what each option isolates](#choose-how-to-run-it)).
 
 ```sh
 install -Dm0644 deploy/mirror/model-preserve-mirror@.service \
@@ -150,6 +245,11 @@ systemctl --user enable --now model-preserve-mirror@example
 The intended layout keeps the mirror on loopback behind a TLS reverse proxy
 (such as Caddy) that you run separately. The Python server does not terminate
 TLS itself.
+
+Both units only run `mirror run --resume`, which refuses without a current
+restart grant. A refusal is logged and retried a few times, then the unit stays
+failed rather than looping; a grant that runs out ends serving cleanly. Renew
+it with `mirror grant-resume` or by running quickstart again.
 
 ## Change configuration later
 
