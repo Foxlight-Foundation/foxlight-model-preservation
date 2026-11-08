@@ -82,6 +82,15 @@ class DeadlineExceeded(OperationError):
     code: ClassVar[ErrorCode] = "deadline_exceeded"
 
 
+class StorageFailed(OperationError):
+    """The receiver's own storage failed: a full disk, a failed write or sync.
+
+    Another supplier cannot fix it, so supplier fallback never swallows it.
+    """
+
+    code: ClassVar[ErrorCode] = "storage_error"
+
+
 class RequestChanged(OperationError):
     """An operation identity was reused with different immutable inputs."""
 
@@ -158,6 +167,8 @@ class OperationControl:
         self._last_report = 0.0
         self._used = False
         self._deadline: float | None = None
+        self._provisional = False
+        self._withheld = False
         self._snapshot = Progress(operation="verify", stage="starting")
 
     @property
@@ -169,22 +180,104 @@ class OperationControl:
         """Request cooperative stop; the worker's terminal outcome confirms it."""
         self._cancelled.set()
 
-    def fork(self) -> OperationControl:
+    def fork(self, *, provisional: bool = False) -> OperationControl:
         """Return a fresh control for one nested invocation of a retrying worker.
 
         The child shares this control's stop request, deadline and observer, so a
         cancellation of either stops both. Use one per attempt; never reuse it.
+
+        A ``provisional`` child is an attempt the caller may still follow with
+        another: its terminal *failed* snapshot is withheld from the observer.
+        The caller then either continues under this control with
+        :meth:`resume_after`, so observers never see a failure that was not
+        final, or reports the withheld failure with :meth:`settle`. A completed
+        or cancelled child reports as usual.
         """
         child = OperationControl(self._observer, interval_seconds=self._interval)
         child._cancelled = self._cancelled
         child._deadline = self._deadline
+        child._provisional = provisional
         return child
+
+    def settle(self) -> None:
+        """Report a provisional attempt's withheld failure: it was final."""
+        if self._withheld:
+            self._withheld = False
+            self._report(force=True)
+
+    def resume_after(self, attempt: OperationControl) -> None:
+        """Continue after a provisional attempt failed, keeping its work counts.
+
+        The attempt's withheld failure is discarded rather than reported, and
+        this unused control carries its byte counters (which are cumulative
+        work) and any observer failure. Its own invocation reports next.
+        """
+        if self._used:
+            raise ValueError("resume only under a control not yet used")
+        attempt._withheld = False
+        done = attempt._snapshot
+        self._snapshot = self._snapshot.model_copy(
+            update={
+                "operation": done.operation,
+                "bytes_hashed": done.bytes_hashed,
+                "bytes_copied": done.bytes_copied,
+                "bytes_received": done.bytes_received,
+                "bytes_reused": done.bytes_reused,
+                "observer_failed": done.observer_failed,
+            }
+        )
+        if attempt._observer is None:
+            self._observer = None
+
+    def adopt_outcome(self, attempt: OperationControl) -> None:
+        """Take a finished provisional attempt's final state as this control's.
+
+        For a caller whose attempt was final after all (it succeeded, or failed
+        or was cancelled with nothing to follow), so ``progress`` here shows
+        the real outcome: stage, byte counters, commitment and error code. The
+        observer already had the attempt's one terminal snapshot (a withheld
+        failure must be reported with :meth:`settle` first), so nothing is
+        reported again.
+        """
+        if self._used:
+            raise ValueError("use a fresh control for each invocation")
+        self._used = True
+        self._snapshot = attempt._snapshot
+        if attempt._observer is None:
+            self._observer = None
+
+    def conclude(self, error: BaseException) -> None:
+        """Report the terminal outcome of work that failed before invocation.
+
+        For a caller that resumed after a provisional attempt and then failed
+        before this control's own invocation began, so exactly one terminal
+        snapshot is still reported.
+        """
+        if self._used:
+            raise ValueError("use a fresh control for each invocation")
+        self._used = True
+        self._terminal(error)
 
     def limit_deadline(self, deadline: float) -> None:
         """Apply an absolute monotonic deadline without extending an existing one."""
         if not math.isfinite(deadline):
             raise ValueError("deadline must be finite")
         self._deadline = min(self._deadline or deadline, deadline)
+
+    def deadline_after(self, seconds: float) -> float:
+        """Return an absolute deadline ``seconds`` from now, never past this one's.
+
+        A nested stage or retry computes its own deadline with this, so it
+        cannot run past a deadline its caller already applied.
+        """
+        deadline = time.monotonic() + seconds
+        return deadline if self._deadline is None else min(deadline, self._deadline)
+
+    def remaining_seconds(self) -> float | None:
+        """Return the time left before this control's deadline, if it has one."""
+        if self._deadline is None:
+            return None
+        return self._deadline - time.monotonic()
 
     def checkpoint(self) -> None:
         """Stop before the next effect; an already committed result wins the race."""
@@ -240,6 +333,19 @@ class OperationControl:
         """Record successful publication without rechecking a late cancellation."""
         self._snapshot = self._snapshot.model_copy(update={"committed": True})
 
+    def _terminal(self, error: BaseException) -> None:
+        cancelled = isinstance(error, OperationCancelled)
+        self._snapshot = self._snapshot.model_copy(
+            update={
+                "stage": "cancelled" if cancelled else "failed",
+                "error_code": failure_code(error),
+            }
+        )
+        if self._provisional and not cancelled:
+            self._withheld = True
+        else:
+            self._report(force=True)
+
     @contextmanager
     def operation(self, kind: Operation) -> Generator[OperationControl]:
         """Own one invocation and emit exactly one final snapshot on exit."""
@@ -252,15 +358,7 @@ class OperationControl:
             yield self
             self.checkpoint()
         except BaseException as error:
-            self._snapshot = self._snapshot.model_copy(
-                update={
-                    "stage": "cancelled"
-                    if isinstance(error, OperationCancelled)
-                    else "failed",
-                    "error_code": failure_code(error),
-                }
-            )
-            self._report(force=True)
+            self._terminal(error)
             raise
         else:
             self._snapshot = self._snapshot.model_copy(update={"stage": "complete"})

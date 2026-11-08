@@ -37,6 +37,40 @@
   choose what to import. Not legal advice; operators are responsible for
   their jurisdiction.
 
+- Starter (seed) mirrors are now only a fallback. A receive first contacts
+  just its approved or signed hints and the mirrors its private directory
+  already knows; it reads seeds' peers documents, or tries seeds as sources,
+  only after all of those failed for that manifest (or there were none). Before,
+  unscored seeds were offered and asked up front, showing every receiver's IP
+  address to seed operators even when the named mirrors worked. The CLI
+  receives and the app's Library receive follow the same rule. Bounds are
+  unchanged (`max_sources`, the HTTPS policy, crawl caps and one deadline for
+  the whole receive). With `--operation-id`, the fallback stage is fixed once
+  beside the receipt (`.operations/<id>.fallback.json`) and extends the same
+  bound request, so a resume reuses it and never trips the changed-request
+  check. Each fallback is noted in the private directory's `fallbacks.json`
+  and listed by `mirrors list` as `starter_fallbacks`. `--look-further` is
+  unchanged. New API: `mirror_directory.plan_fallback`,
+  `MirrorDirectory.read_fallbacks`/`note_fallback`,
+  `transfer.SourcesExhausted`, `fetch(..., request_sources=...)` and
+  provisional child controls (`OperationControl.fork(provisional=True)`,
+  `resume_after`, `settle`, `conclude`). Progress observers, including the
+  Library and `--progress`, never see the primary stage's failure as terminal;
+  only the receive's final outcome is. The caller's control always ends with that real
+  outcome (stage, bytes, commitment, error code), including when the primary
+  stage was final or planning failed. Without `--operation-id` both stages
+  share one in-memory `max_bytes` allowance. A failure of the receiver's own
+  storage (full disk, failed write or sync) now raises
+  `operations.StorageFailed` (`storage_error`) at once instead of counting
+  against the source being read, so it never triggers the fallback.
+  The fallback stage gets only what is left of the receive's deadline: its
+  seed crawl and fetch cut every request timeout to that remainder, and with
+  none left no seed is contacted. Nested crawls, spot checks, discovered
+  fetches and manifest reads likewise never run past a deadline their
+  control already carries (`OperationControl.deadline_after`).
+  A named receive's fallback stage keeps the primary stage's unused durable
+  reservation in the same process (`ledger.CreditCarry`), only while the
+  receipt on disk is unchanged; reservations are still never refunded.
 - Publish Sovereign Mac build 11 (core 0.29 / Library 0.25): Developer ID signed
   and Apple notarized (app 7504d452…, DMG 5cfd0510…), DMG f97edfe6… and ZIP
   2dbbc527…. Install docs, download pages and the mirror deploy files now point

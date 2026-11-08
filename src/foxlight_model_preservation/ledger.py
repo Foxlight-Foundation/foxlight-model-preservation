@@ -51,6 +51,30 @@ def read_transfer_receipt(destination: Path, operation_id: str) -> TransferRecei
 
 
 @final
+class CreditCarry:
+    """Unused durable credit handed from one stage of a named receive to the next.
+
+    It lives only in this process. A later stage adopts the credit only while
+    the receipt on disk is exactly the one the earlier stage last wrote, so a
+    crash, a restart or any other charge in between forfeits it as before.
+    Nothing on disk is ever refunded.
+    """
+
+    def __init__(self) -> None:
+        self._receipt: TransferReceipt | None = None
+        self._credit = 0
+
+    def adopt(self, receipt: TransferReceipt) -> int:
+        """Return the credit still valid for exactly this on-disk receipt, else 0."""
+        return self._credit if self._receipt == receipt else 0
+
+    def keep(self, receipt: TransferReceipt | None, credit: int) -> None:
+        """Remember a stage's latest receipt and its unused credit."""
+        self._receipt = receipt
+        self._credit = credit
+
+
+@final
 class TransferBudget:
     """Fence reads against an allowance, optionally retaining charges across crashes.
 
@@ -66,6 +90,7 @@ class TransferBudget:
         root: int | None = None,
         operation_id: str | None = None,
         request_digest: str | None = None,
+        carry: CreditCarry | None = None,
     ) -> None:
         if not 0 < max_bytes <= MAX_TOTAL_BYTES:
             raise ValueError("max_bytes must be positive and bounded")
@@ -73,6 +98,7 @@ class TransferBudget:
         self._receipt: TransferReceipt | None = None
         self._credit = 0
         self._remaining = max_bytes
+        self._carry = carry
         if operation_id is None:
             return
         if root is None or request_digest is None:
@@ -96,6 +122,15 @@ class TransferBudget:
             raise RequestChanged("operation ID belongs to different transfer inputs")
         self._receipt = receipt
         self._remaining = receipt.max_bytes - receipt.charged_bytes
+        if carry is not None:
+            # Only while the earlier stage's reservation is exactly on disk.
+            self._credit = carry.adopt(receipt)
+            self._remaining += self._credit
+        self._sync()
+
+    def _sync(self) -> None:
+        if self._carry is not None:
+            self._carry.keep(self._receipt, self._credit)
 
     @property
     def remaining(self) -> int:
@@ -123,6 +158,7 @@ class TransferBudget:
         )
         self._receipt = updated
         self._credit += amount
+        self._sync()
 
     def consume(self, count: int) -> None:
         """Account for returned bytes after a reservation has covered the read."""
@@ -133,9 +169,11 @@ class TransferBudget:
                 raise BudgetExceeded("object read exceeded its durable reservation")
             self._credit -= count
         self._remaining -= count
+        self._sync()
 
     def abandon(self) -> None:
         """Forfeit uncertain credit after a read error before supplier fallback."""
         if self._receipt is not None:
             self._remaining -= self._credit
             self._credit = 0
+            self._sync()

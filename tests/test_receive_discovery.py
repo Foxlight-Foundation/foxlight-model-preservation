@@ -8,6 +8,7 @@ import shutil
 import threading
 from collections.abc import Generator, Iterator
 from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -28,6 +29,7 @@ from foxlight_model_preservation.mirror_directory import (
     fetch_with_mirrors,
     load_seeds,
     permitted,
+    plan_fallback,
     plan_sources,
     read_seed_list,
 )
@@ -311,9 +313,12 @@ def test_receiver_policy_holds_for_discovered_candidates(tmp_path: Path) -> None
 def test_http_seeds_are_refused_by_default(tmp_path: Path) -> None:
     directory = MirrorDirectory(tmp_path / "d")
     seeds = ("http://seed.example", "https://seed.example")
-    found = plan_sources(
-        "a" * 64, ("https://hint.example",), directory, learn=False, seeds=seeds
-    )
+    hints = ("https://hint.example",)
+    primary = plan_sources("a" * 64, hints, directory, learn=False, seeds=seeds)
+    # Seeds are never part of the primary stage.
+    assert primary.discovered == () and primary.seeds == ()
+    found = plan_fallback("a" * 64, hints, primary, directory, learn=False, seeds=seeds)
+    assert found.sources == (*hints, "https://seed.example")
     assert found.discovered == ("https://seed.example",)
     assert found.seeds == ("https://seed.example",)
 
@@ -677,3 +682,717 @@ def test_a_damaged_directory_still_receives_and_binds_a_hints_only_plan(
             )
     assert verify_store(store, capture.identity, capture.trust)
     assert b'"sources":[]' in (store / ".operations/damaged.sources.json").read_bytes()
+
+
+def test_a_receive_that_succeeds_from_its_hints_never_contacts_a_seed(
+    tmp_path: Path, capture: Capture
+) -> None:
+    """Starter mirrors see nobody whose named mirrors work."""
+    directory = MirrorDirectory(tmp_path / "d")
+    vouched = tmp_path / "seed-peers.json"
+    with (
+        holding(capture.store, capture) as hint,
+        peers_only(vouched) as (seed, seed_requests),
+    ):
+        vouched.write_bytes(build_peers(None, ()))
+        for operation_id in (None, "op"):
+            fetch_with_mirrors(
+                capture.identity,
+                capture.trust,
+                (hint,),
+                tmp_path / f"received-{operation_id}",
+                LAB,
+                mirrors=directory,
+                seeds=(seed,),
+                operation_id=operation_id,
+            )
+    assert seed_requests == []
+    assert directory.read_fallbacks().entries == ()
+    assert directory.unscored_seeds((seed,)) == (seed,)  # Still never asked.
+    assert not (tmp_path / "received-op/.operations/op.fallback.json").exists()
+
+
+def test_a_receive_whose_hints_fail_falls_back_to_seeds_and_succeeds(
+    tmp_path: Path, capture: Capture
+) -> None:
+    """Only after the hint fails is the seed asked, and what it vouches for works."""
+    directory = MirrorDirectory(tmp_path / "d")
+    vouched = tmp_path / "seed-peers.json"
+    store = tmp_path / "received"
+    with (
+        holding(capture.store, capture) as holder,
+        peers_only(tmp_path / "absent.json") as (hint, hint_requests),
+        peers_only(vouched) as (seed, seed_requests),
+    ):
+        vouched.write_bytes(build_peers(None, (_card_for(capture.identity, holder),)))
+        manifest = fetch_with_mirrors(
+            capture.identity,
+            capture.trust,
+            (hint,),
+            store,
+            LAB,
+            mirrors=directory,
+            seeds=(seed,),
+            operation_id="op",
+        )
+    assert manifest == verify_store(store, capture.identity, capture.trust)
+    # The hint was learned from and asked first; the seed only afterwards.
+    assert hint_requests[0] == PEERS and len(hint_requests) > 1
+    assert seed_requests[0] == PEERS
+    assert scores(directory)[holder] == (1, 0)
+    # Contacting starter mirrors is visible: in the private directory record
+    # and in the stage fixed beside the receipt.
+    [entry] = directory.read_fallbacks().entries
+    assert entry.manifest_id == capture.identity and entry.asked == (seed,)
+    stage = (store / ".operations/op.fallback.json").read_bytes()
+    assert holder.encode() in stage and seed.encode() in stage
+    listed = run(arguments("mirrors", "list", "--mirror-directory", directory.path))
+    assert listed["starter_fallbacks"] == [entry.model_dump(mode="json")]
+
+
+def test_a_receive_with_no_room_or_no_seeds_does_not_fall_back(
+    tmp_path: Path, capture: Capture
+) -> None:
+    directory = MirrorDirectory(tmp_path / "d")
+    with (
+        peers_only(tmp_path / "absent.json") as (hint, _hint_requests),
+        peers_only(tmp_path / "seed.json") as (seed, seed_requests),
+    ):
+        for seeds, policy in (
+            ((), LAB),
+            (
+                (seed,),
+                TransferPolicy(allow_http=True, allow_private=True, max_sources=1),
+            ),
+        ):
+            with pytest.raises(PreservationError, match="manifest"):
+                fetch_with_mirrors(
+                    capture.identity,
+                    capture.trust,
+                    (hint,),
+                    tmp_path / "never",
+                    policy,
+                    mirrors=directory,
+                    seeds=seeds,
+                )
+    assert seed_requests == []
+    assert directory.read_fallbacks().entries == ()
+
+
+def test_a_resume_after_an_interrupted_fallback_reuses_the_same_stage(
+    tmp_path: Path, capture: Capture
+) -> None:
+    """The fallback stage is fixed when first used, so a resume binds it."""
+    from foxlight_model_preservation.operations import (
+        OperationCancelled,
+        OperationControl,
+        Progress,
+    )
+
+    corrupt = tmp_path / "corrupt"
+    shutil.copytree(capture.store, corrupt)
+    weights = verify_store(capture.store, capture.identity, capture.trust).members[0]
+    directory = MirrorDirectory(tmp_path / "d")
+    store = tmp_path / "received"
+    stage_file = store / ".operations/op.fallback.json"
+    vouched = tmp_path / "seed-peers.json"
+    with (
+        holding(corrupt, capture) as hint,
+        holding(capture.store, capture) as holder,
+        peers_only(vouched) as (seed, seed_requests),
+        peers_only(tmp_path / "late.json") as (late, late_requests),
+    ):
+        target = corrupt / object_path(weights.files[0].sha256)
+        target.chmod(0o600)
+        target.write_bytes(b"x" * weights.files[0].size)
+        vouched.write_bytes(build_peers(None, (_card_for(capture.identity, holder),)))
+
+        def interrupt(progress: Progress) -> None:
+            # Stop as soon as the fallback stage starts moving objects.
+            if progress.stage == "downloading" and stage_file.exists():
+                control.cancel()
+
+        control = OperationControl(interrupt)
+        # The hint serves the signed manifest but a corrupt object, so the
+        # first stage creates the receipt before it fails.
+        with pytest.raises(OperationCancelled):
+            fetch_with_mirrors(
+                capture.identity,
+                capture.trust,
+                (hint,),
+                store,
+                LAB,
+                mirrors=directory,
+                seeds=(seed,),
+                control=control,
+                operation_id="op",
+            )
+        assert (store / ".operations/op.json").is_file()
+        fixed = stage_file.read_bytes()
+        assert seed_requests == [PEERS]
+        # Meanwhile the client learns of other mirrors and another seed.
+        directory.ingest((_card_for(capture.identity, "http://127.0.0.1:9"),))
+        manifest = fetch_with_mirrors(
+            capture.identity,
+            capture.trust,
+            (hint,),
+            store,
+            LAB,
+            mirrors=directory,
+            seeds=(late, seed),
+            operation_id="op",
+        )
+    assert manifest == verify_store(store, capture.identity, capture.trust)
+    # The same stage was resumed: nothing re-planned, no new seed asked.
+    assert stage_file.read_bytes() == fixed
+    assert PEERS not in seed_requests[1:] and late_requests == []
+    assert len(directory.read_fallbacks().entries) == 1
+
+
+TERMINAL = {"complete", "failed", "cancelled"}
+
+
+def test_a_fallback_never_shows_a_terminal_failure_before_it_succeeds(
+    tmp_path: Path, capture: Capture
+) -> None:
+    """Observers see the first stage's failure as nothing, and one final outcome."""
+    from foxlight_model_preservation.operations import OperationControl, Progress
+
+    corrupt = tmp_path / "corrupt"
+    shutil.copytree(capture.store, corrupt)
+    weights = verify_store(capture.store, capture.identity, capture.trust).members[0]
+    vouched = tmp_path / "seed-peers.json"
+    events: list[Progress] = []
+    with (
+        holding(corrupt, capture) as hint,
+        holding(capture.store, capture) as holder,
+        peers_only(vouched) as (seed, _seed_requests),
+    ):
+        target = corrupt / object_path(weights.files[0].sha256)
+        target.chmod(0o600)
+        target.write_bytes(b"x" * weights.files[0].size)
+        vouched.write_bytes(build_peers(None, (_card_for(capture.identity, holder),)))
+        # The first stage moves objects and then fails on the corrupt one.
+        fetch_with_mirrors(
+            capture.identity,
+            capture.trust,
+            (hint,),
+            tmp_path / "received",
+            LAB,
+            mirrors=MirrorDirectory(tmp_path / "d"),
+            seeds=(seed,),
+            control=OperationControl(events.append, interval_seconds=0),
+            operation_id="op",
+        )
+        assert directory_fell_back(tmp_path / "d")
+        # When the fallback also fails, that one failure is still reported.
+        failed: list[Progress] = []
+        with pytest.raises(PreservationError):
+            fetch_with_mirrors(
+                capture.identity,
+                capture.trust,
+                (hint,),
+                tmp_path / "never",
+                LAB,
+                mirrors=MirrorDirectory(tmp_path / "other"),
+                seeds=("http://127.0.0.1:9",),
+                control=OperationControl(failed.append, interval_seconds=0),
+            )
+    stages = [event.stage for event in events]
+    assert [stage for stage in stages if stage in TERMINAL] == ["complete"]
+    assert stages[-1] == "complete" and stages.count("starting") == 2
+    received = [event.bytes_received for event in events]
+    assert received == sorted(received) and received[-1] > 0
+    assert [event.stage for event in failed if event.stage in TERMINAL] == ["failed"]
+    assert failed[-1].stage == "failed"
+
+
+def directory_fell_back(path: Path) -> bool:
+    return bool(MirrorDirectory(path).read_fallbacks().entries)
+
+
+def test_cli_progress_shows_only_the_final_outcome_of_a_fallback(
+    tmp_path: Path, capture: Capture
+) -> None:
+    import json
+    import subprocess
+    import sys
+
+    trust = tmp_path / "trust.json"
+    trust.write_bytes(encode_record(capture.trust))
+    vouched = tmp_path / "seed-peers.json"
+    seeds = tmp_path / "seeds.json"
+    with (
+        holding(capture.store, capture) as holder,
+        peers_only(tmp_path / "absent.json") as (hint, _hint_requests),
+        peers_only(vouched) as (seed, seed_requests),
+    ):
+        vouched.write_bytes(build_peers(None, (_card_for(capture.identity, holder),)))
+        seeds.write_text(
+            json.dumps(
+                {"schema_version": "sovereign.seed-mirrors.v1", "mirrors": [seed]}
+            )
+        )
+        result = subprocess.run(  # noqa: S603 - fixed CLI, no shell
+            [
+                sys.executable,
+                "-m",
+                "foxlight_model_preservation.cli",
+                "fetch",
+                capture.identity,
+                "--trust",
+                str(trust),
+                "--mirror",
+                hint,
+                "--store",
+                str(tmp_path / "received"),
+                "--allow-http",
+                "--allow-private",
+                "--mirror-directory",
+                str(tmp_path / "d"),
+                "--seed-mirrors",
+                str(seeds),
+                "--progress",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+    assert result.returncode == 0, result.stderr
+    assert seed_requests[0] == PEERS
+    stages = [json.loads(line)["stage"] for line in result.stderr.splitlines()]
+    assert [stage for stage in stages if stage in TERMINAL] == ["complete"]
+    assert stages[-1] == "complete"
+
+
+def test_an_unnamed_receive_shares_one_allowance_across_both_stages(
+    tmp_path: Path, capture: Capture
+) -> None:
+    """Bytes the primary stage used are not available again to the fallback."""
+    from foxlight_model_preservation.operations import (
+        BudgetExceeded,
+        OperationControl,
+    )
+    from foxlight_model_preservation.transfer import SourcesExhausted, fetch
+
+    corrupt = tmp_path / "corrupt"
+    shutil.copytree(capture.store, corrupt)
+    verified = verify_store(capture.store, capture.identity, capture.trust)
+    weights = verified.members[0]
+    vouched = tmp_path / "seed-peers.json"
+    with (
+        holding(corrupt, capture) as hint,
+        holding(capture.store, capture) as holder,
+        peers_only(vouched) as (seed, seed_requests),
+    ):
+        target = corrupt / object_path(weights.files[0].sha256)
+        target.chmod(0o600)
+        target.write_bytes(b"x" * weights.files[0].size)
+        vouched.write_bytes(build_peers(None, (_card_for(capture.identity, holder),)))
+        # Measure what the primary stage alone moves before it fails.
+        probe = OperationControl()
+        with pytest.raises(SourcesExhausted):
+            fetch(
+                capture.identity,
+                capture.trust,
+                (hint,),
+                tmp_path / "probe",
+                LAB,
+                control=probe,
+            )
+        used = probe.progress.bytes_received
+        needed = verified.total_bytes - sum(
+            path.stat().st_size
+            for path in (tmp_path / "probe/objects").rglob("*")
+            if path.is_file()
+        )
+        assert used > 0 and needed > 0
+        # Enough for the first stage, and for the whole model, but not for
+        # the first stage's spent bytes plus what the fallback still needs.
+        limit = max(used, verified.total_bytes, used + needed - 1)
+        assert used + needed > limit
+        bounded = TransferPolicy(
+            allow_http=True, allow_private=True, timeout=3, max_bytes=limit
+        )
+        with pytest.raises(BudgetExceeded):
+            fetch_with_mirrors(
+                capture.identity,
+                capture.trust,
+                (hint,),
+                tmp_path / "bounded",
+                bounded,
+                mirrors=MirrorDirectory(tmp_path / "d"),
+                seeds=(seed,),
+            )
+        assert seed_requests == [PEERS]  # The fallback did start.
+        # With room for both stages (the fallback tries the hint again first)
+        # the same receive completes.
+        roomy = replace(bounded, max_bytes=2 * used + needed)
+        fetch_with_mirrors(
+            capture.identity,
+            capture.trust,
+            (hint,),
+            tmp_path / "roomy",
+            roomy,
+            mirrors=MirrorDirectory(tmp_path / "d2"),
+            seeds=(seed,),
+        )
+    assert verify_store(tmp_path / "roomy", capture.identity, capture.trust)
+
+
+def test_a_full_disk_during_the_primary_stage_never_reaches_the_seeds(
+    tmp_path: Path, capture: Capture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A receiver's own storage failure surfaces at once; no supplier is blamed."""
+    import errno
+
+    from foxlight_model_preservation import transfer
+    from foxlight_model_preservation.operations import StorageFailed, failure_code
+
+    real = transfer.open_file
+
+    class Full:
+        def __init__(self, stream: object) -> None:
+            self._stream = stream
+
+        def write(self, _data: bytes) -> int:
+            raise OSError(errno.ENOSPC, "No space left on device")
+
+        def __getattr__(self, name: str) -> object:
+            return getattr(self._stream, name)
+
+    @contextmanager
+    def full_disk(root: int, path: str, *, write: bool = False) -> Generator[object]:
+        with real(root, path, write=write) as stream:
+            yield Full(stream) if write and path.startswith(".partial/") else stream
+
+    monkeypatch.setattr(transfer, "open_file", full_disk)
+    directory = MirrorDirectory(tmp_path / "d")
+    with (
+        holding(capture.store, capture) as hint,
+        peers_only(tmp_path / "seed.json") as (seed, seed_requests),
+    ):
+        with pytest.raises(StorageFailed) as raised:
+            fetch_with_mirrors(
+                capture.identity,
+                capture.trust,
+                (hint,),
+                tmp_path / "received",
+                LAB,
+                mirrors=directory,
+                seeds=(seed,),
+            )
+    assert failure_code(raised.value) == "storage_error"
+    assert isinstance(raised.value.__cause__, OSError)
+    assert raised.value.__cause__.errno == errno.ENOSPC
+    assert seed_requests == []
+    assert directory.read_fallbacks().entries == ()
+
+
+@contextmanager
+def slow(delays: dict[str, float]) -> Generator[tuple[str, list[str]]]:
+    """A host that waits before answering 404; delays are keyed by path prefix."""
+    requests: list[str] = []
+    released = threading.Event()
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, format: str, *args: object) -> None:
+            pass
+
+        def do_GET(self) -> None:
+            requests.append(self.path)
+            for prefix, delay in delays.items():
+                if self.path.startswith(prefix):
+                    released.wait(delay)
+                    break
+            self.send_error(404)
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}", requests
+    finally:
+        released.set()
+        server.shutdown()
+        server.server_close()
+        thread.join(5)
+
+
+def test_the_fallback_gets_only_what_is_left_of_the_receive_deadline(
+    tmp_path: Path, capture: Capture
+) -> None:
+    """A primary failing near the deadline leaves the stalled seed the remainder."""
+    import time
+
+    from foxlight_model_preservation.operations import DeadlineExceeded
+
+    policy = TransferPolicy(
+        allow_http=True, allow_private=True, timeout=30, deadline_seconds=5
+    )
+    with (
+        slow({"/manifests/": 4.0}) as (hint, _hint_requests),
+        slow({"/": 30.0}) as (seed, seed_requests),
+    ):
+        started = time.monotonic()
+        with pytest.raises(DeadlineExceeded):
+            fetch_with_mirrors(
+                capture.identity,
+                capture.trust,
+                (hint,),
+                tmp_path / "never",
+                policy,
+                mirrors=MirrorDirectory(tmp_path / "d"),
+                seeds=(seed,),
+            )
+        elapsed = time.monotonic() - started
+    # The seed was asked after the primary failed, and the whole receive ended
+    # at its own deadline rather than starting a fresh one for the fallback.
+    assert seed_requests == [PEERS]
+    assert 3.5 < elapsed < 6.5, elapsed
+
+
+def test_no_time_left_after_the_primary_stage_contacts_no_seed(
+    tmp_path: Path, capture: Capture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import time
+
+    from foxlight_model_preservation import mirror_directory
+    from foxlight_model_preservation.operations import DeadlineExceeded
+    from foxlight_model_preservation.transfer import SourcesExhausted
+
+    attempts: list[tuple[str, ...]] = []
+
+    def exhausted_at_the_deadline(
+        _manifest: str,
+        _trust: object,
+        sources: tuple[str, ...],
+        *_a: object,
+        **_k: object,
+    ) -> None:
+        attempts.append(sources)
+        time.sleep(1.2)
+        raise SourcesExhausted("no authenticated manifest available")
+
+    monkeypatch.setattr(mirror_directory, "fetch", exhausted_at_the_deadline)
+    with peers_only(tmp_path / "seed.json") as (seed, seed_requests):
+        with pytest.raises(DeadlineExceeded):
+            fetch_with_mirrors(
+                capture.identity,
+                capture.trust,
+                ("http://127.0.0.1:9",),
+                tmp_path / "never",
+                TransferPolicy(allow_http=True, allow_private=True, deadline_seconds=1),
+                mirrors=MirrorDirectory(tmp_path / "d"),
+                seeds=(seed,),
+            )
+    assert attempts == [("http://127.0.0.1:9",)]
+    assert seed_requests == []
+    assert MirrorDirectory(tmp_path / "d").read_fallbacks().entries == ()
+
+
+def test_a_named_fallback_keeps_the_primary_stages_unused_reservation(
+    tmp_path: Path, capture: Capture
+) -> None:
+    """A whole-allowance reservation from the first stage still serves the next."""
+    from foxlight_model_preservation.ledger import read_transfer_receipt
+
+    corrupt = tmp_path / "corrupt"
+    shutil.copytree(capture.store, corrupt)
+    verified = verify_store(capture.store, capture.identity, capture.trust)
+    weights = verified.members[0]
+    vouched = tmp_path / "seed-peers.json"
+    store = tmp_path / "received"
+    policy = TransferPolicy(
+        allow_http=True, allow_private=True, timeout=3, max_bytes=100_000
+    )
+    with (
+        holding(corrupt, capture) as hint,
+        holding(capture.store, capture) as holder,
+        peers_only(vouched) as (seed, seed_requests),
+    ):
+        target = corrupt / object_path(weights.files[0].sha256)
+        target.chmod(0o600)
+        target.write_bytes(b"x" * weights.files[0].size)
+        vouched.write_bytes(build_peers(None, (_card_for(capture.identity, holder),)))
+        manifest = fetch_with_mirrors(
+            capture.identity,
+            capture.trust,
+            (hint,),
+            store,
+            policy,
+            mirrors=MirrorDirectory(tmp_path / "d"),
+            seeds=(seed,),
+            operation_id="op",
+        )
+    assert seed_requests[0] == PEERS  # The fallback stage ran.
+    assert manifest == verify_store(store, capture.identity, capture.trust)
+    # The first read reserved the whole allowance on disk; it was never
+    # refunded, and the fallback stage used what was left of it.
+    receipt = read_transfer_receipt(store, "op")
+    assert verified.total_bytes < receipt.charged_bytes == policy.max_bytes
+
+
+def test_carried_credit_is_forfeit_once_the_receipt_changes(tmp_path: Path) -> None:
+    """Credit is adopted only against the exact receipt the earlier stage wrote."""
+    from foxlight_model_preservation.ledger import CreditCarry, TransferBudget
+    from foxlight_model_preservation.storage import CHUNK_SIZE
+    from foxlight_model_preservation.storage import directory as pinned
+
+    large = 8 * CHUNK_SIZE
+
+    with pinned(tmp_path / "store", create=True) as root:
+
+        def budget(carry: CreditCarry | None = None) -> TransferBudget:
+            return TransferBudget(
+                100_000,
+                root=root,
+                operation_id="op",
+                request_digest="1" * 64,
+                carry=carry,
+            )
+
+        carry = CreditCarry()
+        first = budget(carry)
+        first.reserve(10)
+        first.consume(10)
+        assert first.remaining == 100_000 - 10
+        # The next stage keeps the unused reservation.
+        assert budget(carry).remaining == 100_000 - 10
+        # A restart (no carry) forfeits it: reservations are never refunded.
+        assert budget().remaining == 0
+        # So does any charge written in between by another budget.
+        carry = CreditCarry()
+        stale = TransferBudget(
+            large,
+            root=root,
+            operation_id="other",
+            request_digest="2" * 64,
+            carry=carry,
+        )
+        stale.reserve(10)
+        meanwhile = TransferBudget(
+            large, root=root, operation_id="other", request_digest="2" * 64
+        )
+        meanwhile.reserve(1)  # Charges afresh: the receipt on disk moves on.
+        assert (
+            TransferBudget(
+                large,
+                root=root,
+                operation_id="other",
+                request_digest="2" * 64,
+                carry=carry,
+            ).remaining
+            == large - 2 * CHUNK_SIZE
+        )
+
+
+def _terminal(events: list[object]) -> list[str]:
+    from foxlight_model_preservation.operations import Progress
+
+    return [
+        event.stage
+        for event in events
+        if isinstance(event, Progress) and event.stage in TERMINAL
+    ]
+
+
+def test_a_final_primary_attempt_shows_its_outcome_on_the_callers_control(
+    tmp_path: Path, capture: Capture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With a fallback possible but not used, control.progress is the real end."""
+    import errno
+
+    from foxlight_model_preservation import transfer
+    from foxlight_model_preservation.operations import (
+        OperationCancelled,
+        OperationControl,
+        Progress,
+        RequestChanged,
+        StorageFailed,
+    )
+
+    seed = "https://seed.example"  # Never reached in any case below.
+
+    def receive(
+        hints: tuple[str, ...], store: str, control: OperationControl, **extra: object
+    ) -> None:
+        fetch_with_mirrors(
+            capture.identity,
+            capture.trust,
+            hints,
+            tmp_path / store,
+            LAB,
+            mirrors=MirrorDirectory(tmp_path / "d"),
+            seeds=extra.pop("seeds", (seed,)),  # type: ignore[arg-type]
+            control=control,
+            **extra,  # type: ignore[arg-type]
+        )
+
+    with holding(capture.store, capture) as hint:
+        # Success.
+        events: list[Progress] = []
+        control = OperationControl(events.append, interval_seconds=0)
+        receive((hint,), "ok", control)
+        assert control.progress.stage == "complete" and control.progress.committed
+        assert control.progress.bytes_received > 0
+        assert _terminal(events) == ["complete"]
+
+        # Cancellation during the primary stage.
+        events = []
+
+        def cancel(progress: Progress) -> None:
+            events.append(progress)
+            if progress.stage == "downloading":
+                control.cancel()
+
+        control = OperationControl(cancel, interval_seconds=0)
+        with pytest.raises(OperationCancelled):
+            receive((hint,), "cancelled", control)
+        assert control.progress.stage == "cancelled"
+        assert control.progress.error_code == "cancelled"
+        assert not control.progress.committed
+        assert _terminal(events) == ["cancelled"]
+
+        # A failure that is not the sources' (no fallback follows).
+        real = transfer.open_file
+
+        @contextmanager
+        def full_disk(
+            root: int, path: str, *, write: bool = False
+        ) -> Generator[object]:
+            if write and path.startswith(".partial/"):
+                raise OSError(errno.ENOSPC, "No space left on device")
+            with real(root, path, write=write) as stream:
+                yield stream
+
+        monkeypatch.setattr(transfer, "open_file", full_disk)
+        events = []
+        control = OperationControl(events.append, interval_seconds=0)
+        with pytest.raises(StorageFailed):
+            receive((hint,), "full", control)
+        monkeypatch.setattr(transfer, "open_file", real)
+        assert control.progress.stage == "failed"
+        assert control.progress.error_code == "storage_error"
+        assert _terminal(events) == ["failed"]
+
+        # Planning refuses changed inputs before any invocation.
+        receive((hint,), "planned", OperationControl(), operation_id="op")
+        events = []
+        control = OperationControl(events.append, interval_seconds=0)
+        with pytest.raises(RequestChanged):
+            receive(("https://other.example",), "planned", control, operation_id="op")
+        assert control.progress.stage == "failed"
+        assert control.progress.error_code == "request_changed"
+        assert _terminal(events) == ["failed"]
+
+    # The sources ran out and the fallback has nothing to add.
+    with peers_only(tmp_path / "absent.json") as (empty, _requests):
+        events = []
+        control = OperationControl(events.append, interval_seconds=0)
+        with pytest.raises(PreservationError, match="manifest"):
+            receive((empty,), "exhausted", control, seeds=(empty,))
+        assert control.progress.stage == "failed"
+        assert control.progress.operation == "fetch"
+        assert _terminal(events) == ["failed"]

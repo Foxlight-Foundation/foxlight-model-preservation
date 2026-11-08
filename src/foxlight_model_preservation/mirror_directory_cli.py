@@ -71,7 +71,8 @@ def add_receive_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--seed-mirrors",
         type=Path,
-        help="an extra untrusted sovereign.seed-mirrors.v1 file "
+        help="an extra untrusted sovereign.seed-mirrors.v1 file, asked only "
+        "after a receive's own mirrors fail "
         "(default: $SOVEREIGN_SEED_MIRRORS)",
     )
     parser.add_argument("--look-further", action="store_true", help=LOOK_FURTHER_HELP)
@@ -162,6 +163,10 @@ def _summary(mirrors: MirrorDirectory) -> dict[str, JsonValue]:
             address: {"successes": score.successes, "failures": score.failures}
             for address, score in sorted(mirrors.read_seeds().seeds.items())
         },
+        # Receives whose own sources failed and so contacted starter mirrors.
+        "starter_fallbacks": [
+            entry.model_dump(mode="json") for entry in mirrors.read_fallbacks().entries
+        ],
         "trusted": False,
     }
 
