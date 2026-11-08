@@ -292,7 +292,7 @@ def main() -> None:
                 ["/usr/bin/dpkg-query", "-W", "-f=${Version}", "foxlight-sovereign"],
                 text=True,
             )
-            require(installed == "0.1.0-5", "wrong app installed")
+            require(installed == "0.1.0-6", "wrong app installed")
             click("Open Sovereign")
             require(app.wait(timeout=15) == 0, "setup did not hand off to app")
             app = None
@@ -347,8 +347,8 @@ def main() -> None:
     (root / "qualification.json").write_text(
         json.dumps(
             {
-                "setup_package_version": "0.1.5-1",
-                "app_package_version": "0.1.0-5",
+                "setup_package_version": "0.1.6-1",
+                "app_package_version": "0.1.0-6",
                 "architecture": subprocess.check_output(
                     ["/usr/bin/dpkg", "--print-architecture"], text=True
                 ).strip(),  # noqa: S603
