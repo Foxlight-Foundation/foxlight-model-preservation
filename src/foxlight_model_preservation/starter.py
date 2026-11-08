@@ -63,8 +63,8 @@ from .transfer import TransferPolicy, fetch
 
 STARTER_LIST_TYPE = "application/vnd.foxlight.sovereign.starter-list.v1+json"
 STARTER_LIST_VERSION = "sovereign.starter-list.v1"
-TIERS = ("small", "standard")
-Tier = Literal["small", "standard"]
+TIERS = ("small", "standard", "large")
+Tier = Literal["small", "standard", "large"]
 STARTER_CONSENT_FLAG = "--yes-i-accept-the-starter-list"
 # Each import fetch is bounded; the largest starter bundle is about 20 GB.
 FETCH_DEADLINE_SECONDS = 86400
@@ -193,7 +193,7 @@ def verify_starter_list(
 
 
 def select_tier(starter: StarterList, tier: Tier) -> tuple[StarterEntry, ...]:
-    """The entries a tier imports: standard includes everything in small."""
+    """The entries a tier imports: each tier includes every smaller tier."""
     if tier not in TIERS:
         raise PreservationError("unknown starter tier")
     wanted = TIERS[: TIERS.index(tier) + 1]
@@ -346,7 +346,15 @@ def review_import(
         f"List:  {starter.title} ({starter.schema_version}, issued {starter.issued})",
         f"  list id: {plan.list_id} (matches the expected ID)",
         f"Tier:  {plan.tier}"
-        + ("  (includes the small tier)" if plan.tier == "standard" else ""),
+        + (
+            "  (includes the "
+            + " and ".join(TIERS[: TIERS.index(plan.tier)])
+            + " tier"
+            + ("s" if TIERS.index(plan.tier) > 1 else "")
+            + ")"
+            if plan.tier != TIERS[0]
+            else ""
+        ),
         "",
         "Models:",
     ]
@@ -377,6 +385,15 @@ def review_import(
                 continue
             lines.append(f"  {row.get('name')} ({row.get('license_id')}):")
             lines.append(f"    {row.get('summary')}")
+            if row.get("family") is None:
+                # Not in Sovereign's definition: also show what the list says,
+                # clearly attributed, so a non-commercial term is visible.
+                for entry in plan.new_entries:
+                    if normalize_license(entry.licence.license_id) == row.get(
+                        "license_id"
+                    ):
+                        lines.append(f"    the list says: {entry.licence.summary}")
+                        break
             references = row.get("references")
             for reference in references if isinstance(references, list) else []:
                 if isinstance(reference, dict):

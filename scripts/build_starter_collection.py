@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check, pack, sign and publish Sovereign's strict starter collection.
+"""Check, pack, sign and publish Sovereign's starter collection.
 
 The plan (``examples/starter/plan.json``) names each entry's tier, recipe and
 the base model its licence is resolved from. Recipes pin exact revisions and
@@ -58,6 +58,7 @@ from foxlight_model_preservation.bucket import (
 )
 from foxlight_model_preservation.licences import (
     KNOWN_LICENSES,
+    UNIDENTIFIED,
     definition,
     normalize_license,
 )
@@ -88,7 +89,7 @@ from foxlight_model_preservation.storage import pack, verify_store
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_PLAN = ROOT / "examples" / "starter" / "plan.json"
-# Strict starter: category A only, for the base model and the conversion.
+# The strict policy: Apache-2.0 or MIT only, for the base model and the conversion.
 STRICT = {"apache-2.0": "Apache-2.0", "mit": "MIT"}
 SMALL_FILE = 16 * 1024**2
 CHUNK = 1024**2
@@ -106,15 +107,28 @@ class Excluded(Record):
     reason: str = Field(min_length=1, max_length=1000)
 
 
+class Component(Record):
+    """Another model inside one bundle (a text encoder, a VAE) and its licence."""
+
+    members: tuple[str, ...] = Field(min_length=1, max_length=16)
+    licence: StarterLicence
+
+
 class PlanEntry(Record):
     """One starter entry before packing: its recipe and licence evidence."""
 
     entry_id: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
-    tier: Literal["small", "standard"]
+    tier: Literal["small", "standard", "large"]
     title: str = Field(min_length=1, max_length=200)
     role: str = Field(min_length=1, max_length=200)
     recipe: str = Field(min_length=1, max_length=200)
     licence: StarterLicence
+    # Further models a pipeline bundles; each licence is resolved the same way.
+    components: tuple[Component, ...] = ()
+    # Declared ancestors accepted despite their own card, each with the reason.
+    ancestor_waivers: dict[str, str] = Field(default_factory=dict)
+    # A reviewed, named licence outside Sovereign's definition (always gated).
+    custom_licence: bool = False
 
 
 class Plan(Record):
@@ -162,6 +176,8 @@ def _card_licence(info: dict[str, Any]) -> str:
     value = card.get("license")
     if isinstance(value, list):
         value = value[0] if len(value) == 1 else None  # several: not clear
+    if value == "other" and isinstance(card.get("license_name"), str):
+        value = card["license_name"]  # A named custom licence.
     return normalize_license(value) if isinstance(value, str) else ""
 
 
@@ -193,10 +209,22 @@ def requires_acceptance(licence: str) -> bool:
     return True
 
 
+def licence_text(origin: str, path: str) -> bool:
+    """Whether a carried file is a licence text (by name, or an SPDX text)."""
+    name = path.rsplit("/", 1)[-1].upper()
+    return (
+        "LICENSE" in name
+        or "TERMS_OF_USE" in name
+        or origin == "github.com/spdx/license-list-data"
+    )
+
+
 def resolve_licence(
     base_info: dict[str, Any],
     conversion_info: dict[str, Any] | None,
     policy: str = "strict",
+    *,
+    allowed: frozenset[str] | None = None,
 ) -> str:
     """Resolve the licence from the BASE model's card; never from a conversion.
 
@@ -208,7 +236,7 @@ def resolve_licence(
     replace what the base model's card says.
     """
     base = _card_licence(base_info)
-    if base not in allowed_licences(policy):
+    if base not in (allowed if allowed is not None else allowed_licences(policy)):
         raise LicenceRefused(
             f"base model licence {base or 'unidentified'!r} is not "
             + ("Apache-2.0 or MIT" if policy == "strict" else "a known licence")
@@ -320,39 +348,73 @@ def check(
         licence = entry.licence
         evidence: dict[str, Any] = {"entry_id": entry.entry_id, "tier": entry.tier}
         try:
+            permitted = set(allowed)
+            resolved = ""
+            ancestors: dict[str, str] = {}
+            evidences = [(licence, recipe.root_member)] + [
+                (component.licence, component.members[0])
+                for component in entry.components
+            ]
+            for item, member_id in evidences:
+                base = hub.info(item.base_model, item.base_revision)
+                conversion = (
+                    hub.info(item.conversion, item.conversion_revision)
+                    if item.conversion and item.conversion_revision
+                    else None
+                )
+                if entry.custom_licence:
+                    custom = _card_licence(base)
+                    if custom in UNIDENTIFIED or not custom:
+                        raise LicenceRefused("custom licence is unidentified")
+                    permitted.add(custom)
+                found_licence = resolve_licence(
+                    base, conversion, "known", allowed=frozenset(permitted)
+                )
+                if normalize_license(found_licence) != normalize_license(
+                    item.license_id
+                ):
+                    raise LicenceRefused(
+                        f"plan says {item.license_id}, base resolves to {found_licence}"
+                    )
+                origin = next(
+                    m.origin_repository
+                    for m in recipe.members
+                    if m.member_id == member_id
+                )
+                if origin not in {item.conversion, item.base_model}:
+                    raise PreservationError(
+                        f"{member_id} comes from neither its base nor conversion"
+                    )
+                for ancestor in card_bases(base):
+                    if ancestor in entry.ancestor_waivers:
+                        ancestors[ancestor] = (
+                            "waived: " + entry.ancestor_waivers[ancestor]
+                        )
+                        continue
+                    found = _card_licence(hub.info(ancestor, "main"))
+                    if found not in permitted:
+                        raise LicenceRefused(
+                            f"declared base {ancestor} is {found or 'unidentified'!r}"
+                        )
+                    ancestors[ancestor] = spelled(found)
+                resolved = resolved or found_licence
             base = hub.info(licence.base_model, licence.base_revision)
             conversion = (
                 hub.info(licence.conversion, licence.conversion_revision)
                 if licence.conversion and licence.conversion_revision
                 else None
             )
-            resolved = resolve_licence(base, conversion, plan.licence_policy)
-            if normalize_license(resolved) != normalize_license(licence.license_id):
-                raise LicenceRefused(
-                    f"plan says {licence.license_id}, base resolves to {resolved}"
-                )
-            ancestors: dict[str, str] = {}
-            for ancestor in card_bases(base):
-                found = _card_licence(hub.info(ancestor, "main"))
-                if found not in allowed:
-                    raise LicenceRefused(
-                        f"declared base {ancestor} is {found or 'unidentified'!r}"
-                    )
-                ancestors[ancestor] = spelled(found)
             declared = {normalize_license(m.intake.license_id) for m in recipe.members}
-            if not declared <= allowed:
+            if not declared <= permitted:
                 raise LicenceRefused(
                     "a recipe member declares a licence the plan policy refuses"
                 )
             if not any(
-                file.path.rsplit("/", 1)[-1].upper().startswith("LICENSE")
+                licence_text(member.origin_repository, file.path)
                 for member in recipe.members
                 for file in member.files
             ):
                 raise LicenceRefused("no licence text is carried")
-            root = next(m for m in recipe.members if m.member_id == recipe.root_member)
-            if root.origin_repository not in {licence.conversion, licence.base_model}:
-                raise PreservationError("weights come from neither base nor conversion")
             total = 0
             for member in recipe.members:
                 origin, revision = member.origin_repository, member.origin_revision
@@ -397,6 +459,11 @@ def check(
                 if conversion is not None
                 else None,
                 ancestors=ancestors,
+                components={
+                    "+".join(c.members): f"{c.licence.base_model}@"
+                    f"{c.licence.base_revision} ({c.licence.license_id})"
+                    for c in entry.components
+                },
                 requires_acceptance=sorted(
                     item for item in declared if requires_acceptance(item)
                 ),
