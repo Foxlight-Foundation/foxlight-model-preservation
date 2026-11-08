@@ -201,7 +201,10 @@ Import refuses before it downloads anything unless:
 - the new models fit, by one model of every later step. Downloads go through
   one shared, content-addressed pool beside the mirror: before each model is
   fetched, its staging view gets hard links to every file the mirror or the
-  pool already holds, and what it fetches joins the pool. So each file is
+  pool already holds, and what it fetches joins the pool, whether that model's
+  transfer succeeds, fails or is cancelled (only verified files are pooled;
+  unfinished downloads are parked there for the next model or a rerun to
+  resume). So each file is
   downloaded at most once per import, files shared between models or held
   already cost nothing, and an interrupted import's files (and partial
   downloads) are reused by every model that needs them. Admission checks the

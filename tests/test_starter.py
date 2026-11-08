@@ -42,6 +42,7 @@ from foxlight_model_preservation.models import (
     Recipe,
     TrustProfile,
 )
+from foxlight_model_preservation.operations import OperationCancelled
 from foxlight_model_preservation.signing import (
     canonical_bytes,
     create_key,
@@ -1781,7 +1782,7 @@ class SimulatedDisks:
         return shutil._ntuple_diskusage(capacity, used, max(capacity - used, 0))  # type: ignore[attr-defined]
 
 
-def _attempt(disks, monkeypatch, run) -> str:
+def _attempt(disks, monkeypatch, run, expected_failed=frozenset()) -> str:
     """Run an import on simulated disks: 'ok', 'refused' (admission) or raise."""
     with monkeypatch.context() as patched:
         patched.setattr(shutil, "disk_usage", disks.usage)
@@ -1793,7 +1794,11 @@ def _attempt(disks, monkeypatch, run) -> str:
             raise AssertionError(
                 f"a later step refused after admission: {error}"
             ) from error
-    assert not receipt["failed"], receipt
+    errors = {item["entry_id"]: item["error"] for item in receipt["failed"]}
+    if errors and set(errors.values()) == {"budget_exceeded"}:
+        return "refused"  # Admission refused (reported, with keep_going).
+    assert set(errors) == set(expected_failed), receipt
+    assert "budget_exceeded" not in errors.values(), receipt
     return "ok"
 
 
@@ -1803,8 +1808,9 @@ def _scenario(kind: str, root: Path, monkeypatch):
     volume.mkdir(mode=0o700)
     source = root / "src"
     source.mkdir()
-    shared = b"S" * 1_500_000
-    if kind == "shared":
+    # Larger than METADATA_SLACK, so a lost shared object cannot hide in it.
+    shared = b"S" * 4_000_000
+    if kind in ("shared", "failed-after-shared", "failed-mid-shared"):
         collection = Collection(
             source, ("one", "two"), payloads={"one": shared, "two": shared}
         )
@@ -1859,33 +1865,68 @@ def _scenario(kind: str, root: Path, monkeypatch):
                 )
         retry_selection(ledger, starter.entries[0].manifest)
 
+    failing = collection.entries["one"].manifest if kind.startswith("failed") else None
+
     def run():
-        return import_starter(
-            ledger,
-            starter,
-            list_id,
-            tier,
-            consented=True,
-            formats=formats,
-            options=collection.options(),
-        )
+        real_fetch = starter_module.fetch
 
-    return ledger, volume, run
+        def flaky(manifest_id, trust, sources, destination, policy, **kwargs):
+            if manifest_id != failing:
+                return real_fetch(
+                    manifest_id, trust, sources, destination, policy, **kwargs
+                )
+            if kind == "failed-after-shared":
+                # Every object (the shared one included) completes, then the
+                # entry fails anyway.
+                real_fetch(manifest_id, trust, sources, destination, policy, **kwargs)
+                raise OSError("failed after completing the shared object")
+            # Half of the shared object arrives, then the transfer breaks.
+            partial = (
+                Path(destination) / ".partial" / hashlib.sha256(shared).hexdigest()
+            )
+            partial.parent.mkdir(parents=True, exist_ok=True)
+            partial.write_bytes(shared[: len(shared) // 2])
+            raise OSError("failed in the middle of the shared object")
+
+        with monkeypatch.context() as patched:
+            patched.setattr(starter_module, "fetch", flaky)
+            return import_starter(
+                ledger,
+                starter,
+                list_id,
+                tier,
+                consented=True,
+                formats=formats,
+                options=collection.options(keep_going=failing is not None),
+            )
+
+    expected = {"one"} if failing is not None else set()
+    return ledger, volume, run, expected
 
 
-@pytest.mark.parametrize("kind", ["shared", "partial", "resumed", "mlx"])
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "shared",
+        "partial",
+        "resumed",
+        "mlx",
+        "failed-after-shared",
+        "failed-mid-shared",
+    ],
+)
 def test_admission_never_approves_what_a_later_step_refuses(
     tmp_path, monkeypatch, kind
 ):
     outcomes = []
     floor = HEADROOM + starter_module.METADATA_SLACK
-    for step, extra in enumerate(range(-400_000, 5_000_001, 450_000)):
+    for step, extra in enumerate(range(-400_000, 9_500_001, 450_000)):
         root = tmp_path / f"run{step}"
         root.mkdir()
-        ledger, volume, run = _scenario(kind, root, monkeypatch)
+        ledger, volume, run, expected = _scenario(kind, root, monkeypatch)
         used = SimulatedDisks._used(volume)
         disks = SimulatedDisks({volume: used + floor + extra})
-        outcomes.append(_attempt(disks, monkeypatch, run))
+        outcomes.append(_attempt(disks, monkeypatch, run, expected))
     # The sweep crosses the threshold, and never fails after approval.
     assert outcomes[0] == "refused" and outcomes[-1] == "ok"
     assert outcomes == sorted(outcomes, key=lambda o: o == "ok")
@@ -1893,10 +1934,10 @@ def test_admission_never_approves_what_a_later_step_refuses(
 
 def test_the_logical_budget_is_the_same_model(tmp_path, monkeypatch):
     outcomes = []
-    for step, extra in enumerate(range(-400_000, 5_000_001, 450_000)):
+    for step, extra in enumerate(range(-400_000, 9_500_001, 450_000)):
         root = tmp_path / f"run{step}"
         root.mkdir()
-        ledger, _volume, run = _scenario("shared", root, monkeypatch)
+        ledger, _volume, run, _expected = _scenario("shared", root, monkeypatch)
         budget = ledger.usage() + HEADROOM + starter_module.METADATA_SLACK + extra
         ledger.update(
             lambda state, b=budget: state.model_copy(update={"disk_bytes": b})
@@ -1914,7 +1955,7 @@ def test_the_logical_budget_is_the_same_model(tmp_path, monkeypatch):
 def test_retain_headroom_is_reserved_not_only_the_fetch_margin(tmp_path, monkeypatch):
     # Codex's first case: room for the downloads and fetch's 16 MiB margin,
     # but not retain_local's HEADROOM, must be refused at admission.
-    ledger, volume, run = _scenario("partial", tmp_path, monkeypatch)
+    ledger, volume, run, _expected = _scenario("partial", tmp_path, monkeypatch)
     used = SimulatedDisks._used(volume)
     downloads = 2_000_000 - 1_300_000
     tight = (
@@ -2010,3 +2051,27 @@ def test_staging_on_a_separate_volume_is_modelled_per_volume(tmp_path, monkeypat
         outcomes.append(_attempt(disks, monkeypatch, run))
     assert outcomes[0] == "refused" and outcomes[-1] == "ok"
     assert outcomes == sorted(outcomes, key=lambda o: o == "ok")
+
+
+def test_a_cancelled_entry_leaves_its_verified_objects_in_the_pool(
+    tmp_path, monkeypatch
+):
+    ledger, volume, run, _expected = _scenario("shared", tmp_path, monkeypatch)
+    real_fetch = starter_module.fetch
+    shared_sha = hashlib.sha256(b"S" * 4_000_000).hexdigest()
+
+    def cancelled(manifest_id, *args, **kwargs):
+        real_fetch(manifest_id, *args, **kwargs)
+        raise OperationCancelled("cancelled after the objects arrived")
+
+    with monkeypatch.context() as patched:
+        patched.setattr(starter_module, "fetch", cancelled)
+        with pytest.raises(OperationCancelled):
+            run()
+    pool = volume / "mirror.starter-import" / starter_module.POOL
+    assert (pool / object_path(shared_sha)).is_file()
+    # The rerun takes the shared object from the pool: no source has it now.
+    (tmp_path / "src" / "published-store" / object_path(shared_sha)).unlink()
+    receipt = run()
+    assert receipt["imported"] == ["one", "two"]
+    assert not (volume / "mirror.starter-import").exists()

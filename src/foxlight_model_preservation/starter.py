@@ -577,6 +577,9 @@ def consolidate_pool(
     it joins the pool, so the pool holds verified objects only.
     """
     pool = staging / POOL
+    views = list(views)
+    for view in views:
+        park_partials(staging, view)
     for sha, file in needed.items():
         if _regular_size(pool / object_path(sha)) == file.size:
             continue
@@ -591,6 +594,29 @@ def consolidate_pool(
                 continue
             if _link(candidate, pool / object_path(sha)):
                 break
+
+
+def park_partials(staging: Path, view: str) -> None:
+    """Move a view's partial downloads into the pool so any entry can resume them.
+
+    Partial files are moved, never linked, so exactly one download ever
+    appends to each. When the pool already has one for the same object, the
+    longer prefix is kept and the shorter removed.
+    """
+    partials = staging / view / ".partial"
+    if not partials.is_dir():
+        return
+    parked = staging / POOL / ".partial"
+    parked.mkdir(parents=True, exist_ok=True, mode=0o700)
+    for item in partials.iterdir():
+        size = _regular_size(item)
+        if size is None or len(item.name) != 64:
+            continue
+        other = _regular_size(parked / item.name)
+        if other is None or other < size:
+            os.replace(item, parked / item.name)
+        else:
+            item.unlink(missing_ok=True)
 
 
 def seed_view(
@@ -608,9 +634,18 @@ def seed_view(
         path = object_path(file.sha256)
         if _regular_size(target / path) == file.size:
             continue
-        for source in (ledger.path / "store" / path, staging / POOL / path):
-            if _regular_size(source) == file.size and _link(source, target / path):
-                break
+        if any(
+            _regular_size(source) == file.size and _link(source, target / path)
+            for source in (ledger.path / "store" / path, staging / POOL / path)
+        ):
+            continue
+        # Resume a parked partial download here; it returns to the pool when
+        # this entry finishes, whatever the outcome.
+        parked = staging / POOL / ".partial" / file.sha256
+        mine = target / ".partial" / file.sha256
+        if _regular_size(parked) is not None and _regular_size(mine) is None:
+            mine.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            os.replace(parked, mine)
 
 
 def publish_view(staging: Path, view: str, manifest: ArchiveManifest) -> None:
@@ -623,19 +658,27 @@ def publish_view(staging: Path, view: str, manifest: ArchiveManifest) -> None:
 
 
 def prune_pool(ledger: MirrorLedger, staging: Path) -> None:
-    """Drop pool links to objects the store now holds; keep the rest for a rerun."""
+    """Drop pooled objects and partials the store now holds; keep the rest.
+
+    What remains belongs to entries that did not finish, for a rerun.
+    """
+    store = ledger.path / "store"
     objects = staging / POOL / "objects" / "sha256"
-    if not objects.is_dir():
-        return
-    for entry in objects.iterdir():
-        held = _regular_size(ledger.path / "store" / object_path(entry.name))
-        if held is not None and held == _regular_size(entry):
-            entry.unlink(missing_ok=True)
-    for folder in (objects, objects.parent, staging / POOL):
+    parked = staging / POOL / ".partial"
+    if objects.is_dir():
+        for item in objects.iterdir():
+            held = _regular_size(store / object_path(item.name))
+            if held is not None and held == _regular_size(item):
+                item.unlink(missing_ok=True)
+    if parked.is_dir():
+        for item in parked.iterdir():
+            if _regular_size(store / object_path(item.name)) is not None:
+                item.unlink(missing_ok=True)  # Complete in the mirror now.
+    for folder in (objects, objects.parent, parked, staging / POOL):
         try:
             folder.rmdir()
         except OSError:
-            break
+            pass
 
 
 @dataclass(frozen=True)
@@ -689,17 +732,16 @@ def disk_requirements(
 
     ``order`` lists (view name, signed wrapper, file table). Each object
     missing from the store counts once toward the budget. It is downloaded
-    only if the pool lacks it, by the first entry that needs it, which can
-    resume a partial download in its own view.
+    only if the pool lacks it, resuming any partial download parked there.
+    Call ``consolidate_pool`` first, so every staged object and partial is
+    in the pool.
     """
     missing = missing_objects(ledger, [manifest for _view, _env, manifest in order])
     staging.mkdir(parents=True, exist_ok=True, mode=0o700)
     same = same_volume(ledger, staging)
-    first_view: dict[str, str] = {}
     every: dict[str, FileIdentity] = {}
-    for view, _envelope, manifest in order:
+    for _view, _envelope, manifest in order:
         for file in archive_objects(manifest):
-            first_view.setdefault(file.sha256, view)
             every.setdefault(file.sha256, file)
     # On one volume, objects the store holds are hard-linked into views. On
     # two, they cannot be, so each view needs its own copy (taken from the
@@ -708,10 +750,11 @@ def disk_requirements(
     for sha, file in (missing if same else every).items():
         if _regular_size(staging / POOL / object_path(sha)) == file.size:
             continue
-        view = staging / first_view[sha]
-        if _regular_size(view / object_path(sha)) == file.size:
-            continue
-        partial = _regular_size(view / ".partial" / sha) or 0
+        # Partials are parked in the pool and move from entry to entry, so
+        # each object's download continues from the longest prefix. A corrupt
+        # prefix is truncated before it is fetched again, so the net new data
+        # is still the object's size less what was already on disk.
+        partial = _regular_size(staging / POOL / ".partial" / sha) or 0
         downloads += file.size - min(partial, file.size)
     metadata = METADATA_SLACK + sum(3 * len(envelope) for _v, envelope, _m in order)
     return DiskRequirements(
@@ -1059,22 +1102,30 @@ def import_starter(
         envelope, table = tables[entry.entry_id]
         view = staging / entry.manifest
         try:
-            seed_view(ledger, staging, entry.manifest, table)
             # On another volume, objects the store holds are copied from it
             # locally rather than downloaded again.
             local = (
                 () if same_volume(ledger, staging) else (str(ledger.path / "store"),)
             )
-            fetch(
-                entry.manifest,
-                starter.bundle_trust,
-                (*local, *chosen.mirrors, *entry.mirrors)[:16],
-                view,
-                _policy(entry, chosen),
-                control=control.fork() if control is not None else None,
-                envelope=envelope,
-            )
-            publish_view(staging, entry.manifest, table)
+            try:
+                seed_view(ledger, staging, entry.manifest, table)
+                fetch(
+                    entry.manifest,
+                    starter.bundle_trust,
+                    (*local, *chosen.mirrors, *entry.mirrors)[:16],
+                    view,
+                    _policy(entry, chosen),
+                    control=control.fork() if control is not None else None,
+                    envelope=envelope,
+                )
+            finally:
+                # Every exit (success, failure, cancellation) returns the
+                # entry's work to the pool: complete objects in the view were
+                # verified before they were published there, so they are
+                # shared; unfinished downloads are parked for a later entry or
+                # a rerun to resume. Nothing incomplete is ever pooled.
+                publish_view(staging, entry.manifest, table)
+                park_partials(staging, entry.manifest)
             retain_local(
                 ledger,
                 view,
