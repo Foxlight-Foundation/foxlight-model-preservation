@@ -27,8 +27,8 @@ sharing and recipient recovery instructions. The shared
 preservation foundation includes complete companions, verified backup folders,
 explicit finite sharing, independent source following and offline search. The
 Horizon interface explains model inputs/outputs, purpose, file variants and trust
-without requiring Skulk. The [build10 publication record](../desktop/macos/releases/0.1.0-build10.json)
-binds final signed/stapled containers to the exact accepted app. Build 9 and all
+without requiring Skulk. The [build11 publication record](../desktop/macos/releases/0.1.0-build11.json)
+binds final signed/stapled containers to the exact accepted app. Build 10 and all
 older records/releases remain unchanged for historical verification. Publication
 still requires the separate workflow below; a reviewed record is not publication.
 
@@ -42,7 +42,7 @@ been published. Download the DMG or ZIP and the neighboring `SHA256SUMS`,
 download against its checksum, then authenticate it with GitHub CLI:
 
 ```sh
-PUBLISHER_TAG=sovereign-macos-publisher-v0.1.0-build10
+PUBLISHER_TAG=sovereign-macos-publisher-v0.1.0-build11
 FILE=Sovereign-0.1.0-macos-arm64.dmg
 shasum -a 256 "$FILE"  # compare the corresponding line in SHA256SUMS
 gh attestation verify "$FILE" \
@@ -61,7 +61,7 @@ asserts **verification of existing files**, not native build provenance. It
 records the exact host, performed checks and qualification limits; inspect those
 claims along with the [software trust limits](releases.md#what-a-pass-establishes).
 Retain the bundle and trusted roots for [offline verification](releases.md#keep-offline-evidence).
-The release uses `sovereign-macos-v0.1.0-build10` at the exact binary recipe
+The release uses `sovereign-macos-v0.1.0-build11` at the exact binary recipe
 revision. Its separate immutable publisher tag identifies the reviewed verification
 workflow. Neither tag asserts a native rebuild in the public workflow.
 
@@ -74,7 +74,7 @@ button keeps the journey available later. Existing saved copies reopen in Librar
 A retained kit can be restored without Skulk or the original registry. A new capture
 key still requires explicit trust acceptance; software signing grants no model authority.
 
-The build10 manifest pins both final containers, Developer ID team `ZP9J3449GF`
+The build11 manifest pins both final containers, Developer ID team `ZP9J3449GF`
 and certificate fingerprint `A148825F0E5B1F0F29C7A314129AB6D090EF9FF5`.
 The exact accepted app was qualified on the operator Mac (macOS 26.6.2) through its
 own bundled runtime: the bundled BitTorrent DHT binding loads, and a signed
@@ -118,8 +118,8 @@ python scripts/build_macos.py --library-archive /absolute/library.zip \
 ```
 
 Library releases built from the current source include the BitTorrent DHT
-binding (libtorrent 2.0.14) in `requirements-desktop.lock`; build 10 pins Library
-0.24, the first that does (build 9 pins Library 0.23, which does not). PyPI publishes its
+binding (libtorrent 2.0.14) in `requirements-desktop.lock`; builds 10 and later pin Library
+0.24 or newer, which do (build 9 pins Library 0.23, which does not). PyPI publishes its
 Apple silicon wheels for macOS 14.0 and 15.0 only, so the `--platform` flags
 above select the macOS 14.0 build: a macOS 15 host would otherwise download the
 15.0 build. The builder refuses any bundled native code that needs a newer macOS
