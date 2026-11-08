@@ -35,6 +35,7 @@ from foxlight_model_preservation.mirror_state import (
     withdrawal_withholds,
 )
 from foxlight_model_preservation.models import (
+    FileIdentity,
     PreservationError,
     Recipe,
     TrustProfile,
@@ -1707,3 +1708,57 @@ def test_container_serves_what_it_holds_when_one_bundle_is_unavailable(
     state = MirrorLedger(data_dir / "mirror").read()
     assert list(state.models) == [collection.entries["alpha"].manifest]
     assert restart_allowed(state)
+
+
+def test_free_space_counts_only_what_is_not_already_staged(tmp_path):
+    gib, mib = 1024**3, 1024**2
+    sha = "a" * 64
+    big = FileIdentity(path="model.bin", size=gib, sha256=sha)
+    staging = tmp_path / "staging"
+    partial = staging / ("b" * 64) / ".partial" / sha
+    partial.parent.mkdir(parents=True)
+    with partial.open("wb") as stream:
+        stream.truncate(896 * mib)  # sparse: no real disk needed
+    staged = starter_module.staged_bytes(staging, ["b" * 64], {sha: big})
+    assert staged == 896 * mib
+    # 1 GiB bundle, 896 MiB staged: 128 MiB more, which fits 192 MiB free.
+    assert gib - staged + starter_module.PHYSICAL_MARGIN <= 192 * mib
+    complete = staging / ("c" * 64) / object_path(sha)
+    complete.parent.mkdir(parents=True)
+    with complete.open("wb") as stream:
+        stream.truncate(gib)
+    assert starter_module.staged_bytes(staging, ["b" * 64, "c" * 64], {sha: big}) == gib
+
+
+def test_an_import_with_staged_objects_proceeds_on_little_free_space(
+    tmp_path, collection, monkeypatch
+):
+    ledger = mirror(tmp_path)
+    starter = collection.listing("alpha")
+    entry = starter.entries[0]
+    margin = starter_module.PHYSICAL_MARGIN
+    weights = hashlib.sha256(b"alpha" * 1000).hexdigest()
+    monkeypatch.setattr(starter_module, "_free", lambda path: margin + 1024)
+    # Nothing staged: 5 KB of weights do not fit 1 KiB above the margin.
+    with pytest.raises(PreservationError, match="free"):
+        import_starter(
+            ledger,
+            starter,
+            list_identity(starter),
+            "small",
+            consented=True,
+            options=collection.options(),
+        )
+    # An interrupted run staged the weights: only the small files remain.
+    staged = tmp_path / "mirror.starter-import" / entry.manifest / object_path(weights)
+    staged.parent.mkdir(parents=True)
+    staged.write_bytes((collection.store / object_path(weights)).read_bytes())
+    receipt = import_starter(
+        ledger,
+        starter,
+        list_identity(starter),
+        "small",
+        consented=True,
+        options=collection.options(),
+    )
+    assert receipt["imported"] == ["alpha"]

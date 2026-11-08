@@ -128,6 +128,9 @@ class PlanEntry(Record):
     tier: Literal["small", "standard", "large"]
     # "mlx" entries form the opt-in Apple add-on; everything else is "gguf".
     format: Literal["gguf", "mlx"] = "gguf"
+    # The Ollama library model whose pull counts measure this entry's interest
+    # (scripts/derive_starter_signals.py --ollama); None when Ollama has none.
+    ollama_tag: str | None = Field(default=None, pattern=r"^[a-z0-9][a-z0-9._-]{0,63}$")
     title: str = Field(min_length=1, max_length=200)
     role: str = Field(min_length=1, max_length=200)
     recipe: str = Field(min_length=1, max_length=200)

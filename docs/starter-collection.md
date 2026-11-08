@@ -204,7 +204,8 @@ Import refuses before it downloads anything unless:
   The review shows the download size and an upper estimate of the disk
   needed. After consent the import fetches only the signed file lists and
   decides exactly, before any weights download, against both the mirror's
-  budget and the free space on the staging volume. The peak is one copy of
+  budget (every missing file) and the free space on the staging volume (only
+  what an interrupted run has not already staged, completely or in part). The peak is one copy of
   each missing file: staging starts with hard links to files the mirror
   already holds (so they are neither downloaded nor stored again), downloads
   are renamed into place rather than copied, retaining hard-links them into
@@ -304,7 +305,10 @@ recomputes the signals from public APIs, with no page scraping:
 - the sustained ratio: 30-day downloads divided by the lifetime monthly
   average. At least 0.7 after three months reads as sustained;
 - Ollama monthly pulls, from two operator-supplied pull-count snapshots
-  (`--ollama` and `--ollama-previous`), since Ollama has no statistics API.
+  (`--ollama` and `--ollama-previous`, CSV `tag,pulls`), since Ollama has no
+  statistics API. Each plan entry's optional `ollama_tag` names its Ollama
+  library model (for example `qwen3.5`, `gemma4`, `nomic-embed-text`); entries
+  Ollama does not carry, such as Kokoro and Whisper, have none.
 
 ```sh
 uv run python scripts/derive_starter_signals.py --output examples/starter/signals \
@@ -321,6 +325,13 @@ these rules:
   least 0.7.
 - **Demote** a listed model only after two consecutive weak quarters. One weak
   quarter puts it on the watch list.
+- **Missing data is never a weak signal.** A model whose Hugging Face
+  figures could not be fetched is reported as "unmeasured" and keeps its
+  previous state: it is not a weak quarter, does not advance a demotion and is
+  not promoted, and a previous weak quarter carries to the next run. A run in
+  which more than a fifth of the models are unmeasured refuses unless
+  `--allow-unmeasured` is given. A missing Ollama figure only leaves that
+  signal out.
 - **Proposals add candidates.** Anyone can propose a model with its repository,
   tier and licence; proposals join the scoring run and never override it.
 - **Operators choose.** The diff is a proposal for the next list. Each new

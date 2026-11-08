@@ -44,6 +44,7 @@ from .mirror_state import HEADROOM, MirrorLedger
 from .models import (
     MAX_METADATA_BYTES,
     Digest,
+    FileIdentity,
     Identifier,
     PreservationError,
     Record,
@@ -62,6 +63,7 @@ from .signing import (
     verify_payload,
 )
 from .storage import (
+    CHUNK_SIZE,
     atomic_bytes,
     directory,
     object_path,
@@ -77,6 +79,8 @@ Tier = Literal["small", "standard", "large"]
 Format = Literal["gguf", "mlx"]
 FORMATS: tuple[Format, ...] = ("gguf", "mlx")
 DEFAULT_FORMATS: tuple[Format, ...] = ("gguf",)
+# The same margin transfer.fetch keeps on the volume it writes to.
+PHYSICAL_MARGIN = 16 * CHUNK_SIZE
 STARTER_CONSENT_FLAG = "--yes-i-accept-the-starter-list"
 # Each import fetch is bounded; the largest starter bundle is about 20 GB.
 FETCH_DEADLINE_SECONDS = 86400
@@ -529,15 +533,17 @@ def seed_staging(ledger: MirrorLedger, store: Path, manifest: ArchiveManifest) -
     return linked
 
 
-def missing_bytes(ledger: MirrorLedger, manifests: Iterable[ArchiveManifest]) -> int:
-    """Bytes of objects the mirror store lacks, each distinct object once.
+def missing_objects(
+    ledger: MirrorLedger, manifests: Iterable[ArchiveManifest]
+) -> dict[str, FileIdentity]:
+    """Objects the mirror store lacks, each distinct object once.
 
     Objects shared between bundles, or already present for models the mirror
-    holds (or for an interrupted copy), are not counted again. Presence is a
-    size check only; every object is still verified when it is retained.
+    holds (or for an interrupted copy), are not missing. Presence is a size
+    check only; every object is still verified when it is retained.
     """
+    missing: dict[str, FileIdentity] = {}
     seen: set[str] = set()
-    total = 0
     with ledger.child("store") as root:
         for manifest in manifests:
             for file in archive_objects(manifest):
@@ -549,11 +555,54 @@ def missing_bytes(ledger: MirrorLedger, manifests: Iterable[ArchiveManifest]) ->
                         object_path(file.sha256), dir_fd=root, follow_symlinks=False
                     )
                 except FileNotFoundError:
-                    total += file.size
+                    missing[file.sha256] = file
                     continue
                 if not stat.S_ISREG(info.st_mode) or info.st_size != file.size:
-                    total += file.size
+                    missing[file.sha256] = file
+    return missing
+
+
+def missing_bytes(ledger: MirrorLedger, manifests: Iterable[ArchiveManifest]) -> int:
+    """The mirror budget an import needs: missing objects, each once."""
+    return sum(file.size for file in missing_objects(ledger, manifests).values())
+
+
+def staged_bytes(
+    staging: Path, manifest_ids: Iterable[str], missing: dict[str, FileIdentity]
+) -> int:
+    """Bytes of missing objects an earlier, interrupted import already staged.
+
+    A complete staged object of the right size counts in full, a partial
+    download by its length. They need no new space on the staging volume
+    (``fetch`` verifies and resumes them; retaining hard-links them in), so
+    the free-space estimate subtracts them. Entries are retained one by one,
+    so an object staged once is never needed twice.
+    """
+    total = 0
+    stores = [staging / identity for identity in manifest_ids]
+    for sha, file in missing.items():
+        best = 0
+        for store in stores:
+            for candidate, complete in (
+                (store / object_path(sha), True),
+                (store / ".partial" / sha, False),
+            ):
+                try:
+                    info = candidate.lstat()
+                except OSError:
+                    continue
+                if not stat.S_ISREG(info.st_mode):
+                    continue
+                if complete and info.st_size == file.size:
+                    best = file.size
+                elif not complete:
+                    best = max(best, min(info.st_size, file.size))
+        total += best
     return total
+
+
+def _free(path: Path) -> int:
+    return shutil.disk_usage(path).free
 
 
 def review_import(
@@ -829,11 +878,18 @@ def import_starter(
     # one copy: staging receives only missing objects (the rest are hard links
     # to the store), retaining hard-links them in, and each entry's staging is
     # removed once it is retained.
-    exact = missing_bytes(ledger, [tables[e.entry_id][1] for e in ready])
+    # The logical budget counts every missing object; the staging volume
+    # needs only what is not already staged there from an interrupted run.
+    missing = missing_objects(ledger, [tables[e.entry_id][1] for e in ready])
+    logical = sum(file.size for file in missing.values())
+    physical = logical - staged_bytes(
+        staging, [entry.manifest for entry in ready], missing
+    )
     staging.parent.mkdir(parents=True, exist_ok=True)
-    free = shutil.disk_usage(staging.parent).free
+    free = _free(staging.parent)
     if ready and (
-        plan.usage + exact + HEADROOM > plan.disk_bytes or exact + HEADROOM > free
+        plan.usage + logical + HEADROOM > plan.disk_bytes
+        or physical + PHYSICAL_MARGIN > free
     ):
         for entry in ready:
             failure(

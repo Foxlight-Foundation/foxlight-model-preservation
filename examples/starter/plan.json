@@ -20,7 +20,8 @@
         "base_revision": "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a",
         "conversion": "unsloth/Qwen3.5-4B-GGUF",
         "conversion_revision": "e87f176479d0855a907a41277aca2f8ee7a09523"
-      }
+      },
+      "ollama_tag": "qwen3.5"
     },
     {
       "entry_id": "gemma-4-e4b-it",
@@ -35,7 +36,8 @@
         "base_revision": "4ecc2ba63bcac23ba4a767fc87025b1450f84c9c",
         "conversion": "unsloth/gemma-4-E4B-it-GGUF",
         "conversion_revision": "bfc15c382204943c3a8fff0c750b94ae2364d7a3"
-      }
+      },
+      "ollama_tag": "gemma4"
     },
     {
       "entry_id": "gemma-4-e4b-it-mlx",
@@ -51,7 +53,8 @@
         "conversion": "lmstudio-community/gemma-4-E4B-it-MLX-4bit",
         "conversion_revision": "ce713a0013bb7090305edfb8e3773a07ccae35c1"
       },
-      "format": "mlx"
+      "format": "mlx",
+      "ollama_tag": "gemma4"
     },
     {
       "entry_id": "whisper-large-v3-turbo",
@@ -99,7 +102,8 @@
         "base_revision": "e9b6763023c676ca8431644204f50c2b100d9aab",
         "conversion": "nomic-ai/nomic-embed-text-v1.5-GGUF",
         "conversion_revision": "0188c9bf409793f810680a5a431e7b899c46104c"
-      }
+      },
+      "ollama_tag": "nomic-embed-text"
     },
     {
       "entry_id": "qwen3-8-27b",
@@ -114,7 +118,8 @@
         "base_revision": "37561816e66b5b9153b1b64c10968c18c1e6f4a0",
         "conversion": "unsloth/Qwen3.8-27B-GGUF",
         "conversion_revision": "4ca720788d1e01f1bff70c033e0d0028fd02e502"
-      }
+      },
+      "ollama_tag": "qwen3.8"
     },
     {
       "entry_id": "qwen3-8-27b-mlx",
@@ -130,7 +135,8 @@
         "conversion": "lmstudio-community/Qwen3.8-27B-MLX-4bit",
         "conversion_revision": "6067b15cf581666a4aecf6af3afaba4bb5efc20c"
       },
-      "format": "mlx"
+      "format": "mlx",
+      "ollama_tag": "qwen3.8"
     },
     {
       "entry_id": "gpt-oss-20b",
@@ -145,7 +151,8 @@
         "base_revision": "6cee5e81ee83917806bbde320786a8fb61efebee",
         "conversion": "ggml-org/gpt-oss-20b-GGUF",
         "conversion_revision": "15dcfc7e7c608c6161507211ed43c5b590801b4b"
-      }
+      },
+      "ollama_tag": "gpt-oss"
     },
     {
       "entry_id": "gemma-4-12b-it",
@@ -160,7 +167,8 @@
         "base_revision": "43c9d014b231474fa7212dbb48a762566c2b255d",
         "conversion": "unsloth/gemma-4-12b-it-GGUF",
         "conversion_revision": "fc034cfff751157913579611efad8462ac1be606"
-      }
+      },
+      "ollama_tag": "gemma4"
     },
     {
       "entry_id": "qwen3-5-9b",
@@ -175,7 +183,8 @@
         "base_revision": "c202236235762e1c871ad0ccb60c8ee5ba337b9a",
         "conversion": "unsloth/Qwen3.5-9B-GGUF",
         "conversion_revision": "3885219b6810b007914f3a7950a8d1b469d598a5"
-      }
+      },
+      "ollama_tag": "qwen3.5"
     },
     {
       "entry_id": "qwen2-5-coder-7b",
@@ -190,7 +199,8 @@
         "base_revision": "c03e6d358207e414f1eca0bb1891e29f1db0e242",
         "conversion": "unsloth/Qwen2.5-Coder-7B-Instruct-GGUF",
         "conversion_revision": "0ecf11859560b2bf42e703207f9371186d02245f"
-      }
+      },
+      "ollama_tag": "qwen2.5-coder"
     },
     {
       "entry_id": "llama-3-2-3b",
@@ -205,7 +215,8 @@
         "base_revision": "0cb88a4f764b7a12671c53f0838cd831a0843b95",
         "conversion": "unsloth/Llama-3.2-3B-Instruct-GGUF",
         "conversion_revision": "e7d0997e49c9cb00d88b4c1a6a16aa894b0bbc31"
-      }
+      },
+      "ollama_tag": "llama3.2"
     },
     {
       "entry_id": "glm-ocr",
@@ -220,7 +231,8 @@
         "base_revision": "2e85a62840ccac27daa451df36c736c4636b8628",
         "conversion": null,
         "conversion_revision": null
-      }
+      },
+      "ollama_tag": "glm-ocr"
     },
     {
       "entry_id": "parakeet-tdt-0-6b-v3",
@@ -297,7 +309,8 @@
         "base_revision": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
         "conversion": "Qwen/Qwen3-Embedding-0.6B-GGUF",
         "conversion_revision": "370f27d7550e0def9b39c1f16d3fbaa13aa67728"
-      }
+      },
+      "ollama_tag": "qwen3-embedding"
     },
     {
       "entry_id": "all-minilm-l6-v2",
@@ -312,7 +325,8 @@
         "base_revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
         "conversion": null,
         "conversion_revision": null
-      }
+      },
+      "ollama_tag": "all-minilm"
     },
     {
       "entry_id": "granite-embedding-small-r2",
@@ -386,7 +400,8 @@
         "base_revision": "345d467b117d1fd5eda9b879a5988de9ae5f47a7",
         "conversion": "unsloth/Qwen3.6-35B-A3B-GGUF",
         "conversion_revision": "a483e9e6cbd595906af30beda3187c2663a1118c"
-      }
+      },
+      "ollama_tag": "qwen3.6"
     },
     {
       "entry_id": "gemma-4-26b-a4b-it",
@@ -401,7 +416,8 @@
         "base_revision": "4d7ae4984b7db7de8f8457170b3f1a419ee76d52",
         "conversion": "unsloth/gemma-4-26B-A4B-it-GGUF",
         "conversion_revision": "c099eb48e663fd284577b04978a94ffccb261841"
-      }
+      },
+      "ollama_tag": "gemma4"
     },
     {
       "entry_id": "gemma-4-31b-it",
@@ -416,7 +432,8 @@
         "base_revision": "842da3794eaa0b77d5f08bae87a17459d91ff475",
         "conversion": "unsloth/gemma-4-31B-it-GGUF",
         "conversion_revision": "c1ac76e99d5513b141e8adde7288b85c3f9c32ec"
-      }
+      },
+      "ollama_tag": "gemma4"
     },
     {
       "entry_id": "muse-glimmer-30b",
@@ -431,7 +448,8 @@
         "base_revision": "cec94fcfd6512f2cfe708138c32533b346ea4f69",
         "conversion": "meta-models/Muse-Glimmer-30B-GGUF",
         "conversion_revision": "b44f1072cf75e918a1b82a3a17b45c4389b076e7"
-      }
+      },
+      "ollama_tag": "muse-glimmer"
     },
     {
       "entry_id": "qwen3-coder-30b-a3b",
@@ -446,7 +464,8 @@
         "base_revision": "b2cff646eb4bb1d68355c01b18ae02e7cf42d120",
         "conversion": "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF",
         "conversion_revision": "b17cb02dd882d5b6ab62fc777ad2995f19668350"
-      }
+      },
+      "ollama_tag": "qwen3-coder"
     },
     {
       "entry_id": "gpt-oss-120b",
@@ -461,7 +480,8 @@
         "base_revision": "b5c939de8f754692c1647ca79fbf85e8c1e70f8a",
         "conversion": "ggml-org/gpt-oss-120b-GGUF",
         "conversion_revision": "7200b74bea78b0a2964ef9f3897eefa401e890ff"
-      }
+      },
+      "ollama_tag": "gpt-oss"
     },
     {
       "entry_id": "glm-4-7-flash",
@@ -476,7 +496,8 @@
         "base_revision": "7dd20894a642a0aa287e9827cb1a1f7f91386b67",
         "conversion": "unsloth/GLM-4.7-Flash-GGUF",
         "conversion_revision": "0d32489ecb9db6d2a4fc93bd27ef01519f95474d"
-      }
+      },
+      "ollama_tag": "glm-4.7-flash"
     },
     {
       "entry_id": "qwen3-vl-8b",
@@ -491,7 +512,8 @@
         "base_revision": "0c351dd01ed87e9c1b53cbc748cba10e6187ff3b",
         "conversion": "Qwen/Qwen3-VL-8B-Instruct-GGUF",
         "conversion_revision": "f982a07559d4a2f6c8744d840bf6fccab30eea96"
-      }
+      },
+      "ollama_tag": "qwen3-vl"
     },
     {
       "entry_id": "qwen3-embedding-8b",
@@ -506,7 +528,8 @@
         "base_revision": "1d8ad4ca9b3dd8059ad90a75d4983776a23d44af",
         "conversion": "Qwen/Qwen3-Embedding-8B-GGUF",
         "conversion_revision": "69d0e58a13e463cd99a9b83e3f5fee7c10265fab"
-      }
+      },
+      "ollama_tag": "qwen3-embedding"
     },
     {
       "entry_id": "deepseek-r1-0528-qwen3-8b",
@@ -521,7 +544,8 @@
         "base_revision": "6e8885a6ff5c1dc5201574c8fd700323f23c25fa",
         "conversion": "unsloth/DeepSeek-R1-0528-Qwen3-8B-GGUF",
         "conversion_revision": "eb48357c179d34dbf515983f798dfb8752a0f261"
-      }
+      },
+      "ollama_tag": "deepseek-r1"
     },
     {
       "entry_id": "mistral-7b-v0-3",
@@ -536,7 +560,8 @@
         "base_revision": "c170c708c41dac9275d15a8fff4eca08d52bab71",
         "conversion": "lmstudio-community/Mistral-7B-Instruct-v0.3-GGUF",
         "conversion_revision": "29a785419661afc70b5cd91b5023a835b0092281"
-      }
+      },
+      "ollama_tag": "mistral"
     },
     {
       "entry_id": "llama-3-1-8b",
@@ -551,7 +576,8 @@
         "base_revision": "0e9e39f249a16976918f6564b8830bc894c89659",
         "conversion": "unsloth/Llama-3.1-8B-Instruct-GGUF",
         "conversion_revision": "600b0020115fd6b17f0752848fe7b5a1be686bcd"
-      }
+      },
+      "ollama_tag": "llama3.1"
     },
     {
       "entry_id": "gemma-3-4b-it",
@@ -566,7 +592,8 @@
         "base_revision": "093f9f388b31de276ce2de164bdc2081324b9767",
         "conversion": "unsloth/gemma-3-4b-it-GGUF",
         "conversion_revision": "5a3566e716d80f709ed7b79817eaf7733d2a1fce"
-      }
+      },
+      "ollama_tag": "gemma3"
     },
     {
       "entry_id": "chatterbox",

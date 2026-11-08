@@ -225,3 +225,162 @@ def test_main_writes_dated_signals_csv_and_diff(tmp_path, monkeypatch):
     diff = json.loads((out / "diff-2026-11-07.json").read_text())
     assert [item["key"] for item in diff["promote"]] == ["rising"]
     assert "operators choose" in diff["note"]
+
+
+def test_an_unavailable_measurement_is_never_a_weak_quarter():
+    plan = {
+        "title": "fixture",
+        "entries": [
+            {
+                "entry_id": "qwen3-5-4b",
+                "tier": "small",
+                "licence": {"base_model": "Qwen/Qwen3.5-4B"},
+            },
+            *PLAN["entries"],
+        ],
+    }
+    models = dict(MODELS)
+
+    def model(repo):
+        if repo == "Qwen/Qwen3.5-4B":
+            raise OSError("metadata unavailable")
+        return models[repo]
+
+    rows = signals.measure(
+        signals.candidates_from(plan, []),
+        TODAY,
+        model=model,
+        conversions=lambda name: CONVERSIONS.get(name, 0),
+    )
+    qwen = next(row for row in rows if row.key == "qwen3-5-4b")
+    assert not qwen.measured and qwen.unmeasured == ["hf_base"]
+    assert qwen.ranks == {} and not qwen.qualifies
+    # Even after a weak quarter last time, it is neither demoted nor re-watched.
+    diff = signals.decide(rows, previous_weak=["qwen3-5-4b"])
+    for kind in ("keep", "watch", "demote", "promote", "not_yet"):
+        assert "qwen3-5-4b" not in [item["key"] for item in diff[kind]]
+    (item,) = diff["unmeasured"]
+    assert item["key"] == "qwen3-5-4b" and item["previous_weak"] is True
+
+    # Conversions failing is missing data too.
+    def broken_conversions(name):
+        raise OSError("search unavailable")
+
+    rows = signals.measure(
+        signals.candidates_from(PLAN, []),
+        TODAY,
+        model=lambda repo: MODELS[repo],
+        conversions=broken_conversions,
+    )
+    assert all("hf_conversions" in row.unmeasured for row in rows)
+    assert signals.decide(rows)["demote"] == []
+
+
+def test_a_run_with_too_much_missing_data_refuses(tmp_path, monkeypatch):
+    plan = tmp_path / "plan.json"
+    plan.write_text(json.dumps(PLAN))
+
+    def unavailable(repo):
+        raise OSError("hub down")
+
+    monkeypatch.setattr(signals, "hub_model", unavailable)
+    monkeypatch.setattr(signals, "hub_conversions", lambda name: 0)
+    out = tmp_path / "out"
+    args = ["--plan", str(plan), "--output", str(out), "--date", "2026-11-07"]
+    assert signals.main(args) == 1
+    assert not out.exists()
+    assert signals.main([*args, "--allow-unmeasured"]) == 0
+    diff = json.loads((out / "diff-2026-11-07.json").read_text())
+    assert diff["demote"] == [] and diff["watch"] == []
+    assert {item["key"] for item in diff["unmeasured"]} == {
+        "listed-strong",
+        "listed-weak",
+    }
+
+
+def test_previous_unmeasured_weakness_carries_to_the_next_quarter(
+    tmp_path, monkeypatch
+):
+    plan = tmp_path / "plan.json"
+    plan.write_text(json.dumps(PLAN))
+    previous = tmp_path / "previous.json"
+    previous.write_text(
+        json.dumps({"unmeasured": [{"key": "listed-weak", "previous_weak": True}]})
+    )
+    monkeypatch.setattr(signals, "hub_model", lambda repo: MODELS[repo])
+    monkeypatch.setattr(signals, "hub_conversions", lambda name: CONVERSIONS[name])
+    out = tmp_path / "out"
+    assert (
+        signals.main(
+            [
+                "--plan",
+                str(plan),
+                "--output",
+                str(out),
+                "--date",
+                "2026-11-07",
+                "--previous-diff",
+                str(previous),
+            ]
+        )
+        == 0
+    )
+    diff = json.loads((out / "diff-2026-11-07.json").read_text())
+    assert [item["key"] for item in diff["demote"]] == ["listed-weak"]
+
+
+def test_listed_entries_ollama_tags_feed_the_ollama_signal(tmp_path, monkeypatch):
+    plan = {
+        "title": "fixture",
+        "entries": [
+            {**entry, "ollama_tag": tag}
+            for entry, tag in zip(
+                PLAN["entries"], ("strong", "strong", "weak"), strict=True
+            )
+        ],
+    }
+    plan_path = tmp_path / "plan.json"
+    plan_path.write_text(json.dumps(plan))
+    current = tmp_path / "now.csv"
+    current.write_text("tag,pulls\nstrong,9000000\nweak,1200000\n")
+    earlier = tmp_path / "then.csv"
+    earlier.write_text("tag,pulls\nstrong,6000000\nweak,1000000\n")
+    monkeypatch.setattr(signals, "hub_model", lambda repo: MODELS[repo])
+    monkeypatch.setattr(signals, "hub_conversions", lambda name: CONVERSIONS[name])
+    out = tmp_path / "out"
+    assert (
+        signals.main(
+            [
+                "--plan",
+                str(plan_path),
+                "--output",
+                str(out),
+                "--date",
+                "2026-11-07",
+                "--ollama",
+                str(current),
+                "--ollama-previous",
+                str(earlier),
+            ]
+        )
+        == 0
+    )
+    rows = {
+        row["key"]: row
+        for row in json.loads((out / "signals-2026-11-07.json").read_text())["signals"]
+    }
+    assert (
+        rows["listed-strong"]["ollama_monthly"] > rows["listed-weak"]["ollama_monthly"]
+    )
+    assert rows["listed-strong"]["ranks"]["ollama_monthly"] == 1
+    assert rows["listed-weak"]["ranks"]["ollama_monthly"] == 2
+
+
+def test_committed_plan_maps_listed_models_to_ollama_tags():
+    plan = json.loads(signals.DEFAULT_PLAN.read_text())
+    tags = {entry["entry_id"]: entry.get("ollama_tag") for entry in plan["entries"]}
+    assert tags["qwen3-5-4b"] == "qwen3.5" and tags["gemma-4-e4b-it"] == "gemma4"
+    assert tags["nomic-embed-text-v1-5"] == "nomic-embed-text"
+    assert tags["kokoro-82m"] is None  # Ollama has no Kokoro
+    candidates = signals.candidates_from(plan, [])
+    assert sum(1 for item in candidates if item.ollama_tag) >= 20

@@ -55,6 +55,8 @@ CONVERSION_ORGS = (
     "mlx-community",
 )
 MIN_AGE_DAYS = 90
+# Refuse a run when more than this share of candidates could not be measured.
+MAX_UNMEASURED = 0.2
 SUSTAINED = 0.7
 SIGNALS = ("conversions_30d", "base_30d", "ollama_monthly")
 TIERS = ("small", "standard", "large")
@@ -93,6 +95,14 @@ class Signals:
     score: float | None = None
     strong_signals: int = 0
     qualifies: bool = False
+    # Sources that could not be measured this quarter. A row missing any
+    # Hugging Face measurement is "unmeasured": it is never judged weak.
+    unmeasured: list[str] = field(default_factory=list)
+
+    @property
+    def measured(self) -> bool:
+        """Every signal the rules need (Hugging Face) was actually measured."""
+        return not any(source.startswith("hf_") for source in self.unmeasured)
 
 
 def sustained_ratio(
@@ -128,11 +138,18 @@ def rank(rows: list[Signals]) -> None:
         pool = [row for row in rows if row.tier == tier]
         top = max(3, sum(1 for row in pool if row.listed))
         for signal in SIGNALS:
-            measured = [row for row in pool if getattr(row, signal) is not None]
+            measured = [
+                row for row in pool if row.measured and getattr(row, signal) is not None
+            ]
             measured.sort(key=lambda row: (-getattr(row, signal), -(row.likes or 0)))
             for position, row in enumerate(measured, start=1):
                 row.ranks[signal] = position
         for row in pool:
+            if not row.measured:
+                # Not ranked against measured rows and never qualifies.
+                row.ranks, row.score, row.strong_signals = {}, None, 0
+                row.qualifies = False
+                continue
             row.score = statistics.median(row.ranks.values()) if row.ranks else None
             row.strong_signals = sum(1 for value in row.ranks.values() if value <= top)
             row.qualifies = bool(
@@ -151,6 +168,9 @@ def decide(
     ``previous_weak`` names the listed entries that did not qualify last
     quarter (from the previous diff). A listed entry is demoted only when it
     fails again; a first weak quarter only puts it on the watch list.
+    A row that could not be measured is reported as "unmeasured" and keeps its
+    previous state: it is never a weak quarter, never advances a demotion and
+    is never promoted.
     """
     weak_before = set(previous_weak)
     diff: dict[str, list[dict[str, Any]]] = {
@@ -159,6 +179,7 @@ def decide(
         "watch": [],
         "demote": [],
         "not_yet": [],
+        "unmeasured": [],
     }
     for row in sorted(rows, key=lambda r: (TIERS.index(r.tier), r.score or 1e9)):
         item = {
@@ -170,7 +191,17 @@ def decide(
             "sustained_ratio": row.sustained_ratio,
             "age_days": row.age_days,
         }
-        if row.listed:
+        if not row.measured:
+            diff["unmeasured"].append(
+                item
+                | {
+                    "listed": row.listed,
+                    "missing": list(row.unmeasured),
+                    # Carried so a later quarter still sees an earlier weak one.
+                    "previous_weak": row.key in weak_before,
+                }
+            )
+        elif row.listed:
             if row.qualifies:
                 diff["keep"].append(item)
             elif row.key in weak_before:
@@ -244,26 +275,41 @@ def measure(
         try:
             info = model(item.base_model)
         except (OSError, ValueError) as error:
-            print(f"skip {item.base_model}: {error}", file=sys.stderr)
+            print(f"unmeasured {item.base_model}: {error}", file=sys.stderr)
             info = {}
-        if info:
-            row.base_30d = int(info.get("downloads") or 0)
-            row.base_all_time = int(info.get("downloadsAllTime") or 0)
+        created = info.get("createdAt")
+        all_time = info.get("downloadsAllTime")
+        if (
+            not info
+            or not isinstance(created, str)
+            or not isinstance(info.get("downloads"), int)
+            or not isinstance(all_time, int)
+            or all_time <= 0
+        ):
+            # A failed or incomplete answer is missing data, never a zero.
+            row.unmeasured.append("hf_base")
+        else:
+            row.base_30d = int(info["downloads"])
+            row.base_all_time = all_time
             row.likes = int(info.get("likes") or 0)
-            created = info.get("createdAt")
-            if isinstance(created, str):
-                row.created_at = created
-                made = datetime.fromisoformat(created.replace("Z", "+00:00")).date()
-                row.age_days = (today - made).days
-                row.sustained_ratio = sustained_ratio(
-                    row.base_30d, row.base_all_time, made, today
-                )
+            row.created_at = created
+            made = datetime.fromisoformat(created.replace("Z", "+00:00")).date()
+            row.age_days = (today - made).days
+            row.sustained_ratio = sustained_ratio(
+                row.base_30d, row.base_all_time, made, today
+            )
         try:
             row.conversions_30d = conversions(item.base_model.split("/", 1)[-1])
         except (OSError, ValueError) as error:
-            print(f"skip conversions of {item.base_model}: {error}", file=sys.stderr)
+            print(
+                f"unmeasured conversions of {item.base_model}: {error}", file=sys.stderr
+            )
+            row.unmeasured.append("hf_conversions")
         if ollama is not None and item.ollama_tag:
             row.ollama_monthly = ollama.get(item.ollama_tag)
+            if row.ollama_monthly is None:
+                # Optional signal: noted, but it never makes a row unmeasured.
+                row.unmeasured.append("ollama")
         rows.append(row)
     rank(rows)
     return rows
@@ -311,6 +357,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ollama-days", type=int, default=91)
     parser.add_argument("--previous-diff", type=Path, help="last quarter's diff")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--allow-unmeasured",
+        action="store_true",
+        help=f"write results even when over {int(MAX_UNMEASURED * 100)}% of "
+        "candidates could not be measured",
+    )
     parser.add_argument("--date", default=datetime.now(UTC).date().isoformat())
     arguments = parser.parse_args(argv)
     today = date.fromisoformat(arguments.date)
@@ -328,11 +380,27 @@ def main(argv: list[str] | None = None) -> int:
         else None
     )
     rows = measure(candidates_from(plan, proposals), today, ollama=rates)
+    missing = sum(1 for row in rows if not row.measured)
+    if rows and missing / len(rows) > MAX_UNMEASURED and not arguments.allow_unmeasured:
+        print(
+            json.dumps(
+                {
+                    "error": f"{missing} of {len(rows)} candidates could not be "
+                    "measured; rerun later or pass --allow-unmeasured"
+                }
+            ),
+            file=sys.stderr,
+        )
+        return 1
     previous_weak: list[str] = []
     if arguments.previous_diff:
         last = json.loads(arguments.previous_diff.read_text())
         previous_weak = [
             item["key"] for item in last.get("watch", []) + last.get("demote", [])
+        ] + [
+            item["key"]
+            for item in last.get("unmeasured", [])
+            if item.get("previous_weak")
         ]
     diff = decide(rows, previous_weak)
     arguments.output.mkdir(parents=True, exist_ok=True)
