@@ -1,0 +1,201 @@
+{
+  "schema_version": "sovereign.starter-plan.v1",
+  "title": "Sovereign strict starter collection",
+  "description": "Category A only: Apache-2.0 or MIT for both the upstream base model and the conversion. A one-time import list: imported copies are the operator's own local selections, and nothing published later can stop or change them.",
+  "recipes": "../recipes/starter",
+  "mirrors": [
+    "https://starter-mirror.placeholder.invalid"
+  ],
+  "entries": [
+    {
+      "entry_id": "qwen3-5-4b",
+      "tier": "small",
+      "title": "Qwen3.5 4B (Q4_K_M GGUF + vision projector)",
+      "role": "Chat and vision language model",
+      "recipe": "qwen3.5-4b-gguf.json",
+      "licence": {
+        "license_id": "Apache-2.0",
+        "summary": "Permissive (Apache-2.0): use, change and share; keep the licence and notices and mark changes.",
+        "base_model": "Qwen/Qwen3.5-4B",
+        "base_revision": "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a",
+        "conversion": "unsloth/Qwen3.5-4B-GGUF",
+        "conversion_revision": "e87f176479d0855a907a41277aca2f8ee7a09523"
+      }
+    },
+    {
+      "entry_id": "whisper-large-v3-turbo",
+      "tier": "small",
+      "title": "Whisper large-v3-turbo (whisper.cpp q5_0)",
+      "role": "Speech to text",
+      "recipe": "whisper-large-v3-turbo-ggml.json",
+      "licence": {
+        "license_id": "MIT",
+        "summary": "Permissive (MIT): use, change and share; keep the copyright and licence notice.",
+        "base_model": "openai/whisper-large-v3-turbo",
+        "base_revision": "41f01f3fe87f28c78e2fbf8b568835947dd65ed9",
+        "conversion": "ggerganov/whisper.cpp",
+        "conversion_revision": "5359861c739e955e79d9a303bcbc70fb988958b1"
+      }
+    },
+    {
+      "entry_id": "all-minilm-l6-v2",
+      "tier": "small",
+      "title": "all-MiniLM-L6-v2 (safetensors)",
+      "role": "English sentence embeddings (tiny)",
+      "recipe": "all-minilm-l6-v2.json",
+      "licence": {
+        "license_id": "Apache-2.0",
+        "summary": "Permissive (Apache-2.0): use, change and share; keep the licence and notices and mark changes. Its MIT base model's notice is carried too.",
+        "base_model": "sentence-transformers/all-MiniLM-L6-v2",
+        "base_revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+        "conversion": null,
+        "conversion_revision": null
+      }
+    },
+    {
+      "entry_id": "bge-small-en-v1-5",
+      "tier": "small",
+      "title": "BGE small en v1.5 (safetensors)",
+      "role": "English retrieval embeddings",
+      "recipe": "bge-small-en-v1.5.json",
+      "licence": {
+        "license_id": "MIT",
+        "summary": "Permissive (MIT): use, change and share; keep the copyright and licence notice.",
+        "base_model": "BAAI/bge-small-en-v1.5",
+        "base_revision": "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a",
+        "conversion": null,
+        "conversion_revision": null
+      }
+    },
+    {
+      "entry_id": "qwen3-8-27b",
+      "tier": "standard",
+      "title": "Qwen3.8 27B (Q4_K_M GGUF + vision projector)",
+      "role": "Flagship dense chat and vision model",
+      "recipe": "qwen3.8-27b-gguf.json",
+      "licence": {
+        "license_id": "Apache-2.0",
+        "summary": "Permissive (Apache-2.0): use, change and share; keep the licence and notices and mark changes.",
+        "base_model": "Qwen/Qwen3.8-27B",
+        "base_revision": "37561816e66b5b9153b1b64c10968c18c1e6f4a0",
+        "conversion": "ggml-org/Qwen3.8-27B-GGUF",
+        "conversion_revision": "a316ea527fde32c12487be7574e2db5ac2ad2a7e"
+      }
+    },
+    {
+      "entry_id": "gpt-oss-20b",
+      "tier": "standard",
+      "title": "gpt-oss 20B (MXFP4 GGUF)",
+      "role": "Reasoning and tool use",
+      "recipe": "gpt-oss-20b-gguf.json",
+      "licence": {
+        "license_id": "Apache-2.0",
+        "summary": "Permissive (Apache-2.0): use, change and share; keep the licence and notices and mark changes. Its usage policy (comply with applicable law) is carried.",
+        "base_model": "openai/gpt-oss-20b",
+        "base_revision": "6cee5e81ee83917806bbde320786a8fb61efebee",
+        "conversion": "ggml-org/gpt-oss-20b-GGUF",
+        "conversion_revision": "15dcfc7e7c608c6161507211ed43c5b590801b4b"
+      }
+    },
+    {
+      "entry_id": "qwen3-5-9b",
+      "tier": "standard",
+      "title": "Qwen3.5 9B (Q4_K_M GGUF + vision projector)",
+      "role": "Mid-size chat and vision model",
+      "recipe": "qwen3.5-9b-gguf.json",
+      "licence": {
+        "license_id": "Apache-2.0",
+        "summary": "Permissive (Apache-2.0): use, change and share; keep the licence and notices and mark changes.",
+        "base_model": "Qwen/Qwen3.5-9B",
+        "base_revision": "c202236235762e1c871ad0ccb60c8ee5ba337b9a",
+        "conversion": "unsloth/Qwen3.5-9B-GGUF",
+        "conversion_revision": "3885219b6810b007914f3a7950a8d1b469d598a5"
+      }
+    },
+    {
+      "entry_id": "gemma-4-e4b-it",
+      "tier": "standard",
+      "title": "Gemma 4 E4B instruct (Q4_K_M GGUF + projector)",
+      "role": "On-device class chat and vision model",
+      "recipe": "gemma-4-e4b-it-gguf.json",
+      "licence": {
+        "license_id": "Apache-2.0",
+        "summary": "Permissive (Apache-2.0): use, change and share; keep the licence and notices and mark changes.",
+        "base_model": "google/gemma-4-E4B-it",
+        "base_revision": "4ecc2ba63bcac23ba4a767fc87025b1450f84c9c",
+        "conversion": "unsloth/gemma-4-E4B-it-GGUF",
+        "conversion_revision": "bfc15c382204943c3a8fff0c750b94ae2364d7a3"
+      }
+    },
+    {
+      "entry_id": "phi-4-mini-instruct",
+      "tier": "standard",
+      "title": "Phi-4-mini instruct (Q4_K_M GGUF)",
+      "role": "Small reasoning model",
+      "recipe": "phi-4-mini-instruct-gguf.json",
+      "licence": {
+        "license_id": "MIT",
+        "summary": "Permissive (MIT): use, change and share; keep the copyright and licence notice. Microsoft's NOTICE is carried.",
+        "base_model": "microsoft/Phi-4-mini-instruct",
+        "base_revision": "cfbefacb99257ffa30c83adab238a50856ac3083",
+        "conversion": "unsloth/Phi-4-mini-instruct-GGUF",
+        "conversion_revision": "78eb92a46fc37e6b524df991ed9aca9bc6aa7b80"
+      }
+    },
+    {
+      "entry_id": "bge-reranker-v2-m3",
+      "tier": "standard",
+      "title": "BGE reranker v2 m3 (safetensors)",
+      "role": "Multilingual reranker",
+      "recipe": "bge-reranker-v2-m3.json",
+      "licence": {
+        "license_id": "Apache-2.0",
+        "summary": "Permissive (Apache-2.0): use, change and share; keep the licence and notices and mark changes. Its MIT base model's notice is carried too.",
+        "base_model": "BAAI/bge-reranker-v2-m3",
+        "base_revision": "953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e",
+        "conversion": null,
+        "conversion_revision": null
+      }
+    },
+    {
+      "entry_id": "qwen3-embedding-0-6b",
+      "tier": "standard",
+      "title": "Qwen3 Embedding 0.6B (safetensors)",
+      "role": "Multilingual embeddings",
+      "recipe": "qwen3-embedding-0.6b.json",
+      "licence": {
+        "license_id": "Apache-2.0",
+        "summary": "Permissive (Apache-2.0): use, change and share; keep the licence and notices and mark changes.",
+        "base_model": "Qwen/Qwen3-Embedding-0.6B",
+        "base_revision": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+        "conversion": null,
+        "conversion_revision": null
+      }
+    },
+    {
+      "entry_id": "nomic-embed-text-v1-5",
+      "tier": "standard",
+      "title": "nomic-embed-text v1.5 (f16 GGUF)",
+      "role": "English embeddings (the Ollama default)",
+      "recipe": "nomic-embed-text-v1.5-gguf.json",
+      "licence": {
+        "license_id": "Apache-2.0",
+        "summary": "Permissive (Apache-2.0): use, change and share; keep the licence and notices and mark changes.",
+        "base_model": "nomic-ai/nomic-embed-text-v1.5",
+        "base_revision": "e9b6763023c676ca8431644204f50c2b100d9aab",
+        "conversion": "nomic-ai/nomic-embed-text-v1.5-GGUF",
+        "conversion_revision": "0188c9bf409793f810680a5a431e7b899c46104c"
+      }
+    }
+  ],
+  "excluded": [
+    {
+      "model": "hexgrad/Kokoro-82M",
+      "reason": "Its card declares base_model yl4579/StyleTTS2-LJSpeech, which has no licence on Hugging Face; StyleTTS2's pre-trained models carry a separate use condition (tell listeners speech is synthesized). The base does not clearly resolve to Apache-2.0 or MIT."
+    },
+    {
+      "model": "BAAI/bge-m3",
+      "reason": "No safetensors weights at the pinned revision (only pickle pytorch_model.bin and ONNX)."
+    }
+  ]
+}

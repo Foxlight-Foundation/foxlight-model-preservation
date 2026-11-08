@@ -1,0 +1,111 @@
+{
+  "attestation": "owner-capture",
+  "members": [
+    {
+      "artifact_identity": "qwen3.5-9b-gguf:weights",
+      "dependencies": [
+        "projector",
+        "notices"
+      ],
+      "files": [
+        {
+          "expected_sha256": "03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8",
+          "path": "Qwen3.5-9B-Q4_K_M.gguf"
+        },
+        {
+          "expected_sha256": "e50f8066e39c38cbc2da5dd94b9a9a2712b64c4921f107a5adb4b3ca5b6bbac0",
+          "path": "README.md"
+        }
+      ],
+      "format": "gguf",
+      "intake": {
+        "audience": "public",
+        "decision": "Strict starter intake (category A). Licence resolved from the base model Qwen/Qwen3.5-9B@c202236235762e1c871ad0ccb60c8ee5ba337b9a (card and licence file): Apache-2.0. The conversion unsloth/Qwen3.5-9B-GGUF@3885219b6810b007914f3a7950a8d1b469d598a5 declares the same licence. Upstream LICENSE/NOTICE texts are carried (injected where a repository ships none). No inference qualification or upstream signature asserted.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "README.md"
+        ],
+        "terms_reference": "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/blob/3885219b6810b007914f3a7950a8d1b469d598a5/README.md"
+      },
+      "loader_root": null,
+      "member_id": "weights",
+      "origin_repository": "unsloth/Qwen3.5-9B-GGUF",
+      "origin_revision": "3885219b6810b007914f3a7950a8d1b469d598a5",
+      "retained_card": null,
+      "role": "primary"
+    },
+    {
+      "artifact_identity": "qwen3.5-9b-gguf:projector",
+      "dependencies": [
+        "notices"
+      ],
+      "files": [
+        {
+          "expected_sha256": "e50f8066e39c38cbc2da5dd94b9a9a2712b64c4921f107a5adb4b3ca5b6bbac0",
+          "path": "README.md"
+        },
+        {
+          "expected_sha256": "f70dc3509053962b0d0d3ee8a7eacebf5d60aa560cad78254ae8698516ae029f",
+          "path": "mmproj-F16.gguf"
+        }
+      ],
+      "format": "gguf",
+      "intake": {
+        "audience": "public",
+        "decision": "Strict starter intake (category A). Licence resolved from the base model Qwen/Qwen3.5-9B@c202236235762e1c871ad0ccb60c8ee5ba337b9a (card and licence file): Apache-2.0. The conversion unsloth/Qwen3.5-9B-GGUF@3885219b6810b007914f3a7950a8d1b469d598a5 declares the same licence. Upstream LICENSE/NOTICE texts are carried (injected where a repository ships none). No inference qualification or upstream signature asserted.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "README.md"
+        ],
+        "terms_reference": "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/blob/3885219b6810b007914f3a7950a8d1b469d598a5/README.md"
+      },
+      "loader_root": null,
+      "member_id": "projector",
+      "origin_repository": "unsloth/Qwen3.5-9B-GGUF",
+      "origin_revision": "3885219b6810b007914f3a7950a8d1b469d598a5",
+      "retained_card": null,
+      "role": "projector"
+    },
+    {
+      "artifact_identity": "qwen3.5-9b-gguf:notices",
+      "dependencies": [],
+      "files": [
+        {
+          "expected_sha256": "bbedc3fda3305820b977265f01b8619d87570a6739de3a5582c3464840f1e57a",
+          "path": "LICENSE"
+        },
+        {
+          "expected_sha256": "c5f5a8c2dddab69cfbf05279235aa5fddb137939a06539c4c7637aa900fef6d0",
+          "path": "README.md"
+        }
+      ],
+      "format": "text",
+      "intake": {
+        "audience": "public",
+        "decision": "Strict starter intake (category A). Licence resolved from the base model Qwen/Qwen3.5-9B@c202236235762e1c871ad0ccb60c8ee5ba337b9a (card and licence file): Apache-2.0. The conversion unsloth/Qwen3.5-9B-GGUF@3885219b6810b007914f3a7950a8d1b469d598a5 declares the same licence. Upstream LICENSE/NOTICE texts are carried (injected where a repository ships none). No inference qualification or upstream signature asserted.",
+        "license_id": "Apache-2.0",
+        "notice_paths": [
+          "README.md",
+          "LICENSE"
+        ],
+        "terms_reference": "https://huggingface.co/Qwen/Qwen3.5-9B/blob/c202236235762e1c871ad0ccb60c8ee5ba337b9a/LICENSE"
+      },
+      "loader_root": null,
+      "member_id": "notices",
+      "origin_repository": "Qwen/Qwen3.5-9B",
+      "origin_revision": "c202236235762e1c871ad0ccb60c8ee5ba337b9a",
+      "retained_card": null,
+      "role": "notices"
+    }
+  ],
+  "name": "qwen3.5-9b-gguf",
+  "root_member": "weights",
+  "runtime_requirements": [
+    "llama.cpp (or a runtime built on it) with Qwen3.5 and mtmd vision support; engine not bundled"
+  ],
+  "schema_version": "foxlight.model-preservation.v1",
+  "workloads": [
+    "text-generation",
+    "vision-text-generation"
+  ]
+}
