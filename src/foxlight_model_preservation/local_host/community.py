@@ -195,16 +195,15 @@ class CommunityPolicy(Record):
 
     @model_validator(mode="after")
     def upload_limits(self) -> CommunityPolicy:
-        """Only v2 says "no cap"; a daily limit never exceeds the monthly one."""
+        """Only v2 says "no cap".
+
+        A saved policy always loads as earlier releases accepted it: a daily
+        limit above the monthly one stays readable (the monthly limit binds).
+        Only a change to the limits themselves must keep daily within monthly.
+        """
         uncapped = self.daily_upload_bytes is None or self.monthly_upload_bytes is None
         if uncapped and self.schema_version == "sovereign.community-mirror.v1":
             raise PreservationError("community_policy_version")
-        if (
-            self.daily_upload_bytes is not None
-            and self.monthly_upload_bytes is not None
-            and self.daily_upload_bytes > self.monthly_upload_bytes
-        ):
-            raise PreservationError("community_upload_limit_invalid")
         return self
 
 
@@ -499,6 +498,19 @@ class CommunityMirror:
         # Any change this version saves is written as v2, which older apps
         # refuse instead of misreading; stored caps stay exactly as they were.
         changes["schema_version"] = "sovereign.community-mirror.v2"
+        if {"daily_upload_bytes", "monthly_upload_bytes"} & set(body):
+            # Only limits the owner sets now must keep daily within monthly;
+            # limits saved earlier are kept exactly, whatever they were.
+            daily = changes.get("daily_upload_bytes", policy.daily_upload_bytes)
+            monthly = changes.get("monthly_upload_bytes", policy.monthly_upload_bytes)
+            if (
+                isinstance(daily, int)
+                and isinstance(monthly, int)
+                and not isinstance(daily, bool)
+                and not isinstance(monthly, bool)
+                and daily > monthly
+            ):
+                raise PreservationError("community_upload_limit_invalid")
         if body.get("enabled") is True:
             if body.get("consent") is not True:
                 raise PreservationError("community_consent_required")

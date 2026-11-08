@@ -66,7 +66,9 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
  // What people find is chosen with its disclosure on screen; sending the
  // disclosure version records that the owner saw it (with the consent, or later).
  const findChoices=()=>({public_url:address.trim()||null,announce_dht:dht,publish_nostr:nostr,announce_disclosure:1});
- const choices=()=>({share,licenses,daily_upload_bytes:limits[0],monthly_upload_bytes:limits[1],...findChoices()});
+ // Saved limits are left exactly as they are unless the owner changes them.
+ const limitsChanged=()=>!state||limits[0]!==state.policy.daily_upload_bytes||limits[1]!==state.policy.monthly_upload_bytes;
+ const choices=()=>({share,licenses,...(limitsChanged()?{daily_upload_bytes:limits[0],monthly_upload_bytes:limits[1]}:{}),...findChoices()});
  async function turnOn(){if(await act('desktop-community-configure',{enabled:true,consent:true,...choices()}))setSetup(false);}
  async function checkAddress(){setChecking(true);setCheck(null);setError('');try{const value=await api<AddressCheck>('desktop-community-check-address',{});if(live.current)setCheck(value);}catch(err){if(live.current)setError(err instanceof Error?err.message:'host_unavailable');}finally{if(live.current)setChecking(false);}}
  if(unavailable||!state)return null;
@@ -140,7 +142,7 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
    <p>Sharing stays on exactly as it is. Choose whether this computer also announces itself publicly. Nothing is announced until you save.</p>
    {announceStep(1)}
   </Sheet>,document.body)}
-  {setup==='all'&&createPortal(<Sheet kicker="Help keep models available" title="Share your backups with everyone" back="Close sharing setup" onClose={()=>setSetup(false)} footer={<button className="sk-btn sk-solid" disabled={busy||!agreed||licenses.length===0||badAddress||!limitsValid(...limits)} onClick={()=>void (on?act('desktop-community-configure',choices()).then(ok=>ok&&setSetup(false)):turnOn())}>{busy?'Saving…':on?'Save changes':'Start sharing'}</button>}>
+  {setup==='all'&&createPortal(<Sheet kicker="Help keep models available" title="Share your backups with everyone" back="Close sharing setup" onClose={()=>setSetup(false)} footer={<button className="sk-btn sk-solid" disabled={busy||!agreed||licenses.length===0||badAddress||(limitsChanged()&&!limitsValid(...limits))} onClick={()=>void (on?act('desktop-community-configure',choices()).then(ok=>ok&&setSetup(false)):turnOn())}>{busy?'Saving…':on?'Save changes':'Start sharing'}</button>}>
    {alert}
    <Step n={1} title="What to share">
     <ShareChoice value={share} onChange={setShare} name="community-share" every={['Every backup whose licence allows it','New backups join on their own. You can keep any one back.']} chosen={['Only the backups I choose','Pick them from the list after you start.']}/>

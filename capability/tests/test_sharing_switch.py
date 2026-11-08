@@ -1073,3 +1073,23 @@ async def test_a_withheld_copy_kept_for_the_first_time_follows_the_share_mode(
     assert progress["state"] == "done", progress
     assert fake.served() == {APACHE}
     assert fake.page["intake"]["withheld"] == [MIT]
+
+
+async def test_limits_core_already_holds_are_kept_even_if_daily_exceeds_monthly(
+    core: Any,
+) -> None:
+    """An older setup could save any positive limits; resubmitting them works."""
+    fake, app = core
+    held = {**CAPPED, "egress_daily": 10 * 1024**3, "egress_monthly": 1024**3}
+    existing(fake, APACHE)
+    fake.page["configuration"] = held
+    await app.dispatch("mirror-share-start", start_body(fake, configuration=held))
+    progress = await finished(app)
+    assert progress["state"] == "done", progress
+    assert "configure" not in [d["kind"] for d in fake.decisions]
+    # Changing the limits themselves must keep daily within monthly.
+    changed = {**held, "egress_daily": 20 * 1024**3}
+    with pytest.raises(CoreRefused, match="mirror_allowance_invalid"):
+        await app.dispatch(
+            "mirror-share-start", start_body(fake, configuration=changed)
+        )

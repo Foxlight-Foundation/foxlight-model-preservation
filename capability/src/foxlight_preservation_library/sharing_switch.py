@@ -205,12 +205,6 @@ class ShareStartInput(_Licences):
         settings = self.configuration
         if not (settings.http or settings.ipfs or settings.torrent):
             raise CoreRefused("mirror_transport_required")
-        if (
-            settings.egress_daily is not None
-            and settings.egress_monthly is not None
-            and settings.egress_daily > settings.egress_monthly
-        ):
-            raise CoreRefused("mirror_allowance_invalid")
         if len({copy.manifest_id for copy in self.copies}) != len(self.copies):
             raise CoreRefused("mirror_selection_duplicate")
         return self
@@ -366,6 +360,21 @@ class ShareSwitch:
                 features = {}
             self._fence(epoch)
             settings = decision.configuration
+            current = page.get("configuration")
+            saved = (
+                (current.get("egress_daily"), current.get("egress_monthly"))
+                if isinstance(current, dict)
+                else None
+            )
+            if (
+                (settings.egress_daily, settings.egress_monthly) != saved
+                and settings.egress_daily is not None
+                and settings.egress_monthly is not None
+                and settings.egress_daily > settings.egress_monthly
+            ):
+                # Only limits the owner sets now must keep daily within
+                # monthly; limits Core already holds are kept as they are.
+                raise CoreRefused("mirror_allowance_invalid")
             if (
                 settings.egress_daily is None or settings.egress_monthly is None
             ) and not features.get("Uncapped uploads"):

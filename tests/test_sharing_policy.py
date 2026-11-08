@@ -289,8 +289,6 @@ def test_community_policy_limits_are_opt_in_and_old_files_keep_theirs():
                 }
             )
         )
-    with pytest.raises(ValueError, match="community_upload_limit_invalid"):
-        CommunityPolicy(daily_upload_bytes=10, monthly_upload_bytes=5)
 
 
 def test_desktop_community_mirror_is_uncapped_until_the_owner_sets_limits(tmp_path):
@@ -699,3 +697,44 @@ def test_quickstart_and_config_preflight_caps_and_intake_before_writing(
     after = capped.read()
     assert after.egress_daily is None and after.intake is not None
     assert after.schema_version == "foxlight.mirror-state.v6"
+
+
+def test_a_v1_policy_with_daily_above_monthly_still_loads_and_can_change(tmp_path):
+    """Earlier releases accepted any positive caps; their policies stay readable."""
+    home = tmp_path / "home"
+    (home / "sharing/community").mkdir(parents=True)
+    stored = {
+        "schema_version": "sovereign.community-mirror.v1",
+        "daily_upload_bytes": 50 * 1024**3,
+        "monthly_upload_bytes": 10 * 1024**3,
+        "licenses": ["mit"],
+    }
+    (home / "sharing/community/policy.json").write_text(json.dumps(stored))
+    community = CommunityMirror(home, None)  # type: ignore[arg-type]
+    policy = community.policy()
+    assert (policy.daily_upload_bytes, policy.monthly_upload_bytes) == (
+        50 * 1024**3,
+        10 * 1024**3,
+    )
+    status = community.read([])
+    assert status["policy"]["daily_upload_bytes"] == 50 * 1024**3  # type: ignore[index]
+    # Other choices can change without touching the saved limits.
+    updated = community.configure({"port": 8744, "licenses": ["mit", "gpl-3.0"]})
+    assert updated.daily_upload_bytes == 50 * 1024**3 and updated.port == 8744
+    assert updated.schema_version == "sovereign.community-mirror.v2"
+    assert community.policy() == updated
+    # New limits the owner sets must keep daily within monthly...
+    with pytest.raises(PreservationError, match="community_upload_limit_invalid"):
+        community.configure({"daily_upload_bytes": 20 * 1024**3})
+    assert community.policy() == updated
+    # ...and switching limits off, or fixing them, works.
+    fixed = community.configure(
+        {"daily_upload_bytes": 1024**3, "monthly_upload_bytes": 10 * 1024**3}
+    )
+    assert fixed.daily_upload_bytes == 1024**3
+    assert (
+        community.configure(
+            {"daily_upload_bytes": None, "monthly_upload_bytes": None}
+        ).monthly_upload_bytes
+        is None
+    )

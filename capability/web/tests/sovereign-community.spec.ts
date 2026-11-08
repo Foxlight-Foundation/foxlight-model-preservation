@@ -80,7 +80,7 @@ test('one switch shares every eligible backup after a single standing consent',a
  await sent(page,start,'desktop-community-configure');
  const copyleft=familyIds('copyleft');
  const chosen=new Set([...defaults.filter(item=>!copyleft.includes(item)&&item!=='llama4'),'grok2-community']);
- expect(configured).toEqual({enabled:true,consent:true,share:'eligible',licenses:order.filter(item=>chosen.has(item)),daily_upload_bytes:null,monthly_upload_bytes:null,public_url:null,announce_dht:true,publish_nostr:true,announce_disclosure:1});
+ expect(configured).toEqual({enabled:true,consent:true,share:'eligible',licenses:order.filter(item=>chosen.has(item)),public_url:null,announce_dht:true,publish_nostr:true,announce_disclosure:1});
  await expect(page.locator('#sovereign-main')).not.toHaveAttribute('inert','');
  await expect(panel.getByText('Sharing 1 model',{exact:true})).toBeVisible();
  // Reachability is stated plainly; the router is never changed.
@@ -251,7 +251,7 @@ test('each public announcement is disclosed before consent and named in it',asyn
  await nostr.uncheck();
  await expect(page.getByRole('checkbox',{name:'Keep sharing these models from this computer until I turn it off, without announcing it publicly.'})).toBeChecked();
  await sent(page,start,'desktop-community-configure');
- expect(configured).toEqual({enabled:true,consent:true,share:'eligible',licenses:defaults,daily_upload_bytes:null,monthly_upload_bytes:null,public_url:'https://models.example.org',announce_dht:false,publish_nostr:false,announce_disclosure:1});
+ expect(configured).toEqual({enabled:true,consent:true,share:'eligible',licenses:defaults,public_url:'https://models.example.org',announce_dht:false,publish_nostr:false,announce_disclosure:1});
  expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
 });
 
@@ -370,4 +370,29 @@ test('upload limits are opt-in and a custom licence id is checked before it is a
  await expect(panel.getByText(/of 5(\.0)? GB/)).toBeVisible();
  await expect(panel.getByText('Permissive, Attribution, Copyleft, Responsible AI, Non-commercial and some custom model terms',{exact:true})).toBeVisible();
  expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
+});
+
+test('saved limits from an earlier version are kept and never block other changes',async({page})=>{
+ let configured:Record<string,unknown>|null=null;
+ // Earlier versions saved any positive limits, even a daily one above the monthly one.
+ const saved={...policy,enabled:true,consent_expires:2000000000,daily_upload_bytes:50*1024**3,monthly_upload_bytes:10*1024**3};
+ await page.route('**/api/desktop-community-read',r=>r.fulfill({json:view(true,{policy:saved})}));
+ await page.route('**/api/desktop-community-configure',r=>{configured=r.request().postDataJSON();return r.fulfill({json:view(true,{policy:saved})});});
+ await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();
+ const panel=page.getByRole('region',{name:'Help keep models available'});
+ await expect(panel.getByText(/of 50(\.0)? GB/)).toBeVisible();
+ await panel.getByRole('button',{name:'Change what’s shared',exact:true}).click();
+ await expect(page.getByRole('switch',{name:/^Limit uploads/})).toBeChecked();
+ await page.getByRole('switch',{name:/^Copyleft/}).uncheck();
+ await page.getByRole('checkbox',{name:/Keep sharing these models from this computer/}).check();
+ const save=page.getByRole('button',{name:'Save changes',exact:true});
+ await expect(save).toBeEnabled();
+ await sent(page,save,'desktop-community-configure');
+ expect(configured).not.toHaveProperty('daily_upload_bytes');
+ expect(configured).not.toHaveProperty('monthly_upload_bytes');
+ // Changing the limits themselves asks for daily within monthly.
+ await panel.getByRole('button',{name:'Change what’s shared',exact:true}).click();
+ await page.getByLabel('Upload limit per day (GB)').fill('40');
+ await page.getByRole('checkbox',{name:/Keep sharing these models from this computer/}).check();
+ await expect(page.getByRole('button',{name:'Save changes',exact:true})).toBeDisabled();
 });
