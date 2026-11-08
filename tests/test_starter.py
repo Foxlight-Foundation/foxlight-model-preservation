@@ -289,7 +289,7 @@ def _resign(collection: Collection, payload: dict) -> tuple[bytes, str]:
         lambda p: p.update(follow=True),
         lambda p: p["entries"][0].update(withdraw_url="https://example.test"),
         lambda p: p.update(schema_version="sovereign.starter-list.v2"),
-        lambda p: p["entries"][0].update(tier="large"),
+        lambda p: p["entries"][0].update(tier="huge"),
     ],
 )
 def test_unknown_fields_and_versions_refuse_even_when_signed(collection, change):
@@ -799,29 +799,76 @@ def test_pipeline_check_refuses_a_changed_file(tmp_path):
         starter_build.check(plan, recipes, hub, say=lambda _line: None)
 
 
-def test_committed_starter_plan_and_recipes_are_strict_and_pinned():
+def test_committed_starter_plan_and_recipes_are_pinned_with_notices():
     plan, recipes = starter_build.load_plan(starter_build.DEFAULT_PLAN)
+    assert plan.licence_policy == "known"
     tiers = {entry.entry_id: entry.tier for entry in plan.entries}
     assert {k for k, v in tiers.items() if v == "small"} == {
         "qwen3-5-4b",
+        "gemma-4-e4b-it",
+        "gemma-4-e4b-it-mlx",
         "whisper-large-v3-turbo",
-        "all-minilm-l6-v2",
-        "bge-small-en-v1-5",
+        "kokoro-82m",
+        "nomic-embed-text-v1-5",
+    }
+    assert {v for v in tiers.values()} == {"small", "standard", "large"}
+    gated = {
+        "llama3.2",
+        "llama3.1",
+        "gemma",
+        "openrail++",
+        "coqui-public-model-license",
     }
     for entry in plan.entries:
         recipe = recipes[entry.entry_id]
-        assert entry.licence.license_id in {"Apache-2.0", "MIT"}
         for member in recipe.members:
             assert member.intake.audience == "public"
-            assert member.intake.license_id in {"Apache-2.0", "MIT"}
             assert all(file.expected_sha256 for file in member.files)
         assert any(
-            file.path == "LICENSE" for member in recipe.members for file in member.files
-        )
-    assert {item.model for item in plan.excluded} == {
-        "hexgrad/Kokoro-82M",
-        "BAAI/bge-m3",
+            starter_build.licence_text(member.origin_repository, file.path)
+            for member in recipe.members
+            for file in member.files
+        ), entry.entry_id
+        licence = starter_build.normalize_license(entry.licence.license_id)
+        if licence in gated:
+            assert starter_build.requires_acceptance(licence) or entry.custom_licence
+    paths = {
+        file.path
+        for recipe in recipes.values()
+        for member in recipe.members
+        for file in member.files
     }
+    # Gemma 3 carries its terms, policy and NOTICE; Llama its NOTICE.
+    for path in (
+        "examples/starter/notices/gemma/NOTICE",
+        "examples/starter/notices/gemma/GEMMA_TERMS_OF_USE.md",
+        "examples/starter/notices/gemma/PROHIBITED_USE_POLICY.md",
+        "examples/starter/notices/llama3.2/NOTICE",
+        "models/llama3_2/LICENSE",
+        "USAGE_POLICY.md",
+        "LICENSE.txt",
+        "examples/starter/notices/parakeet/ATTRIBUTION.md",
+    ):
+        assert path in paths, path
+    notice = (
+        Path(__file__).parents[1] / "examples/starter/notices/gemma/NOTICE"
+    ).read_text()
+    assert notice.startswith(
+        "Gemma is provided under and subject to the Gemma Terms of Use found at "
+        "ai.google.dev/gemma/terms"
+    )
+    for version in ("3.1", "3.2"):
+        text = (
+            Path(__file__).parents[1]
+            / f"examples/starter/notices/llama{version}/NOTICE"
+        ).read_text()
+        assert "Built with Llama" in text and f"Llama {version} is licensed" in text
+    kokoro = next(e for e in plan.entries if e.entry_id == "kokoro-82m")
+    assert "synthesized" in kokoro.licence.summary
+    assert "yl4579/StyleTTS2-LJSpeech" in kokoro.ancestor_waivers
+    excluded = " ".join(item.model for item in plan.excluded)
+    for name in ("Llama-3.2-11B-Vision", "Llama 4", "Muse-Spark-Open", "bge-m3"):
+        assert name in excluded
 
 
 def test_container_opts_into_the_starter_list(tmp_path):
@@ -1037,3 +1084,23 @@ def test_container_passes_accepted_starter_terms(tmp_path):
     assert arguments[arguments.index("--accept-starter-terms") + 1] == (
         "gemma,llama3.1"
     )
+
+
+def test_pipeline_ancestor_waivers_and_named_custom_licences(tmp_path):
+    (plan, recipes), hub = _pipeline(tmp_path)
+    hub.cards["test/ancestor"] = {"cardData": {}}
+    with pytest.raises(PreservationError, match="declared base test/ancestor"):
+        starter_build.check(plan, recipes, hub, say=lambda _line: None)
+    entry = plan.entries[0].model_copy(
+        update={"ancestor_waivers": {"test/ancestor": "reviewed exception"}}
+    )
+    waived = plan.model_copy(update={"entries": (entry,)})
+    report = starter_build.check(waived, recipes, hub, say=lambda _line: None)
+    assert report[0]["ancestors"] == {"test/ancestor": "waived: reviewed exception"}
+    # A named custom licence ("other" + license_name) is read from the card.
+    named = {
+        "cardData": {"license": "other", "license_name": "coqui-public-model-license"}
+    }
+    assert starter_build._card_licence(named) == "coqui-public-model-license"
+    with pytest.raises(starter_build.LicenceRefused, match="known licence"):
+        starter_build.resolve_licence(named, None, "known")
