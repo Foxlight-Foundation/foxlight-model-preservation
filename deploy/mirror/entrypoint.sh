@@ -35,6 +35,11 @@ if [ -n "$starter" ]; then
     --starter-formats "${SOVEREIGN_MIRROR_STARTER_FORMATS:-gguf}"
   # Gated licences (non-commercial, makers' own terms) need your acceptance,
   # exactly as the review lists them, before those models are imported.
+  # Optional extra source tried first, such as a mounted local copy of the
+  # starter bundles (a store directory) or another mirror's URL.
+  if [ -n "${SOVEREIGN_MIRROR_STARTER_MIRROR:-}" ]; then
+    set -- "$@" --starter-mirror "$SOVEREIGN_MIRROR_STARTER_MIRROR"
+  fi
   if [ -n "${SOVEREIGN_MIRROR_STARTER_ACCEPT_TERMS:-}" ]; then
     set -- "$@" --accept-starter-terms "$SOVEREIGN_MIRROR_STARTER_ACCEPT_TERMS"
   fi

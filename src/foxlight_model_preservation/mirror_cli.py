@@ -17,7 +17,6 @@ from .licences import (
     LICENCE_DEFINITION_VERSION,
     definition,
     identified_licences,
-    normalize_license,
 )
 from .mirror import (
     configure_http,
@@ -1015,18 +1014,16 @@ def _starter_review(
             "starter import exceeds the disk budget; raise --disk-bytes or "
             "choose a smaller tier"
         )
-    if (
-        plan.accept
-        and sorted({normalize_license(item) for item in _accepted(arguments)})
-        != sorted(plan.accept)
-        and not arguments.plan_only
-        and not sys.stdin.isatty()
-    ):
-        # Refuse before quickstart changes anything, not after setup.
-        raise PreservationError(
-            "terms_acceptance_required: add --accept-starter-terms "
-            + ",".join(plan.accept)
-        )
+    given = _accepted(arguments)
+    if not arguments.plan_only and (given or not sys.stdin.isatty()):
+        # Refuse before quickstart changes anything, not after setup. An
+        # interactive run with no flag is asked after the review instead.
+        try:
+            plan.check_acceptance(given)
+        except PreservationError as error:
+            raise PreservationError(
+                f"{error}; pass --accept-starter-terms with exactly those licences"
+            ) from error
     return review_import(starter[0], plan)
 
 

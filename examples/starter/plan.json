@@ -266,7 +266,23 @@
         "base_revision": "953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e",
         "conversion": null,
         "conversion_revision": null
-      }
+      },
+      "components": [
+        {
+          "members": [
+            "base-notices",
+            "mit-text"
+          ],
+          "licence": {
+            "license_id": "MIT",
+            "summary": "Permissive (MIT): use, change and share; keep the copyright and licence notice.",
+            "base_model": "BAAI/bge-m3",
+            "base_revision": "5617a9f61b028005a4858fdac845db406aefb181",
+            "conversion": null,
+            "conversion_revision": null
+          }
+        }
+      ]
     },
     {
       "entry_id": "qwen3-embedding-0-6b",

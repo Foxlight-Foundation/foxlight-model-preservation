@@ -246,6 +246,9 @@ def _size(value: int) -> str:
     return f"{value} B"
 
 
+TO_FETCH = ("new", "resume")
+
+
 def terms_gate(entries: tuple[StarterEntry, ...]) -> dict[str, JsonValue]:
     """The licence terms review for these entries, as the core's terms gate has.
 
@@ -263,6 +266,16 @@ def terms_gate(entries: tuple[StarterEntry, ...]) -> dict[str, JsonValue]:
         )
         for entry in entries
         for item in entry.terms
+    ]
+    # The licence resolved from the base model also gates, so terms that
+    # mislabel a member can never hide the model's own licence.
+    members += [
+        MemberTerms(
+            member=entry.entry_id[:64],
+            license_id=entry.licence.license_id,
+            reference=entry.terms[0].terms_reference,
+        )
+        for entry in entries
     ]
     return terms_review(members)
 
@@ -321,7 +334,7 @@ class StarterPlan:
     @property
     def new_entries(self) -> tuple[StarterEntry, ...]:
         """The entries this import would download."""
-        return tuple(e for e in self.entries if self.status[e.entry_id] == "new")
+        return tuple(e for e in self.entries if self.status[e.entry_id] in TO_FETCH)
 
     @property
     def gate(self) -> dict[str, JsonValue]:
@@ -333,6 +346,37 @@ class StarterPlan:
         """Exactly the licences the operator must accept for this import."""
         value = self.gate["accept"]
         return tuple(str(item) for item in value) if isinstance(value, list) else ()
+
+    @property
+    def may_accept(self) -> frozenset[str]:
+        """Gated licences of every selected entry, including ones already held.
+
+        An unchanged configuration (the container passes the same acceptance
+        on every start) may keep naming licences of models it already holds.
+        """
+        value = terms_gate(self.entries)["accept"]
+        return (
+            frozenset(str(item) for item in value)
+            if isinstance(value, list)
+            else frozenset()
+        )
+
+    def check_acceptance(self, accepted: Iterable[str] | None) -> tuple[str, ...]:
+        """Require every licence this import needs, and nothing unrelated.
+
+        Every licence the models to download need must be accepted. Extra
+        names are allowed only for licences of selected models already held,
+        so a rerun with unchanged flags succeeds while a stray acceptance
+        (for a licence nothing here uses) still refuses.
+        """
+        given = {normalize_license(item) for item in accepted or ()}
+        required = set(self.accept)
+        if not required <= given or not given <= required | self.may_accept:
+            raise PreservationError(
+                "terms_acceptance_required"
+                + (": accept exactly " + ",".join(sorted(required)) if required else "")
+            )
+        return tuple(sorted(required))
 
     @property
     def fits(self) -> bool:
@@ -360,6 +404,10 @@ def plan_import(
             status[entry.entry_id] = "removed"
         elif held.error:
             status[entry.entry_id] = "error"
+        elif held.state == "pending":
+            # An interrupted copy the operator cleared with `mirror retry`:
+            # the controller never completes local selections, so resume it.
+            status[entry.entry_id] = "resume"
         else:
             status[entry.entry_id] = "held"
     return StarterPlan(
@@ -368,7 +416,7 @@ def plan_import(
         entries=entries,
         status=status,
         new_bytes=sum(
-            entry.size_bytes for entry in entries if status[entry.entry_id] == "new"
+            entry.size_bytes for entry in entries if status[entry.entry_id] in TO_FETCH
         ),
         usage=ledger.usage(),
         disk_bytes=state.disk_bytes,
@@ -384,6 +432,7 @@ def review_import(
     trust = starter.bundle_trust
     labels = {
         "new": "",
+        "resume": "  (an interrupted copy: resumed)",
         "held": "  (already held: skipped)",
         "removed": "  (you removed it: never re-imported)",
         "error": "  (an earlier copy failed: `mirror retry` it first)",
@@ -580,13 +629,7 @@ def import_starter(
             "starter import exceeds the mirror disk budget; raise it or choose "
             "a smaller tier"
         )
-    required = plan.accept
-    given = sorted(dict.fromkeys(normalize_license(item) for item in accepted or ()))
-    if given != sorted(required):
-        raise PreservationError(
-            "terms_acceptance_required"
-            + (": accept exactly " + ",".join(required) if required else "")
-        )
+    required = plan.check_acceptance(accepted)
     if required:
         record = StarterAcceptance(
             list_id=list_id,
@@ -611,7 +654,7 @@ def import_starter(
     failed: list[JsonValue] = []
     for entry in plan.entries:
         status = plan.status[entry.entry_id]
-        if status != "new":
+        if status not in TO_FETCH:
             skipped.append({"entry_id": entry.entry_id, "reason": status})
             continue
         if chosen.progress is not None:

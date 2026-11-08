@@ -224,8 +224,11 @@ downloads, unless you accept **exactly** those licences: type
 `I accept these terms` when asked, or pass `--accept-terms gemma,llama3.1`
 (`--accept-starter-terms` on quickstart, `SOVEREIGN_MIRROR_STARTER_ACCEPT_TERMS`
 in the container). Your acceptance is recorded under the mirror's private
-`scratch/starter-acceptance/` before the import starts. Only models not yet
-held count, so a rerun that imports nothing asks for nothing. Serving such a
+`scratch/starter-acceptance/` before the import starts. Every licence the
+models still to download need must be accepted. A rerun may keep the same
+acceptance: names of licences for models you already hold are allowed, so an
+unchanged container configuration restarts cleanly, while a licence that
+nothing in the import uses still refuses. Serving such a
 model publicly may also be limited by its terms; deciding that is yours.
 
 Accepting the review accepts the list's model-signing keys **for the bundles in
@@ -239,8 +242,10 @@ The download is an explicit one-off action, so it is not charged to the
 mirror's daily ingress budget.
 
 Running it again is safe. Models you already hold are skipped. A model you
-removed is never imported again. A model whose earlier copy failed needs
-`mirror retry` first. Importing a new selection clears the standing restart
+removed is never imported again. A model whose earlier copy failed or was
+interrupted needs `mirror retry --manifest ...` first; the next import then
+resumes it (the review marks it "resumed") under the same acceptance check as a
+new model. Importing a new selection clears the standing restart
 grant (unless a [standing intake policy](persistent-mirrors.md#standing-intake-policy)
 covers Apache-2.0 and MIT); grant it again after review.
 
@@ -262,7 +267,9 @@ again retries it. In the [container](persistent-mirrors.md#run-in-a-container),
 put the list in the collection directory and set
 `SOVEREIGN_MIRROR_STARTER_LIST=/config/starter-list.json`,
 `SOVEREIGN_MIRROR_STARTER_LIST_ID` and, for a larger tier,
-`SOVEREIGN_MIRROR_STARTER_TIER=standard` or `large`. Raise
+`SOVEREIGN_MIRROR_STARTER_TIER=standard` or `large`
+(`SOVEREIGN_MIRROR_STARTER_MIRROR` names an extra source tried first, such as a
+mounted local copy). Raise
 `SOVEREIGN_MIRROR_BUDGET` to fit: at least 20G for small, 120G for standard
 and 350G for large. Each start imports only what is missing.
 
@@ -345,6 +352,11 @@ Each entry extends a signed catalog entry (`entry_id`, `manifest`, `mirrors`):
 [`scripts/build_starter_collection.py`](../scripts/build_starter_collection.py)
 runs the pipeline. It needs network access to `huggingface.co` and
 `raw.githubusercontent.com`; set `HF_TOKEN` only to raise Hub rate limits.
+Every download is HTTPS, including redirects. The token is sent only to
+`huggingface.co` itself, as a header urllib never copies to a redirect, and any
+Authorization header is dropped when a redirect is followed. Recipe origins
+are parsed exactly (a Hub `owner/name`, or `github.com/owner/repo`), never
+matched by substring.
 
 ```sh
 # Dry run: resolve every licence from its base model and check every pinned
@@ -368,7 +380,12 @@ default) admits Apache-2.0 or MIT only;
 which need acceptance, and operators accept them at import). Either way the
 licence is resolved from the base model and a conversion tag must match it.
 
-`build` refuses placeholder mirror hints, so the list always names a real
+`build` always runs `check` first, so nothing is signed whose licences,
+revisions and file hashes were not verified in that run. `check` also binds
+each recipe member to that evidence: every model member must declare exactly
+the licence resolved for its model and come from the exact base or conversion
+revision whose licence was resolved, and a notices member may only declare a
+licence resolved for that entry. `build` refuses placeholder mirror hints, so the list always names a real
 address. Its output is the signed list and the list ID to publish separately.
 The starter mirror is a single [bucket mirror](bucket-mirrors.md) (Cloudflare
 R2 on its own domain): no server and no open port, serving both tiers over

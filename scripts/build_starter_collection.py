@@ -39,6 +39,7 @@ import os
 import re
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -69,6 +70,7 @@ from foxlight_model_preservation.models import (
     Recipe,
     Record,
     TrustProfile,
+    canonical_path,
 )
 from foxlight_model_preservation.signing import (
     canonical_bytes,
@@ -93,7 +95,12 @@ DEFAULT_PLAN = ROOT / "examples" / "starter" / "plan.json"
 STRICT = {"apache-2.0": "Apache-2.0", "mit": "MIT"}
 SMALL_FILE = 16 * 1024**2
 CHUNK = 1024**2
-PLACEHOLDER = re.compile(r"\.invalid(?::\d+)?(?:/|$)")
+
+
+def is_placeholder(url: str) -> bool:
+    """Whether a mirror hint is a reserved placeholder (an ``.invalid`` host)."""
+    host = (urllib.parse.urlsplit(url).hostname or "").casefold()
+    return host == "invalid" or host.endswith(".invalid")
 
 
 class LicenceRefused(PreservationError):
@@ -211,6 +218,75 @@ def requires_acceptance(licence: str) -> bool:
     return True
 
 
+def bind_members(
+    recipe: Recipe,
+    entry: PlanEntry,
+    resolved_for: list[tuple[StarterLicence, str]],
+    ancestors: dict[str, str],
+) -> None:
+    """Bind every recipe member to verified evidence, never to its own claims.
+
+    - Each model member (any role but ``notices``) declares exactly the
+      licence resolved for its model: a component's members that component's,
+      every other model member the entry's own.
+    - Each model member comes from its evidence's base or conversion
+      repository, and every member taken from an evidence repository uses
+      exactly the revision whose licence was resolved.
+    - A notices member may only declare a licence already resolved for this
+      entry (its models or a checked ancestor).
+    """
+    main, main_licence = resolved_for[0]
+    owner: dict[str, tuple[StarterLicence, str]] = {}
+    for component, (item, found) in zip(
+        entry.components, resolved_for[1:], strict=True
+    ):
+        for member_id in component.members:
+            owner[member_id] = (item, found)
+    revisions: dict[str, str] = {}
+    for item, _found in resolved_for:
+        for repository, revision in (
+            (item.base_model, item.base_revision),
+            (item.conversion, item.conversion_revision),
+        ):
+            if repository is None or revision is None:
+                continue
+            if revisions.setdefault(repository, revision) != revision:
+                raise PreservationError(
+                    f"{repository} is pinned at two revisions in the evidence"
+                )
+    allowed_notices = {normalize_license(found) for _item, found in resolved_for} | {
+        normalize_license(value)
+        for value in ancestors.values()
+        if not value.startswith("waived: ")
+    }
+    for member in recipe.members:
+        pinned = revisions.get(member.origin_repository)
+        if pinned is not None and member.origin_revision != pinned:
+            raise PreservationError(
+                f"{member.member_id} uses {member.origin_repository}@"
+                f"{member.origin_revision[:12]}, but its licence was resolved at "
+                f"{pinned[:12]}"
+            )
+        declared = normalize_license(member.intake.license_id)
+        if member.role == "notices":
+            if declared not in allowed_notices:
+                raise LicenceRefused(
+                    f"{member.member_id} declares {member.intake.license_id}, "
+                    "which no evidence for this entry resolves"
+                )
+            continue
+        item, found = owner.get(member.member_id, (main, main_licence))
+        if member.origin_repository not in {item.base_model, item.conversion}:
+            raise PreservationError(
+                f"{member.member_id} comes from neither its base nor conversion"
+            )
+        if declared != normalize_license(found):
+            raise LicenceRefused(
+                f"{member.member_id} declares {member.intake.license_id}, but its "
+                f"model resolves to {found}"
+            )
+
+
 def licence_text(origin: str, path: str) -> bool:
     """Whether a carried file is a licence text (by name, or an SPDX text)."""
     name = path.rsplit("/", 1)[-1].upper()
@@ -255,6 +331,61 @@ def resolve_licence(
 
 # Hub access -----------------------------------------------------------------
 
+_HUB_REPOSITORY = re.compile(r"[A-Za-z0-9][\w.-]{0,95}/[\w.-]{1,96}")
+_GITHUB_ORIGIN = re.compile(r"github\.com/([A-Za-z0-9][\w.-]{0,38})/([\w.-]{1,100})")
+_REVISION = re.compile(r"[0-9a-f]{40}")
+
+
+def parse_origin(origin: str) -> tuple[Literal["hub", "github"], str]:
+    """Classify a recipe origin exactly: a GitHub ``owner/repo`` or a Hub repo.
+
+    The whole string must match one pattern; nothing is matched by prefix or
+    substring, so an origin can never smuggle another host or a path.
+    """
+    matched = _GITHUB_ORIGIN.fullmatch(origin)
+    if matched is not None:
+        return "github", f"{matched[1]}/{matched[2]}"
+    if _HUB_REPOSITORY.fullmatch(origin) and origin.split("/", 1)[0] != "github.com":
+        return "hub", origin
+    raise PreservationError(f"unsupported recipe origin {origin!r}")
+
+
+def _https_host(url: str) -> str:
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme != "https" or not parts.hostname:
+        raise PreservationError("only HTTPS downloads are followed")
+    return parts.hostname.casefold()
+
+
+class _HttpsRedirects(urllib.request.HTTPRedirectHandler):
+    """Follow only HTTPS redirects, and never carry credentials across them.
+
+    The Hub token is attached as an unredirected header, so urllib never
+    copies it to a redirect; this handler also drops any Authorization header
+    defensively and refuses a downgrade to plain HTTP.
+    """
+
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+        newurl: str,
+    ) -> urllib.request.Request | None:
+        _https_host(newurl)
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new is not None:
+            for name in list(new.headers):
+                if name.casefold() == "authorization":
+                    del new.headers[name]
+            new.unredirected_hdrs.clear()
+        return new
+
+
+_OPENER = urllib.request.build_opener(_HttpsRedirects())
+
 
 @dataclass
 class Hub:
@@ -265,18 +396,20 @@ class Hub:
     token: str | None = None
 
     def _request(self, url: str) -> urllib.request.Request:
-        headers = {"User-Agent": "foxlight-starter-collection"}
-        if self.token and url.startswith(self.hub + "/"):
-            headers["Authorization"] = f"Bearer {self.token}"
-        return urllib.request.Request(url, headers=headers)  # noqa: S310 - https
+        host = _https_host(url)
+        request = urllib.request.Request(  # noqa: S310 - HTTPS checked above
+            url, headers={"User-Agent": "foxlight-starter-collection"}
+        )
+        # The token goes only to the Hub's own host, and never to a redirect.
+        if self.token and host == _https_host(self.hub + "/"):
+            request.add_unredirected_header("Authorization", f"Bearer {self.token}")
+        return request
 
     def json(self, url: str) -> Any:
         """Fetch one bounded JSON document, retrying transient failures twice."""
         for attempt in range(3):
             try:
-                with urllib.request.urlopen(  # noqa: S310 - fixed https hosts
-                    self._request(url), timeout=60
-                ) as response:
+                with _OPENER.open(self._request(url), timeout=60) as response:
                     return json.loads(response.read(64 * 1024**2))
             except urllib.error.HTTPError as error:
                 if error.code < 500 or attempt == 2:
@@ -288,15 +421,21 @@ class Hub:
 
     def info(self, repository: str, revision: str) -> dict[str, Any]:
         """Model metadata (card data included) at an exact revision."""
+        if parse_origin(repository)[0] != "hub":
+            raise PreservationError("model metadata comes from the Hub only")
+        if revision != "main" and _REVISION.fullmatch(revision) is None:
+            raise PreservationError("revisions must be exact commits")
         value = self.json(f"{self.hub}/api/models/{repository}/revision/{revision}")
         if not isinstance(value, dict) or (
-            re.fullmatch(r"[0-9a-f]{40}", revision) and value.get("sha") != revision
+            revision != "main" and value.get("sha") != revision
         ):
             raise PreservationError(f"{repository}@{revision} did not resolve")
         return value
 
     def tree(self, repository: str, revision: str) -> dict[str, dict[str, Any]]:
         """Every file at an exact revision, with size and LFS object identity."""
+        if parse_origin(repository)[0] != "hub" or not _REVISION.fullmatch(revision):
+            raise PreservationError("listings need a Hub repository and commit")
         items = self.json(
             f"{self.hub}/api/models/{repository}/tree/{revision}?recursive=1"
         )
@@ -304,15 +443,20 @@ class Hub:
 
     def url(self, origin: str, revision: str, path: str) -> str:
         """The download address of one pinned file."""
-        if origin.startswith("github.com/"):
-            return f"{self.raw}/{origin.removeprefix('github.com/')}/{revision}/{path}"
-        return f"{self.hub}/{origin}/resolve/{revision}/{path}"
+        if _REVISION.fullmatch(revision) is None:
+            raise PreservationError("downloads need an exact commit")
+        canonical_path(path)
+        kind, repository = parse_origin(origin)
+        quoted = urllib.parse.quote(path)
+        if kind == "github":
+            return f"{self.raw}/{repository}/{revision}/{quoted}"
+        return f"{self.hub}/{repository}/resolve/{revision}/{quoted}"
 
     @contextmanager
     def open(self, origin: str, revision: str, path: str) -> Iterator[BinaryIO]:
-        """Stream one pinned file."""
+        """Stream one pinned file over HTTPS."""
         request = self._request(self.url(origin, revision, path))
-        with urllib.request.urlopen(request, timeout=120) as response:  # noqa: S310
+        with _OPENER.open(request, timeout=120) as response:
             yield response
 
 
@@ -357,6 +501,7 @@ def check(
                 (component.licence, component.members[0])
                 for component in entry.components
             ]
+            resolved_for: list[tuple[StarterLicence, str]] = []
             for item, member_id in evidences:
                 base = hub.info(item.base_model, item.base_revision)
                 conversion = (
@@ -400,6 +545,7 @@ def check(
                         )
                     ancestors[ancestor] = spelled(found)
                 resolved = resolved or found_licence
+                resolved_for.append((item, found_licence))
             base = hub.info(licence.base_model, licence.base_revision)
             conversion = (
                 hub.info(licence.conversion, licence.conversion_revision)
@@ -407,10 +553,7 @@ def check(
                 else None
             )
             declared = {normalize_license(m.intake.license_id) for m in recipe.members}
-            if not declared <= permitted:
-                raise LicenceRefused(
-                    "a recipe member declares a licence the plan policy refuses"
-                )
+            bind_members(recipe, entry, resolved_for, ancestors)
             apple_only = any(member.format == "mlx" for member in recipe.members)
             if apple_only != (entry.format == "mlx"):
                 raise PreservationError(
@@ -428,7 +571,7 @@ def check(
                 origin, revision = member.origin_repository, member.origin_revision
                 listing = (
                     None
-                    if origin.startswith("github.com/")
+                    if parse_origin(origin)[0] == "github"
                     else hub.tree(origin, revision)
                 )
                 for file in member.files:
@@ -547,12 +690,15 @@ def build(
     say: Callable[[str], None] = print,
 ) -> str:
     """Download, pack, verify and sign; write the list and return its ID."""
-    if any(PLACEHOLDER.search(mirror) for mirror in mirrors) and not allow_placeholder:
+    if any(is_placeholder(mirror) for mirror in mirrors) and not allow_placeholder:
         raise PreservationError(
             "mirror hints are placeholders: pass --mirror with the real address"
         )
     if output.exists():
         raise PreservationError("list output already exists")
+    # Always check first: nothing is signed whose licences, revisions and
+    # file hashes were not verified against the Hub in this same run.
+    check(plan, recipes, hub, say=say)
     key = load_key(key_path, password)
     trust = TrustProfile(
         schema_version="foxlight.model-preservation.trust.v1",
@@ -660,7 +806,6 @@ def main(argv: list[str] | None = None) -> int:
     build_step.add_argument("--mirror", action="append", default=[])
     build_step.add_argument("--issued", default=datetime.now(UTC).date().isoformat())
     build_step.add_argument("--allow-placeholder-mirrors", action="store_true")
-    build_step.add_argument("--skip-check", action="store_true")
     publish_step = steps.add_parser("publish")
     publish_step.add_argument("--store", type=Path, required=True)
     publish_step.add_argument("--list", dest="list_path", type=Path, required=True)
@@ -697,9 +842,8 @@ def main(argv: list[str] | None = None) -> int:
                     }
                 )
             hub = Hub(token=os.environ.get("HF_TOKEN") or None)
-            if arguments.step == "check" or not arguments.skip_check:
-                report = check(plan, recipes, hub, say=say)
             if arguments.step == "check":
+                report = check(plan, recipes, hub, say=say)
                 result = {"checked": report, "downloaded_weights": False}
             else:
                 list_id = build(

@@ -19,8 +19,11 @@ from pathlib import Path
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from foxlight_model_preservation import mirror_intake as intake_module
+from foxlight_model_preservation import starter as starter_module
 from foxlight_model_preservation.mirror import (
     model_action,
+    retry_selection,
     run_mirror,
     withdrawn_selections,
 )
@@ -1248,3 +1251,253 @@ def test_pipeline_check_refuses_an_mlx_build_outside_the_add_on(tmp_path):
     entry = plan.entries[0].model_copy(update={"format": "mlx"})
     labelled = plan.model_copy(update={"entries": (entry,)})
     assert starter_build.check(labelled, mislabelled, hub, say=lambda _l: None)[0]["ok"]
+
+
+# Review fixes: credentials, idempotence, evidence binding, resume -------------
+
+
+def test_hub_token_goes_only_to_the_hub_and_never_across_redirects():
+    hub = starter_build.Hub(token="secret-token")
+    request = hub._request(
+        "https://huggingface.co/org/model/resolve/" + "a" * 40 + "/x"
+    )
+    assert request.unredirected_hdrs.get("Authorization") == "Bearer secret-token"
+    assert "Authorization" not in request.headers  # never copied to a redirect
+    for elsewhere in (
+        "https://raw.githubusercontent.com/o/r/" + "a" * 40 + "/LICENSE",
+        "https://huggingface.co.evil.example/x",
+        "https://evil.example/huggingface.co/x",
+    ):
+        other = hub._request(elsewhere)
+        assert not other.has_header("Authorization")
+        assert "Authorization" not in other.unredirected_hdrs
+    with pytest.raises(PreservationError, match="HTTPS"):
+        hub._request("http://huggingface.co/x")
+    handler = starter_build._HttpsRedirects()
+    request.add_header("Authorization", "Bearer leaked-if-copied")
+    moved = handler.redirect_request(
+        request, None, 302, "Found", {}, "https://cdn-lfs.example/blob"
+    )
+    assert moved is not None
+    assert not moved.has_header("Authorization")
+    assert not any(name.casefold() == "authorization" for name in moved.headers)
+    assert not moved.unredirected_hdrs
+    with pytest.raises(PreservationError, match="HTTPS"):
+        handler.redirect_request(
+            request, None, 302, "Found", {}, "http://cdn.example/b"
+        )
+
+
+def test_origins_and_placeholders_parse_exactly():
+    parse = starter_build.parse_origin
+    assert parse("github.com/spdx/license-list-data") == (
+        "github",
+        "spdx/license-list-data",
+    )
+    assert parse("Qwen/Qwen3.5-4B") == ("hub", "Qwen/Qwen3.5-4B")
+    for bad in (
+        "evil.example/github.com/x",
+        "github.com/owner/repo/extra",
+        "github.com/owner",
+        "https://huggingface.co/x/y",
+        "../x",
+    ):
+        with pytest.raises(PreservationError, match="origin"):
+            parse(bad)
+    hub = starter_build.Hub()
+    with pytest.raises(PreservationError):
+        hub.url("org/model", "a" * 40, "../../etc/passwd")
+    assert starter_build.is_placeholder("https://starter.placeholder.invalid/")
+    assert not starter_build.is_placeholder("https://invalid.example.org/")
+    assert not starter_build.is_placeholder("https://example.org/x.invalid/")
+
+
+def test_rerun_with_unchanged_acceptance_succeeds_without_downloading(
+    tmp_path, gated_collection, monkeypatch
+):
+    ledger = mirror(tmp_path)
+    starter = gated_collection.listing("open", "gemma-three")
+    list_id = list_identity(starter)
+    options = gated_collection.options()
+    import_starter(
+        ledger,
+        starter,
+        list_id,
+        "standard",
+        consented=True,
+        accepted=("gemma",),
+        options=options,
+    )
+    fetched: list[str] = []
+    real_fetch = starter_module.fetch
+    monkeypatch.setattr(
+        starter_module,
+        "fetch",
+        lambda manifest, *a, **k: (
+            fetched.append(manifest) or real_fetch(manifest, *a, **k)
+        ),
+    )
+    again = import_starter(
+        ledger,
+        starter,
+        list_id,
+        "standard",
+        consented=True,
+        accepted=("gemma",),
+        options=options,
+    )
+    assert again["imported"] == [] and not fetched
+    # A licence nothing in this import uses is still refused.
+    with pytest.raises(PreservationError, match="terms_acceptance_required"):
+        import_starter(
+            ledger,
+            starter,
+            list_id,
+            "standard",
+            consented=True,
+            accepted=("gemma", "llama3.1"),
+            options=options,
+        )
+
+
+def test_container_restarts_cleanly_with_the_same_accepted_terms(
+    tmp_path, gated_collection
+):
+    data, list_id = gated_collection.signed(
+        gated_collection.listing("open", "gemma-three")
+    )
+    config = tmp_path / "config"
+    config.mkdir()
+    (config / "starter-list.json").write_bytes(data)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    wrapper = bin_dir / "model-preserve"
+    wrapper.write_text(
+        "#!/bin/sh\n"
+        'if [ "$1 $2" = "mirror run" ]; then echo "would serve"; exit 0; fi\n'
+        f'exec "{sys.executable}" -m foxlight_model_preservation.cli "$@"\n'
+    )
+    wrapper.chmod(0o755)
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(mode=0o700)
+    environment = {
+        "PATH": f"{bin_dir}:/usr/bin:/bin",
+        "HOME": str(tmp_path),
+        "SOVEREIGN_MIRROR_DIR": str(data_dir / "mirror"),
+        "SOVEREIGN_MIRROR_COLLECTION": str(config / "collection.json"),
+        "SOVEREIGN_MIRROR_BUDGET": "2G",
+        "SOVEREIGN_MIRROR_IDLE": "0",
+        "SOVEREIGN_MIRROR_CONSENT": "yes-i-consent-to-public-serving",
+        "SOVEREIGN_MIRROR_STARTER_LIST": str(config / "starter-list.json"),
+        "SOVEREIGN_MIRROR_STARTER_LIST_ID": list_id,
+        "SOVEREIGN_MIRROR_STARTER_TIER": "standard",
+        "SOVEREIGN_MIRROR_STARTER_ACCEPT_TERMS": "gemma",
+        "SOVEREIGN_MIRROR_STARTER_MIRROR": str(gated_collection.store),
+    }
+    script = Path(__file__).parents[1] / "deploy/mirror/entrypoint.sh"
+    for _attempt in range(2):
+        started = subprocess.run(  # noqa: S603 - repository script
+            ["/bin/sh", str(script)],
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        assert started.returncode == 0, started.stderr
+        assert "Setup refused" not in started.stderr, started.stderr
+        assert "would serve" in started.stdout
+    state = MirrorLedger(data_dir / "mirror").read()
+    assert len(state.models) == 2 and restart_allowed(state)
+
+
+def _gemma_pipeline(tmp_path, recipe_licence: str):
+    (plan, recipes), hub = _pipeline(tmp_path)
+    for card in ("test/base", "test/conversion"):
+        hub.cards[card] = _card("gemma")
+    hub.cards["test/ancestor"] = _card("gemma")
+    recipe = recipes["piped"]
+    members = tuple(
+        m.model_copy(
+            update={
+                "intake": m.intake.model_copy(update={"license_id": recipe_licence})
+            }
+        )
+        for m in recipe.members
+    )
+    entry = plan.entries[0].model_copy(
+        update={
+            "licence": plan.entries[0].licence.model_copy(
+                update={"license_id": "gemma"}
+            )
+        }
+    )
+    plan = plan.model_copy(update={"licence_policy": "known", "entries": (entry,)})
+    return plan, {"piped": recipe.model_copy(update={"members": members})}, hub
+
+
+def test_recipe_member_licences_must_match_the_resolved_licence(tmp_path):
+    plan, recipes, hub = _gemma_pipeline(tmp_path, "MIT")
+    with pytest.raises(PreservationError, match="resolves to gemma"):
+        starter_build.check(plan, recipes, hub, say=lambda _line: None)
+    (tmp_path / "ok").mkdir()
+    plan, recipes, hub = _gemma_pipeline(tmp_path / "ok", "gemma")
+    report = starter_build.check(plan, recipes, hub, say=lambda _line: None)
+    assert report[0]["requires_acceptance"] == ["gemma"]
+
+
+def test_licence_evidence_is_bound_to_the_recipe_revision(tmp_path):
+    (plan, recipes), hub = _pipeline(tmp_path)
+    recipe = recipes["piped"]
+    for (origin, _rev, path), data in list(hub.files.items()):
+        if origin == "test/conversion":
+            hub.files[(origin, "d" * 40, path)] = data
+    members = tuple(
+        m.model_copy(update={"origin_revision": "d" * 40})
+        if m.member_id == "weights"
+        else m
+        for m in recipe.members
+    )
+    moved = {"piped": recipe.model_copy(update={"members": members})}
+    with pytest.raises(PreservationError, match="its licence was resolved at"):
+        starter_build.check(plan, moved, hub, say=lambda _line: None)
+
+
+def test_interrupted_import_resumes_after_an_explicit_retry(
+    tmp_path, collection, monkeypatch
+):
+    ledger = mirror(tmp_path)
+    starter = collection.listing("alpha")
+    list_id = list_identity(starter)
+    manifest = starter.entries[0].manifest
+
+    def interrupted(*args, **kwargs):
+        raise OSError("disk went away")
+
+    with monkeypatch.context() as broken:
+        broken.setattr(intake_module, "copy_verified_object", interrupted)
+        with pytest.raises(OSError):
+            import_starter(
+                ledger,
+                starter,
+                list_id,
+                "small",
+                consented=True,
+                options=collection.options(),
+            )
+    assert ledger.read().models[manifest].error
+    assert plan_import(ledger, starter, list_id, "small").status["alpha"] == "error"
+    retry_selection(ledger, manifest)
+    held = ledger.read().models[manifest]
+    assert held.state == "pending" and not held.error
+    plan = plan_import(ledger, starter, list_id, "small")
+    assert plan.status["alpha"] == "resume" and plan.new_bytes > 0
+    resumed = import_starter(
+        ledger,
+        starter,
+        list_id,
+        "small",
+        consented=True,
+        options=collection.options(),
+    )
+    assert resumed["imported"] == ["alpha"]
+    assert ledger.read().models[manifest].state == "retained"
