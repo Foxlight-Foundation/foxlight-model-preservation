@@ -2062,3 +2062,21 @@ def test_config_validates_follow_withdrawals_with_everything_else(tmp_path, capt
     assert refused.returncode != 0
     assert (ledger.path / "mirror.json").read_bytes() == before
     assert not ledger.read().follow_withdrawals
+
+
+def test_deploy_files_default_to_this_release_image():
+    """The tagged checkout must run the image its own tag publishes.
+
+    A tag cannot be changed after release, so a stale default would leave
+    `docker compose up` on that tag running an older image for good. Release
+    preparation bumps these with the core version; this test refuses it if not.
+    """
+    import tomllib
+
+    version = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
+    image = "ghcr.io/foxlight-foundation/sovereign-mirror:"
+    deploy = ROOT / "deploy/mirror"
+    for name in ("compose.yaml", "README.md"):
+        text = (deploy / name).read_text()
+        tags = set(re.findall(re.escape(image) + r"([0-9][0-9A-Za-z.\-]*)", text))
+        assert tags == {version}, (name, tags, version)
