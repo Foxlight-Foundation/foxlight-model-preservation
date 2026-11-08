@@ -17,7 +17,11 @@
   and listed by `mirrors list` as `starter_fallbacks`. `--look-further` is
   unchanged. New API: `mirror_directory.plan_fallback`,
   `MirrorDirectory.read_fallbacks`/`note_fallback`,
-  `transfer.SourcesExhausted` and `fetch(..., request_sources=...)`.
+  `transfer.SourcesExhausted`, `fetch(..., request_sources=...)` and
+  provisional child controls (`OperationControl.fork(provisional=True)`,
+  `resume_after`, `settle`, `conclude`). Progress observers, including the
+  Library and `--progress`, never see the primary stage's failure as terminal;
+  only the receive's final outcome is.
 
 - Catalog withdrawal is now advisory: no catalog publisher, Foxlight
   included, can take down a mirror's copies. Catalogs are discovery, not

@@ -224,10 +224,21 @@ def test_library_receive_contacts_seeds_only_after_the_approved_mirrors_fail(
             assert seed_requests == []
             assert owner.community.directory.read_fallbacks().entries == ()
             # The approved mirror holds nothing: only now is the seed asked,
-            # and the mirror it vouches for delivers.
+            # and the mirror it vouches for delivers. The Library never shows
+            # the first stage's failure: only the final outcome is terminal.
+            shown = []
+
+            class Recording(dict):
+                def __setitem__(self, key, value):
+                    shown.append(value.stage)
+                    super().__setitem__(key, value)
+
+            owner._progress = Recording(owner._progress)
             received = _handoff_receive(owner, capture, (failing,))
             assert received["state"] == "succeeded", received
             assert seed_requests[0] == PEERS
+            assert "failed" not in shown and "cancelled" not in shown
+            assert "starting" in shown and "downloading" in shown
         [entry] = owner.community.directory.read_fallbacks().entries
         assert entry.asked == (seed,) and entry.manifest_id == capture.identity
         assert len(owner.read()["copies"]) == 2

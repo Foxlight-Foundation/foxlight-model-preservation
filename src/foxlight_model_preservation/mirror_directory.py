@@ -1490,26 +1490,37 @@ def fetch_with_mirrors(
             if primary.sources:
                 if not seeds or _fallback_room(primary, policy, DISCOVERED_LIMIT) < 1:
                     return attempt(primary, active, None)  # Nothing to fall back to.
-                # One deadline covers both stages; the first runs on a child
-                # control so the fallback stage can still own this one.
+                # One deadline covers both stages. The first runs on a
+                # provisional child control, so observers never see its failure
+                # as terminal when the fallback stage follows under this one.
                 active.limit_deadline(time.monotonic() + policy.deadline_seconds)
+                first = active.fork(provisional=True)
                 try:
-                    return attempt(primary, active.fork(), None)
+                    return attempt(primary, first, None)
                 except SourcesExhausted as error:
                     exhausted = error
-            staged = plan_fallback(
-                manifest_id,
-                hints,
-                primary,
-                mirrors,
-                policy,
-                seeds=seeds,
-                operation_id=operation_id,
-                destination=destination,
-                control=active,
-            )
-            if exhausted is not None and staged.sources == primary.sources:
-                raise exhausted
+                    active.resume_after(first)
+                except BaseException:
+                    first.settle()
+                    raise
+            try:
+                staged = plan_fallback(
+                    manifest_id,
+                    hints,
+                    primary,
+                    mirrors,
+                    policy,
+                    seeds=seeds,
+                    operation_id=operation_id,
+                    destination=destination,
+                    control=active,
+                )
+                if exhausted is not None and staged.sources == primary.sources:
+                    raise exhausted
+            except BaseException as error:
+                if exhausted is not None:
+                    active.conclude(error)  # The receive's one terminal outcome.
+                raise
         discovered.update(staged.discovered)
         scored_seeds.extend(staged.seeds)
         return attempt(staged, active, primary.sources)

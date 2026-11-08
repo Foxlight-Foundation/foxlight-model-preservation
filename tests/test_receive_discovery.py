@@ -846,3 +846,120 @@ def test_a_resume_after_an_interrupted_fallback_reuses_the_same_stage(
     assert stage_file.read_bytes() == fixed
     assert PEERS not in seed_requests[1:] and late_requests == []
     assert len(directory.read_fallbacks().entries) == 1
+
+
+TERMINAL = {"complete", "failed", "cancelled"}
+
+
+def test_a_fallback_never_shows_a_terminal_failure_before_it_succeeds(
+    tmp_path: Path, capture: Capture
+) -> None:
+    """Observers see the first stage's failure as nothing, and one final outcome."""
+    from foxlight_model_preservation.operations import OperationControl, Progress
+
+    corrupt = tmp_path / "corrupt"
+    shutil.copytree(capture.store, corrupt)
+    weights = verify_store(capture.store, capture.identity, capture.trust).members[0]
+    vouched = tmp_path / "seed-peers.json"
+    events: list[Progress] = []
+    with (
+        holding(corrupt, capture) as hint,
+        holding(capture.store, capture) as holder,
+        peers_only(vouched) as (seed, _seed_requests),
+    ):
+        target = corrupt / object_path(weights.files[0].sha256)
+        target.chmod(0o600)
+        target.write_bytes(b"x" * weights.files[0].size)
+        vouched.write_bytes(build_peers(None, (_card_for(capture.identity, holder),)))
+        # The first stage moves objects and then fails on the corrupt one.
+        fetch_with_mirrors(
+            capture.identity,
+            capture.trust,
+            (hint,),
+            tmp_path / "received",
+            LAB,
+            mirrors=MirrorDirectory(tmp_path / "d"),
+            seeds=(seed,),
+            control=OperationControl(events.append, interval_seconds=0),
+            operation_id="op",
+        )
+        assert directory_fell_back(tmp_path / "d")
+        # When the fallback also fails, that one failure is still reported.
+        failed: list[Progress] = []
+        with pytest.raises(PreservationError):
+            fetch_with_mirrors(
+                capture.identity,
+                capture.trust,
+                (hint,),
+                tmp_path / "never",
+                LAB,
+                mirrors=MirrorDirectory(tmp_path / "other"),
+                seeds=("http://127.0.0.1:9",),
+                control=OperationControl(failed.append, interval_seconds=0),
+            )
+    stages = [event.stage for event in events]
+    assert [stage for stage in stages if stage in TERMINAL] == ["complete"]
+    assert stages[-1] == "complete" and stages.count("starting") == 2
+    received = [event.bytes_received for event in events]
+    assert received == sorted(received) and received[-1] > 0
+    assert [event.stage for event in failed if event.stage in TERMINAL] == ["failed"]
+    assert failed[-1].stage == "failed"
+
+
+def directory_fell_back(path: Path) -> bool:
+    return bool(MirrorDirectory(path).read_fallbacks().entries)
+
+
+def test_cli_progress_shows_only_the_final_outcome_of_a_fallback(
+    tmp_path: Path, capture: Capture
+) -> None:
+    import json
+    import subprocess
+    import sys
+
+    trust = tmp_path / "trust.json"
+    trust.write_bytes(encode_record(capture.trust))
+    vouched = tmp_path / "seed-peers.json"
+    seeds = tmp_path / "seeds.json"
+    with (
+        holding(capture.store, capture) as holder,
+        peers_only(tmp_path / "absent.json") as (hint, _hint_requests),
+        peers_only(vouched) as (seed, seed_requests),
+    ):
+        vouched.write_bytes(build_peers(None, (_card_for(capture.identity, holder),)))
+        seeds.write_text(
+            json.dumps(
+                {"schema_version": "sovereign.seed-mirrors.v1", "mirrors": [seed]}
+            )
+        )
+        result = subprocess.run(  # noqa: S603 - fixed CLI, no shell
+            [
+                sys.executable,
+                "-m",
+                "foxlight_model_preservation.cli",
+                "fetch",
+                capture.identity,
+                "--trust",
+                str(trust),
+                "--mirror",
+                hint,
+                "--store",
+                str(tmp_path / "received"),
+                "--allow-http",
+                "--allow-private",
+                "--mirror-directory",
+                str(tmp_path / "d"),
+                "--seed-mirrors",
+                str(seeds),
+                "--progress",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+    assert result.returncode == 0, result.stderr
+    assert seed_requests[0] == PEERS
+    stages = [json.loads(line)["stage"] for line in result.stderr.splitlines()]
+    assert [stage for stage in stages if stage in TERMINAL] == ["complete"]
+    assert stages[-1] == "complete"

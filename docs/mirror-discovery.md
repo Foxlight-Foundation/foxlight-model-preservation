@@ -119,7 +119,10 @@ claim the manifest and seeds that no card speaks for yet. Discovered sources
 across both stages stay within eight, all sources within `max_sources`, and one
 deadline covers both stages. Cancellation, a deadline, a budget or a local
 failure never falls back. With no seed list, or no room left, the stage
-contacts nobody and the primary failure is reported.
+contacts nobody and the primary failure is reported. Progress observers (the
+app's Library and `--progress`) never see the primary stage's failure as a
+terminal event: the fallback stage continues the same progress, with byte
+counts carried over, and only the receive's final outcome is terminal.
 
 Every extra must pass the receiver's own policy: HTTPS only unless
 `--allow-http`, and no loopback, private, link-local or `.local` address unless
