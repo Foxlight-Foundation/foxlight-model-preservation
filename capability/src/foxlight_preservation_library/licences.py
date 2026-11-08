@@ -106,8 +106,8 @@ MAX_TERMS_MEMBERS: Final = 256
 # A link longer than this is left out, as in the core.
 MAX_LINK: Final = 4096
 _UNKNOWN_SUMMARY: Final = (
-    "The licence couldn't be identified. Read the terms that come with the "
-    "model before using it."
+    "This listing doesn't say which licence applies. Read the model's own "
+    "terms before using it."
 )
 _HUB_REPOSITORY: Final = re.compile(r"[A-Za-z0-9][\w.-]{0,95}/[\w.-]{1,96}")
 _HUB_REVISION: Final = re.compile(r"[0-9a-f]{40}")
@@ -186,7 +186,7 @@ def terms_review(members: list[dict[str, JsonValue]]) -> dict[str, JsonValue]:
             first = listed[0].get("license_id")
             row: dict[str, JsonValue] = {
                 "license_id": license_id,
-                "name": "No identified licence"
+                "name": "Licence not named"
                 if unidentified or not isinstance(first, str)
                 else first.strip()[:200],
                 "family": None,

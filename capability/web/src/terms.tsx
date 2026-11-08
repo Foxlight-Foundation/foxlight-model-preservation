@@ -16,15 +16,22 @@ export const termsPending=(terms:TermsReview|undefined|null,accepted:boolean)=>B
  * its full text, then one explicit "I accept these terms" when any licence has
  * use restrictions or conditions to pass on. Plain permissive licences need none.
  */
+/** A row for a listing that names no licence at all (not a licence to "accept"). */
+const unnamed=(item:LicenceTerms)=>item.family===null&&item.name==='Licence not named';
+
 export function TermsAcceptance({terms,accepted,onChange}:{terms:TermsReview;accepted:boolean;onChange:(value:boolean)=>void}){
  const gated=terms.licences.filter(item=>item.requires_acceptance);
+ const named=gated.filter(item=>!unnamed(item)),missing=gated.some(unnamed);
+ const agreement=named.length>0
+  ?<>I accept the {listed(named.map(item=>item.name))}{missing?', and I’ll follow the model’s own terms for any part without a named licence':''}.</>
+  :<>I’ll read and follow the model’s own terms before using it.</>;
  return <div className="sk-terms" aria-label="Licence terms">
   <ul className="sk-terms-list">{terms.licences.map(item=><li key={item.license_id}>
-   <span className="sk-terms-head"><strong>{item.name}</strong>{item.license_id&&<code>{item.license_id}</code>}{item.requires_acceptance&&<Pill tone="info">Needs your acceptance</Pill>}</span>
+   <span className="sk-terms-head"><strong>{item.name}</strong>{item.license_id&&!unnamed(item)&&<code>{item.license_id}</code>}{item.requires_acceptance&&<Pill tone="info">Needs your acceptance</Pill>}</span>
    <span>{item.summary}</span>
    {item.references.map((reference,index)=><small key={index}>{reference.url?<a href={reference.url} target="_blank" rel="noopener noreferrer">Read the full terms{reference.reference.startsWith('https://')?'':` (${reference.reference}, carried with the model)`}</a>:<>Full terms: {reference.reference}, carried with the model</>}</small>)}
   </li>)}</ul>
-  {gated.length>0?<section className="sk-terms-accept" aria-label="Terms to accept"><h4>Terms to accept</h4><Consent checked={accepted} onChange={onChange} note="As on Hugging Face, these terms are accepted before the model is kept. Your acceptance is recorded with this copy.">I accept the {listed(gated.map(item=>item.name))}.</Consent></section>:<p className="sk-hint">These licences ask nothing extra of you beyond keeping their notices.</p>}
+  {gated.length>0?<section className="sk-terms-accept" aria-label="Terms to accept"><h4>Terms to accept</h4><Consent checked={accepted} onChange={onChange} note="As on Hugging Face, this is confirmed before the model is kept, and recorded with this copy.">{agreement}</Consent></section>:<p className="sk-hint">These licences ask nothing extra of you beyond keeping their notices.</p>}
   <Callout tone="info">This describes the licences in plain words; it isn’t legal advice. You’re responsible for following them where you live.</Callout>
  </div>;
 }

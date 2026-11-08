@@ -206,8 +206,8 @@ class MemberTerms(Record):
 
 
 _UNKNOWN_SUMMARY = (
-    "The licence couldn't be identified. Read the terms that come with the "
-    "model before using it."
+    "This listing doesn't say which licence applies. Read the model's own "
+    "terms before using it."
 )
 _HUB_REPOSITORY = re.compile(r"[A-Za-z0-9][\w.-]{0,95}/[\w.-]{1,96}")
 _HUB_REVISION = re.compile(r"[0-9a-f]{40}")
@@ -337,7 +337,7 @@ def terms_review(members: Iterable[MemberTerms]) -> dict[str, JsonValue]:
             rows.append(
                 LicenceTerms(
                     license_id=license_id,
-                    name="No identified licence"
+                    name="Licence not named"
                     if unidentified
                     else listed[0].license_id.strip()[:200],
                     summary=_UNKNOWN_SUMMARY

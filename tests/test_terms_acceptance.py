@@ -69,7 +69,7 @@ def test_plain_permissive_licences_need_no_acceptance_and_unknown_ones_do():
     unknown = terms_review([member("other"), member("my-own-terms", member="b")])
     assert unknown["accept"] == ["my-own-terms", "other"]
     names = {row["license_id"]: row["name"] for row in unknown["licences"]}  # type: ignore[index,union-attr]
-    assert names["other"] == "No identified licence"
+    assert names["other"] == "Licence not named"
 
 
 def test_non_commercial_summary_and_llama_attribution_are_plain():

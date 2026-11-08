@@ -191,8 +191,12 @@ def card_summary(
     metadata: dict[str, JsonValue] | None = None,
     selected_files: Iterable[str] | None = None,
 ) -> dict[str, JsonValue]:
-    """Describe original metadata and listed files, without granting coverage/trust."""
-    return model_summary(
+    """Describe original metadata and listed files, without granting coverage/trust.
+
+    A card that names no licence takes the one its signed catalog metadata
+    records for it (the registry's ``license``), when that is present.
+    """
+    summary = model_summary(
         card.card,
         repository=card.artifact.repository,
         artifact_format=card.artifact.format,
@@ -204,6 +208,10 @@ def card_summary(
         if card.artifact.bundle
         else (),
     )
+    catalog_license = metadata.get("license") if metadata else None
+    if not summary.get("license") and isinstance(catalog_license, str):
+        summary = {**summary, "license": _text(catalog_license, 64)}
+    return summary
 
 
 def captured_card_metadata(

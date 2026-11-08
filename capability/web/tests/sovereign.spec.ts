@@ -173,3 +173,17 @@ test('getting listings for the first time shows a loader, not a silent wait',asy
  await page.getByRole('button',{name:'Browse public models'}).first().click();
  await expect(page.getByRole('status').filter({hasText:'Getting model listings from Foxlight’s registry'})).toBeVisible();
 });
+
+test('a listing that names no licence asks to follow the model’s own terms, not to accept a non-licence',async({page})=>{
+ const unnamed={definition:1,accept:['see-original-card'],licences:[{license_id:'see-original-card',name:'Licence not named',family:null,summary:'This listing doesn’t say which licence applies. Read the model’s own terms before using it.',requires_acceptance:true,references:[{members:['example/model'],reference:'https://huggingface.co/example/model/tree/'+'b'.repeat(40),url:'https://huggingface.co/example/model/tree/'+'b'.repeat(40)}]}]};
+ await page.route('**/api/library*',route=>route.fulfill({json:empty}));
+ await page.route('**/api/desktop-search',route=>route.fulfill({json:{catalog_id:id,results:[model],total:1,next_offset:null}}));
+ await page.route('**/api/desktop-plan',route=>route.fulfill({json:{plan_id:id,kind:'receive',name:model.name,card_id:card,size_bytes:4096,file_count:2,members:['example/model'],expires_at:9999999999,terms:unnamed}}));
+ await page.goto('/');await page.getByRole('button',{name:'Keep a copy',exact:true}).click();
+ const terms=page.getByLabel('Licence terms');
+ await expect(terms.getByText('Licence not named',{exact:true})).toBeVisible();
+ // The internal marker is never shown as if it were a licence identifier.
+ await expect(terms.getByText('see-original-card')).toHaveCount(0);
+ await expect(terms.getByRole('checkbox',{name:'I’ll read and follow the model’s own terms before using it.'})).toBeVisible();
+ await expect(page.getByText('I accept the Licence not named',{exact:false})).toHaveCount(0);
+});

@@ -4,6 +4,13 @@
 
 - Catalog browsing without a search or chosen use lists saveable chat models
   first (`result_order`), then the rest smallest first.
+
+- A card that names no licence takes the licence its signed catalog metadata
+  records (the registry's `license`), both in the save review and when Help
+  keep models available decides what may be shared. The evidence travels in
+  the backup's retained registry proof, so sharing decisions stay offline.
+  A genuinely unknown licence now reads "Licence not named".
+
 - The shipped starter (seed) mirror list now names `https://starter.foxlight.ai`,
   Foxlight's R2 bucket mirror of the starter collection. It is contacted only
   after a receive's own and discovered mirrors fail.

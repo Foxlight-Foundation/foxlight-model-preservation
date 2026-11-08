@@ -100,7 +100,7 @@ from ..signing import (
 )
 from ..storage import atomic_bytes, directory, manifest_path, read_metadata
 from ..transfer import MirrorHTTPError, TransferPolicy, response
-from .presentation import card_summary
+from .presentation import captured_card_metadata, card_summary
 from .sharing import MemberDecision, Sharing
 
 # The licence families live in one canonical, versioned definition
@@ -349,7 +349,8 @@ def _card_license(member: ManifestMember) -> str:
         retained = load_retained_card(identity_json(member.retained_card))
     except (ValueError, PreservationError):
         return ""
-    value = card_summary(retained.envelope).get("license")
+    metadata = captured_card_metadata(retained.registry_proof, retained.envelope)
+    value = card_summary(retained.envelope, metadata=metadata).get("license")
     return value if isinstance(value, str) else ""
 
 
