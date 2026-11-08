@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.29.0
+
 - Catalog withdrawal is now advisory: no catalog publisher, Foxlight
   included, can take down a mirror's copies. Catalogs are discovery, not
   authority. When a followed catalog stops listing a retained copy, the mirror
