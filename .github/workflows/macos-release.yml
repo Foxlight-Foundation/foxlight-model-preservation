@@ -10,16 +10,16 @@ on:
         default: rehearse
         required: true
       confirmation:
-        description: Type "verify Sovereign 0.1.0 build 11"
+        description: Type "verify Sovereign 0.1.0 build 12"
         type: string
         required: true
 permissions: {}
 concurrency:
-  group: sovereign-macos-v0.1.0-build11
+  group: sovereign-macos-v0.1.0-build12
   cancel-in-progress: false
 env:
-  NATIVE_TAG: sovereign-macos-v0.1.0-build11
-  VERIFIER_TAG: sovereign-macos-publisher-v0.1.0-build11
+  NATIVE_TAG: sovereign-macos-v0.1.0-build12
+  VERIFIER_TAG: sovereign-macos-publisher-v0.1.0-build12
   PREDICATE_TYPE: https://foxlight.ai/attestations/macos-verification/v1
 jobs:
   intake:
@@ -44,10 +44,10 @@ jobs:
         run: |
           test "$GITHUB_REPOSITORY" = Foxlight-Foundation/foxlight-model-preservation
           test "$GITHUB_REF" = "refs/tags/$VERIFIER_TAG"
-          test "$CONFIRMATION" = 'verify Sovereign 0.1.0 build 11'
+          test "$CONFIRMATION" = 'verify Sovereign 0.1.0 build 12'
           test "$MODE" = rehearse -o "$MODE" = publish
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main
-          test "$(git rev-parse "refs/tags/$NATIVE_TAG^{commit}")" = 4c7ca512736e9876a5069dde7fc70e7e311afd1a
+          test "$(git rev-parse "refs/tags/$NATIVE_TAG^{commit}")" = 855bfb1a9b8dcf6766fac3d4c43c4e6f0cd4e3cf
           git merge-base --is-ancestor "refs/tags/$NATIVE_TAG" "$GITHUB_SHA"
       - name: Download the fixed draft without replacing assets
         id: intake
@@ -61,7 +61,7 @@ jobs:
           python - <<'PY'
           import json, os
           release = json.load(open('draft.json'))
-          manifest = json.load(open('desktop/macos/releases/0.1.0-build11.json'))
+          manifest = json.load(open('desktop/macos/releases/0.1.0-build12.json'))
           assert release['isDraft'] is True and release['tagName'] == manifest['tag']
           assert {a['name'] for a in release['assets']} == set(manifest['artifacts'])
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
