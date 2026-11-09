@@ -9,7 +9,7 @@ import shutil
 import socket
 import ssl
 import time
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Generator, Sequence
 from contextlib import ExitStack, contextmanager
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
@@ -405,6 +405,49 @@ def _download(
         _local(lambda: _truncate(target, pending))
         raise PreservationError("mirror object hash differs from signed identity")
     _publish_partial(target, pending, file, control)
+
+
+def fetch_object(
+    sources: Sequence[str],
+    file: FileIdentity,
+    target: int,
+    policy: TransferPolicy,
+    *,
+    deadline: float,
+    budget: TransferBudget,
+    control: OperationControl,
+    source_outcome: Callable[[str, bool], None] | None = None,
+) -> str:
+    """Fetch one object by its signed hash from the first source that has it.
+
+    No manifest is needed: the caller already holds the exact size and SHA-256
+    from signed evidence (for example a registry card), and the bytes are
+    published under ``objects/sha256/<sha>`` in ``target`` only after they
+    match. A source that answers 404 is skipped at once; other supplier
+    failures get one retry, resuming any verified prefix. Cancellation,
+    deadlines, budgets and receiver storage failures are never retried.
+    Returns the source that supplied the object.
+    """
+    for source in sources:
+        for _attempt in range(2):
+            try:
+                _download(source, file, target, policy, deadline, budget, control)
+            except OperationError:
+                raise
+            except MirrorHTTPError as error:
+                if source_outcome is not None:
+                    source_outcome(source, False)
+                if error.status_code == 404:
+                    break
+                continue
+            except (OSError, ValueError, http.client.HTTPException):
+                if source_outcome is not None:
+                    source_outcome(source, False)
+                continue
+            if source_outcome is not None:
+                source_outcome(source, True)
+            return source
+    raise SourcesExhausted("no mirror supplied a complete verified object")
 
 
 def _truncate(target: int, pending: str) -> None:

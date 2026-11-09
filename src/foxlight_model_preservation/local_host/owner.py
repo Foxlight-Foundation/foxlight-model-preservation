@@ -7,6 +7,7 @@ closing the application requests a cooperative stop and retains its journal.
 
 from __future__ import annotations
 
+import http.client
 import os
 import re
 import shutil
@@ -23,20 +24,22 @@ from typing import BinaryIO, Literal, cast
 from pydantic import Field, JsonValue
 
 from ..archives import ArchiveManifest, verify_archive
-from ..cards import ModelCardEnvelope, identity_json
+from ..cards import ArtifactFile, ModelCardEnvelope, identity_json
 from ..kits import export_kit, import_kit, inspect_kit, read_kit_envelope
+from ..ledger import TransferBudget
 from ..licences import (
     LICENCE_DEFINITION_VERSION,
     TermsAcceptance,
     member_terms,
     terms_review,
 )
-from ..mirror_directory import fetch_with_mirrors, load_seeds
+from ..mirror_directory import fetch_with_mirrors, load_seeds, permitted
 from ..mirror_models import MirrorObservation
-from ..models import Manifest, PreservationError, Record, TrustProfile
+from ..models import FileIdentity, Manifest, PreservationError, Record, TrustProfile
 from ..operations import (
     OperationCancelled,
     OperationControl,
+    OperationError,
     Progress,
     failure_code,
 )
@@ -50,8 +53,15 @@ from ..signing import (
     load_key,
     strict_json,
 )
-from ..storage import atomic_bytes, directory, pack, read_metadata, writer_lock
-from ..transfer import TransferPolicy
+from ..storage import (
+    atomic_bytes,
+    directory,
+    object_path,
+    pack,
+    read_metadata,
+    writer_lock,
+)
+from ..transfer import SourcesExhausted, TransferPolicy, fetch_object
 from .backups import Backups
 from .catalog import RegistryCatalog, with_licence
 from .community import CommunityMirror
@@ -1287,6 +1297,7 @@ class LocalOwner:
                 "backup_destination_changed",
                 "public_copy_review_changed",
                 "sharing_address_required",
+                "origin_unavailable",
             }:
                 code = str(error)
             self._finish(
@@ -1461,6 +1472,74 @@ class LocalOwner:
             return named
         return self.catalog.licences(catalog_id).get(card.card_id)
 
+    def _save_file(
+        self,
+        repository: str,
+        revision: str,
+        file: ArtifactFile,
+        destination: Path,
+        mirror_store: Path,
+        control: OperationControl,
+        *,
+        deadline: float,
+    ) -> None:
+        """Download one signed catalog file, falling back to mirrors by its hash.
+
+        The origin is always tried first. If it fails, the same bytes are
+        fetched by SHA-256 from the starter (seed) mirrors and mirrors this
+        owner already knows, over HTTPS to public addresses only, and accepted
+        only if they match the signed card. ``pack`` re-checks every file.
+        """
+        try:
+            download_file(
+                repository, revision, file, destination, control, deadline=deadline
+            )
+            return
+        except OperationError:
+            raise
+        except (OSError, ValueError, http.client.HTTPException) as error:
+            origin_error = error
+        if file.object_id is None or not file.object_id.startswith("sha256:"):
+            raise PreservationError("origin_unavailable") from origin_error
+        # The origin may have left a partial file; mirror bytes replace it.
+        destination.unlink(missing_ok=True)
+        policy = TransferPolicy()
+        seeds = load_seeds()[:4]
+        known = sorted(
+            address
+            for address in self.community.directory.card_addresses()
+            if address not in seeds and permitted(address, policy)
+        )[:4]
+        sources = (*seeds, *known)
+        if not sources:
+            raise PreservationError("origin_unavailable") from origin_error
+        control.phase("mirroring")
+        identity = FileIdentity(
+            path=file.path,
+            size=file.size_bytes,
+            sha256=file.object_id.removeprefix("sha256:"),
+        )
+        outcomes: dict[str, bool] = {}
+        try:
+            with directory(mirror_store, create=True) as root:
+                fetch_object(
+                    sources,
+                    identity,
+                    root,
+                    policy,
+                    deadline=deadline,
+                    budget=TransferBudget(max(1, identity.size)),
+                    control=control,
+                    source_outcome=outcomes.__setitem__,
+                )
+        except SourcesExhausted:
+            raise PreservationError("origin_unavailable") from origin_error
+        finally:
+            self.community.directory.record_many(outcomes, seeds=seeds)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(mirror_store / object_path(identity.sha256), destination)
+        control.phase("downloading")
+
     def _receive(
         self, job: Job, plan: dict[str, JsonValue], control: OperationControl
     ) -> None:
@@ -1500,11 +1579,12 @@ class LocalOwner:
                 original = selected_files[
                     (member.origin_repository, member.origin_revision, file.path)
                 ]
-                download_file(
+                self._save_file(
                     member.origin_repository,
                     member.origin_revision,
                     original,
                     selected / file.path,
+                    work / ".mirror",
                     control,
                     deadline=deadline,
                 )

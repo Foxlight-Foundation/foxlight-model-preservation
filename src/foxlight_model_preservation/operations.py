@@ -41,6 +41,7 @@ Stage = Literal[
     "checking",
     "copying",
     "downloading",
+    "mirroring",
     "publishing",
     "sharing",
     "complete",

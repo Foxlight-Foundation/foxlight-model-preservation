@@ -6,6 +6,10 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- The save review says Sovereign asks community mirrors for the same verified
+  file when Hugging Face can't provide it; Activity shows that step, and a save
+  no source could supply explains itself plainly.
+
 - Install docs point at the public 0.30 cohort: core 0.30.0, Library 0.26.0,
   Mac build 12, Linux revision 7 (guided setup 0.1.5, graphical setup 0.1.7)
   and `sovereign-mirror:0.30.0`, and name the 0.30 buttons.
