@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.30.0
+
 - Catalog updates also fetch the registry's signed card-licence file
   (`v1/card-licences.json`), checked offline against the retained signed
   targets. Listings and the save review show that licence when the card names

@@ -27,7 +27,7 @@ services:
     # The published, attested image. Verify it before the first start (see
     # README.md); pin a digest with SOVEREIGN_MIRROR_IMAGE=...@sha256:... .
     # `up --build` builds this checkout instead.
-    image: ${SOVEREIGN_MIRROR_IMAGE:-ghcr.io/foxlight-foundation/sovereign-mirror:0.29.0}
+    image: ${SOVEREIGN_MIRROR_IMAGE:-ghcr.io/foxlight-foundation/sovereign-mirror:0.30.0}
     build:
       context: ../..
       dockerfile: deploy/mirror/Dockerfile

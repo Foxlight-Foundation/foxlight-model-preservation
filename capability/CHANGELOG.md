@@ -6,6 +6,8 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+## 0.26.0
+
 - Plainer first-time wording. The save review is titled "Keep a copy",
   explains checking and privacy without jargon, and says why saving briefly
   needs extra free space. Choosing Keep a copy is the confirmation: the
