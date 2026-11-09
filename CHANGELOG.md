@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Install docs point at the public 0.30 cohort: core 0.30.0, Library 0.26.0,
+  Mac build 12, Linux revision 7 (guided setup 0.1.5, graphical setup 0.1.7)
+  and `sovereign-mirror:0.30.0`, and name the 0.30 buttons.
+
 - Guided Linux setup 0.1.5 and graphical setup 0.1.7 install revision 7
   (core 0.30 / Library 0.26), now served by the signed apt channel; package pins
   amd64 8bb8da99… and arm64 8045ccf9…, documented bootstrap hash 05979b41….

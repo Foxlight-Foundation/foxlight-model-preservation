@@ -1,8 +1,8 @@
 # Independent Sovereign Library
 
 For the everyday install/find/preserve/share/recover journey, start with
-[Getting started](getting-started.md). This page describes core 0.29 /
-Library 0.25, which Mac build 11 and Linux revision 6 carry. It includes guided
+[Getting started](getting-started.md). This page describes core 0.30 /
+Library 0.26, which Mac build 12 and Linux revision 7 carry. It includes guided
 entry choices, separate kit/public-mirror sharing, copyable recipient
 verification instructions, backup folders and **Help keep models available**
 with cloud storage, a public address, DHT/Nostr choices and receiving through
@@ -163,8 +163,8 @@ flow nor following/searching a source starts sharing, seeding or model execution
 
 ## Backup folders and public sharing
 
-These controls ship in core 0.29 / Library 0.25, Mac build 11 and Linux
-revision 6. **Help keep models available** first appeared in Library 0.23;
+These controls ship in core 0.30 / Library 0.26, Mac build 12 and Linux
+revision 7. **Help keep models available** first appeared in Library 0.23;
 cloud storage, the public address, the DHT/Nostr choices and the bundled DHT
 binding arrived in Library 0.24. Earlier native apps and Python archives do not
 acquire them automatically.
@@ -343,8 +343,7 @@ download review lists each licence with:
   acceptable use policy applies; attribution 'Built with Llama' required";
 - a link to its full text, which is also carried in the bundle.
 
-**Download & preserve** stays disabled until you tick **I accept these terms**,
-separately from the selection consent. Sovereign records the acceptance
+**Keep a copy** stays disabled until you tick **I accept these terms**. Sovereign records the acceptance
 (`terms-acceptance/<job>.json`: the licences, the definition version and when)
 before any byte is fetched; the job links it to the copy it creates. Plain
 permissive, attribution and copyleft licences are listed but need no tick. This

@@ -29,8 +29,8 @@ sharing and recipient recovery instructions. The shared
 preservation foundation includes complete companions, verified backup folders,
 explicit finite sharing, independent source following and offline search. The
 Horizon interface explains model inputs/outputs, purpose, file variants and trust
-without requiring Skulk. The [build11 publication record](../desktop/macos/releases/0.1.0-build11.json)
-binds final signed/stapled containers to the exact accepted app. Build 10 and all
+without requiring Skulk. The [build12 publication record](../desktop/macos/releases/0.1.0-build12.json)
+binds final signed/stapled containers to the exact accepted app. Build 11 and all
 older records/releases remain unchanged for historical verification. Publication
 still requires the separate workflow below; a reviewed record is not publication.
 
@@ -44,7 +44,7 @@ been published. Download the DMG or ZIP and the neighboring `SHA256SUMS`,
 download against its checksum, then authenticate it with GitHub CLI:
 
 ```sh
-PUBLISHER_TAG=sovereign-macos-publisher-v0.1.0-build11
+PUBLISHER_TAG=sovereign-macos-publisher-v0.1.0-build12
 FILE=Sovereign-0.1.0-macos-arm64.dmg
 shasum -a 256 "$FILE"  # compare the corresponding line in SHA256SUMS
 gh attestation verify "$FILE" \
@@ -63,20 +63,20 @@ asserts **verification of existing files**, not native build provenance. It
 records the exact host, performed checks and qualification limits; inspect those
 claims along with the [software trust limits](releases.md#what-a-pass-establishes).
 Retain the bundle and trusted roots for [offline verification](releases.md#keep-offline-evidence).
-The release uses `sovereign-macos-v0.1.0-build11` at the exact binary recipe
+The release uses `sovereign-macos-v0.1.0-build12` at the exact binary recipe
 revision. Its separate immutable publisher tag identifies the reviewed verification
 workflow. Neither tag asserts a native rebuild in the public workflow.
 
 For Apple silicon, open the verified DMG and drag **Sovereign** to
 **Applications**, then open it normally. The ZIP contains the same signed app.
 Apple checks its Developer ID and notarization. First launch offers **Browse
-public models**, **Choose a recovery kit** and **Choose a sharing file**. No model
+public models**, **Open a recovery kit** and **Open a sharing file**. No model
 download or sharing begins merely by opening the app. The **Getting started**
 button keeps the journey available later. Existing saved copies reopen in Library.
 A retained kit can be restored without Skulk or the original registry. A new capture
 key still requires explicit trust acceptance; software signing grants no model authority.
 
-The build11 manifest pins both final containers, Developer ID team `ZP9J3449GF`
+The build12 manifest pins both final containers, Developer ID team `ZP9J3449GF`
 and certificate fingerprint `A148825F0E5B1F0F29C7A314129AB6D090EF9FF5`.
 The exact accepted app was qualified on the operator Mac (macOS 26.6.2) through its
 own bundled runtime: the bundled BitTorrent DHT binding loads, and a signed
