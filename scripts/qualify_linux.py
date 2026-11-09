@@ -272,13 +272,13 @@ def qualify_gui(root: Path) -> dict[str, object]:
             require(dark > 1000, "native interface remained visually blank")
             for label in (
                 "Browse public models",
-                "Choose a recovery kit",
-                "Choose a sharing file",
+                "Open a recovery kit",
+                "Open a sharing file",
                 "Getting started",
             ):
                 require(label in names, "newcomer control missing: " + label)
             require(
-                action("Choose a recovery kit"), "newcomer file chooser control missing"
+                action("Open a recovery kit"), "newcomer file chooser control missing"
             )
             canceled = False
             deadline = time.monotonic() + 20

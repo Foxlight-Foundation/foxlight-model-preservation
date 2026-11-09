@@ -387,7 +387,7 @@ def run(
     try:
         journey.launch()
         journey.snapshot("01-fresh-apt-app")
-        journey.click("Choose a recovery kit")
+        journey.click("Open a recovery kit")
         journey.picker(kit)
         journey.wait(
             lambda: journey.find("Import verified copy") is not None,
