@@ -387,7 +387,13 @@ def run(
     try:
         journey.launch()
         journey.snapshot("01-fresh-apt-app")
-        journey.click("Choose a recovery kit")
+        # Core 0.30 renamed the button; an earlier published revision may not.
+        names = ("Open a recovery kit", "Choose a recovery kit")
+        journey.wait(
+            lambda: any(journey.find(name) is not None for name in names),
+            "recovery kit control",
+        )
+        journey.click(next(name for name in names if journey.find(name) is not None))
         journey.picker(kit)
         journey.wait(
             lambda: journey.find("Import verified copy") is not None,

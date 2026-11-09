@@ -260,8 +260,12 @@ Skulk, capability SDK, model runtime, GPU or hosted account. Sharing is opt-in.
 To remove the software, use `sudo apt remove foxlight-sovereign`. The Library,
 models, provenance and saved recovery files remain under your control.
 
-The current recipe is **0.1.0 revision 6**, paired with the authenticated public
-core 0.29 / Library 0.25 cohort, which adds one-switch sharing for Skulk, licence
+The current recipe is **0.1.0 revision 7**, paired with the authenticated public
+core 0.30 / Library 0.26 cohort, which adds the starter mirror fallback and starter collection, plainer first-time
+wording, and model licences from the registry's signed licence file. Its packages, signed apt
+indexes and qualification are published separately; until then the channel and
+guided setup remain revision 6.
+Revision 6 (core 0.29 / Library 0.25) added one-switch sharing for Skulk, licence
 families with opt-in upload caps, advisory catalog withdrawal, the Hetzner storage
 preset and bucket fixes.
 Revision 5 (core 0.28 / Library 0.24) added cloud bucket mirrors, a public address

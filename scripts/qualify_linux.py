@@ -270,16 +270,24 @@ def qualify_gui(root: Path) -> dict[str, object]:
                 time.sleep(0.25)
             image.savev(str(root / "native-first-launch.png"), "png", [], [])
             require(dark > 1000, "native interface remained visually blank")
-            for label in (
-                "Browse public models",
-                "Choose a recovery kit",
-                "Choose a sharing file",
-                "Getting started",
+            # Core 0.30 renamed the file buttons; the published revision this
+            # script also qualifies may still use the earlier names.
+            for choices in (
+                ("Browse public models",),
+                ("Open a recovery kit", "Choose a recovery kit"),
+                ("Open a sharing file", "Choose a sharing file"),
+                ("Getting started",),
             ):
-                require(label in names, "newcomer control missing: " + label)
-            require(
-                action("Choose a recovery kit"), "newcomer file chooser control missing"
+                require(
+                    any(label in names for label in choices),
+                    "newcomer control missing: " + choices[0],
+                )
+            recover = next(
+                label
+                for label in ("Open a recovery kit", "Choose a recovery kit")
+                if label in names
             )
+            require(action(recover), "newcomer file chooser control missing")
             canceled = False
             deadline = time.monotonic() + 20
             while time.monotonic() < deadline:
