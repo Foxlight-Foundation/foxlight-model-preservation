@@ -225,9 +225,16 @@ mirror's outcome. Seeds are contacted only as the fallback stage, after the
 approved and known mirrors failed. The approved mirrors are still checked against the reviewed
 plan; discovered mirrors are never part of it and never change the accepted
 keys. An app receive never contacts the DHT or Nostr relays; only the
-explicitly enabled community mirror does. Registry receive downloads from the
-original upstream files and has no manifest to look up beforehand, so it does
-not use mirrors.
+explicitly enabled community mirror does.
+
+A registry receive (saving from **Find**) downloads from the original upstream
+files first. If the origin fails for a file, the app fetches that file by the
+SHA-256 the signed card pins, from up to four seed mirrors and then up to four
+mirrors it already knows, over HTTPS to public addresses only, and records each
+outcome. Any Sovereign store serves a file's exact bytes at
+`objects/sha256/<hash>`, so no manifest is needed; bytes are accepted only if
+they match the card, and packing re-checks every file. If no mirror has the
+file, the save fails with `origin_unavailable` and keeps nothing.
 
 ## The app's community mirror
 

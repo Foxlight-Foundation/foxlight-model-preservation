@@ -198,3 +198,11 @@ test('an Activity entry named after its job does not repeat that name',async({pa
  await page.goto('/');await page.getByRole('button',{name:'Activity',exact:true}).click();
  await expect(page.getByText('Update public model listings',{exact:true})).toHaveCount(1);
 });
+
+test('a save that neither Hugging Face nor any mirror could supply says so plainly',async({page})=>{
+ const job={job_id:'e'.repeat(32),kind:'receive',state:'failed',name:'example/model',error_code:'origin_unavailable',output:null,copy_id:null};
+ await page.route('**/api/library*',route=>route.fulfill({json:{...empty,jobs:[job]}}));
+ await page.route('**/api/desktop-search',route=>route.fulfill({json:{catalog_id:id,results:[model],total:1,next_offset:null}}));
+ await page.goto('/');await page.getByRole('button',{name:'Activity',exact:true}).click();
+ await expect(page.getByText('no community mirror had them either',{exact:false})).toBeVisible();
+});

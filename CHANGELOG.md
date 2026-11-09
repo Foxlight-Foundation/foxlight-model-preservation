@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Saving from Find falls back to mirrors. Hugging Face is still tried first; if it
+  can't provide a file, Sovereign fetches the same file by its signed SHA-256
+  from the starter mirror and mirrors it already knows (HTTPS, public addresses
+  only), verified before it is kept. Activity shows "Getting a file from
+  community mirrors…", and a save no source can supply fails plainly with
+  `origin_unavailable`. New `transfer.fetch_object` fetches one object by hash
+  from a list of sources.
+
 - Install docs point at the public 0.30 cohort: core 0.30.0, Library 0.26.0,
   Mac build 12, Linux revision 7 (guided setup 0.1.5, graphical setup 0.1.7)
   and `sovereign-mirror:0.30.0`, and name the 0.30 buttons.
