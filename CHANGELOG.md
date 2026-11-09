@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Pin Sovereign Mac build 12 and Linux revision 7 to the authenticated
+  Library 0.26 installation archive (sha256 20f5b71a…, source e09221be; its
+  desktop lock carries core 0.30.0 and libtorrent 2.0.14), which adds the
+  starter mirror fallback and starter collection, plainer first-time wording
+  and registry card licences. Native signing, notarization, apt publication and
+  qualification remain separate gates.
+
 ## 0.30.0
 
 - Catalog updates also fetch the registry's signed card-licence file
