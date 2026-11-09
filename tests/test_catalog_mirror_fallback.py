@@ -86,6 +86,21 @@ def test_a_save_tries_the_next_mirror_after_a_miss_or_wrong_bytes(
         owner.close()
 
 
+def test_same_length_wrong_bytes_leave_room_for_a_healthy_mirror(tmp_path, monkeypatch):
+    """Wrong bytes of the right length are spent in full before rejection."""
+    catalog, repo, data = accepted_catalog(tmp_path, companion=False)
+    _origin_down(monkeypatch)
+    forged = bytes(255 - byte for byte in data)
+    assert len(forged) == len(data)
+    wrong = _store(tmp_path / "wrong", forged, name=digest(data))
+    _seeds(monkeypatch, wrong, _store(tmp_path / "good", data))
+    owner = LocalOwner(tmp_path / "owner", catalog=catalog)
+    try:
+        assert _save(owner, repo)["state"] == "succeeded"
+    finally:
+        owner.close()
+
+
 def test_no_mirror_with_the_file_fails_plainly(tmp_path, monkeypatch):
     catalog, repo, _data = accepted_catalog(tmp_path, companion=False)
     _origin_down(monkeypatch)

@@ -35,7 +35,14 @@ from ..licences import (
 )
 from ..mirror_directory import fetch_with_mirrors, load_seeds, permitted
 from ..mirror_models import MirrorObservation
-from ..models import FileIdentity, Manifest, PreservationError, Record, TrustProfile
+from ..models import (
+    MAX_TOTAL_BYTES,
+    FileIdentity,
+    Manifest,
+    PreservationError,
+    Record,
+    TrustProfile,
+)
 from ..operations import (
     OperationCancelled,
     OperationControl,
@@ -1528,7 +1535,12 @@ class LocalOwner:
                     root,
                     policy,
                     deadline=deadline,
-                    budget=TransferBudget(max(1, identity.size)),
+                    # One bad mirror can spend a full transfer twice (a retry)
+                    # before the next is tried, so the save's allowance for
+                    # this file is bounded but leaves room for that.
+                    budget=TransferBudget(
+                        min(MAX_TOTAL_BYTES, identity.size * 4 + 64 * 1024**2)
+                    ),
                     control=control,
                     source_outcome=outcomes.__setitem__,
                 )
