@@ -25,13 +25,13 @@ No Skulk, hosted account, GPU or manual Python setup is required by the native a
 New here? Follow [your first model with Sovereign](docs/getting-started.md):
 install, find, preserve, send a kit and recover on another computer.
 
-- **Mac (Apple silicon):** [download Sovereign 0.1.0 build 11](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/sovereign-macos-v0.1.0-build11),
+- **Mac (Apple silicon):** [download Sovereign 0.1.0 build 12](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/sovereign-macos-v0.1.0-build12),
   open the DMG and drag **Sovereign** to **Applications**.
   [Verification and installation](docs/macos-distribution.md).
 - **Linux / APT (amd64 or arm64):** [graphical setup](docs/linux-distribution.md#graphical-setup-recommended) detects your processor and configures signed app updates. Guided terminal setup, manual apt and verified Debian packages are also available.
   Then open **Sovereign** from your applications menu.
 
-Choose **Browse public models** to find something useful, or **Open recovery kit**
+Choose **Browse public models** to find something useful, or **Open a recovery kit**
 to recover a copy you already have. **Library** keeps your saved copies searchable.
 **Backups** remembers storage folders; **Sharing** offers explicit, finite public
 sharing and a one-file recipient handoff. Opening or installing the app starts no
@@ -40,9 +40,9 @@ software signing, and an unfamiliar capture key still needs explicit review.
 
 The [independent Library](docs/sovereign-desktop.md) also supports signed catalog
 browsing, independent source following and offline search. The public Library
-0.25 installation archive includes both independent public packages.
+0.26 installation archive includes both independent public packages.
 For the independent interface, authenticate and extract the
-[Library 0.25 archive](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/library-v0.25.0),
+[Library 0.26 archive](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/library-v0.26.0),
 then select its desktop profile:
 
 ```sh
@@ -53,18 +53,24 @@ python3 install.py --directory "$HOME/sovereign-desktop" \
 
 This Python installation path needs Python 3.13+ and uv. Follow the
 [verification and offline installation guide](docs/installation.md) before
-executing the helper. The 0.25 desktop profile offers first-launch choices for **Browse public models**,
-**Choose a recovery kit** and **Choose a sharing file**, with reusable **Getting started** help.
+executing the helper. The 0.26 desktop profile offers first-launch choices for **Browse public models**,
+**Open a recovery kit** and **Open a sharing file**, with reusable **Getting started** help.
 **Share** separates a kit to send from public-mirror review; **Recovery instructions**
 provides the saved copy’s public verification identifiers for separate comparison. No Skulk or managed SDK is required.
 
 ## Current public previews
 
-- **Standalone 0.29.0** includes persistent HTTP/IPFS/BitTorrent mirrors,
+- **Standalone 0.30.0** includes persistent HTTP/IPFS/BitTorrent mirrors,
   offline local-copy intake, portable handoffs, signed source following,
   retained-copy inspection/recovery-kit export, offline completion recovery,
   PirateFace lookup/intake and
   the separately opted-in I2P pilots.
+- **Standalone 0.30.0 / Library 0.26.0** add the starter collection and a
+  starter mirror fallback (`https://starter.foxlight.ai`), plainer first-time
+  wording with one confirmation to keep a copy, and model licences from the
+  registry's signed licence file, recorded with each saved copy so mirrors can
+  decide what to share offline. They publish
+  `ghcr.io/foxlight-foundation/sovereign-mirror:0.30.0`.
 - **Standalone 0.29.0 / Library 0.25.0** make catalog withdrawal advisory (a
   catalog dropping a model never stops a mirror's verified copy; takedown stays
   with each operator), add licence families on by default with opt-in upload
@@ -112,13 +118,13 @@ censorship resistance for at-risk users.
 ## Install
 
 Python 3.11+ on Linux or macOS, with an authenticated Python/uv toolchain. Use the
-[0.29.0 installation archive](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/v0.29.0)
+[0.30.0 installation archive](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/v0.30.0)
 and its detached attestation bundle. [Verify it first](docs/installation.md),
 extract it, then install into a new directory:
 
 ```sh
-python3 install.py --directory "$HOME/sovereign-0.29.0"
-"$HOME/sovereign-0.29.0/bin/model-preserve" --help
+python3 install.py --directory "$HOME/sovereign-0.30.0"
+"$HOME/sovereign-0.30.0/bin/model-preserve" --help
 ```
 
 The archive contains the exact package wheel, source, hash-locked dependencies
