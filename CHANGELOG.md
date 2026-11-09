@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Guided Linux setup 0.1.5 and graphical setup 0.1.7 install revision 7
+  (core 0.30 / Library 0.26), now served by the signed apt channel; package pins
+  amd64 8bb8da99… and arm64 8045ccf9…, documented bootstrap hash 05979b41….
+  The setup's closing message uses the 0.30 button names.
+
 - Pin Sovereign Mac build 12 and Linux revision 7 to the authenticated
   Library 0.26 installation archive (sha256 20f5b71a…, source e09221be; its
   desktop lock carries core 0.30.0 and libtorrent 2.0.14), which adds the
