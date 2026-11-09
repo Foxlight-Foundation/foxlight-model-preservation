@@ -97,7 +97,12 @@ class Repository:
                         length=len(self.target),
                         hashes={"sha512": "a" * 128},
                         path=self.path,
-                    )
+                    ),
+                    # Further signed targets, such as the card-licence file.
+                    **{
+                        path: TargetFile.from_data(path, data)
+                        for path, data in getattr(self, "extra_targets", {}).items()
+                    },
                 },
             )
         )

@@ -23,7 +23,7 @@ from typing import BinaryIO, Literal, cast
 from pydantic import Field, JsonValue
 
 from ..archives import ArchiveManifest, verify_archive
-from ..cards import identity_json
+from ..cards import ModelCardEnvelope, identity_json
 from ..kits import export_kit, import_kit, inspect_kit, read_kit_envelope
 from ..licences import (
     LICENCE_DEFINITION_VERSION,
@@ -53,11 +53,12 @@ from ..signing import (
 from ..storage import atomic_bytes, directory, pack, read_metadata, writer_lock
 from ..transfer import TransferPolicy
 from .backups import Backups
-from .catalog import RegistryCatalog
+from .catalog import RegistryCatalog, with_licence
 from .community import CommunityMirror
 from .presentation import (
     PURPOSE_WORDS,
     captured_card_metadata,
+    card_license,
     card_summary,
     copy_metadata,
     manifest_summary,
@@ -818,7 +819,11 @@ class LocalOwner:
                         card, proof = self.catalog.select(
                             str(body["catalog_id"]), str(body["card_id"])
                         )
-                    recipe = registry_recipe(card, proof)
+                        metadata = captured_card_metadata(proof, card)
+                        licence = self._registry_licence(
+                            str(body["catalog_id"]), card, metadata
+                        )
+                    recipe = registry_recipe(card, proof, licence=licence)
                     selected_files = registry_file_map(card)
                     vision = card.card.get("vision")
                     projector = (
@@ -834,7 +839,7 @@ class LocalOwner:
                         historical = True
                     details = card_summary(
                         card,
-                        metadata=captured_card_metadata(proof, card),
+                        metadata=with_licence(metadata, licence),
                         selected_files=(
                             path
                             for repository, revision, path in selected_files
@@ -1437,6 +1442,25 @@ class LocalOwner:
             envelope=envelope,
         )
 
+    def _registry_licence(
+        self,
+        catalog_id: str,
+        card: ModelCardEnvelope,
+        metadata: dict[str, JsonValue],
+    ) -> str | None:
+        """The one licence used to show, review and record a card without its own.
+
+        Precedence matches what the listing shows: the card's own licence (kept
+        in the retained card, so nothing extra is recorded), then the catalog's
+        metadata, then the registry's separate signed licence file.
+        """
+        if card_license(card.card):
+            return None
+        named = metadata.get("license")
+        if isinstance(named, str) and named:
+            return named
+        return self.catalog.licences(catalog_id).get(card.card_id)
+
     def _receive(
         self, job: Job, plan: dict[str, JsonValue], control: OperationControl
     ) -> None:
@@ -1444,7 +1468,10 @@ class LocalOwner:
             card, proof = self.catalog.select(
                 str(plan["catalog_id"]), str(plan["card_id"])
             )
-        recipe = registry_recipe(card, proof)
+            licence = self._registry_licence(
+                str(plan["catalog_id"]), card, captured_card_metadata(proof, card)
+            )
+        recipe = registry_recipe(card, proof, licence=licence)
         selected_files = registry_file_map(card)
         if recipe.model_dump(mode="json") != plan["recipe"]:
             raise PreservationError("plan_changed")

@@ -32,6 +32,7 @@ def accepted_catalog(
     metadata=None,
     catalog_metadata=None,
     primary_paths=("model.bin",),
+    licences=None,
 ):
     data = b"Synthetic model bytes, never executable.\n"
     card_body = body()
@@ -89,6 +90,15 @@ def accepted_catalog(
             },
         }
     )
+    if licences is not None:
+        repo.licences = identity_json(
+            {
+                "schema_version": 1,
+                "snapshot_id": None,
+                "licences": {repo.card.card_id: licences},
+            }
+        )
+        repo.extra_targets = {"v1/card-licences.json": repo.licences}
     repo.refresh(expires=datetime.now(UTC) + timedelta(days=1))
     catalog = RegistryCatalog(tmp_path / "registry", anchor=repo.root.to_bytes())
     proof = repo.proof()
@@ -97,6 +107,10 @@ def accepted_catalog(
         atomic_bytes(
             root, "proofs/" + digest(repo.target) + ".json", encode_record(proof)
         )
+        if licences is not None:
+            atomic_bytes(
+                root, "licences/" + digest(repo.target) + ".json", repo.licences
+            )
         atomic_bytes(
             root, "accepted.json", identity_json({"catalog_id": digest(repo.target)})
         )

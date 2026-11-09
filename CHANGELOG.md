@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Catalog updates also fetch the registry's signed card-licence file
+  (`v1/card-licences.json`), checked offline against the retained signed
+  targets. Listings and the save review show that licence when the card names
+  none, and saving writes it into the saved copy's own signed record, so
+  "Help keep models available" can share it without the registry. The
+  registry publishes the file separately from catalog metadata, so it needs
+  no Skulk release. A companion from another repository never inherits it, a
+  licence the card names itself still wins, and a missing or unusable file
+  never blocks a catalog update.
+
 - Catalog browsing without a search or chosen use lists saveable chat models
   first (`result_order`), then the rest smallest first.
 

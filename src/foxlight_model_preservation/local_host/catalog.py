@@ -16,14 +16,14 @@ from pathlib import Path
 from typing import cast
 
 from pydantic import JsonValue
-from tuf.api.exceptions import DownloadHTTPError
+from tuf.api.exceptions import DownloadError, DownloadHTTPError, RepositoryError
 from tuf.ngclient import Updater
 from tuf.ngclient.config import UpdaterConfig
 from tuf.ngclient.fetcher import FetcherInterface
 
 from ..cards import ModelCardEnvelope, identity_json, load_card
 from ..models import MAX_METADATA_BYTES, PreservationError
-from ..operations import OperationControl
+from ..operations import OperationControl, OperationError
 from ..registry_proof import (
     RegistryProof,
     VersionFloor,
@@ -37,6 +37,11 @@ from ..transfer import MirrorHTTPError, TransferPolicy, response
 REGISTRY_URL = "https://registry.foxlight.ai/"
 VIRTUAL_URL = "https://registry.sovereign.invalid/"
 CATALOG_PATH = "v1/catalog.json"
+# Card licences ride in their own signed target so registry readers that
+# validate the catalog strictly (older Skulk) never see an unknown field.
+LICENCES_PATH = "v1/card-licences.json"
+MAX_LICENCES_BYTES = 1024**2
+_LICENCE_ID = re.compile(r"[a-z0-9][a-z0-9.+-]{0,63}")
 
 
 class RegistryFetcher(FetcherInterface):
@@ -53,7 +58,7 @@ class RegistryFetcher(FetcherInterface):
         self.control.checkpoint()
         relative = url.removeprefix(VIRTUAL_URL)
         if not url.startswith(VIRTUAL_URL) or not re.fullmatch(
-            r"(?:metadata/(?:[1-9][0-9]{0,15}\.)?(?:root|timestamp|snapshot|targets)\.json|targets/v1/(?:[0-9a-f]{64}\.)?catalog\.json)",
+            r"(?:metadata/(?:[1-9][0-9]{0,15}\.)?(?:root|timestamp|snapshot|targets)\.json|targets/v1/(?:[0-9a-f]{64}\.)?(?:catalog|card-licences)\.json)",
             relative,
         ):
             raise PreservationError("unsupported registry metadata route")
@@ -77,6 +82,15 @@ class RegistryFetcher(FetcherInterface):
             raise DownloadHTTPError(
                 "registry metadata unavailable", error.status_code
             ) from error
+
+
+def with_licence(
+    metadata: dict[str, JsonValue] | None, licence: str | None
+) -> dict[str, JsonValue] | None:
+    """Add the signed registry licence to catalog metadata that names none."""
+    if licence is None or (metadata is not None and metadata.get("license")):
+        return metadata
+    return {**(metadata or {}), "license": licence}
 
 
 def result_order(
@@ -186,11 +200,92 @@ class RegistryCatalog:
         # Validate the complete proof before publishing a browser-visible head.
         verify_registry_proof(encode_record(proof), self.anchor, cards[0].card_id)
         identity = digest(raw)
+        licences = self._download_licences(updater, raw, proof)
         with directory(self.cache) as root:
             atomic_bytes(root, "catalogs/" + identity + ".json", raw)
             atomic_bytes(root, "proofs/" + identity + ".json", encode_record(proof))
+            if licences is not None:
+                atomic_bytes(root, "licences/" + identity + ".json", licences)
             atomic_bytes(root, "accepted.json", identity_json({"catalog_id": identity}))
         return self.search()
+
+    @staticmethod
+    def _download_licences(
+        updater: Updater, catalog: bytes, proof: RegistryProof
+    ) -> bytes | None:
+        """Fetch the signed card-licence target, or None when this head has none.
+
+        A missing or unusable licence file never blocks a catalog update:
+        listings then simply name no licence, as before the file existed.
+        """
+        target = updater.get_targetinfo(LICENCES_PATH)
+        if target is None or target.length > MAX_LICENCES_BYTES:
+            return None
+        try:
+            raw = Path(updater.download_target(target)).read_bytes()
+            target.verify_length_and_hashes(raw)
+            RegistryCatalog._licences(raw, catalog, proof)
+        except OperationError:
+            # Cancellation and operation budgets still stop the whole update.
+            raise
+        except (
+            PreservationError,
+            ValueError,
+            OSError,
+            DownloadError,
+            RepositoryError,
+        ):
+            return None
+        return raw
+
+    @staticmethod
+    def _licences(raw: bytes, catalog: bytes, proof: RegistryProof) -> dict[str, str]:
+        """Check retained licence bytes offline against the proof's signed targets.
+
+        The proof already carries the complete signed ``targets.json``, so the
+        file's length and hash are re-checked without contacting the registry.
+        It must describe the same snapshot as the catalog it sits beside.
+        """
+        from tuf.api.metadata import (
+            Metadata,
+            Targets,  # pyright: ignore[reportPrivateImportUsage]
+        )
+
+        from ..signing import decode_base64
+
+        targets = Metadata[Targets].from_bytes(decode_base64(proof.targets)).signed
+        info = targets.targets.get(LICENCES_PATH)
+        if info is None or "sha256" not in info.hashes:
+            raise PreservationError("card licences are not signed")
+        info.verify_length_and_hashes(raw)
+        value = strict_json(raw)
+        listing = strict_json(catalog)
+        if (
+            not isinstance(value, dict)
+            or value.get("schema_version") != 1
+            or not isinstance(listing, dict)
+            or value.get("snapshot_id") != listing.get("snapshot_id")
+            or not isinstance(value.get("licences"), dict)
+        ):
+            raise PreservationError("invalid card licences")
+        return {
+            str(card_id): licence
+            for card_id, licence in cast(
+                dict[str, JsonValue], value["licences"]
+            ).items()
+            if isinstance(licence, str) and _LICENCE_ID.fullmatch(licence)
+        }
+
+    def licences(self, identity: str | None = None) -> dict[str, str]:
+        """Each card's signed registry licence for an accepted snapshot, offline."""
+        # The catalog itself must authenticate; only the licence file is optional.
+        raw, proof = self.snapshot(identity)
+        try:
+            with directory(self.cache) as root:
+                licences = read_metadata(root, "licences/" + digest(raw) + ".json")
+            return self._licences(licences, raw, proof)
+        except (PreservationError, ValueError, OSError, RepositoryError):
+            return {}
 
     @staticmethod
     def _cards(raw: bytes) -> tuple[ModelCardEnvelope, ...]:
@@ -300,6 +395,7 @@ class RegistryCatalog:
         captured_metadata = (
             parsed.get("card_metadata") if isinstance(parsed, dict) else None
         )
+        licences = self.licences(digest(raw))
         for card in self._cards(raw):
             from .presentation import card_summary, search_words
             from .selection import registry_file_map, registry_recipe
@@ -315,6 +411,10 @@ class RegistryCatalog:
                 captured_metadata.get(card.card_id)
                 if isinstance(captured_metadata, dict)
                 else None
+            )
+            metadata = with_licence(
+                metadata if isinstance(metadata, dict) else None,
+                licences.get(card.card_id),
             )
             details = card_summary(
                 card,

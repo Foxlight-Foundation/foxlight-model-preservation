@@ -184,11 +184,17 @@ def registry_file_map(
     return files
 
 
-def registry_recipe(card: ModelCardEnvelope, proof: RegistryProof) -> Recipe:
+def registry_recipe(
+    card: ModelCardEnvelope, proof: RegistryProof, *, licence: str | None = None
+) -> Recipe:
     """Retain the full card and complete understood, hash-bound companion closure.
 
     Missing named files and unsupported external repositories refuse before any
     download. A model is never silently reduced to its base weights.
+
+    ``licence`` is the signed registry licence for the card's own artifact. It
+    is recorded in the base member's intake, so the saved copy carries it
+    without the registry; companions from other repositories never inherit it.
     """
     registry_file_map(card)
     groups = _registry_groups(card)
@@ -217,7 +223,9 @@ def registry_recipe(card: ModelCardEnvelope, proof: RegistryProof) -> Recipe:
                 else None,
                 intake=Intake(
                     audience="private",
-                    license_id="see-original-card",
+                    license_id=licence
+                    if index == 0 and licence
+                    else "see-original-card",
                     terms_reference=f"https://huggingface.co/{repository}/tree/{revision}",
                     decision="Explicit private preservation; no redistribution grant.",
                     notice_paths=(NOTICE_PATH,),
