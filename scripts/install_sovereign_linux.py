@@ -21,8 +21,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-SETUP_VERSION = "0.1.4"
-VERSION = "0.1.0-6"
+SETUP_VERSION = "0.1.5"
+VERSION = "0.1.0-7"
 REPOSITORY = "https://apt.foxlight.ai"
 RELEASE = (
     "https://github.com/Foxlight-Foundation/foxlight-model-preservation/"
@@ -30,8 +30,8 @@ RELEASE = (
 )
 KEY_SHA256 = "f9a76cf4131603e3b7d905868efcf53f7ebea98ccdbfaf0d47ae0ac825cfd338"
 PACKAGES = {
-    "amd64": "61d9198edc5191e8d8b913d5db8cd4d2039d6c0f811611bff6f0f4da275bf7cc",
-    "arm64": "31fe8dde32e95093e6ce3f0276b1496b9173ffa06718757382c862aafe8d2295",
+    "amd64": "8bb8da99c80242957d9e571925a8775caf57d767f183e83a11f387ef0740d9ed",
+    "arm64": "8045ccf9d8efd8aeeed1a9c28ab13ac3a105b12d3daacd605ad62736d4975ccd",
 }
 KEY_PATH = Path("/usr/share/keyrings/sovereign-archive-keyring.gpg")
 SOURCE_PATH = Path("/etc/apt/sources.list.d/sovereign.list")
@@ -417,8 +417,8 @@ def main() -> int:
             run(system_command(directory, selected))
         print("\nSovereign is ready. Open Sovereign from your Applications menu.")
         print(
-            "Choose Browse public models, Open recovery kit, or "
-            "Open sharing file or source. Help → Getting started "
+            "Choose Browse public models, Open a recovery kit, or "
+            "Open a sharing file. Help → Getting started "
             "is always available."
         )
         print(
