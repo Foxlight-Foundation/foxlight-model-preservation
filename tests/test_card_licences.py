@@ -159,3 +159,70 @@ def test_only_the_catalog_and_licence_targets_may_be_fetched():
                 VIRTUAL_URL + "targets/v1/" + "a" * 64 + ".card-licences.json"
             )
         )
+
+
+def test_catalog_metadata_and_the_file_resolve_to_one_licence(tmp_path, monkeypatch):
+    """What the listing shows is what the review checks and the copy records."""
+    catalog, repo, data = accepted_catalog(
+        tmp_path,
+        companion=False,
+        catalog_metadata={"license": "llama3.1"},
+        licences="apache-2.0",
+    )
+    owner = _owner(tmp_path, monkeypatch, catalog, data)
+    try:
+        listing, plan = _plan(owner, repo)
+        assert listing["results"][0]["details"]["license"] == "llama3.1"
+        assert plan["details"]["license"] == "llama3.1"
+        # Terms come from the recorded intake, so the copy records llama3.1 too.
+        assert plan["terms"]["accept"] == ["llama3.1"]
+    finally:
+        owner.close()
+
+
+def test_cancelling_during_the_licence_download_stops_the_update(tmp_path, monkeypatch):
+    from foxlight_model_preservation.operations import OperationCancelled
+
+    _catalog, repo, _data = accepted_catalog(
+        tmp_path, companion=False, licences="apache-2.0"
+    )
+    routes = {
+        "metadata/timestamp.json": repo.timestamp.to_bytes(),
+        "metadata/3.snapshot.json": repo.snapshot.to_bytes(),
+        "metadata/4.targets.json": repo.targets.to_bytes(),
+        "targets/v1/" + digest(repo.target) + ".catalog.json": repo.target,
+    }
+
+    class MemoryFetcher(FetcherInterface):
+        def __init__(self, *args):
+            pass
+
+        def _fetch(self, url):
+            path = url.removeprefix(VIRTUAL_URL)
+            if path.endswith(".card-licences.json"):
+                raise OperationCancelled("cancelled")
+            if path not in routes:
+                raise DownloadHTTPError("not found", 404)
+            yield routes[path]
+
+    monkeypatch.setattr(
+        "foxlight_model_preservation.local_host.catalog.RegistryFetcher", MemoryFetcher
+    )
+    catalog = RegistryCatalog(tmp_path / "fresh", anchor=repo.root.to_bytes())
+    with pytest.raises(OperationCancelled):
+        catalog.refresh()
+    # Nothing was published as the accepted head.
+    assert catalog.search()["catalog_id"] is None
+
+
+def test_an_unreadable_cached_licence_file_leaves_the_catalog_browsable(tmp_path):
+    catalog, repo, _data = accepted_catalog(
+        tmp_path, companion=False, licences="apache-2.0"
+    )
+    path = catalog.cache / "licences" / (digest(repo.target) + ".json")
+    path.unlink()
+    path.mkdir()
+    assert catalog.licences() == {}
+    found = catalog.search()
+    assert found["total"] == 1
+    assert found["results"][0]["details"]["license"] is None

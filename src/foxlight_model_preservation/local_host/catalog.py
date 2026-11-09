@@ -23,7 +23,7 @@ from tuf.ngclient.fetcher import FetcherInterface
 
 from ..cards import ModelCardEnvelope, identity_json, load_card
 from ..models import MAX_METADATA_BYTES, PreservationError
-from ..operations import OperationControl
+from ..operations import OperationControl, OperationError
 from ..registry_proof import (
     RegistryProof,
     VersionFloor,
@@ -225,6 +225,9 @@ class RegistryCatalog:
             raw = Path(updater.download_target(target)).read_bytes()
             target.verify_length_and_hashes(raw)
             RegistryCatalog._licences(raw, catalog, proof)
+        except OperationError:
+            # Cancellation and operation budgets still stop the whole update.
+            raise
         except (
             PreservationError,
             ValueError,
@@ -275,15 +278,13 @@ class RegistryCatalog:
 
     def licences(self, identity: str | None = None) -> dict[str, str]:
         """Each card's signed registry licence for an accepted snapshot, offline."""
+        # The catalog itself must authenticate; only the licence file is optional.
         raw, proof = self.snapshot(identity)
-        with directory(self.cache) as root:
-            try:
-                licences = read_metadata(root, "licences/" + digest(raw) + ".json")
-            except FileNotFoundError:
-                return {}
         try:
+            with directory(self.cache) as root:
+                licences = read_metadata(root, "licences/" + digest(raw) + ".json")
             return self._licences(licences, raw, proof)
-        except (PreservationError, ValueError, RepositoryError):
+        except (PreservationError, ValueError, OSError, RepositoryError):
             return {}
 
     @staticmethod
