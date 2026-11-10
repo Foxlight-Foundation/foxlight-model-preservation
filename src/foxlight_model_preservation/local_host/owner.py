@@ -1523,7 +1523,7 @@ class LocalOwner:
         revision: str,
         file: ArtifactFile,
         destination: Path,
-        mirror_store: Path,
+        staging: Path,
         control: OperationControl,
         *,
         deadline: float,
@@ -1537,11 +1537,24 @@ class LocalOwner:
         public addresses only, and accepted only if they match the signed card.
         ``pack`` re-checks every file. Returns ``"origin"`` or the mirror used.
         """
+        # Resume buffers and mirror objects live in the job's staging area,
+        # outside every member's files, keyed by the signed hash.
+        key = (file.object_id or "").removeprefix("sha256:") or digest(
+            file.path.encode()
+        )
+        partial = staging / "partial" / (key + ".partial")
+        mirror_store = staging / "mirror"
         origin_error: BaseException | None = None
         for _attempt in range(2):
             try:
                 download_file(
-                    repository, revision, file, destination, control, deadline=deadline
+                    repository,
+                    revision,
+                    file,
+                    destination,
+                    control,
+                    deadline=deadline,
+                    partial=partial,
                 )
                 return "origin"
             except OperationError:
@@ -1557,7 +1570,7 @@ class LocalOwner:
             raise PreservationError("origin_unavailable") from origin_error
         # The origin may have left a partial file; mirror bytes replace it.
         destination.unlink(missing_ok=True)
-        destination.with_name(destination.name + ".partial").unlink(missing_ok=True)
+        partial.unlink(missing_ok=True)
         policy = TransferPolicy()
         seeds = load_seeds()[:4]
         known = sorted(
@@ -1646,7 +1659,7 @@ class LocalOwner:
                     member.origin_revision,
                     original,
                     selected / file.path,
-                    work / ".mirror",
+                    work / ".staging",
                     control,
                     deadline=deadline,
                 )

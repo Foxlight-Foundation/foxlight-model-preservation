@@ -92,7 +92,7 @@ def _file(data: bytes = DATA) -> ArtifactFile:
     )
 
 
-def _download(hub: Hub, destination, monkeypatch) -> None:
+def _download(hub: Hub, destination, monkeypatch, *, data: bytes = DATA) -> None:
     monkeypatch.setattr(
         "foxlight_model_preservation.local_host.selection.PinnedConnection",
         hub.connection,
@@ -100,11 +100,16 @@ def _download(hub: Hub, destination, monkeypatch) -> None:
     download_file(
         "example/model",
         "a" * 40,
-        _file(),
+        _file(data),
         destination,
         OperationControl(),
         deadline=time.monotonic() + 30,
+        partial=destination.parent / "staging" / (digest(data) + ".partial"),
     )
+
+
+def _partial(tmp_path, data: bytes = DATA):
+    return tmp_path / "staging" / (digest(data) + ".partial")
 
 
 def test_a_dropped_download_resumes_from_its_verified_prefix(tmp_path, monkeypatch):
@@ -113,11 +118,11 @@ def test_a_dropped_download_resumes_from_its_verified_prefix(tmp_path, monkeypat
     with pytest.raises(ConnectionResetError):
         _download(hub, destination, monkeypatch)
     assert not destination.exists()
-    assert (tmp_path / "model.bin.partial").stat().st_size == 6000
+    assert _partial(tmp_path).stat().st_size == 6000
     _download(hub, destination, monkeypatch)
     assert hub.requests[-1]["Range"] == "bytes=6000-"
     assert destination.read_bytes() == DATA
-    assert not (tmp_path / "model.bin.partial").exists()
+    assert not _partial(tmp_path).exists()
 
 
 def test_an_origin_that_ignores_the_range_restarts_cleanly(tmp_path, monkeypatch):
@@ -131,12 +136,13 @@ def test_an_origin_that_ignores_the_range_restarts_cleanly(tmp_path, monkeypatch
 
 def test_a_corrupt_prefix_is_never_kept(tmp_path, monkeypatch):
     destination = tmp_path / "model.bin"
-    (tmp_path / "model.bin.partial").write_bytes(b"\0" * 6000)
+    _partial(tmp_path).parent.mkdir()
+    _partial(tmp_path).write_bytes(b"\0" * 6000)
     with pytest.raises(PreservationError, match="differ from signed"):
         _download(Hub(DATA), destination, monkeypatch)
     assert not destination.exists()
     # The next attempt starts over rather than trusting the bad prefix again.
-    assert not (tmp_path / "model.bin.partial").exists()
+    assert not _partial(tmp_path).exists()
     _download(Hub(DATA), destination, monkeypatch)
     assert destination.read_bytes() == DATA
 
@@ -184,3 +190,12 @@ def test_a_refused_file_goes_to_mirrors_without_an_origin_retry(tmp_path, monkey
         assert job["sources"]["mirror_files"] == 1
     finally:
         owner.close()
+
+
+def test_a_listed_file_named_like_a_resume_buffer_is_left_alone(tmp_path, monkeypatch):
+    """`model.bin.partial` and `model.bin` can both be selected files."""
+    first, second = DATA[:5000], DATA
+    _download(Hub(first), tmp_path / "model.bin.partial", monkeypatch, data=first)
+    _download(Hub(second), tmp_path / "model.bin", monkeypatch, data=second)
+    assert (tmp_path / "model.bin.partial").read_bytes() == first
+    assert (tmp_path / "model.bin").read_bytes() == second

@@ -298,6 +298,7 @@ def download_file(
     control: OperationControl,
     *,
     deadline: float,
+    partial: Path,
 ) -> None:
     """Stream one pinned, hash-bound Hub file over public HTTPS, then fsync it.
 
@@ -305,10 +306,12 @@ def download_file(
     only, HTTPS and credential-free; headers and ambient proxies are not forwarded.
     The original signed length/hash remain authoritative across redirects.
 
-    Bytes go to ``<destination>.partial`` first. A later call for the same
-    destination resumes from that prefix with an HTTP range request; the prefix
-    is hashed again, so the finished file is still checked in full. Only a
-    complete, matching file is renamed into place.
+    Bytes go to ``partial`` first, a staging path the caller keeps outside
+    every selected file's namespace (so a listed ``x.partial`` can never be
+    mistaken for ``x``'s resume buffer). A later call with the same ``partial``
+    resumes from that prefix with an HTTP range request; the prefix is hashed
+    again, so the finished file is still checked in full. Only a complete,
+    matching file is renamed into place.
     """
     if not re.fullmatch(
         r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository
@@ -317,10 +320,12 @@ def download_file(
     url = f"https://huggingface.co/{repository}/resolve/{revision}/" + quote(
         file.path, safe="/"
     )
-    partial = destination.with_name(destination.name + ".partial")
     from ..storage import directory
 
-    with directory(destination.parent, create=True):
+    with (
+        directory(destination.parent, create=True),
+        directory(partial.parent, create=True),
+    ):
         pass
     sha = hashlib.sha256()
     offset = _partial_prefix(partial, file.size_bytes, sha.update)
@@ -383,7 +388,7 @@ def download_file(
             }:
                 raise PreservationError("model source length changed")
             count = offset
-            with directory(destination.parent) as parent:
+            with directory(partial.parent) as parent:
                 descriptor = os.open(
                     partial.name,
                     os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW,
@@ -412,9 +417,15 @@ def download_file(
                 if count >= file.size_bytes:
                     partial.unlink(missing_ok=True)
                 raise PreservationError("model bytes differ from signed file identity")
-            with directory(destination.parent) as parent:
+            with (
+                directory(partial.parent) as staging,
+                directory(destination.parent) as parent,
+            ):
                 os.replace(
-                    partial.name, destination.name, src_dir_fd=parent, dst_dir_fd=parent
+                    partial.name,
+                    destination.name,
+                    src_dir_fd=staging,
+                    dst_dir_fd=parent,
                 )
                 os.fsync(parent)
             return
