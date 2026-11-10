@@ -148,6 +148,8 @@ class Journal(Record):
 class LocalOwner:
     """Own local storage and bounded background work with one process writer."""
 
+    _seeds_learned_at = float("-inf")
+
     def __init__(self, home: Path, *, catalog: RegistryCatalog | None = None) -> None:
         self.home = home.absolute()
         self._stack = ExitStack()
@@ -1573,12 +1575,35 @@ class LocalOwner:
         partial.unlink(missing_ok=True)
         policy = TransferPolicy()
         seeds = load_seeds()[:4]
+        mirrors = self.community.directory
+        sha256 = file.object_id.removeprefix("sha256:")
+        if seeds and time.monotonic() - self._seeds_learned_at > 3600:
+            # Read the seeds' own cards and signed object coverage (at most
+            # one hourly, bounded, never expanding past them) so mirrors that
+            # claim this file can be asked first.
+            self._seeds_learned_at = time.monotonic()
+            try:
+                mirrors.crawl(
+                    seeds,
+                    TransferPolicy(deadline_seconds=20, timeout=5),
+                    max_documents=len(seeds),
+                    expand=False,
+                    control=control.fork(),
+                )
+            except OperationError:
+                raise
+            except (OSError, ValueError, http.client.HTTPException):
+                pass
+        claimed = mirrors.object_sources(sha256, policy=policy, limit=4)
         known = sorted(
             address
-            for address in self.community.directory.card_addresses()
-            if address not in seeds and permitted(address, policy)
+            for address in mirrors.card_addresses()
+            if address not in seeds
+            and address not in claimed
+            and permitted(address, policy)
         )[:4]
-        sources = (*seeds, *known)
+        # Mirrors claiming the file first, then seeds, then other known ones.
+        sources = tuple(dict.fromkeys((*claimed, *seeds, *known)))
         if not sources:
             raise PreservationError("origin_unavailable") from origin_error
         control.phase("mirroring")

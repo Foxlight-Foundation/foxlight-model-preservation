@@ -1270,6 +1270,15 @@ def test_card_names_public_url_and_is_signed_by_its_own_mirror_key(tmp_path, cap
     assert stat.S_IMODE((ledger.path / KEY_FILE).stat().st_mode) == 0o600
     (raw,) = read_peers((ledger.path / "peers.json").read_bytes())
     assert raw == card
+    from foxlight_model_preservation.mirror_objects import (
+        served_hashes,
+        verify_objects,
+    )
+
+    claims = verify_objects(
+        (ledger.path / "objects.json").read_bytes(), claimed.mirror_key
+    )
+    assert claims.coverage_count == len(served_hashes(ledger.path / "public"))
     # Nothing served: no card, but the document stays valid.
     assert Announcer(ledger).publish(frozenset()) is None
     assert read_peers((ledger.path / "peers.json").read_bytes()) == []

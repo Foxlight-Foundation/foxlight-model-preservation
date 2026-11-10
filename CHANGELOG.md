@@ -10,6 +10,15 @@
   (beside the journal, so older versions still read it), reported as
   `sources` on the job.
 
+- Mirrors publish signed **object coverage** (`/.well-known/sovereign/objects.json`,
+  `sovereign.mirror-objects.v1`): a Bloom filter of the file hashes they serve,
+  signed by the mirror key and short-lived like a card, kept separate so strict
+  card readers are unaffected. Community, persistent and bucket mirrors (and the
+  starter publish script) write it. Crawls keep coverage only when the card's key
+  signed it, and a catalog save that falls back asks mirrors claiming the file
+  first, then seeds, then other known mirrors. HTTP mirrors answer `HEAD` for
+  served files without charging the upload allowance.
+
 - Saving from Find falls back to mirrors. Hugging Face is still tried first; if it
   can't provide a file, Sovereign fetches the same file by its signed SHA-256
   from the starter mirror and mirrors it already knows (HTTPS, public addresses

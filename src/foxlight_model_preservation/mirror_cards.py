@@ -65,11 +65,10 @@ def base_url(value: str) -> str:
     return value.rstrip("/")
 
 
-def _positions(manifest_id: str, bits: int, hashes: int) -> list[int]:
+def filter_positions(value: str, bits: int, hashes: int) -> list[int]:
+    """Bloom-filter bit positions for one value (a manifest ID or object hash)."""
     return [
-        int.from_bytes(
-            hashlib.sha256(f"{index}:{manifest_id}".encode()).digest()[:8], "big"
-        )
+        int.from_bytes(hashlib.sha256(f"{index}:{value}".encode()).digest()[:8], "big")
         % bits
         for index in range(hashes)
     ]
@@ -84,7 +83,7 @@ def coverage_filter(manifest_ids: set[str] | frozenset[str]) -> tuple[str, int]:
     bits = max(1024, (len(manifest_ids) * 10 + 7) // 8 * 8)
     array = bytearray(bits // 8)
     for manifest_id in manifest_ids:
-        for position in _positions(manifest_id, bits, FILTER_HASHES):
+        for position in filter_positions(manifest_id, bits, FILTER_HASHES):
             array[position // 8] |= 1 << (position % 8)
     return base64.b64encode(bytes(array)).decode("ascii"), len(manifest_ids)
 
@@ -129,7 +128,7 @@ class MirrorCard(Record):
         bits = len(array) * 8
         return all(
             array[position // 8] & (1 << (position % 8))
-            for position in _positions(manifest_id, bits, FILTER_HASHES)
+            for position in filter_positions(manifest_id, bits, FILTER_HASHES)
         )
 
 

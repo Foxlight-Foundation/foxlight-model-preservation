@@ -54,6 +54,7 @@ from foxlight_model_preservation.bucket import (
     BucketClient,
     BucketTarget,
     load_credentials,
+    publish_objects,
     publish_peers,
     publish_to_bucket,
 )
@@ -65,6 +66,7 @@ from foxlight_model_preservation.licences import (
 )
 from foxlight_model_preservation.mirror_cards import build_peers, issue_card
 from foxlight_model_preservation.mirror_models import Terms
+from foxlight_model_preservation.mirror_objects import issue_objects, served_hashes
 from foxlight_model_preservation.models import (
     PreservationError,
     Recipe,
@@ -770,12 +772,15 @@ def publish(
         sent = publish_to_bucket(store, entry.manifest, starter.bundle_trust, client)
         say(f"put  {entry.entry_id:28} {sent} new objects")
     client.put_bytes(f"starter/{list_id}.json", data, "application/json")
+    card_key = load_key(card_key_path, card_password)
     card = issue_card(
-        load_key(card_key_path, card_password),
+        card_key,
         (client.target.public_url,),
         {entry.manifest for entry in starter.entries},
     )
     publish_peers(client, build_peers(card, ()))
+    # Same key: lets a catalog save find any starter file by its hash.
+    publish_objects(client, issue_objects(card_key, served_hashes(store)))
     return {
         "list_id": list_id,
         "list_path": f"starter/{list_id}.json",

@@ -22,6 +22,7 @@ from .discovery import list_sources, search_sources
 from .mirror_cards import MAX_PEERS_BYTES, base_url, build_peers, issue_card
 from .mirror_directory import MirrorDirectory
 from .mirror_models import AnnouncePolicy
+from .mirror_objects import issue_objects, served_hashes
 from .mirror_rendezvous import Rendezvous, rendezvous_available
 from .mirror_state import MirrorLedger
 from .models import MAX_METADATA_BYTES, PreservationError
@@ -157,6 +158,16 @@ class Announcer:
         document = build_peers(card, self.directory.gossip())
         with self.ledger.root() as root:
             atomic_bytes(root, "peers.json", document)
+            if card is not None:
+                # Signed by the same key: lets catalog saves find files by hash.
+                atomic_bytes(
+                    root,
+                    "objects.json",
+                    issue_objects(
+                        mirror_key(self.ledger),
+                        served_hashes(self.ledger.path / "public"),
+                    ),
+                )
         return card
 
     def round(self, serving: frozenset[str], control: OperationControl) -> bool:

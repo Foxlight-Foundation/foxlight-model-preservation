@@ -36,6 +36,7 @@ from pydantic import Field, field_validator, model_validator
 
 from .archives import archive_objects, verify_archive_manifest
 from .mirror_cards import PEERS_PATH, base_url
+from .mirror_objects import OBJECTS_PATH
 from .models import PreservationError, Record, TrustProfile
 from .operations import OperationControl
 from .storage import (
@@ -822,6 +823,11 @@ def remove_from_bucket(client: BucketClient, manifest_id: str) -> None:
 def publish_peers(client: BucketClient, document: bytes) -> None:
     """Publish this bucket mirror's signed peers document for gossip."""
     client.put_bytes(PEERS_PATH, document, "application/json")
+
+
+def publish_objects(client: BucketClient, document: bytes) -> None:
+    """Publish this bucket's signed object coverage beside its peers document."""
+    client.put_bytes(OBJECTS_PATH, document, "application/json")
 
 
 def check_bucket(

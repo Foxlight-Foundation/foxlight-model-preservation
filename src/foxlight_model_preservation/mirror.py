@@ -34,6 +34,7 @@ from .mirror_models import (
     withheld,
 )
 from .mirror_native import NativeMirrors, PeerSessionRunner
+from .mirror_objects import OBJECTS_PATH
 from .mirror_state import (
     HEADROOM,
     MirrorLedger,
@@ -1292,7 +1293,10 @@ class MirrorServer(SeedServer):
         self.store = ledger.path / "public"
         # A mirror's owner may publish its signed peers document here; it is
         # read on each request so gossip updates need no restart.
-        self.documents = {"/" + PEERS_PATH: ledger.path / "peers.json"}
+        self.documents = {
+            "/" + PEERS_PATH: ledger.path / "peers.json",
+            "/" + OBJECTS_PATH: ledger.path / "objects.json",
+        }
         self.allowed = {}
         self.owners: dict[str, set[str]] = {}
         self._slots = threading.BoundedSemaphore(4)

@@ -48,6 +48,7 @@ from .mirror_cards import (
     read_peers,
 )
 from .mirror_cards import verify_card as _verify_card
+from .mirror_objects import MAX_OBJECTS_BYTES, OBJECTS_PATH, verify_objects
 from .models import (
     MAX_METADATA_BYTES,
     Digest,
@@ -315,6 +316,10 @@ def _live(seen: SeenMirror, instant: int) -> MirrorCard | None:
         return None
 
 
+def _objects_name(key_id: str) -> str:
+    return digest(key_id.encode()) + ".json"
+
+
 def _dropped(seen: SeenMirror) -> bool:
     return seen.failures >= DROP_AFTER and seen.failures > seen.successes
 
@@ -497,6 +502,10 @@ class MirrorDirectory:
             except (OSError, ValueError, http.client.HTTPException):
                 continue
             added += self.ingest(cards)
+            try:
+                self._keep_objects(base, cards, policy, deadline, active)
+            except DeadlineExceeded:
+                break
             if not expand:
                 continue
             for raw in cards:
@@ -504,6 +513,76 @@ class MirrorDirectory:
                     if address not in visited:
                         queue.append(address)
         return added
+
+    def _keep_objects(
+        self,
+        base: str,
+        cards: list[bytes],
+        policy: TransferPolicy,
+        deadline: float,
+        control: OperationControl,
+    ) -> None:
+        """Fetch and keep the object coverage of the mirror serving ``base``.
+
+        Only coverage signed by that mirror's own card key is kept, beside the
+        directory (not in it, so older versions still read the directory). A
+        mirror without coverage simply has none; nothing else changes.
+        """
+        for raw in cards:
+            try:
+                card = _verify_card(raw)
+            except (ValueError, PreservationError):
+                continue
+            if base not in card.addresses:
+                continue
+            try:
+                data = _bounded_read(
+                    base, OBJECTS_PATH, policy, MAX_OBJECTS_BYTES, deadline, control
+                )
+                verify_objects(data, card.mirror_key)
+            except OperationError:
+                raise
+            except (OSError, ValueError, http.client.HTTPException):
+                return
+            with directory(self.path / "objects", create=True) as root:
+                atomic_bytes(root, _objects_name(card.mirror_key.key_id), data)
+            return
+
+    def object_sources(
+        self,
+        sha256: str,
+        *,
+        policy: TransferPolicy = DEFAULT_POLICY,
+        limit: int = 4,
+        now: int | None = None,
+    ) -> list[str]:
+        """Addresses of live mirrors whose signed coverage claims an object.
+
+        Best-scoring mirrors first; every address must pass ``policy``. A claim
+        is a hint: the object is still checked against its trusted hash.
+        """
+        instant = int(time.time()) if now is None else now
+        ranked: list[tuple[int, str]] = []
+        for seen in self.read().mirrors.values():
+            card = None if _dropped(seen) else _live(seen, instant)
+            if card is None:
+                continue
+            try:
+                with directory(self.path / "objects") as root:
+                    data = read_metadata(root, _objects_name(card.mirror_key.key_id))
+                claims = verify_objects(data, card.mirror_key, now=instant)
+            except (FileNotFoundError, ValueError, PreservationError):
+                continue
+            if not claims.covers(sha256):
+                continue
+            score = seen.successes - seen.failures
+            ranked.extend(
+                (score, address)
+                for address in card.addresses
+                if permitted(address, policy)
+            )
+        ranked.sort(key=lambda item: -item[0])
+        return list(dict.fromkeys(address for _score, address in ranked))[:limit]
 
     def _known_addresses(self) -> list[str]:
         instant = int(time.time())
