@@ -6,6 +6,10 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Activity says where a finished save's files came from: "From Hugging Face",
+  or "From Hugging Face and community mirrors (starter.foxlight.ai): 3 of 10
+  files".
+
 - The save review says Sovereign asks community mirrors for the same verified
   file when Hugging Face can't provide it; Activity shows that step, and a save
   no source could supply explains itself plainly.

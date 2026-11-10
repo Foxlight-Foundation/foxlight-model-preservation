@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Hugging Face downloads resume. A save writes each file to `<file>.partial`
+  and, when a transfer drops or the origin errors, retries once with an HTTP
+  range from the verified prefix (re-hashed, so the finished file is still
+  checked in full). A refusal (4xx, including 429) goes straight to the mirror
+  fallback. Each finished save records which sources supplied its files
+  (beside the journal, so older versions still read it), reported as
+  `sources` on the job.
+
 - Saving from Find falls back to mirrors. Hugging Face is still tried first; if it
   can't provide a file, Sovereign fetches the same file by its signed SHA-256
   from the starter mirror and mirrors it already knows (HTTPS, public addresses

@@ -6,6 +6,7 @@ import hashlib
 import os
 import re
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 from urllib.parse import quote, urljoin, urlsplit
@@ -261,6 +262,34 @@ def registry_recipe(
     )
 
 
+class OriginHTTPError(PreservationError):
+    """The origin answered a model download with an unusable HTTP status."""
+
+    def __init__(self, status_code: int) -> None:
+        self.status_code = status_code
+        super().__init__("model source unavailable")
+
+
+def _partial_prefix(partial: Path, size: int, update: Callable[[bytes], None]) -> int:
+    """Feed the bytes an earlier attempt kept to ``update``; return their count.
+
+    A resume therefore still hashes the whole file. A complete or overlong
+    prefix is discarded and 0 is returned; the caller then starts a fresh hash.
+    """
+    count = 0
+    try:
+        with partial.open("rb") as stream:
+            while chunk := stream.read(1024 * 1024):
+                count += len(chunk)
+                update(chunk)
+    except FileNotFoundError:
+        return 0
+    if count >= size:
+        partial.unlink()
+        return 0
+    return count
+
+
 def download_file(
     repository: str,
     revision: str,
@@ -269,12 +298,20 @@ def download_file(
     control: OperationControl,
     *,
     deadline: float,
+    partial: Path,
 ) -> None:
     """Stream one pinned, hash-bound Hub file over public HTTPS, then fsync it.
 
     Hub CDNs use redirects. Every hop is separately DNS-pinned, public-address
     only, HTTPS and credential-free; headers and ambient proxies are not forwarded.
     The original signed length/hash remain authoritative across redirects.
+
+    Bytes go to ``partial`` first, a staging path the caller keeps outside
+    every selected file's namespace (so a listed ``x.partial`` can never be
+    mistaken for ``x``'s resume buffer). A later call with the same ``partial``
+    resumes from that prefix with an HTTP range request; the prefix is hashed
+    again, so the finished file is still checked in full. Only a complete,
+    matching file is renamed into place.
     """
     if not re.fullmatch(
         r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository
@@ -283,6 +320,17 @@ def download_file(
     url = f"https://huggingface.co/{repository}/resolve/{revision}/" + quote(
         file.path, safe="/"
     )
+    from ..storage import directory
+
+    with (
+        directory(destination.parent, create=True),
+        directory(partial.parent, create=True),
+    ):
+        pass
+    sha = hashlib.sha256()
+    offset = _partial_prefix(partial, file.size_bytes, sha.update)
+    if not offset:
+        sha = hashlib.sha256()
     for _hop in range(6):
         control.checkpoint()
         remaining = deadline - time.monotonic()
@@ -304,13 +352,16 @@ def download_file(
             tls=True,
         )
         try:
+            headers = {
+                "User-Agent": "Foxlight-Sovereign/0.21",
+                "Accept-Encoding": "identity",
+            }
+            if offset:
+                headers["Range"] = f"bytes={offset}-"
             connection.request(
                 "GET",
                 parts.path + ("?" + parts.query if parts.query else ""),
-                headers={
-                    "User-Agent": "Foxlight-Sovereign/0.21",
-                    "Accept-Encoding": "identity",
-                },
+                headers=headers,
             )
             stream = connection.getresponse()
             if stream.status in {301, 302, 303, 307, 308}:
@@ -319,24 +370,32 @@ def download_file(
                     raise PreservationError("invalid model download redirect")
                 url = urljoin(url, location)
                 continue
-            if (
-                stream.status != 200
-                or stream.getheader("Content-Encoding", "identity") != "identity"
-            ):
+            if stream.getheader("Content-Encoding", "identity") != "identity":
                 raise PreservationError("model source unavailable")
-            if stream.getheader("Content-Length") not in {None, str(file.size_bytes)}:
+            if stream.status == 200 and offset:
+                # The origin ignored the range: start over from the first byte.
+                offset, sha = 0, hashlib.sha256()
+                partial.unlink(missing_ok=True)
+            elif stream.status == 206 and offset:
+                expected = f"bytes {offset}-{file.size_bytes - 1}/{file.size_bytes}"
+                if stream.getheader("Content-Range") != expected:
+                    raise PreservationError("model source returned a different range")
+            elif stream.status != 200:
+                raise OriginHTTPError(stream.status)
+            if stream.getheader("Content-Length") not in {
+                None,
+                str(file.size_bytes - offset),
+            }:
                 raise PreservationError("model source length changed")
-            sha, count = hashlib.sha256(), 0
-            from ..storage import directory
-
-            with directory(destination.parent, create=True) as parent:
+            count = offset
+            with directory(partial.parent) as parent:
                 descriptor = os.open(
-                    destination.name,
-                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                    partial.name,
+                    os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW,
                     0o600,
                     dir_fd=parent,
                 )
-            with os.fdopen(descriptor, "wb") as output:
+            with os.fdopen(descriptor, "ab") as output:
                 while chunk := stream.read(
                     min(256 * 1024, file.size_bytes - count + 1)
                 ):
@@ -349,15 +408,26 @@ def download_file(
                     control.advance(received=len(chunk))
                     sha.update(chunk)
                     output.write(chunk)
-                if (
-                    count != file.size_bytes
-                    or file.object_id != "sha256:" + sha.hexdigest()
-                ):
-                    raise PreservationError(
-                        "model bytes differ from signed file identity"
-                    )
                 output.flush()
                 os.fsync(output.fileno())
+            if (
+                count != file.size_bytes
+                or file.object_id != "sha256:" + sha.hexdigest()
+            ):
+                if count >= file.size_bytes:
+                    partial.unlink(missing_ok=True)
+                raise PreservationError("model bytes differ from signed file identity")
+            with (
+                directory(partial.parent) as staging,
+                directory(destination.parent) as parent,
+            ):
+                os.replace(
+                    partial.name,
+                    destination.name,
+                    src_dir_fd=staging,
+                    dst_dir_fd=parent,
+                )
+                os.fsync(parent)
             return
         finally:
             connection.close()

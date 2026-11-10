@@ -20,6 +20,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import BinaryIO, Literal, cast
+from urllib.parse import urlsplit
 
 from pydantic import Field, JsonValue
 
@@ -85,6 +86,7 @@ from .presentation import (
 from .selection import (
     NOTICE,
     NOTICE_PATH,
+    OriginHTTPError,
     download_file,
     registry_file_map,
     registry_recipe,
@@ -341,6 +343,9 @@ class LocalOwner:
                             "handoff_ready": self._handoff_ready(item),
                         }
                         if item.job_id in self._sharing_observations
+                        else None,
+                        "sources": self._job_sources(item.job_id)
+                        if item.kind == "receive" and item.state == "succeeded"
                         else None,
                     }
                     for item in selected
@@ -1479,37 +1484,93 @@ class LocalOwner:
             return named
         return self.catalog.licences(catalog_id).get(card.card_id)
 
+    def _job_sources(self, job_id: str) -> JsonValue:
+        """Which sources supplied a finished save: origin files and mirror hosts.
+
+        Kept beside the journal rather than in it, so older versions can still
+        read the journal. Only host names are reported, never paths.
+        """
+        try:
+            with directory(self.home / "job-sources") as root:
+                value = strict_json(read_metadata(root, job_id + ".json"))
+        except (FileNotFoundError, PreservationError, ValueError):
+            return None
+        if not isinstance(value, dict):
+            return None
+        counts = {
+            str(source): count
+            for source, count in value.items()
+            if type(count) is int and count > 0
+        }
+        mirrors = sorted(
+            {
+                urlsplit(source).hostname or "mirror"
+                for source in counts
+                if source != "origin"
+            }
+        )[:4]
+        return {
+            "origin_files": counts.get("origin", 0),
+            "mirror_files": sum(
+                n for source, n in counts.items() if source != "origin"
+            ),
+            "mirrors": cast(list[JsonValue], mirrors),
+        }
+
     def _save_file(
         self,
         repository: str,
         revision: str,
         file: ArtifactFile,
         destination: Path,
-        mirror_store: Path,
+        staging: Path,
         control: OperationControl,
         *,
         deadline: float,
-    ) -> None:
+    ) -> str:
         """Download one signed catalog file, falling back to mirrors by its hash.
 
-        The origin is always tried first. If it fails, the same bytes are
-        fetched by SHA-256 from the starter (seed) mirrors and mirrors this
-        owner already knows, over HTTPS to public addresses only, and accepted
-        only if they match the signed card. ``pack`` re-checks every file.
+        The origin is always tried first; a dropped or failing transfer resumes
+        once from its verified prefix. If the origin still fails, or refuses the
+        file outright, the same bytes are fetched by SHA-256 from the starter
+        (seed) mirrors and mirrors this owner already knows, over HTTPS to
+        public addresses only, and accepted only if they match the signed card.
+        ``pack`` re-checks every file. Returns ``"origin"`` or the mirror used.
         """
-        try:
-            download_file(
-                repository, revision, file, destination, control, deadline=deadline
-            )
-            return
-        except OperationError:
-            raise
-        except (OSError, ValueError, http.client.HTTPException) as error:
-            origin_error = error
+        # Resume buffers and mirror objects live in the job's staging area,
+        # outside every member's files, keyed by the signed hash.
+        key = (file.object_id or "").removeprefix("sha256:") or digest(
+            file.path.encode()
+        )
+        partial = staging / "partial" / (key + ".partial")
+        mirror_store = staging / "mirror"
+        origin_error: BaseException | None = None
+        for _attempt in range(2):
+            try:
+                download_file(
+                    repository,
+                    revision,
+                    file,
+                    destination,
+                    control,
+                    deadline=deadline,
+                    partial=partial,
+                )
+                return "origin"
+            except OperationError:
+                raise
+            except OriginHTTPError as error:
+                origin_error = error
+                if error.status_code < 500:
+                    # Missing, refused or rate limited: mirrors, not a retry.
+                    break
+            except (OSError, ValueError, http.client.HTTPException) as error:
+                origin_error = error
         if file.object_id is None or not file.object_id.startswith("sha256:"):
             raise PreservationError("origin_unavailable") from origin_error
         # The origin may have left a partial file; mirror bytes replace it.
         destination.unlink(missing_ok=True)
+        partial.unlink(missing_ok=True)
         policy = TransferPolicy()
         seeds = load_seeds()[:4]
         known = sorted(
@@ -1529,7 +1590,7 @@ class LocalOwner:
         outcomes: dict[str, bool] = {}
         try:
             with directory(mirror_store, create=True) as root:
-                fetch_object(
+                used = fetch_object(
                     sources,
                     identity,
                     root,
@@ -1551,6 +1612,7 @@ class LocalOwner:
         destination.parent.mkdir(parents=True, exist_ok=True)
         os.replace(mirror_store / object_path(identity.sha256), destination)
         control.phase("downloading")
+        return used
 
     def _receive(
         self, job: Job, plan: dict[str, JsonValue], control: OperationControl
@@ -1575,6 +1637,7 @@ class LocalOwner:
         with directory(work, create=True):
             pass
         sources: dict[str, Path] = {}
+        supplied: dict[str, int] = {}
         deadline = time.monotonic() + 86400
         control.phase("downloading")
         for member in recipe.members:
@@ -1591,15 +1654,20 @@ class LocalOwner:
                 original = selected_files[
                     (member.origin_repository, member.origin_revision, file.path)
                 ]
-                self._save_file(
+                source = self._save_file(
                     member.origin_repository,
                     member.origin_revision,
                     original,
                     selected / file.path,
-                    work / ".mirror",
+                    work / ".staging",
                     control,
                     deadline=deadline,
                 )
+                supplied[source] = supplied.get(source, 0) + 1
+        with directory(self.home / "job-sources", create=True) as root:
+            atomic_bytes(
+                root, job.job_id + ".json", identity_json(cast(JsonValue, supplied))
+            )
         trust = self._capture_trust()
         key = load_key(self.home / "capture-key.pem", None)
         legacy = work / "original"

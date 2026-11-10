@@ -568,6 +568,7 @@ def test_model_redirect_cannot_weaken_transport(tmp_path, monkeypatch, redirect)
             tmp_path / "model.bin",
             OperationControl(),
             deadline=time.monotonic() + 10,
+            partial=tmp_path / "staging" / "model.partial",
         )
     assert not (tmp_path / "model.bin").exists()
 
