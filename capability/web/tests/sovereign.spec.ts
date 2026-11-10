@@ -206,3 +206,13 @@ test('a save that neither Hugging Face nor any mirror could supply says so plain
  await page.goto('/');await page.getByRole('button',{name:'Activity',exact:true}).click();
  await expect(page.getByText('no community mirror had them either',{exact:false})).toBeVisible();
 });
+
+test('a finished save says where its files came from',async({page})=>{
+ const done={job_id:'f'.repeat(32),kind:'receive',state:'succeeded',name:'example/model',error_code:null,output:null,copy_id:null,sources:{origin_files:7,mirror_files:3,mirrors:['starter.foxlight.ai']}};
+ const plain={...done,job_id:'a'.repeat(32),name:'example/other',sources:{origin_files:4,mirror_files:0,mirrors:[]}};
+ await page.route('**/api/library*',route=>route.fulfill({json:{...empty,jobs:[done,plain]}}));
+ await page.route('**/api/desktop-search',route=>route.fulfill({json:{catalog_id:id,results:[model],total:1,next_offset:null}}));
+ await page.goto('/');await page.getByRole('button',{name:'Activity',exact:true}).click();
+ await expect(page.getByText('From Hugging Face and community mirrors (starter.foxlight.ai): 3 of 10 files',{exact:true})).toBeVisible();
+ await expect(page.getByText('From Hugging Face',{exact:true})).toBeVisible();
+});
