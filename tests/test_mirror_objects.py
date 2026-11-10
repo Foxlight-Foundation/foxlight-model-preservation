@@ -206,3 +206,15 @@ def test_the_coverage_cache_drops_gone_mirrors_and_stays_within_budget(
     with directory(cache) as root:
         mirror_directory._prune_objects(root, {"old.json", "mid.json", "new.json"})  # noqa: SLF001
     assert sorted(path.name for path in cache.iterdir()) == ["mid.json", "new.json"]
+
+
+def test_a_very_large_mirror_still_issues_coverage_within_budget() -> None:
+    """Past the filter budget only the false-positive rate rises."""
+    from foxlight_model_preservation.mirror_objects import MAX_OBJECTS_BYTES
+
+    key = Ed25519PrivateKey.generate()
+    held = [digest(str(index).encode()) for index in range(300_000)]
+    document = issue_objects(key, held)
+    assert len(document) <= MAX_OBJECTS_BYTES
+    claims = verify_objects(document, public_record(key))
+    assert all(claims.covers(sha) for sha in held[:2000])

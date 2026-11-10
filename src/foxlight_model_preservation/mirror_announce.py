@@ -12,6 +12,7 @@ Cards grant no trust; every byte is still verified against chosen model keys.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import secrets
 from urllib.parse import urlsplit
@@ -162,14 +163,16 @@ class Announcer:
             atomic_bytes(root, "peers.json", document)
             if card is not None:
                 # Signed by the same key: lets catalog saves find files by hash.
-                atomic_bytes(
-                    root,
-                    "objects.json",
-                    issue_objects(
-                        mirror_key(self.ledger),
-                        served_hashes(self.ledger.path / "public"),
-                    ),
-                )
+                # Optional, so a coverage problem never stops the card renewing.
+                with contextlib.suppress(PreservationError, OSError):
+                    atomic_bytes(
+                        root,
+                        "objects.json",
+                        issue_objects(
+                            mirror_key(self.ledger),
+                            served_hashes(self.ledger.path / "public"),
+                        ),
+                    )
         return card
 
     def round(self, serving: frozenset[str], control: OperationControl) -> bool:

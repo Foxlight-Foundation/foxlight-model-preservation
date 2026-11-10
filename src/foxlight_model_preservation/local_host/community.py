@@ -12,6 +12,7 @@ anything.
 
 from __future__ import annotations
 
+import contextlib
 import http.client
 import ipaddress
 import json
@@ -1260,13 +1261,13 @@ class CommunityMirror:
         document = build_peers(card, self.directory.gossip())
         # Object coverage lets catalog saves find files here by hash. It is
         # signed by the same mirror key and served beside the peers document.
-        objects = (
-            issue_objects(
-                self._mirror_key(), served_hashes(self.path / "mirror" / "public")
-            )
-            if card is not None
-            else None
-        )
+        objects = None
+        if card is not None:
+            # Optional: a coverage problem must never stop the card renewing.
+            with contextlib.suppress(PreservationError, OSError):
+                objects = issue_objects(
+                    self._mirror_key(), served_hashes(self.path / "mirror" / "public")
+                )
         try:
             with directory(self.path / "mirror") as root:
                 atomic_bytes(root, "peers.json", document)

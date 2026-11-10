@@ -47,12 +47,16 @@ OBJECTS_TYPE = "application/vnd.sovereign.mirror-objects.v1+json"
 OBJECTS_PATH = ".well-known/sovereign/objects.json"
 # About 300,000 objects; small enough to fit a gossip round's reservation.
 MAX_OBJECTS_BYTES = 512 * 1024
+# The filter is base64 inside a base64 envelope (about 16/9 of its raw size),
+# so 256 KiB of filter always fits; past ~210,000 objects the false-positive
+# rate rises instead of the document outgrowing its budget.
+MAX_FILTER_BYTES = 256 * 1024
 
 
 def object_filter(hashes: Iterable[str]) -> tuple[str, int]:
     """Encode object SHA-256s as a Bloom filter (about one percent errors)."""
     unique = set(hashes)
-    bits = max(1024, (len(unique) * 10 + 7) // 8 * 8)
+    bits = min(MAX_FILTER_BYTES * 8, max(1024, (len(unique) * 10 + 7) // 8 * 8))
     array = bytearray(bits // 8)
     for sha256 in unique:
         for position in filter_positions(sha256, bits, FILTER_HASHES):
