@@ -159,3 +159,50 @@ def test_a_save_asks_a_mirror_that_claims_the_file_before_seeds(
     assert asked == [digest(data)]
     # The claiming mirror supplied it, so the seed was never asked.
     assert outcomes == {str(claimer): True}
+
+
+def test_coverage_of_a_mirror_the_directory_did_not_keep_is_not_cached(
+    tmp_path: Path, capture: Capture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = tmp_path / "served"
+    shutil.copytree(capture.store, store)
+    key = Ed25519PrivateKey.generate()
+    peers, objects = tmp_path / "peers.json", tmp_path / "objects.json"
+    server, thread, address = _serve(
+        store,
+        capture,
+        {"/.well-known/sovereign/peers.json": peers, "/" + OBJECTS_PATH: objects},
+    )
+    try:
+        peers.write_bytes(
+            build_peers(issue_card(key, (address,), {capture.identity}), ())
+        )
+        objects.write_bytes(issue_objects(key, served_hashes(store)))
+        # As when the directory is full and refuses the card.
+        monkeypatch.setattr(MirrorDirectory, "ingest", lambda self, cards, **k: 0)
+        client = MirrorDirectory(tmp_path / "client", rng=random.Random(2))  # noqa: S311
+        client.crawl((address,), LAB, expand=False)
+        assert not (tmp_path / "client" / "objects").exists()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(5)
+
+
+def test_the_coverage_cache_drops_gone_mirrors_and_stays_within_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+
+    from foxlight_model_preservation import mirror_directory
+    from foxlight_model_preservation.storage import directory
+
+    cache = tmp_path / "objects"
+    cache.mkdir()
+    for index, name in enumerate(("old.json", "mid.json", "new.json", "gone.json")):
+        (cache / name).write_bytes(b"x" * 1000)
+        os.utime(cache / name, (1000 + index, 1000 + index))
+    monkeypatch.setattr(mirror_directory, "OBJECTS_CACHE_BYTES", 2000)
+    with directory(cache) as root:
+        mirror_directory._prune_objects(root, {"old.json", "mid.json", "new.json"})  # noqa: SLF001
+    assert sorted(path.name for path in cache.iterdir()) == ["mid.json", "new.json"]

@@ -22,7 +22,7 @@ from .discovery import list_sources, search_sources
 from .mirror_cards import MAX_PEERS_BYTES, base_url, build_peers, issue_card
 from .mirror_directory import MirrorDirectory
 from .mirror_models import AnnouncePolicy
-from .mirror_objects import issue_objects, served_hashes
+from .mirror_objects import MAX_OBJECTS_BYTES, issue_objects, served_hashes
 from .mirror_rendezvous import Rendezvous, rendezvous_available
 from .mirror_state import MirrorLedger
 from .models import MAX_METADATA_BYTES, PreservationError
@@ -44,6 +44,8 @@ RELAY_FIND_BYTES = 12 * 1024**2
 RELAY_PUBLISH_BYTES = 6 * 1024**2
 ROUND_BODY_BYTES = (
     CRAWL_DOCUMENTS * (MAX_PEERS_BYTES + 1)
+    # Each crawled mirror's signed object coverage is read beside its peers.
+    + CRAWL_DOCUMENTS * (MAX_OBJECTS_BYTES + 1)
     + SPOT_CHECKS * 2 * (MAX_METADATA_BYTES + 1)
     + RELAY_FIND_BYTES
     + RELAY_PUBLISH_BYTES

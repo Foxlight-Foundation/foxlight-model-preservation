@@ -18,6 +18,7 @@ seeds or publishes, and by default never contacts the DHT or Nostr relays.
 
 from __future__ import annotations
 
+import contextlib
 import fcntl
 import http.client
 import ipaddress
@@ -89,6 +90,8 @@ from .transfer import (
 )
 
 MAX_MIRRORS = 2048
+# Cached signed object coverage, across every kept mirror.
+OBJECTS_CACHE_BYTES = 64 * 1024**2
 DROP_AFTER = 3
 MAX_CARD_BYTES = 64 * 1024
 # Comfortably below the 8 MiB metadata reader limit, so a full directory can
@@ -320,6 +323,26 @@ def _objects_name(key_id: str) -> str:
     return digest(key_id.encode()) + ".json"
 
 
+def _prune_objects(root: int, keep: set[str]) -> None:
+    """Drop coverage of mirrors no longer kept, then the oldest past the budget."""
+    entries: list[tuple[float, int, str]] = []
+    for name in os.listdir(root):
+        if name not in keep:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(name, dir_fd=root)
+            continue
+        with contextlib.suppress(FileNotFoundError):
+            info = os.stat(name, dir_fd=root, follow_symlinks=False)
+            entries.append((info.st_mtime, info.st_size, name))
+    total = sum(size for _mtime, size, _name in entries)
+    for _mtime, size, name in sorted(entries):
+        if total <= OBJECTS_CACHE_BYTES:
+            break
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(name, dir_fd=root)
+        total -= size
+
+
 def _dropped(seen: SeenMirror) -> bool:
     return seen.failures >= DROP_AFTER and seen.failures > seen.successes
 
@@ -528,12 +551,14 @@ class MirrorDirectory:
         directory (not in it, so older versions still read the directory). A
         mirror without coverage simply has none; nothing else changes.
         """
+        admitted = set(self.read().mirrors)
         for raw in cards:
             try:
                 card = _verify_card(raw)
             except (ValueError, PreservationError):
                 continue
-            if base not in card.addresses:
+            # Only a mirror this directory actually keeps gets cached coverage.
+            if base not in card.addresses or card.mirror_key.key_id not in admitted:
                 continue
             try:
                 data = _bounded_read(
@@ -546,6 +571,7 @@ class MirrorDirectory:
                 return
             with directory(self.path / "objects", create=True) as root:
                 atomic_bytes(root, _objects_name(card.mirror_key.key_id), data)
+                _prune_objects(root, {_objects_name(key) for key in admitted})
             return
 
     def object_sources(

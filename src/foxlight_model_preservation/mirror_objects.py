@@ -45,7 +45,8 @@ from .signing import (
 
 OBJECTS_TYPE = "application/vnd.sovereign.mirror-objects.v1+json"
 OBJECTS_PATH = ".well-known/sovereign/objects.json"
-MAX_OBJECTS_BYTES = 4 * 1024 * 1024
+# About 300,000 objects; small enough to fit a gossip round's reservation.
+MAX_OBJECTS_BYTES = 512 * 1024
 
 
 def object_filter(hashes: Iterable[str]) -> tuple[str, int]:
