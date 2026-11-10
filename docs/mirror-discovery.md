@@ -236,6 +236,24 @@ outcome. Any Sovereign store serves a file's exact bytes at
 they match the card, and packing re-checks every file. If no mirror has the
 file, the save fails with `origin_unavailable` and keeps nothing.
 
+### Object coverage
+
+A mirror card's coverage filter holds manifest IDs. A catalog save has only file
+hashes, so mirrors also publish **object coverage** at
+`/.well-known/sovereign/objects.json`: a Bloom filter of the object SHA-256s they
+serve, signed by the same mirror key, expiring within 14 days like a card. It is
+a separate document so clients that validate cards strictly are unaffected.
+The community mirror and persistent mirrors write it beside `peers.json`, and
+bucket mirrors (including the starter mirror) upload it beside theirs.
+
+Crawling a mirror's peers document also fetches its object coverage and keeps
+it only if the mirror's own card key signed it. A catalog save that falls back
+reads the seeds' cards and coverage (at most hourly, without crawling further),
+then asks, in order: mirrors whose coverage claims the file, seeds, then other
+known mirrors. A claim is only a hint; the file is still checked against its
+signed hash. HTTP mirrors also answer `HEAD` for served files, without charging
+the upload allowance, so a claim can be checked cheaply.
+
 ## The app's community mirror
 
 When **Help keep models available** is on, the app's mirror:

@@ -221,6 +221,26 @@ class SeedHandler(http.server.BaseHTTPRequestHandler):
         except (OSError, PreservationError):
             self.close_connection = True
 
+    def do_HEAD(self) -> None:
+        """Say whether an allowlisted file is served, and its size, for free.
+
+        Clients use this to check a mirror's coverage claim before fetching.
+        No body is sent, so the upload allowance is not charged; the same
+        local policy as a GET decides whether the file is offered at all.
+        """
+        size = self.seed.allowed.get(self.path)
+        if size is None or not self.seed.can_send(self.path):
+            self.send_response(404)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        self.send_response(200)
+        self.send_header("Content-Length", str(size))
+        self.send_header("Content-Type", "application/octet-stream")
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+
     def _document(self, path: Path) -> None:
         """Serve one small public JSON document that its owner rewrites atomically."""
         try:

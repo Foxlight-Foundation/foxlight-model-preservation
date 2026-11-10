@@ -194,6 +194,19 @@ def test_a_home_mirror_behind_a_router_is_found_through_its_bucket(
             # Only the bucket can be reached, so the card points only there.
             assert card.addresses == (public_url,)
             assert card.covers(identity)
+            # Its signed object coverage lets catalog saves find files by hash.
+            from foxlight_model_preservation.mirror_objects import (
+                OBJECTS_PATH,
+                verify_objects,
+            )
+
+            claims = verify_objects(server.objects[OBJECTS_PATH], card.mirror_key)
+            held = [
+                name.rsplit("/", 1)[1]
+                for name in server.objects
+                if name.startswith("objects/sha256/")
+            ]
+            assert held and all(claims.covers(sha) for sha in held)
             # A stranger who knows only the bucket's address discovers it from
             # the bucket's own peers document, then downloads with no computer
             # attached, verifying against the network's public identity.

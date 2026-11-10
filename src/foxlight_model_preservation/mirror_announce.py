@@ -12,6 +12,7 @@ Cards grant no trust; every byte is still verified against chosen model keys.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import secrets
 from urllib.parse import urlsplit
@@ -22,6 +23,7 @@ from .discovery import list_sources, search_sources
 from .mirror_cards import MAX_PEERS_BYTES, base_url, build_peers, issue_card
 from .mirror_directory import MirrorDirectory
 from .mirror_models import AnnouncePolicy
+from .mirror_objects import MAX_OBJECTS_BYTES, issue_objects, served_hashes
 from .mirror_rendezvous import Rendezvous, rendezvous_available
 from .mirror_state import MirrorLedger
 from .models import MAX_METADATA_BYTES, PreservationError
@@ -43,6 +45,8 @@ RELAY_FIND_BYTES = 12 * 1024**2
 RELAY_PUBLISH_BYTES = 6 * 1024**2
 ROUND_BODY_BYTES = (
     CRAWL_DOCUMENTS * (MAX_PEERS_BYTES + 1)
+    # Each crawled mirror's signed object coverage is read beside its peers.
+    + CRAWL_DOCUMENTS * (MAX_OBJECTS_BYTES + 1)
     + SPOT_CHECKS * 2 * (MAX_METADATA_BYTES + 1)
     + RELAY_FIND_BYTES
     + RELAY_PUBLISH_BYTES
@@ -157,6 +161,18 @@ class Announcer:
         document = build_peers(card, self.directory.gossip())
         with self.ledger.root() as root:
             atomic_bytes(root, "peers.json", document)
+            if card is not None:
+                # Signed by the same key: lets catalog saves find files by hash.
+                # Optional, so a coverage problem never stops the card renewing.
+                with contextlib.suppress(PreservationError, OSError):
+                    atomic_bytes(
+                        root,
+                        "objects.json",
+                        issue_objects(
+                            mirror_key(self.ledger),
+                            served_hashes(self.ledger.path / "public"),
+                        ),
+                    )
         return card
 
     def round(self, serving: frozenset[str], control: OperationControl) -> bool:

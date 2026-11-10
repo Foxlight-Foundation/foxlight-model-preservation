@@ -12,6 +12,7 @@ anything.
 
 from __future__ import annotations
 
+import contextlib
 import http.client
 import ipaddress
 import json
@@ -47,6 +48,7 @@ from ..bucket import (
     check_bucket,
     delete_credentials,
     load_credentials,
+    publish_objects,
     publish_peers,
     publish_to_bucket,
     r2_jurisdiction,
@@ -78,6 +80,7 @@ from ..mirror_cards import (
 from ..mirror_directory import MirrorDirectory
 from ..mirror_intake import retain_local
 from ..mirror_models import HeldModel, MirrorObservation, SourceGrant, Terms
+from ..mirror_objects import issue_objects, served_hashes
 from ..mirror_rendezvous import Rendezvous, rendezvous_available
 from ..mirror_state import MirrorLedger, grant_restart
 from ..models import (
@@ -1256,23 +1259,34 @@ class CommunityMirror:
             else None
         )
         document = build_peers(card, self.directory.gossip())
+        # Object coverage lets catalog saves find files here by hash. It is
+        # signed by the same mirror key and served beside the peers document.
+        objects = None
+        if card is not None:
+            # Optional: a coverage problem must never stop the card renewing.
+            with contextlib.suppress(PreservationError, OSError):
+                objects = issue_objects(
+                    self._mirror_key(), served_hashes(self.path / "mirror" / "public")
+                )
         try:
             with directory(self.path / "mirror") as root:
                 atomic_bytes(root, "peers.json", document)
+                if objects is not None:
+                    atomic_bytes(root, "objects.json", objects)
         except FileNotFoundError:
             pass  # No mirror yet; the next sync creates it and announces.
         # Only a document carrying this mirror's card is worth replacing the
         # bucket's copy with; a transient empty one would hide the bucket.
         if bucket is not None and bucket.synced and card is not None:
             try:
-                publish_peers(
-                    BucketClient(
-                        bucket.target,
-                        load_credentials(bucket.target.key_name),
-                        self.bucket_policy,
-                    ),
-                    document,
+                client = BucketClient(
+                    bucket.target,
+                    load_credentials(bucket.target.key_name),
+                    self.bucket_policy,
                 )
+                publish_peers(client, document)
+                if objects is not None:
+                    publish_objects(client, objects)
             except (ValueError, OSError):
                 pass  # The next round publishes it again.
         return card
