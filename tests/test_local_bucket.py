@@ -201,13 +201,19 @@ def test_a_home_mirror_behind_a_router_is_found_through_its_bucket(
                 verify_objects,
             )
 
-            claims = verify_objects(server.objects[OBJECTS_PATH], card.mirror_key)
-            held = [
-                name.rsplit("/", 1)[1]
-                for name in server.objects
-                if name.startswith("objects/sha256/")
-            ]
-            assert held and all(claims.covers(sha) for sha in held)
+            def covered() -> bool:
+                # Announcing can run before every served file is linked; a
+                # later round's coverage catches up, so re-announce and wait.
+                owner.community.announce()
+                claims = verify_objects(server.objects[OBJECTS_PATH], card.mirror_key)
+                held = [
+                    name.rsplit("/", 1)[1]
+                    for name in server.objects
+                    if name.startswith("objects/sha256/")
+                ]
+                return bool(held) and all(claims.covers(sha) for sha in held)
+
+            assert wait_for(covered, seconds=60)
             # A stranger who knows only the bucket's address discovers it from
             # the bucket's own peers document, then downloads with no computer
             # attached, verifying against the network's public identity.
