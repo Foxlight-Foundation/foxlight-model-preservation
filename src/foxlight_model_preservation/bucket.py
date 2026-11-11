@@ -527,8 +527,13 @@ def transient(error: BaseException) -> bool:
     if isinstance(error, ssl.SSLCertVerificationError):
         return False
     if isinstance(error, PreservationError):
-        # A dropped connection surfaces as bucket_request_failed.
-        return isinstance(error.__cause__, http.client.HTTPException)
+        # A dropped connection surfaces as bucket_request_failed, and a failed
+        # connect as PinnedConnection's address error; both wrap the socket
+        # failure. Address-policy refusals wrap nothing and are not repeated.
+        cause = error.__cause__
+        if isinstance(cause, http.client.HTTPException):
+            return True
+        return cause is not None and transient(cause)
     if isinstance(error, (TimeoutError, ConnectionError)):
         return True
     return isinstance(error, OSError) and error.errno in _TRANSIENT_ERRNOS
@@ -637,8 +642,17 @@ class BucketClient:
             )
         return data
 
-    def _retry(self, operation: Callable[[], _T]) -> _T:
-        """Repeat one idempotent request while its failure is transient."""
+    def _retry(
+        self,
+        operation: Callable[[], _T],
+        *,
+        before_retry: Callable[[], None] | None = None,
+    ) -> _T:
+        """Repeat one idempotent request while its failure is transient.
+
+        ``before_retry`` runs before each repeat, so a caller can reserve the
+        upload allowance a retransmitted body will use (or stop the upload).
+        """
         for attempt in range(RETRY_ATTEMPTS):
             try:
                 return operation()
@@ -648,6 +662,8 @@ class BucketClient:
                 if attempt + 1 >= RETRY_ATTEMPTS or not transient(error):
                     raise
             time.sleep(min(30.0, self.retry_delay * 2**attempt))
+            if before_retry is not None:
+                before_retry()
         raise AssertionError("unreachable")  # pragma: no cover
 
     def head(self, key: str) -> tuple[int, str] | None:
@@ -672,8 +688,18 @@ class BucketClient:
 
         return self._retry(attempt)
 
-    def put_bytes(self, key: str, data: bytes, content_type: str) -> None:
-        """Upload a small object whose bytes are already in memory."""
+    def put_bytes(
+        self,
+        key: str,
+        data: bytes,
+        content_type: str,
+        *,
+        charge: Callable[[int], None] | None = None,
+    ) -> None:
+        """Upload a small object whose bytes are already in memory.
+
+        ``charge`` reserves allowance for each retransmission of ``data``.
+        """
 
         def attempt() -> None:
             with self._request(
@@ -686,7 +712,10 @@ class BucketClient:
             ) as response:
                 self._check(response, 200)
 
-        self._retry(attempt)
+        self._retry(
+            attempt,
+            before_retry=(lambda: charge(len(data))) if charge is not None else None,
+        )
 
     def put_file(
         self,
@@ -696,8 +725,14 @@ class BucketClient:
         size: int,
         sha256: str,
         control: OperationControl,
+        *,
+        charge: Callable[[int], None] | None = None,
     ) -> None:
-        """Upload one immutable object, in parts when it is large."""
+        """Upload one immutable object, in parts when it is large.
+
+        ``charge`` reserves allowance for each retransmitted body or part; the
+        first transmission is the caller's to reserve, as before.
+        """
         if size <= SINGLE_PUT_LIMIT:
 
             def send(connection: http.client.HTTPConnection) -> None:
@@ -729,9 +764,12 @@ class BucketClient:
                 ) as response:
                     self._check(response, 200)
 
-            self._retry(attempt)
+            self._retry(
+                attempt,
+                before_retry=(lambda: charge(size)) if charge is not None else None,
+            )
             return
-        self._multipart(key, root, path, size, sha256, control)
+        self._multipart(key, root, path, size, sha256, control, charge)
 
     def _multipart(
         self,
@@ -741,6 +779,7 @@ class BucketClient:
         size: int,
         sha256: str,
         control: OperationControl,
+        charge: Callable[[int], None] | None = None,
     ) -> None:
         with self._request(
             "POST",
@@ -779,7 +818,17 @@ class BucketClient:
                             self._check(response, 200)
                             return response.getheader("ETag") or ""
 
-                    parts.append((number, self._retry(part)))
+                    parts.append(
+                        (
+                            number,
+                            self._retry(
+                                part,
+                                before_retry=(lambda count=count: charge(count))
+                                if charge is not None
+                                else None,
+                            ),
+                        )
+                    )
                     control.advance(copied=count)
                     number, offset = number + 1, offset + count
             # The parts must add up to the exact object, or the upload is
@@ -885,13 +934,17 @@ def publish_to_bucket(
                 if client.head(key) == (file.size, file.sha256):
                     continue  # Uploaded and verified earlier by Sovereign.
                 charge(file.size)
-                client.put_file(key, root, key, file.size, file.sha256, active)
+                client.put_file(
+                    key, root, key, file.size, file.sha256, active, charge=charge
+                )
                 if client.head(key) != (file.size, file.sha256):
                     raise PreservationError("bucket_object_incomplete")
                 sent += 1
         active.phase("publishing")
         charge(len(envelope))
-        client.put_bytes(manifest_path(manifest_id), envelope, "application/json")
+        client.put_bytes(
+            manifest_path(manifest_id), envelope, "application/json", charge=charge
+        )
         active.mark_committed()
         return sent
 

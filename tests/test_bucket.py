@@ -653,3 +653,57 @@ def test_only_transient_failures_are_retried() -> None:
     assert not transient(BucketStatusError(400, "BadDigest"))
     assert not transient(ssl.SSLCertVerificationError())
     assert not transient(PreservationError("object changed during upload"))
+
+
+def test_every_retransmission_is_charged_to_the_upload_allowance(
+    capture: Capture,
+) -> None:
+    def reserved(failures: int) -> list[int]:
+        calls: list[int] = []
+        with bucket() as (server, client):
+            server.fail_puts = failures
+            publish_to_bucket(
+                capture.store,
+                capture.identity,
+                capture.trust,
+                client,
+                reserve=lambda count: calls.append(count) or True,
+            )
+        return calls
+
+    clean, retried = reserved(0), reserved(2)
+    # The first object was sent three times: once reserved up front, and once
+    # more before each of its two retries.
+    assert sum(retried) == sum(clean) + 2 * clean[0]
+
+
+def test_a_declined_retry_reservation_stops_the_upload(capture: Capture) -> None:
+    calls: list[int] = []
+
+    def reserve(count: int) -> bool:
+        calls.append(count)
+        return len(calls) == 1  # Only the first transmission is allowed.
+
+    with bucket() as (server, client):
+        server.fail_puts = 1
+        with pytest.raises(PreservationError, match="bucket_upload_limit_reached"):
+            publish_to_bucket(
+                capture.store, capture.identity, capture.trust, client, reserve=reserve
+            )
+        assert manifest_path(capture.identity) not in server.objects
+
+
+def test_wrapped_connection_failures_are_transient_but_not_policy_or_tls() -> None:
+    import ssl
+
+    from foxlight_model_preservation.bucket import transient
+
+    def wrapped(cause: BaseException | None) -> PreservationError:
+        error = PreservationError("no permitted reachable address for mirror")
+        error.__cause__ = cause
+        return error
+
+    assert transient(wrapped(ConnectionRefusedError()))
+    assert transient(wrapped(TimeoutError()))
+    assert not transient(wrapped(ssl.SSLCertVerificationError()))
+    assert not transient(wrapped(None))  # An address-policy refusal.
