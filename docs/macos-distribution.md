@@ -13,8 +13,11 @@ rebuilding or signing them. Developer ID signing, Apple notarization and an
 installed-app journey remain separate checks. A locally passing Gatekeeper
 check does not establish clean-host acceptance, model compatibility or anonymity.
 
-The build12 recipe pairs the authenticated public core 0.30 / Library 0.26 cohort,
-which adds the starter mirror fallback and starter collection, plainer first-time
+The build13 recipe pairs the authenticated public core 0.31 / Library 0.27 cohort,
+which adds saves that fall back to community mirrors when Hugging Face can't provide a file
+(guided by signed mirror object coverage), resumable Hugging Face downloads that
+report each save's sources, and bucket uploads that survive slow connections. Build 12 paired core 0.30 / Library 0.26,
+which added the starter mirror fallback and starter collection, plainer first-time
 wording, and model licences from the registry's signed licence file. Build 11 paired core
 0.29 / Library 0.25, which added one-switch sharing for Skulk, licence families
 with opt-in upload caps, advisory catalog withdrawal, the Hetzner storage preset

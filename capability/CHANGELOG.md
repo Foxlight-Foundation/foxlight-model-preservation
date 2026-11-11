@@ -6,6 +6,14 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Pin Sovereign Mac build 13 and Linux revision 8 to the authenticated
+  Library 0.27 installation archive (sha256 40ddc68b…, source ec4f166a; its
+  desktop lock carries core 0.31.0 and libtorrent 2.0.14), which adds catalog
+  saves that fall back to community mirrors, signed mirror object coverage,
+  resumable Hugging Face downloads with per-save sources and bucket upload
+  retries. Native signing, notarization, apt publication and qualification
+  remain separate gates.
+
 ## 0.27.0
 
 - Activity says where a finished save's files came from: "From Hugging Face",
