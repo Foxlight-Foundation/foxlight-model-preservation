@@ -6,6 +6,8 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+## 0.27.0
+
 - Activity says where a finished save's files came from: "From Hugging Face",
   or "From Hugging Face and community mirrors (starter.foxlight.ai): 3 of 10
   files".

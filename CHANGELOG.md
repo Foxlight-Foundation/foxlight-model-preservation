@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.31.0
+
 - Bucket uploads survive slow or flaky connections. The bucket client's
   timeout is 300 s (was 60 s), and idempotent requests (HEAD, PUT, DELETE and
   each multipart part) are repeated with exponential backoff, up to 6 attempts,
