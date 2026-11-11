@@ -58,7 +58,7 @@ test('I2P source metadata and model download keep independent consent and no dir
  await page.getByLabel('Use this source’s saved reference').check();await expect(page.getByRole('button',{name:'Review download',exact:true})).toBeDisabled();
  await page.getByLabel('Allow I2P connections through this proxy').check();await page.getByRole('button',{name:'Review download',exact:true}).click();
  await expect(page.getByRole('heading',{name:'Download this signed copy'})).toBeVisible();expect(reviewed).toMatchObject({allow_i2p:true,i2p_proxy:proxy,accepted_key_ids:[key]});expect(reviewed).not.toHaveProperty('allow_http');expect(downloads).toHaveLength(0);
- await page.getByLabel('I accept this exact signed copy').check();await page.getByRole('button',{name:'Download model',exact:true}).click();expect(downloads[0]).toMatchObject({accept_owner_capture:true});expect(downloads[0]).not.toHaveProperty('allow_repository_code');expect(downloads[0]).not.toHaveProperty('public_participation');
+ await page.getByLabel('I accept this exact signed copy').check();await page.getByRole('button',{name:'Download model',exact:true}).click();await expect.poll(()=>downloads[0]).toMatchObject({accept_owner_capture:true});expect(downloads[0]).not.toHaveProperty('allow_repository_code');expect(downloads[0]).not.toHaveProperty('public_participation');
 });
 
 test('Resume reads original I2P proxy after reload and cannot edit or refill it',async({page})=>{
@@ -69,7 +69,7 @@ test('Resume reads original I2P proxy after reload and cannot edit or refill it'
  await page.goto('/');await page.reload();await page.getByRole('button',{name:'Activity',exact:true}).click();await page.getByRole('button',{name:'Review download resume'}).click();
  await expect(page.getByText('127.0.0.1:4445',{exact:true})).toBeVisible();await expect(page.getByLabel('I2P proxy port',{exact:true})).toHaveCount(0);await expect(page.getByRole('button',{name:'Review resume',exact:true})).toBeDisabled();
  await page.getByLabel('Allow I2P connections through this proxy').check();await page.getByRole('button',{name:'Review resume',exact:true}).click();
- expect(reviewed).toEqual({kind:'receive',location_id:'invitation',resume_job_id:jobId,allow_i2p:true,i2p_proxy:proxy});await page.getByLabel('I accept this exact signed copy').check();await page.getByRole('button',{name:'Resume download',exact:true}).click();expect(resumed).toMatchObject({job_id:jobId,accept_owner_capture:true});
+ expect(reviewed).toEqual({kind:'receive',location_id:'invitation',resume_job_id:jobId,allow_i2p:true,i2p_proxy:proxy});await page.getByLabel('I accept this exact signed copy').check();await page.getByRole('button',{name:'Resume download',exact:true}).click();await expect.poll(()=>resumed).toMatchObject({job_id:jobId,accept_owner_capture:true});
 });
 
 test('an older Core never downgrades an I2P source or exposes unsupported controls',async({page})=>{
