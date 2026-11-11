@@ -19,6 +19,7 @@ from foxlight_model_preservation.archives import (
     verify_archive_manifest,
 )
 from foxlight_model_preservation.bucket import (
+    RETRY_ATTEMPTS,
     BucketCredentials,
     BucketTarget,
     r2_jurisdiction,
@@ -390,7 +391,8 @@ def test_a_withdrawal_the_bucket_refused_is_retried_while_sharing_is_off(
             wait_for(
                 lambda: owner.community.bucket().synced == (identity,), seconds=120
             )
-            server.fail_deletes = 3
+            # More refusals than one request retries, so the sync retries too.
+            server.fail_deletes = RETRY_ATTEMPTS + 2
             owner.control("community-configure", {"enabled": False})
             wait_for(lambda: owner.community.bucket().synced == ())
             assert manifest_path(identity) not in server.objects

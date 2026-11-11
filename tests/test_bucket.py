@@ -17,6 +17,7 @@ from conftest import Capture
 from foxlight_model_preservation import bucket as module
 from foxlight_model_preservation.bucket import (
     EMPTY_SHA256,
+    RETRY_ATTEMPTS,
     BucketClient,
     BucketCredentials,
     BucketTarget,
@@ -335,7 +336,8 @@ def test_an_interrupted_upload_never_publishes_its_manifest(
     capture: Capture,
 ) -> None:
     with bucket() as (server, client):
-        server.fail_puts = 1
+        # More failures than one request retries: the publish stops.
+        server.fail_puts = RETRY_ATTEMPTS
         with pytest.raises(PreservationError):
             publish_to_bucket(capture.store, capture.identity, capture.trust, client)
         assert manifest_path(capture.identity) not in server.objects
@@ -622,3 +624,32 @@ def test_the_check_downloads_through_the_cloudfront_address() -> None:
         finally:
             cdn.shutdown()
             cdn.server_close()
+
+
+def test_a_brief_provider_outage_is_retried_not_fatal(capture: Capture) -> None:
+    """A slow uplink or a provider hiccup no longer fails a whole publish."""
+    with bucket() as (server, client):
+        server.fail_puts = RETRY_ATTEMPTS - 1
+        publish_to_bucket(capture.store, capture.identity, capture.trust, client)
+        assert server.order[-1] == manifest_path(capture.identity)
+        assert server.fail_puts == 0
+
+
+def test_only_transient_failures_are_retried() -> None:
+    import errno as errnos
+    import http.client as client_errors
+    import ssl
+
+    from foxlight_model_preservation.bucket import BucketStatusError, transient
+
+    dropped = PreservationError("bucket_request_failed")
+    dropped.__cause__ = client_errors.RemoteDisconnected("gone")
+    assert transient(BucketStatusError(503, "SlowDown"))
+    assert transient(BucketStatusError(429, "TooManyRequests"))
+    assert transient(TimeoutError())
+    assert transient(OSError(errnos.ECONNRESET, "reset"))
+    assert transient(dropped)
+    assert not transient(BucketStatusError(403, "SignatureDoesNotMatch"))
+    assert not transient(BucketStatusError(400, "BadDigest"))
+    assert not transient(ssl.SSLCertVerificationError())
+    assert not transient(PreservationError("object changed during upload"))

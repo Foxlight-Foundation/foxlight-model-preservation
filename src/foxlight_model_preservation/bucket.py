@@ -16,11 +16,13 @@ never appear in configuration files, logs, exceptions or representations.
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import hmac
 import http.client
 import os
 import re
+import ssl
 import subprocess
 import time
 import uuid
@@ -28,7 +30,7 @@ from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Literal, TypeVar
 from urllib.parse import quote, urlsplit
 from xml.etree import ElementTree
 
@@ -38,7 +40,7 @@ from .archives import archive_objects, verify_archive_manifest
 from .mirror_cards import PEERS_PATH, base_url
 from .mirror_objects import OBJECTS_PATH
 from .models import PreservationError, Record, TrustProfile
-from .operations import OperationControl
+from .operations import OperationControl, OperationError
 from .storage import (
     CHUNK_SIZE,
     directory,
@@ -490,8 +492,58 @@ def sign_request(
 # Client -----------------------------------------------------------------------
 
 
+_T = TypeVar("_T")
+
+# Statuses a provider uses for "try again": timeouts, throttling, outages.
+RETRY_STATUSES = frozenset({408, 429, 500, 502, 503, 504})
+# Attempts per idempotent request (HEAD, PUT, DELETE, each multipart part).
+RETRY_ATTEMPTS = 6
+_TRANSIENT_ERRNOS = frozenset(
+    {
+        errno.ETIMEDOUT,
+        errno.ECONNRESET,
+        errno.ECONNABORTED,
+        errno.EPIPE,
+        errno.ENETRESET,
+        errno.ENETUNREACH,
+        errno.EHOSTUNREACH,
+        errno.ECONNREFUSED,
+    }
+)
+
+
+class BucketStatusError(PreservationError):
+    """The provider answered with an error status (message unchanged)."""
+
+    def __init__(self, status: int, code: str) -> None:
+        self.status = status
+        super().__init__("bucket_refused:" + code)
+
+
+def transient(error: BaseException) -> bool:
+    """Whether a failed request is worth repeating: never security or validation."""
+    if isinstance(error, BucketStatusError):
+        return error.status in RETRY_STATUSES
+    if isinstance(error, ssl.SSLCertVerificationError):
+        return False
+    if isinstance(error, PreservationError):
+        # A dropped connection surfaces as bucket_request_failed.
+        return isinstance(error.__cause__, http.client.HTTPException)
+    if isinstance(error, (TimeoutError, ConnectionError)):
+        return True
+    return isinstance(error, OSError) and error.errno in _TRANSIENT_ERRNOS
+
+
 class BucketClient:
-    """A minimal S3 client for one bucket: PUT, HEAD, GET, DELETE and multipart."""
+    """A minimal S3 client for one bucket: PUT, HEAD, GET, DELETE and multipart.
+
+    Idempotent requests are repeated, with exponential backoff, after a timeout,
+    a dropped connection or a provider "try again" status, so one stall on a
+    slow uplink no longer fails a whole publication. Multipart create and
+    complete (POST) are never repeated.
+    """
+
+    retry_delay = 1.0
 
     def __init__(
         self,
@@ -501,7 +553,7 @@ class BucketClient:
     ) -> None:
         self.target = target
         self._credentials = credentials
-        self._policy = policy or TransferPolicy(timeout=60)
+        self._policy = policy or TransferPolicy(timeout=300)
         parsed = urlsplit(target.endpoint)
         assert parsed.hostname is not None  # noqa: S101 - validated by BucketTarget
         self._tls = parsed.scheme == "https"
@@ -580,10 +632,23 @@ class BucketClient:
         data = response.read(1024 * 1024)
         if response.status not in ok:
             code = re.search(rb"<Code>([A-Za-z]+)</Code>", data)
-            raise PreservationError(
-                "bucket_refused:" + (code[1].decode() if code else str(response.status))
+            raise BucketStatusError(
+                response.status, code[1].decode() if code else str(response.status)
             )
         return data
+
+    def _retry(self, operation: Callable[[], _T]) -> _T:
+        """Repeat one idempotent request while its failure is transient."""
+        for attempt in range(RETRY_ATTEMPTS):
+            try:
+                return operation()
+            except OperationError:
+                raise
+            except Exception as error:
+                if attempt + 1 >= RETRY_ATTEMPTS or not transient(error):
+                    raise
+            time.sleep(min(30.0, self.retry_delay * 2**attempt))
+        raise AssertionError("unreachable")  # pragma: no cover
 
     def head(self, key: str) -> tuple[int, str] | None:
         """Return an object's size and recorded SHA-256, or None if absent.
@@ -591,29 +656,37 @@ class BucketClient:
         The SHA-256 is the value Sovereign recorded when it uploaded and
         verified the object; an object without it is not trusted as complete.
         """
-        with self._request("HEAD", key) as response:
-            response.read()
-            if response.status == 404:
-                return None
-            if response.status != 200:
-                raise PreservationError(f"bucket_refused:{response.status}")
-            length = response.getheader("Content-Length")
-            return (
-                int(length) if length and length.isdecimal() else -1,
-                response.getheader(SHA256_METADATA, "") or "",
-            )
+
+        def attempt() -> tuple[int, str] | None:
+            with self._request("HEAD", key) as response:
+                response.read()
+                if response.status == 404:
+                    return None
+                if response.status != 200:
+                    raise BucketStatusError(response.status, str(response.status))
+                length = response.getheader("Content-Length")
+                return (
+                    int(length) if length and length.isdecimal() else -1,
+                    response.getheader(SHA256_METADATA, "") or "",
+                )
+
+        return self._retry(attempt)
 
     def put_bytes(self, key: str, data: bytes, content_type: str) -> None:
         """Upload a small object whose bytes are already in memory."""
-        with self._request(
-            "PUT",
-            key,
-            headers={"Content-Type": content_type, "Cache-Control": "no-cache"},
-            payload_hash=hashlib.sha256(data).hexdigest(),
-            body=data,
-            length=len(data),
-        ) as response:
-            self._check(response, 200)
+
+        def attempt() -> None:
+            with self._request(
+                "PUT",
+                key,
+                headers={"Content-Type": content_type, "Cache-Control": "no-cache"},
+                payload_hash=hashlib.sha256(data).hexdigest(),
+                body=data,
+                length=len(data),
+            ) as response:
+                self._check(response, 200)
+
+        self._retry(attempt)
 
     def put_file(
         self,
@@ -639,21 +712,24 @@ class BucketClient:
                         control.advance(copied=len(chunk))
                         remaining -= len(chunk)
 
-            with self._request(
-                "PUT",
-                key,
-                headers={
-                    "Content-Type": "application/octet-stream",
-                    "Cache-Control": "public, max-age=31536000, immutable",
-                    # The provider rejects a body whose SHA-256 differs from
-                    # the signed payload hash, so this record is truthful.
-                    SHA256_METADATA: sha256,
-                },
-                payload_hash=sha256,
-                body=send,
-                length=size,
-            ) as response:
-                self._check(response, 200)
+            def attempt() -> None:
+                with self._request(
+                    "PUT",
+                    key,
+                    headers={
+                        "Content-Type": "application/octet-stream",
+                        "Cache-Control": "public, max-age=31536000, immutable",
+                        # The provider rejects a body whose SHA-256 differs
+                        # from the signed payload hash, so this is truthful.
+                        SHA256_METADATA: sha256,
+                    },
+                    payload_hash=sha256,
+                    body=send,
+                    length=size,
+                ) as response:
+                    self._check(response, 200)
+
+            self._retry(attempt)
             return
         self._multipart(key, root, path, size, sha256, control)
 
@@ -690,17 +766,20 @@ class BucketClient:
                     if len(data) != count:
                         raise PreservationError("object changed during upload")
                     whole.update(data)
-                    with self._request(
-                        "PUT",
-                        key,
-                        query={"partNumber": str(number), "uploadId": upload},
-                        payload_hash=hashlib.sha256(data).hexdigest(),
-                        body=data,
-                        length=count,
-                    ) as response:
-                        self._check(response, 200)
-                        etag = response.getheader("ETag") or ""
-                    parts.append((number, etag))
+
+                    def part(number: int = number, data: bytes = data) -> str:
+                        with self._request(
+                            "PUT",
+                            key,
+                            query={"partNumber": str(number), "uploadId": upload},
+                            payload_hash=hashlib.sha256(data).hexdigest(),
+                            body=data,
+                            length=len(data),
+                        ) as response:
+                            self._check(response, 200)
+                            return response.getheader("ETag") or ""
+
+                    parts.append((number, self._retry(part)))
                     control.advance(copied=count)
                     number, offset = number + 1, offset + count
             # The parts must add up to the exact object, or the upload is
@@ -739,8 +818,12 @@ class BucketClient:
 
     def delete(self, key: str) -> None:
         """Delete one object (used only for a manifest the owner removes)."""
-        with self._request("DELETE", key) as response:
-            self._check(response, 200, 204)
+
+        def attempt() -> None:
+            with self._request("DELETE", key) as response:
+                self._check(response, 200, 204)
+
+        self._retry(attempt)
 
 
 def _xml_text(data: bytes, tag: str) -> str:
