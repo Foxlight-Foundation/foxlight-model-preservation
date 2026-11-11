@@ -707,3 +707,29 @@ def test_wrapped_connection_failures_are_transient_but_not_policy_or_tls() -> No
     assert transient(wrapped(TimeoutError()))
     assert not transient(wrapped(ssl.SSLCertVerificationError()))
     assert not transient(wrapped(None))  # An address-policy refusal.
+
+
+def test_cancelling_during_a_retry_backoff_stops_the_repeat(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from foxlight_model_preservation import bucket as module
+    from foxlight_model_preservation.operations import (
+        OperationCancelled,
+        OperationControl,
+    )
+
+    control = OperationControl()
+    monkeypatch.setattr(module.time, "sleep", lambda _seconds: control.cancel())
+    with bucket() as (server, client):
+        server.fail_puts = 1
+        with pytest.raises(OperationCancelled):
+            client.put_bytes(
+                "objects/" + "c" * 64, b"data", "text/plain", control=control
+            )
+        assert "objects/" + "c" * 64 not in server.objects
+
+
+def test_the_community_mirror_uploads_with_the_longer_timeout() -> None:
+    from foxlight_model_preservation.local_host.community import CommunityMirror
+
+    assert CommunityMirror.bucket_policy.timeout == 300

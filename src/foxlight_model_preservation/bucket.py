@@ -647,6 +647,7 @@ class BucketClient:
         operation: Callable[[], _T],
         *,
         before_retry: Callable[[], None] | None = None,
+        control: OperationControl | None = None,
     ) -> _T:
         """Repeat one idempotent request while its failure is transient.
 
@@ -662,6 +663,9 @@ class BucketClient:
                 if attempt + 1 >= RETRY_ATTEMPTS or not transient(error):
                     raise
             time.sleep(min(30.0, self.retry_delay * 2**attempt))
+            # Cancellation or a deadline during the backoff stops the repeat.
+            if control is not None:
+                control.checkpoint()
             if before_retry is not None:
                 before_retry()
         raise AssertionError("unreachable")  # pragma: no cover
@@ -695,6 +699,7 @@ class BucketClient:
         content_type: str,
         *,
         charge: Callable[[int], None] | None = None,
+        control: OperationControl | None = None,
     ) -> None:
         """Upload a small object whose bytes are already in memory.
 
@@ -715,6 +720,7 @@ class BucketClient:
         self._retry(
             attempt,
             before_retry=(lambda: charge(len(data))) if charge is not None else None,
+            control=control,
         )
 
     def put_file(
@@ -767,6 +773,7 @@ class BucketClient:
             self._retry(
                 attempt,
                 before_retry=(lambda: charge(size)) if charge is not None else None,
+                control=control,
             )
             return
         self._multipart(key, root, path, size, sha256, control, charge)
@@ -826,6 +833,7 @@ class BucketClient:
                                 before_retry=(lambda count=count: charge(count))
                                 if charge is not None
                                 else None,
+                                control=control,
                             ),
                         )
                     )
@@ -943,7 +951,11 @@ def publish_to_bucket(
         active.phase("publishing")
         charge(len(envelope))
         client.put_bytes(
-            manifest_path(manifest_id), envelope, "application/json", charge=charge
+            manifest_path(manifest_id),
+            envelope,
+            "application/json",
+            charge=charge,
+            control=active,
         )
         active.mark_committed()
         return sent
