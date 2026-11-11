@@ -33,6 +33,14 @@ def private_mirror_directory(
 
 
 @pytest.fixture(autouse=True)
+def instant_bucket_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bucket retries back off in real use; tests need not wait for them."""
+    from foxlight_model_preservation.bucket import BucketClient
+
+    monkeypatch.setattr(BucketClient, "retry_delay", 0.0)
+
+
+@pytest.fixture(autouse=True)
 def no_packaged_seed_mirrors(monkeypatch: pytest.MonkeyPatch) -> None:
     """No test may contact the real starter mirror the package ships.
 

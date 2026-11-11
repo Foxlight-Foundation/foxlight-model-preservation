@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Bucket uploads survive slow or flaky connections. The bucket client's
+  timeout is 300 s (was 60 s), and idempotent requests (HEAD, PUT, DELETE and
+  each multipart part) are repeated with exponential backoff, up to 6 attempts,
+  after a timeout, a dropped connection or a provider "try again" status (408,
+  429, 5xx). Security and validation failures, and multipart create/complete,
+  are never repeated. This replaces the local retry wrapper used for the
+  starter mirror.
+
 - Hugging Face downloads resume. A save writes each file to `<file>.partial`
   and, when a transfer drops or the origin errors, retries once with an HTTP
   range from the verified prefix (re-hashed, so the finished file is still

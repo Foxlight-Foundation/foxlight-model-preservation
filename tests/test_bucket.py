@@ -17,6 +17,7 @@ from conftest import Capture
 from foxlight_model_preservation import bucket as module
 from foxlight_model_preservation.bucket import (
     EMPTY_SHA256,
+    RETRY_ATTEMPTS,
     BucketClient,
     BucketCredentials,
     BucketTarget,
@@ -335,7 +336,8 @@ def test_an_interrupted_upload_never_publishes_its_manifest(
     capture: Capture,
 ) -> None:
     with bucket() as (server, client):
-        server.fail_puts = 1
+        # More failures than one request retries: the publish stops.
+        server.fail_puts = RETRY_ATTEMPTS
         with pytest.raises(PreservationError):
             publish_to_bucket(capture.store, capture.identity, capture.trust, client)
         assert manifest_path(capture.identity) not in server.objects
@@ -622,3 +624,112 @@ def test_the_check_downloads_through_the_cloudfront_address() -> None:
         finally:
             cdn.shutdown()
             cdn.server_close()
+
+
+def test_a_brief_provider_outage_is_retried_not_fatal(capture: Capture) -> None:
+    """A slow uplink or a provider hiccup no longer fails a whole publish."""
+    with bucket() as (server, client):
+        server.fail_puts = RETRY_ATTEMPTS - 1
+        publish_to_bucket(capture.store, capture.identity, capture.trust, client)
+        assert server.order[-1] == manifest_path(capture.identity)
+        assert server.fail_puts == 0
+
+
+def test_only_transient_failures_are_retried() -> None:
+    import errno as errnos
+    import http.client as client_errors
+    import ssl
+
+    from foxlight_model_preservation.bucket import BucketStatusError, transient
+
+    dropped = PreservationError("bucket_request_failed")
+    dropped.__cause__ = client_errors.RemoteDisconnected("gone")
+    assert transient(BucketStatusError(503, "SlowDown"))
+    assert transient(BucketStatusError(429, "TooManyRequests"))
+    assert transient(TimeoutError())
+    assert transient(OSError(errnos.ECONNRESET, "reset"))
+    assert transient(dropped)
+    assert not transient(BucketStatusError(403, "SignatureDoesNotMatch"))
+    assert not transient(BucketStatusError(400, "BadDigest"))
+    assert not transient(ssl.SSLCertVerificationError())
+    assert not transient(PreservationError("object changed during upload"))
+
+
+def test_every_retransmission_is_charged_to_the_upload_allowance(
+    capture: Capture,
+) -> None:
+    def reserved(failures: int) -> list[int]:
+        calls: list[int] = []
+        with bucket() as (server, client):
+            server.fail_puts = failures
+            publish_to_bucket(
+                capture.store,
+                capture.identity,
+                capture.trust,
+                client,
+                reserve=lambda count: calls.append(count) or True,
+            )
+        return calls
+
+    clean, retried = reserved(0), reserved(2)
+    # The first object was sent three times: once reserved up front, and once
+    # more before each of its two retries.
+    assert sum(retried) == sum(clean) + 2 * clean[0]
+
+
+def test_a_declined_retry_reservation_stops_the_upload(capture: Capture) -> None:
+    calls: list[int] = []
+
+    def reserve(count: int) -> bool:
+        calls.append(count)
+        return len(calls) == 1  # Only the first transmission is allowed.
+
+    with bucket() as (server, client):
+        server.fail_puts = 1
+        with pytest.raises(PreservationError, match="bucket_upload_limit_reached"):
+            publish_to_bucket(
+                capture.store, capture.identity, capture.trust, client, reserve=reserve
+            )
+        assert manifest_path(capture.identity) not in server.objects
+
+
+def test_wrapped_connection_failures_are_transient_but_not_policy_or_tls() -> None:
+    import ssl
+
+    from foxlight_model_preservation.bucket import transient
+
+    def wrapped(cause: BaseException | None) -> PreservationError:
+        error = PreservationError("no permitted reachable address for mirror")
+        error.__cause__ = cause
+        return error
+
+    assert transient(wrapped(ConnectionRefusedError()))
+    assert transient(wrapped(TimeoutError()))
+    assert not transient(wrapped(ssl.SSLCertVerificationError()))
+    assert not transient(wrapped(None))  # An address-policy refusal.
+
+
+def test_cancelling_during_a_retry_backoff_stops_the_repeat(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from foxlight_model_preservation import bucket as module
+    from foxlight_model_preservation.operations import (
+        OperationCancelled,
+        OperationControl,
+    )
+
+    control = OperationControl()
+    monkeypatch.setattr(module.time, "sleep", lambda _seconds: control.cancel())
+    with bucket() as (server, client):
+        server.fail_puts = 1
+        with pytest.raises(OperationCancelled):
+            client.put_bytes(
+                "objects/" + "c" * 64, b"data", "text/plain", control=control
+            )
+        assert "objects/" + "c" * 64 not in server.objects
+
+
+def test_the_community_mirror_uploads_with_the_longer_timeout() -> None:
+    from foxlight_model_preservation.local_host.community import CommunityMirror
+
+    assert CommunityMirror.bucket_policy.timeout == 300

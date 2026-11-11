@@ -19,6 +19,7 @@ from foxlight_model_preservation.archives import (
     verify_archive_manifest,
 )
 from foxlight_model_preservation.bucket import (
+    RETRY_ATTEMPTS,
     BucketCredentials,
     BucketTarget,
     r2_jurisdiction,
@@ -200,13 +201,19 @@ def test_a_home_mirror_behind_a_router_is_found_through_its_bucket(
                 verify_objects,
             )
 
-            claims = verify_objects(server.objects[OBJECTS_PATH], card.mirror_key)
-            held = [
-                name.rsplit("/", 1)[1]
-                for name in server.objects
-                if name.startswith("objects/sha256/")
-            ]
-            assert held and all(claims.covers(sha) for sha in held)
+            def covered() -> bool:
+                # Announcing can run before every served file is linked; a
+                # later round's coverage catches up, so re-announce and wait.
+                owner.community.announce()
+                claims = verify_objects(server.objects[OBJECTS_PATH], card.mirror_key)
+                held = [
+                    name.rsplit("/", 1)[1]
+                    for name in server.objects
+                    if name.startswith("objects/sha256/")
+                ]
+                return bool(held) and all(claims.covers(sha) for sha in held)
+
+            assert wait_for(covered, seconds=60)
             # A stranger who knows only the bucket's address discovers it from
             # the bucket's own peers document, then downloads with no computer
             # attached, verifying against the network's public identity.
@@ -390,7 +397,8 @@ def test_a_withdrawal_the_bucket_refused_is_retried_while_sharing_is_off(
             wait_for(
                 lambda: owner.community.bucket().synced == (identity,), seconds=120
             )
-            server.fail_deletes = 3
+            # More refusals than one request retries, so the sync retries too.
+            server.fail_deletes = RETRY_ATTEMPTS + 2
             owner.control("community-configure", {"enabled": False})
             wait_for(lambda: owner.community.bucket().synced == ())
             assert manifest_path(identity) not in server.objects

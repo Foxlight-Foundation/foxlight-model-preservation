@@ -402,7 +402,7 @@ class CommunityMirror:
     """Own the app's single long-lived public mirror and its standing choice."""
 
     # Requests to a connected bucket's endpoint and public address.
-    bucket_policy = TransferPolicy(timeout=60, deadline_seconds=86400)
+    bucket_policy = TransferPolicy(timeout=300, deadline_seconds=86400)
 
     def __init__(self, home: Path, sharing: Sharing) -> None:
         self.home = home
