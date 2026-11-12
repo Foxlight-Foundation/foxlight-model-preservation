@@ -432,3 +432,78 @@ def download_file(
         finally:
             connection.close()
     raise PreservationError("model download redirect limit exceeded")
+
+
+def hub_recipe(
+    repository: str,
+    revision: str,
+    exact: dict[str, tuple[int, str]],
+    *,
+    licence: str | None = None,
+    task: str | None = None,
+) -> tuple[Recipe, dict[tuple[str, str, str], ArtifactFile]]:
+    """Build a save recipe for selected Hub files at one pinned commit.
+
+    ``exact`` maps each selected path to its size and SHA-256 (see
+    :func:`foxlight_model_preservation.hub.exact_hashes`). The returned file
+    map has the same shape as :func:`registry_file_map`, so the download
+    loop, resume and mirror fallback are shared with registry saves.
+    """
+    if not exact:
+        raise PreservationError("hub_selection_empty")
+    files = {
+        (repository, revision, path): ArtifactFile(
+            path=path, size_bytes=size, object_id="sha256:" + sha256
+        )
+        for path, (size, sha256) in sorted(exact.items())
+    }
+    selection = hashlib.sha256(
+        identity_json(
+            cast(
+                JsonValue,
+                {
+                    "repository": repository,
+                    "revision": revision,
+                    "files": sorted(exact),
+                },
+            )
+        )
+    ).hexdigest()
+    member = RecipeMember(
+        member_id="base",
+        role="base",
+        format="huggingface",
+        origin_repository=repository,
+        origin_revision=revision,
+        artifact_identity="hub:" + selection,
+        loader_root=None,
+        dependencies=(),
+        retained_card=None,
+        intake=Intake(
+            audience="private",
+            license_id=licence or "see-original-card",
+            terms_reference=f"https://huggingface.co/{repository}/tree/{revision}",
+            decision="Explicit private preservation; no redistribution grant.",
+            notice_paths=(NOTICE_PATH,),
+        ),
+        files=(
+            *(
+                SourceFile(path=path, expected_sha256=sha256)
+                for path, (_, sha256) in sorted(exact.items())
+            ),
+            SourceFile(
+                path=NOTICE_PATH, expected_sha256=hashlib.sha256(NOTICE).hexdigest()
+            ),
+        ),
+    )
+    recipe = Recipe(
+        schema_version="foxlight.model-preservation.v1",
+        name=repository[:200],
+        root_member="base",
+        members=(member,),
+        workloads=(task,) if task else ("model",),
+        runtime_requirements=(
+            "Runtime compatibility and code authorization are not assessed.",
+        ),
+    )
+    return recipe, files

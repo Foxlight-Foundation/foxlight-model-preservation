@@ -52,6 +52,26 @@ Existing saved models reopen in **Library**.
    Files and signatures are checked before a complete copy appears in Library.
    A failed check cannot be bypassed. Receiving starts no sharing or model code.
 
+### Search Hugging Face too
+
+Find can also search Hugging Face directly, so any public model there can be
+kept, not only the listings saved on your device. Choose **Search Hugging Face
+too** once; your search words then go to huggingface.co. Turn it off again under
+**Source and privacy**. It works even before any listings have been loaded.
+
+Choose **Choose files** on a result. Sovereign pins the model to its current
+exact version and shows its licence and files. For a GGUF model, pick a version
+(Q4_K_M is a good balance of size and quality); otherwise Sovereign selects the
+model's files and skips extra copies of the same weights in other formats. You
+can change the selection. **Keep a copy** then opens the same review as any
+other save. Every file is checked against the fingerprint Hugging Face lists for
+that exact version, and if Hugging Face can't provide a file, Sovereign asks
+community mirrors for the same file by its fingerprint.
+
+A model straight from Hugging Face isn't a reviewed listing. Some models ask for
+a Hugging Face account and permission first; Sovereign shows that and can't
+download them for you.
+
 If a listing cannot be downloaded completely, choose another ready version or
 ask its publisher for a complete kit. Installing Skulk is not required to use
 Sovereign's independent recovery path.

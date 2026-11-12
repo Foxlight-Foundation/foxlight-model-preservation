@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+- Find searches Hugging Face, not only saved listings. Searching Hugging Face
+  is a one-time choice ("Also search Hugging Face?"), because the search words
+  go to huggingface.co; it can be turned off under Source and privacy, and it
+  works before any registry catalog is loaded. A chosen repository is pinned to
+  its current commit. Large files carry their SHA-256 in Hub metadata; the few
+  small git files are fetched from that commit, checked against their git blob
+  ID and hashed, so every selected file has an exact hash before any download.
+  The save then uses the same verification, resume and community-mirror
+  fallback as registry saves, and records the model's licence. GGUF
+  repositories default to one quant (Q4_K_M when present), its split parts and
+  one projector; other repositories skip duplicate encodings of the same
+  weights. Every default can be changed in the file review. Gated models are
+  shown with a note that Hugging Face asks for access. New core module `hub`
+  (`search`, `snapshot`, `exact_hashes`) and `selection.hub_recipe`; owner
+  controls `hub-consent`, `hub-search`, `hub-review` and a `receive` plan with
+  `origin: hub`.
+
+- Registry listings without their own file list (about half of the current
+  catalog, mostly mlx-community) can be saved: Sovereign builds the file list
+  for the exact revision the listing pins from Hugging Face's metadata for
+  that commit. The registry and Skulk are unchanged. Search rows report
+  `file_list` (`registry` or `huggingface`).
+
 - Install docs point at the public 0.31 cohort: core 0.31.0, Library 0.27.0,
   Mac build 13, Linux revision 8 (guided setup 0.1.6, graphical setup 0.1.8)
   and `sovereign-mirror:0.31.0`.

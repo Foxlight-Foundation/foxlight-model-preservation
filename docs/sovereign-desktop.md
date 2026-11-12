@@ -490,6 +490,22 @@ Peer/I2P source following remains a separate command/Core adapter;
 unsupported routes are never silently enabled. Skulk's
 existing source interface and admission checks remain separate.
 
+### Hugging Face as a source
+
+Find can search Hugging Face directly once the person chooses it; the search
+words then go to huggingface.co, and the choice can be withdrawn under **Source
+and privacy**. A chosen repository is pinned to its current commit. Large (LFS)
+files carry their SHA-256 in Hub metadata; small git files are fetched from that
+commit, must match their git blob ID, and are hashed. Every selected file
+therefore has an exact size and SHA-256 before any download, and the save uses
+the same verification, resume and community-mirror fallback as a registry save.
+The model's declared licence is recorded in the copy. This is not registry
+review: it establishes exactly which bytes were kept, not who should be trusted.
+
+Registry listings that pin a revision but carry no file list of their own are
+saved the same way: Sovereign takes Hugging Face's file list for the exact
+revision the listing pins. The registry listing and Skulk are unchanged.
+
 ### Built-in registry source
 
 The bundled [registry root](../src/foxlight_model_preservation/resources/foxlight_registry_root.json)

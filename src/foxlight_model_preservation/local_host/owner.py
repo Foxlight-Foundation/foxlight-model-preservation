@@ -24,6 +24,7 @@ from urllib.parse import urlsplit
 
 from pydantic import Field, JsonValue
 
+from .. import hub
 from ..archives import ArchiveManifest, verify_archive
 from ..cards import ArtifactFile, ModelCardEnvelope, identity_json
 from ..kits import export_kit, import_kit, inspect_kit, read_kit_envelope
@@ -88,11 +89,20 @@ from .selection import (
     NOTICE_PATH,
     OriginHTTPError,
     download_file,
+    hub_recipe,
     registry_file_map,
     registry_recipe,
 )
 from .sharing import Sharing
 from .sources import HandoffReference, SourceLibrary
+
+
+def recipe_task(plan: dict[str, JsonValue]) -> str | None:
+    """The Hub task a plan was reviewed with, if any."""
+    details = plan.get("details")
+    task = details.get("task") if isinstance(details, dict) else None
+    return task if isinstance(task, str) else None
+
 
 JobKind = Literal[
     "catalog_refresh",
@@ -364,6 +374,7 @@ class LocalOwner:
             )
             return {
                 "host_kind": "sovereign",
+                "hub_search": self.hub_search_enabled(),
                 "locations": [],
                 "models": [],
                 "copies": cast(list[JsonValue], copies),
@@ -634,6 +645,9 @@ class LocalOwner:
                     self._gossip_control.cancel()
                 self._gossip_wake.set()
                 return {**result, **self.community.read(self._journal.copies)}
+        hub_result = self._hub_control(action, body)
+        if hub_result is not None:
+            return hub_result
         with self._lock:
             self._check()
             if self._closing:
@@ -1642,19 +1656,40 @@ class LocalOwner:
     def _receive(
         self, job: Job, plan: dict[str, JsonValue], control: OperationControl
     ) -> None:
-        with self._catalog_lock:
-            card, proof = self.catalog.select(
-                str(plan["catalog_id"]), str(plan["card_id"])
+        if plan.get("origin") == "hub":
+            # The reviewed plan carries the exact commit, paths, sizes and
+            # SHA-256s; the recipe is rebuilt from them and must match.
+            exact = {
+                path: (cast(int, value[0]), cast(str, value[1]))
+                for path, value in cast(
+                    dict[str, list[JsonValue]], plan["files"]
+                ).items()
+            }
+            recipe, selected_files = hub_recipe(
+                str(plan["repository"]),
+                str(plan["revision"]),
+                exact,
+                licence=cast(dict[str, JsonValue], plan["details"]).get("license")  # pyright: ignore[reportArgumentType]
+                if isinstance(plan.get("details"), dict)
+                else None,
+                task=recipe_task(plan),
             )
-            licence = self._registry_licence(
-                str(plan["catalog_id"]), card, captured_card_metadata(proof, card)
-            )
-        recipe = registry_recipe(card, proof, licence=licence)
-        selected_files = registry_file_map(card)
-        if recipe.model_dump(mode="json") != plan["recipe"]:
-            raise PreservationError("plan_changed")
-        if not plan["historical"]:
-            self.catalog.verify_current(proof, card.card_id)
+            if recipe.model_dump(mode="json") != plan["recipe"]:
+                raise PreservationError("plan_changed")
+        else:
+            with self._catalog_lock:
+                card, proof = self.catalog.select(
+                    str(plan["catalog_id"]), str(plan["card_id"])
+                )
+                licence = self._registry_licence(
+                    str(plan["catalog_id"]), card, captured_card_metadata(proof, card)
+                )
+            recipe = registry_recipe(card, proof, licence=licence)
+            selected_files = registry_file_map(card)
+            if recipe.model_dump(mode="json") != plan["recipe"]:
+                raise PreservationError("plan_changed")
+            if not plan["historical"]:
+                self.catalog.verify_current(proof, card.card_id)
         selected_bytes = cast(int, plan["size_bytes"])
         if shutil.disk_usage(self.home).free < selected_bytes * 4 + 32 * 1024**2:
             raise PreservationError("insufficient_space")
@@ -1717,6 +1752,174 @@ class LocalOwner:
                 member_count=len(manifest.members),
                 trust=trust,
             ),
+        )
+
+    # Hugging Face is a Find source like any other; nothing here holds the
+    # owner lock across the network.
+    def hub_search_enabled(self) -> bool:
+        """Whether the person chose to send search words to huggingface.co."""
+        try:
+            value = strict_json(read_metadata(self._root, "hub-search.json"))
+        except (OSError, PreservationError):
+            return False
+        return isinstance(value, dict) and value.get("enabled") is True
+
+    def _hub_control(
+        self, action: str, body: dict[str, JsonValue]
+    ) -> dict[str, JsonValue] | None:
+        if action == "hub-consent":
+            if set(body) != {"enabled"} or type(body["enabled"]) is not bool:
+                raise PreservationError("invalid_control")
+            with self._lock:
+                self._check()
+                atomic_bytes(
+                    self._root,
+                    "hub-search.json",
+                    identity_json({"enabled": body["enabled"]}),
+                )
+            return {"hub_search": body["enabled"]}
+        if action == "hub-search":
+            query = body.get("query")
+            if set(body) != {"query"} or not isinstance(query, str) or len(query) > 200:
+                raise PreservationError("invalid_control")
+            if not self.hub_search_enabled():
+                raise PreservationError("hub_search_not_enabled")
+            self._open_check()
+            return {
+                "source": "huggingface",
+                "results": [item.view() for item in hub.search(query)],  # pyright: ignore[reportReturnType]
+            }
+        if action == "hub-review":
+            repository = body.get("repository")
+            if set(body) - {"repository", "revision", "variant"} or not isinstance(
+                repository, str
+            ):
+                raise PreservationError("invalid_control")
+            revision, variant = body.get("revision"), body.get("variant")
+            if (revision is not None and not isinstance(revision, str)) or (
+                variant is not None and not isinstance(variant, str)
+            ):
+                raise PreservationError("invalid_control")
+            self._open_check()
+            pinned = hub.snapshot(hub.repository_id(repository), revision)
+            return cast(
+                dict[str, JsonValue],
+                {**pinned.view(), "default_files": pinned.default_selection(variant)},
+            )
+        if action != "plan":
+            return None
+        if body.get("kind") == "receive" and body.get("origin") == "hub":
+            if set(body) != {"kind", "origin", "repository", "revision", "files"}:
+                raise PreservationError("invalid_control")
+            repository, revision, files = (
+                body["repository"],
+                body["revision"],
+                body["files"],
+            )
+            if (
+                not isinstance(repository, str)
+                or not isinstance(revision, str)
+                or not isinstance(files, list)
+                or not files
+                or len(files) > hub.MAX_FILES
+                or not all(isinstance(item, str) for item in files)
+            ):
+                raise PreservationError("invalid_control")
+            self._open_check()
+            pinned = hub.snapshot(hub.repository_id(repository), revision)
+            return self._hub_plan(pinned, cast(list[str], files))
+        if body.get("kind") == "receive" and set(body) == {
+            "kind",
+            "catalog_id",
+            "card_id",
+        }:
+            # A listing without its own complete file list is saved from the
+            # exact revision it pins, with the file list Hugging Face gives
+            # for that commit. Nothing about the listing is removed or changed.
+            with self._catalog_lock:
+                card, proof = self.catalog.select(
+                    str(body["catalog_id"]), str(body["card_id"])
+                )
+                if card.artifact.bundle is not None or card.card.get("image"):
+                    return None
+                metadata = captured_card_metadata(proof, card)
+                licence = self._registry_licence(
+                    str(body["catalog_id"]), card, metadata
+                )
+            self._open_check()
+            pinned = hub.snapshot(card.artifact.repository, card.artifact.revision)
+            gguf = card.card.get("gguf_file")
+            files = pinned.default_selection(gguf if isinstance(gguf, str) else None)
+            return self._hub_plan(
+                pinned,
+                files,
+                licence=licence,
+                listing={
+                    "catalog_id": str(body["catalog_id"]),
+                    "card_id": card.card_id,
+                    "name": card.alias,
+                },
+            )
+        return None
+
+    def _open_check(self) -> None:
+        with self._lock:
+            self._check()
+            if self._closing:
+                raise PreservationError("sovereign_owner_closing")
+
+    def _hub_plan(
+        self,
+        pinned: hub.HubSnapshot,
+        files: list[str],
+        *,
+        licence: str | None = None,
+        listing: dict[str, str] | None = None,
+    ) -> dict[str, JsonValue]:
+        selected = sorted(set(files))
+        for path in selected:
+            pinned.file(path)
+        exact = hub.exact_hashes(pinned, selected, OperationControl())
+        licence = licence or pinned.licence
+        recipe, _ = hub_recipe(
+            pinned.repository,
+            pinned.revision,
+            exact,
+            licence=licence,
+            task=pinned.task,
+        )
+        size = sum(size for size, _ in exact.values())
+        return self._plan(
+            {
+                "kind": "receive",
+                "origin": "hub",
+                "name": listing["name"] if listing else recipe.name,
+                "repository": pinned.repository,
+                "revision": pinned.revision,
+                "files": {path: [size, sha] for path, (size, sha) in exact.items()},
+                "recipe": recipe.model_dump(mode="json"),
+                "listing": cast(JsonValue, listing),
+                "details": {
+                    "license": licence,
+                    "task": pinned.task,
+                    "library": pinned.library,
+                    "gated": pinned.gated,
+                    "file_list": "huggingface",
+                },
+                "terms": terms_review(
+                    member_terms(
+                        recipe.members,
+                        fallback=licence or "",
+                        fallback_origin=(pinned.repository, pinned.revision),
+                    )
+                ),
+                "historical": False,
+                "file_count": len(exact),
+                "projector_included": any("mmproj" in path.lower() for path in exact),
+                "members": [pinned.repository],
+                "size_bytes": size,
+                "source": "huggingface.co and public HTTPS CDN redirects",
+            }
         )
 
     def _record_copy(self, job: Job, copy: Copy) -> None:

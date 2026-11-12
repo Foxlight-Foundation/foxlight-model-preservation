@@ -6,6 +6,11 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Find searches Hugging Face as well as saved listings (one-time choice), with
+  a file review that pins the exact version, offers GGUF quant choices and
+  hands the plan to the usual "Keep a copy" review. Listings without their own
+  file list are now savable. Requires core 0.32.
+
 - Install docs point at the public 0.31 cohort: core 0.31.0, Library 0.27.0,
   Mac build 13, Linux revision 8 (guided setup 0.1.6, graphical setup 0.1.8)
   and `sovereign-mirror:0.31.0`.
