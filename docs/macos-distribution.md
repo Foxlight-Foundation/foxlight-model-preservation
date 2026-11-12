@@ -32,8 +32,8 @@ sharing and recipient recovery instructions. The shared
 preservation foundation includes complete companions, verified backup folders,
 explicit finite sharing, independent source following and offline search. The
 Horizon interface explains model inputs/outputs, purpose, file variants and trust
-without requiring Skulk. The [build12 publication record](../desktop/macos/releases/0.1.0-build12.json)
-binds final signed/stapled containers to the exact accepted app. Build 11 and all
+without requiring Skulk. The [build13 publication record](../desktop/macos/releases/0.1.0-build13.json)
+binds final signed/stapled containers to the exact accepted app. Build 12 and all
 older records/releases remain unchanged for historical verification. Publication
 still requires the separate workflow below; a reviewed record is not publication.
 
@@ -47,7 +47,7 @@ been published. Download the DMG or ZIP and the neighboring `SHA256SUMS`,
 download against its checksum, then authenticate it with GitHub CLI:
 
 ```sh
-PUBLISHER_TAG=sovereign-macos-publisher-v0.1.0-build12
+PUBLISHER_TAG=sovereign-macos-publisher-v0.1.0-build13
 FILE=Sovereign-0.1.0-macos-arm64.dmg
 shasum -a 256 "$FILE"  # compare the corresponding line in SHA256SUMS
 gh attestation verify "$FILE" \
@@ -66,7 +66,7 @@ asserts **verification of existing files**, not native build provenance. It
 records the exact host, performed checks and qualification limits; inspect those
 claims along with the [software trust limits](releases.md#what-a-pass-establishes).
 Retain the bundle and trusted roots for [offline verification](releases.md#keep-offline-evidence).
-The release uses `sovereign-macos-v0.1.0-build12` at the exact binary recipe
+The release uses `sovereign-macos-v0.1.0-build13` at the exact binary recipe
 revision. Its separate immutable publisher tag identifies the reviewed verification
 workflow. Neither tag asserts a native rebuild in the public workflow.
 
@@ -79,9 +79,9 @@ button keeps the journey available later. Existing saved copies reopen in Librar
 A retained kit can be restored without Skulk or the original registry. A new capture
 key still requires explicit trust acceptance; software signing grants no model authority.
 
-The build12 manifest pins both final containers, Developer ID team `ZP9J3449GF`
+The build13 manifest pins both final containers, Developer ID team `ZP9J3449GF`
 and certificate fingerprint `A148825F0E5B1F0F29C7A314129AB6D090EF9FF5`.
-The exact accepted app was qualified on the operator Mac (macOS 26.6.2) through its
+The exact accepted app was qualified on the operator Mac (macOS 26.7.3) through its
 own bundled runtime: the bundled BitTorrent DHT binding loads, and a signed
 two-member kit with an Apache-2.0 licence imports, is eligible under the default
 licence list, and **Help keep models available** serves it only after standing
