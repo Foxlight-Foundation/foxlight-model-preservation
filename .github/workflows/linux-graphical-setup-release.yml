@@ -136,9 +136,9 @@ jobs:
 
           A local .deb is trusted software: App Center's installation prompt does not itself authenticate Foxlight as publisher. This release publishes checksums and independently verifiable build provenance for advanced verification. The installed setup verifies its downstream inputs and preserves scoped APT signature/expiry checks; software authentication remains separate from model provenance and trust.
 
-          Fresh native amd64/arm64 tests exercise real review cancellation, actual OS permission cancellation/password authentication, installation and graphical app handoff. Reproducible setup bytes match across both architectures. It installs app 0.1.0-7, core 0.30 / Library 0.26, with the opt-in Help keep models available mirror, the starter collection, plainer first-time wording and model licences from the registry. Full App Center download handoff, participant usability, other distributions and model inference remain separate qualification. Installing setup alone starts no service, sharing or model work. Removing setup retains the app, Library and operator-controlled update source.
+          Fresh native amd64/arm64 tests exercise real review cancellation, actual OS permission cancellation/password authentication, installation and graphical app handoff. Reproducible setup bytes match across both architectures. It installs app 0.1.0-8, core 0.31 / Library 0.27, with the opt-in Help keep models available mirror, the starter collection, saves that fall back to community mirrors, resumable downloads and model licences from the registry. Full App Center download handoff, participant usability, other distributions and model inference remain separate qualification. Installing setup alone starts no service, sharing or model work. Removing setup retains the app, Library and operator-controlled update source.
 
           [Instructions and verification](https://github.com/Foxlight-Foundation/foxlight-model-preservation/blob/main/docs/linux-distribution.md#graphical-setup-recommended)
           MD
           gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \
-            --verify-tag --prerelease --title 'Sovereign graphical Linux setup 0.1.7' --notes-file notes.md
+            --verify-tag --prerelease --title 'Sovereign graphical Linux setup 0.1.8' --notes-file notes.md
