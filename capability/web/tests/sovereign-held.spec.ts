@@ -20,7 +20,7 @@ test('copies kept by community mirrors are found after browsing, and saved by th
   const card=page.getByRole('article',{name:held.name});
   await expect(card).toBeVisible();
   await expect(card.getByText('Kept by 2 mirrors')).toBeVisible();
-  await expect(page.getByText('Also kept by 2 mirrors')).toBeVisible();
+  await expect(page.getByText('Community mirrors keep 1 version')).toBeVisible();
   expect(calls[0]).toBe('refresh');
   await card.getByRole('button',{name:'Keep a copy'}).click();
   await expect.poll(()=>plans.length).toBe(1);

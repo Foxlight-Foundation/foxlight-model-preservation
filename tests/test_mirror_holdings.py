@@ -431,3 +431,34 @@ def test_documents_of_a_copy_repacked_before_do_not_collide(capture: Capture) ->
     paths = {f.path: f.expected_sha256 for f in root.files}
     assert paths[HELD_DOCUMENTS + "card"] == digest(earlier)
     assert paths[HELD_DOCUMENTS + "2/card"] == digest(card)
+
+
+def test_a_trickling_holder_cannot_stall_the_manifest_fetch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import contextlib
+
+    from foxlight_model_preservation import mirror_holdings
+
+    clock = iter(range(0, 10_000, 5))
+    monkeypatch.setattr(mirror_holdings.time, "monotonic", lambda: float(next(clock)))
+    asked: list[str] = []
+
+    class Trickle:
+        def read(self, _size: int) -> bytes:
+            return b"{"  # forever, one byte at a time
+
+    @contextlib.contextmanager
+    def fake_response(source: str, *_a: object, **_k: object):
+        asked.append(source)
+        yield Trickle()
+
+    monkeypatch.setattr(mirror_holdings, "response", fake_response)
+    with pytest.raises(PreservationError, match="held_copy_unavailable"):
+        mirror_holdings.fetch_held_manifest(
+            "0" * 64,
+            ["https://slow.example", "https://next.example"],
+            TransferPolicy(deadline_seconds=60),
+        )
+    # The slow mirror was abandoned and the next holder was still tried.
+    assert asked == ["https://slow.example", "https://next.example"]

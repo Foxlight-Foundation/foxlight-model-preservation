@@ -55,6 +55,8 @@ HOLDINGS_PATH = ".well-known/sovereign/holdings.json"
 # About 2,000 compact entries; a larger list drops entries rather than fail.
 MAX_HOLDINGS_BYTES = 1024 * 1024
 MAX_ENTRIES = 2000
+# Seconds one mirror may take to return a held manifest.
+HOLDER_SECONDS = 20.0
 # A licence named only as a pointer to the original card is no licence name.
 _NO_LICENCE = {"see-original-card", "unknown", "other", "none"}
 
@@ -237,12 +239,26 @@ def fetch_held_manifest(
     and the key IDs that signed it (recorded, not trusted).
     """
     last: Exception | None = None
+    # One absolute deadline for the whole fetch; a slow or trickling mirror
+    # gets at most a slice of it, so healthy holders are still tried.
+    deadline = time.monotonic() + policy.deadline_seconds
     for source in sources:
         try:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            stop = time.monotonic() + min(remaining, HOLDER_SECONDS)
+            chunks: list[bytes] = []
+            size = 0
             with response(source, manifest_path(manifest_id), policy) as received:
-                raw = received.read(MAX_METADATA_BYTES + 1)
-            if len(raw) > MAX_METADATA_BYTES:
-                raise PreservationError("manifest exceeds size limit")
+                while chunk := received.read(64 * 1024):
+                    size += len(chunk)
+                    if size > MAX_METADATA_BYTES:
+                        raise PreservationError("manifest exceeds size limit")
+                    if time.monotonic() > stop:
+                        raise PreservationError("held manifest too slow")
+                    chunks.append(chunk)
+            raw = b"".join(chunks)
             envelope = Envelope.model_validate_json(
                 canonical_bytes(strict_json(raw, maximum_bytes=MAX_METADATA_BYTES))
             )
