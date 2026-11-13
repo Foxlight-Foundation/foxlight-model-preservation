@@ -6,6 +6,8 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+## 0.28.0
+
 - Add or remove a Hugging Face token under Source and privacy, for faster
   downloads and gated models you've been given access to. Requires core 0.32.
 
