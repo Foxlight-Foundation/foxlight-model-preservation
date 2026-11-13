@@ -41,7 +41,7 @@ jobs:
         run: |
           mkdir /tmp/sovereign-guided-setup
           printf 'install\n' | python3 -I scripts/install_sovereign_linux.py | tee /tmp/sovereign-guided-setup/installation.txt
-          test "$(dpkg-query -W -f='${Version}' foxlight-sovereign)" = 0.1.0-8
+          test "$(dpkg-query -W -f='${Version}' foxlight-sovereign)" = 0.1.0-9
           test "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns)" = 1
           for package in skulk skulk-runtime skulk-desktop; do
             test "$(dpkg-query -W -f='${db:Status-Status}' "$package" 2>/dev/null || true)" != installed
