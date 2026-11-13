@@ -143,3 +143,98 @@ def test_one_copy_kept_by_two_mirrors_is_one_result(
     rows = client.held_models("shared")
     assert len(rows) == 1 and rows[0]["mirror_count"] == 2
     assert sorted(rows[0]["mirrors"]) == addresses
+
+
+def test_a_held_copy_is_found_and_saved_from_mirrors(
+    tmp_path: Path, capture: Capture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Hugging Face is gone; a mirror's holdings make the copy findable and savable."""
+    import uuid
+
+    from test_catalog_mirror_fallback import _origin_down, _seeds
+
+    from foxlight_model_preservation import hub
+    from foxlight_model_preservation.local_host.owner import LocalOwner
+    from foxlight_model_preservation.mirror_objects import (
+        OBJECTS_PATH,
+        issue_objects,
+        served_hashes,
+    )
+
+    store = tmp_path / "served"
+    shutil.copytree(capture.store, store)
+    key = Ed25519PrivateKey.generate()
+    peers, holdings, objects = (
+        tmp_path / "peers.json",
+        tmp_path / "holdings.json",
+        tmp_path / "objects.json",
+    )
+    server, thread, address = _serve(
+        store,
+        capture,
+        {
+            "/.well-known/sovereign/peers.json": peers,
+            "/" + HOLDINGS_PATH: holdings,
+            "/" + OBJECTS_PATH: objects,
+        },
+    )
+    try:
+        peers.write_bytes(
+            build_peers(issue_card(key, (address,), {capture.identity}), ())
+        )
+        held = store_holdings(store, [capture.identity])
+        holdings.write_bytes(issue_holdings(key, held))
+        objects.write_bytes(issue_objects(key, served_hashes(store)))
+        # Hugging Face no longer has anything: origin downloads and Hub
+        # metadata both fail, so the bytes can only come from mirrors.
+        _origin_down(monkeypatch)
+
+        def gone(*_a: object, **_k: object) -> object:
+            raise PreservationError("hub_not_found")
+
+        monkeypatch.setattr(hub, "snapshot", gone)
+        _seeds(monkeypatch, store)
+        monkeypatch.setattr(LocalOwner, "_held_policy", LAB)
+        owner = LocalOwner(tmp_path / "owner")
+        try:
+            owner.community.directory.crawl((address,), LAB, expand=False)
+            found = owner.control("held-search", {"query": held[0].name.split()[0]})
+            assert [row["manifest"] for row in found["results"]] == [capture.identity]
+            plan = owner.control(
+                "plan",
+                {"kind": "receive", "origin": "mirror", "manifest": capture.identity},
+            )
+            assert plan["origin"] == "mirror"
+            assert plan["details"]["origin_check"] == "unconfirmed"
+            assert plan["file_count"] == held[0].file_count
+            receipt = owner.control(
+                "start",
+                {
+                    "plan_id": plan["plan_id"],
+                    "operation_id": str(uuid.uuid4()),
+                    "confirmed": True,
+                    **(
+                        {"accepted_terms": plan["terms"]["accept"]}
+                        if plan["terms"]["accept"]
+                        else {}
+                    ),
+                },
+            )
+            end = time.monotonic() + 60
+            while time.monotonic() < end:
+                job = next(
+                    j for j in owner.read()["jobs"] if j["job_id"] == receipt["job_id"]
+                )
+                if job["state"] not in {"queued", "running"}:
+                    break
+                time.sleep(0.05)
+            assert job["state"] == "succeeded", job
+            assert job["sources"]["origin_files"] == 0
+            assert job["sources"]["mirror_files"] >= 1
+            assert len(owner.read()["copies"]) == 1
+        finally:
+            owner.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(5)

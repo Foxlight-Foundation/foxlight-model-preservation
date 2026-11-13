@@ -15,8 +15,17 @@ from pydantic import JsonValue
 
 from ..assurance import retain_card
 from ..cards import ArtifactFile, ModelCardEnvelope, identity_json
-from ..models import Intake, PreservationError, Recipe, RecipeMember, SourceFile
+from ..models import (
+    Intake,
+    Manifest,
+    ManifestMember,
+    PreservationError,
+    Recipe,
+    RecipeMember,
+    SourceFile,
+)
 from ..operations import OperationControl
+from ..pmf_models import PMFManifest
 from ..registry_proof import RegistryProof
 from ..transfer import PinnedConnection, TransferPolicy
 
@@ -550,5 +559,81 @@ def hub_recipe(
         runtime_requirements=(
             "Runtime compatibility and code authorization are not assessed.",
         ),
+    )
+    return recipe, files
+
+
+def held_recipe(
+    manifest: PMFManifest | Manifest, decision: str
+) -> tuple[Recipe, dict[tuple[str, str, str], ArtifactFile]]:
+    """Rebuild a held copy's recipe so it can be saved and repacked locally.
+
+    Every member keeps its exact files (path, size, SHA-256), origin and
+    licence; the copy is repacked under this owner's own key. ``decision``
+    records where it came from and what the origin check found.
+    """
+    members: list[RecipeMember] = []
+    files: dict[tuple[str, str, str], ArtifactFile] = {}
+    notice = SourceFile(
+        path=NOTICE_PATH, expected_sha256=hashlib.sha256(NOTICE).hexdigest()
+    )
+    for member in manifest.members:
+        if isinstance(member, ManifestMember):
+            repository, revision = member.origin_repository, member.origin_revision
+            identity, card = member.artifact_identity, member.retained_card
+        else:
+            origin = member.origin
+            repository = origin.repository if origin is not None else None
+            revision = origin.revision if origin is not None else None
+            identity, card = member.artifact_identity or member.member_id, None
+        if (
+            not repository
+            or not revision
+            or not re.fullmatch(r"[0-9a-f]{40}", revision)
+        ):
+            raise PreservationError("held_copy_origin_unknown")
+        sources = [
+            SourceFile(path=file.path, expected_sha256=file.sha256)
+            for file in member.files
+            if file.path != NOTICE_PATH
+        ]
+        for file in member.files:
+            if file.path != NOTICE_PATH:
+                files[(repository, revision, file.path)] = ArtifactFile(
+                    path=file.path,
+                    size_bytes=file.size,
+                    object_id="sha256:" + file.sha256,
+                )
+        members.append(
+            RecipeMember(
+                member_id=member.member_id,
+                role=member.role,
+                format=member.format,
+                origin_repository=repository,
+                origin_revision=revision,
+                artifact_identity=identity,
+                loader_root=member.loader_root,
+                dependencies=member.dependencies,
+                retained_card=card,
+                intake=Intake(
+                    audience="private",
+                    license_id=member.intake.license_id,
+                    terms_reference=member.intake.terms_reference,
+                    decision=decision[:4096]
+                    if member.member_id == manifest.root_member
+                    else "Companion of a copy kept from community mirrors.",
+                    notice_paths=(NOTICE_PATH,),
+                ),
+                files=(*sources, notice),
+            )
+        )
+    recipe = Recipe(
+        schema_version="foxlight.model-preservation.v1",
+        name=manifest.name[:200],
+        root_member=manifest.root_member,
+        members=tuple(members),
+        workloads=tuple(manifest.workloads) or ("model",),
+        runtime_requirements=tuple(manifest.runtime_requirements)
+        or ("Runtime compatibility and code authorization are not assessed.",),
     )
     return recipe, files

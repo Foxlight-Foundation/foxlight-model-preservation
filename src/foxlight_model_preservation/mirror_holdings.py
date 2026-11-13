@@ -48,6 +48,7 @@ from .signing import (
     verify_payload,
 )
 from .storage import manifest_path
+from .transfer import TransferPolicy, response
 
 HOLDINGS_TYPE = "application/vnd.sovereign.mirror-holdings.v1+json"
 HOLDINGS_PATH = ".well-known/sovereign/holdings.json"
@@ -222,3 +223,41 @@ def store_holdings(store: Path, manifests: Iterable[str]) -> list[Holding]:
         except (OSError, ValueError, PreservationError):
             continue
     return entries
+
+
+def fetch_held_manifest(
+    manifest_id: str,
+    sources: Iterable[str],
+    policy: TransferPolicy,
+) -> tuple[PMFManifest | Manifest, tuple[str, ...]]:
+    """Fetch a held copy's manifest by its content address.
+
+    No signer needs to be trusted: the manifest's identity is the hash of its
+    payload, so it is exactly the copy the holdings named. Returns the manifest
+    and the key IDs that signed it (recorded, not trusted).
+    """
+    last: Exception | None = None
+    for source in sources:
+        try:
+            with response(source, manifest_path(manifest_id), policy) as received:
+                raw = received.read(MAX_METADATA_BYTES + 1)
+            if len(raw) > MAX_METADATA_BYTES:
+                raise PreservationError("manifest exceeds size limit")
+            envelope = Envelope.model_validate_json(
+                canonical_bytes(strict_json(raw, maximum_bytes=MAX_METADATA_BYTES))
+            )
+            payload = decode_base64(envelope.payload)
+            if digest(payload) != manifest_id:
+                raise PreservationError("held_manifest_mismatch")
+            signers = tuple(signature.keyid for signature in envelope.signatures)
+            if envelope.payloadType == PMF_TYPE:
+                return load_pmf(payload), signers
+            if envelope.payloadType == BUNDLE_TYPE:
+                return (
+                    Manifest.model_validate_json(canonical_bytes(strict_json(payload))),
+                    signers,
+                )
+            raise PreservationError("held_manifest_unsupported")
+        except (OSError, ValueError, PreservationError) as error:
+            last = error
+    raise PreservationError("held_copy_unavailable") from last
