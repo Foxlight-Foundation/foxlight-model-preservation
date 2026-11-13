@@ -513,6 +513,18 @@ Registry listings that pin a revision but carry no file list of their own are
 saved the same way: Sovereign takes Hugging Face's file list for the exact
 revision the listing pins. The registry listing and Skulk are unchanged.
 
+### Community mirror holdings
+
+Mirrors publish `/.well-known/sovereign/holdings.json`, a signed list of the
+copies they keep (`sovereign.mirror-holdings.v1`). Sovereign reads these lists
+from the starter mirror and the mirrors it names, only after **Browse public
+models** or Hugging Face search was chosen, keeps a list only when the mirror
+card's own key signed it, and searches them on the device. A held copy is saved
+by its manifest's content address: the file list is exactly the listed copy,
+whoever signed it. Its claimed origin is checked against Hugging Face and the
+result (matches, differs, unconfirmed) is recorded in the copy, which is
+repacked under the owner's key. A list grants no trust.
+
 ### Built-in registry source
 
 The bundled [registry root](../src/foxlight_model_preservation/resources/foxlight_registry_root.json)

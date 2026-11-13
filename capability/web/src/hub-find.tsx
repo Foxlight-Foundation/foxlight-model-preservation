@@ -10,7 +10,7 @@ const count=(value:number)=>value>=1e6?`${(value/1e6).toFixed(1)}M`:value>=1e3?`
 const fileName=(path:string)=>path.split('/').at(-1)??path;
 
 /** Hugging Face as a Find source: opt-in search, then an exact file review. */
-export function HubFind({query,enabled,busy,explainError,onEnabled,onPlan}:{query:string;enabled:boolean;busy:boolean;explainError:(code:string)=>string;onEnabled:()=>Promise<void>;onPlan:(body:Record<string,unknown>)=>Promise<void>}) {
+export function HubFind({query,enabled,busy,kept={},explainError,onEnabled,onPlan}:{query:string;enabled:boolean;busy:boolean;kept?:Record<string,number>;explainError:(code:string)=>string;onEnabled:()=>Promise<void>;onPlan:(body:Record<string,unknown>)=>Promise<void>}) {
   const [results,setResults]=useState<HubResult[]|null>(null),[error,setError]=useState(''),[searching,setSearching]=useState(false),[open,setOpen]=useState<string|null>(null);
   const searches=useRef(0);
   const words=query.trim();
@@ -26,7 +26,7 @@ export function HubFind({query,enabled,busy,explainError,onEnabled,onPlan}:{quer
     {error&&<Callout tone="bad" role="alert">{explainError(error)}</Callout>}
     {results?.length===0&&!searching&&<p className="sk-hint sk-pad">No public Hugging Face models match “{words}”.</p>}
     <div className="sk-cards">{results?.map(item=><article className="sk-card sk-result" key={item.repository} aria-label={item.repository}>
-      <div className="sk-model-head"><Monogram text={initials(item.name)}/><div className="sk-model-title"><h3>{item.name}</h3><p className="sk-meta">{item.owner}{item.task&&` · ${item.task.replaceAll('-',' ')}`} · {count(item.downloads)} downloads</p></div><span className="sk-tag">Hugging Face</span></div>
+      <div className="sk-model-head"><Monogram text={initials(item.name)}/><div className="sk-model-title"><h3>{item.name}</h3><p className="sk-meta">{item.owner}{item.task&&` · ${item.task.replaceAll('-',' ')}`} · {count(item.downloads)} downloads</p></div><span className="sk-tag">Hugging Face</span>{kept[item.repository]?<span className="sk-tag">Also kept by {kept[item.repository]} {kept[item.repository]===1?'mirror':'mirrors'}</span>:null}</div>
       {item.gated&&<p className="sk-hint sk-warn">Hugging Face asks for an account and permission before downloading this model. If you’ve been given access, add your Hugging Face token under Source and privacy.</p>}
       {open===item.repository?<HubFiles repository={item.repository} busy={busy} explainError={explainError} onClose={()=>setOpen(null)} onPlan={onPlan}/>:<div className="sk-actions"><button className="sk-btn sk-outline" disabled={busy} onClick={()=>setOpen(item.repository)}>Choose files</button></div>}
     </article>)}</div>

@@ -77,6 +77,19 @@ keeps it in your computer's keychain, shows only your account name afterwards,
 and sends it only to huggingface.co, never to mirrors. Remove it there at any
 time.
 
+### Models kept by community mirrors
+
+People running Sovereign mirrors publish a signed list of the models they keep,
+so a model stays findable after its original host removes it. Once you've chosen
+**Browse public models** or Hugging Face search, Find also shows these, marked
+**Kept by N mirrors**. Searching the lists happens on your device.
+
+Choosing **Keep a copy** checks where the copy says it came from against
+Hugging Face. The review tells you whether the files match, differ, or couldn't
+be confirmed because Hugging Face no longer has them. Every file is checked
+against its fingerprint while it downloads, and the copy is kept under your own
+key.
+
 If a listing cannot be downloaded completely, choose another ready version or
 ask its publisher for a complete kit. Installing Skulk is not required to use
 Sovereign's independent recovery path.
