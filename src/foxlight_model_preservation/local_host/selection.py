@@ -635,7 +635,14 @@ def held_recipe(
         owners = {member.member_id: member for member in members}
         for document in manifest.documents:
             target = owners.get(document.member_id or "", owners[manifest.root_member])
+            # A copy repacked before already carries earlier documents here;
+            # each later generation gets its own folder so both are kept.
+            taken = {file.path.casefold() for file in target.files}
             path = HELD_DOCUMENTS + document.document_id
+            generation = 2
+            while path.casefold() in taken:
+                path = f"{HELD_DOCUMENTS}{generation}/{document.document_id}"
+                generation += 1
             files[(target.origin_repository, target.origin_revision, path)] = (
                 ArtifactFile(
                     path=path,

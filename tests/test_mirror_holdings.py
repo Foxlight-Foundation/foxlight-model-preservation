@@ -364,3 +364,70 @@ def test_an_origin_matches_only_when_every_member_matches(
         assert owner._origin_check(manifest) == "matches"  # noqa: SLF001
     finally:
         owner.close()
+
+
+def test_documents_of_a_copy_repacked_before_do_not_collide(capture: Capture) -> None:
+    from foxlight_model_preservation.local_host.selection import (
+        HELD_DOCUMENTS,
+        held_recipe,
+    )
+    from foxlight_model_preservation.models import FileIdentity
+    from foxlight_model_preservation.pmf_models import (
+        PMFDocument,
+        PMFManifest,
+        PMFMember,
+        PMFOrigin,
+    )
+    from foxlight_model_preservation.storage import verify_store
+
+    original = verify_store(capture.store, capture.identity, capture.trust)
+    earlier, card = b"earlier generation", b"this generation"
+    manifest = PMFManifest(
+        schema_version="pmf.manifest.v0.1",
+        name="Held twice",
+        root_member=original.root_member,
+        members=tuple(
+            PMFMember(
+                member_id=item.member_id,
+                role=item.role,
+                format=item.format,
+                origin=PMFOrigin(
+                    repository=item.origin_repository,
+                    revision=item.origin_revision,
+                    revision_scheme="git-sha1",
+                ),
+                dependencies=item.dependencies,
+                files=(
+                    *item.files,
+                    *(
+                        (
+                            FileIdentity(
+                                path=HELD_DOCUMENTS + "card",
+                                size=len(earlier),
+                                sha256=digest(earlier),
+                            ),
+                        )
+                        if item.member_id == original.root_member
+                        else ()
+                    ),
+                ),
+                intake=item.intake,
+            )
+            for item in original.members
+        ),
+        documents=(
+            PMFDocument(
+                document_id="card",
+                member_id=original.root_member,
+                role="source-card",
+                media_type="application/json",
+                sha256=digest(card),
+                size=len(card),
+            ),
+        ),
+    )
+    recipe, _ = held_recipe(manifest, "Kept from community mirrors.")
+    root = next(m for m in recipe.members if m.member_id == recipe.root_member)
+    paths = {f.path: f.expected_sha256 for f in root.files}
+    assert paths[HELD_DOCUMENTS + "card"] == digest(earlier)
+    assert paths[HELD_DOCUMENTS + "2/card"] == digest(card)
