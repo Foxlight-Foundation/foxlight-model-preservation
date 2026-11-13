@@ -338,6 +338,7 @@ def download_file(
     *,
     deadline: float,
     partial: Path,
+    token: str | None = None,
 ) -> None:
     """Stream one pinned, hash-bound Hub file over public HTTPS, then fsync it.
 
@@ -351,6 +352,9 @@ def download_file(
     resumes from that prefix with an HTTP range request; the prefix is hashed
     again, so the finished file is still checked in full. Only a complete,
     matching file is renamed into place.
+
+    ``token`` (a Hugging Face access token) is sent only on a hop whose host is
+    exactly ``huggingface.co``; CDN redirect targets never receive it.
     """
     if not re.fullmatch(
         r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository
@@ -397,6 +401,8 @@ def download_file(
             }
             if offset:
                 headers["Range"] = f"bytes={offset}-"
+            if token is not None and parts.hostname == "huggingface.co":
+                headers["Authorization"] = "Bearer " + token
             connection.request(
                 "GET",
                 parts.path + ("?" + parts.query if parts.query else ""),

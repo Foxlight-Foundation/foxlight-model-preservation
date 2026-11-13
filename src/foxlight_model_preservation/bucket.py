@@ -20,10 +20,8 @@ import errno
 import hashlib
 import hmac
 import http.client
-import os
 import re
 import ssl
-import subprocess
 import time
 import uuid
 from collections.abc import Callable, Generator
@@ -37,6 +35,7 @@ from xml.etree import ElementTree
 from pydantic import Field, field_validator, model_validator
 
 from .archives import archive_objects, verify_archive_manifest
+from .keychain import delete_secret, load_secret, save_secret
 from .mirror_cards import PEERS_PATH, base_url
 from .mirror_objects import OBJECTS_PATH
 from .models import PreservationError, Record, TrustProfile
@@ -309,31 +308,14 @@ def save_credentials(
     """
     if not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", key_name):
         raise PreservationError("bucket_key_name_invalid")
-    secret = credentials.access_key + " " + credentials.secret_key
-    if os.uname().sysname == "Darwin":
-        # Interactive mode reads the command from stdin, so the secret never
-        # appears in any process's argument list; -X takes it hex-encoded.
-        _run(
-            ["/usr/bin/security", "-i"],
-            f"add-generic-password -U -s {KEYCHAIN_SERVICE} -a {key_name} "
-            f"-X {secret.encode().hex()}"
-            + (f" {_keychain_arg(keychain)}" if keychain else "")
-            + "\n",
-        )
-    else:
-        _run(
-            [
-                "secret-tool",
-                "store",
-                "--label",
-                f"Sovereign bucket {key_name}",
-                "service",
-                KEYCHAIN_SERVICE,
-                "account",
-                key_name,
-            ],
-            secret,
-        )
+    save_secret(
+        KEYCHAIN_SERVICE,
+        key_name,
+        credentials.access_key + " " + credentials.secret_key,
+        label=f"Sovereign bucket {key_name}",
+        error="bucket_keychain_unavailable",
+        keychain=keychain,
+    )
     # Some keychain front ends report success on failure; read the item back.
     if load_credentials(key_name, keychain=keychain) != credentials:
         raise PreservationError("bucket_keychain_unavailable")
@@ -343,83 +325,26 @@ def load_credentials(
     key_name: str, *, keychain: Path | None = None
 ) -> BucketCredentials:
     """Read a key pair back from the OS keychain."""
-    if os.uname().sysname == "Darwin":
-        raw = _run(
-            [
-                "/usr/bin/security",
-                "find-generic-password",
-                "-s",
-                KEYCHAIN_SERVICE,
-                "-a",
-                key_name,
-                "-w",
-                *([str(keychain)] if keychain else []),
-            ],
-            None,
-        )
-    else:
-        raw = _run(
-            ["secret-tool", "lookup", "service", KEYCHAIN_SERVICE, "account", key_name],
-            None,
-        )
-    access, _, secret = raw.rstrip("\n").partition(" ")
+    raw = load_secret(
+        KEYCHAIN_SERVICE,
+        key_name,
+        error="bucket_keychain_unavailable",
+        keychain=keychain,
+    )
+    access, _, secret = raw.partition(" ")
     return BucketCredentials(access, secret)
-
-
-def _keychain_arg(path: Path) -> str:
-    text = str(path)
-    if not re.fullmatch(r"[A-Za-z0-9._/~-]+", text):
-        raise PreservationError("bucket_keychain_path_invalid")
-    return text
 
 
 def delete_credentials(key_name: str, *, keychain: Path | None = None) -> None:
     """Remove a stored key pair; a missing entry is already removed."""
     if not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", key_name):
         raise PreservationError("bucket_key_name_invalid")
-    if os.uname().sysname == "Darwin":
-        command = [
-            "/usr/bin/security",
-            "delete-generic-password",
-            "-s",
-            KEYCHAIN_SERVICE,
-            "-a",
-            key_name,
-            *([str(keychain)] if keychain else []),
-        ]
-    else:
-        command = [
-            "secret-tool",
-            "clear",
-            "service",
-            KEYCHAIN_SERVICE,
-            "account",
-            key_name,
-        ]
-    try:
-        _run(command, None)
-    except PreservationError:
-        pass  # Already absent, or the keychain is unavailable; nothing to leak.
-
-
-def _run(command: list[str], stdin: str | None) -> str:
-    try:
-        completed = subprocess.run(  # noqa: S603 - fixed system keychain tools
-            command,
-            input=stdin,
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        # The original exception can carry the command and its input; it is
-        # deliberately not chained.
-        raise PreservationError("bucket_keychain_unavailable") from None
-    if completed.returncode != 0:
-        # Keychain tools may echo arguments; never surface their output.
-        raise PreservationError("bucket_keychain_unavailable")
-    return completed.stdout
+    delete_secret(
+        KEYCHAIN_SERVICE,
+        key_name,
+        error="bucket_keychain_unavailable",
+        keychain=keychain,
+    )
 
 
 # Signature Version 4 --------------------------------------------------------

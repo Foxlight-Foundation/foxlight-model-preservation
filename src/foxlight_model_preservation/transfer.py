@@ -170,10 +170,21 @@ class PinnedConnection(http.client.HTTPConnection):
 
 @contextmanager
 def response(
-    source: str, relative: str, policy: TransferPolicy, *, offset: int = 0
+    source: str,
+    relative: str,
+    policy: TransferPolicy,
+    *,
+    offset: int = 0,
+    authorization: str | None = None,
 ) -> Generator[http.client.HTTPResponse]:
-    """Request fixed paths without credentials, redirects, proxies or telemetry."""
+    """Request fixed paths without redirects, proxies or telemetry.
+
+    ``authorization`` is sent only to ``source`` itself; redirects are never
+    followed, so it cannot reach another host. It is refused for plain HTTP.
+    """
     if isinstance(policy, I2PTransferPolicy):
+        if authorization is not None:
+            raise PreservationError("credentials require HTTPS")
         policy.validate()
         try:
             with i2p_http_response(
@@ -217,6 +228,10 @@ def response(
     }
     if offset:
         headers["Range"] = f"bytes={offset}-"
+    if authorization is not None:
+        if parsed.scheme != "https" or any(char in authorization for char in "\r\n"):
+            raise PreservationError("credentials require HTTPS")
+        headers["Authorization"] = authorization
     path = parsed.path.rstrip("/") + "/" + relative
     try:
         connection.request("GET", path, headers=headers)

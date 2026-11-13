@@ -73,6 +73,9 @@ CONTROL_TIMEOUTS: Final[dict[str, float]] = {
     # also fetches the commit's small files to hash them before any download.
     "desktop-hub-search": 30,
     "desktop-hub-review": 30,
+    # Checking a token with Hugging Face, then keychain writes (30 s each).
+    "desktop-hub-token-set": 120,
+    "desktop-hub-token-remove": 60,
     "desktop-plan": 120,
     # Reviewing every public copy's signed terms can take several Core reads.
     "mirror-share-review": 60,
@@ -697,6 +700,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                         "api/desktop-hub-consent",
                         "api/desktop-hub-search",
                         "api/desktop-hub-review",
+                        "api/desktop-hub-token-set",
+                        "api/desktop-hub-token-remove",
                         "api/desktop-copy-search",
                         "api/desktop-copy-recovery-info",
                         "api/desktop-job-read",

@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from typing import cast
 from urllib.parse import quote, urlencode
 
+from .keychain import delete_secret, load_secret, save_secret
 from .models import PreservationError
 from .operations import OperationControl
 from .transfer import MirrorHTTPError, TransferPolicy, response
@@ -96,11 +97,20 @@ def _canonical_path(path: object) -> str:
 
 
 def _read(
-    source: str | None, relative: str, bound: int, policy: TransferPolicy | None
+    source: str | None,
+    relative: str,
+    bound: int,
+    policy: TransferPolicy | None,
+    token: str | None = None,
 ) -> bytes:
     source, policy = source or HUB, policy or HUB_POLICY
     try:
-        with response(source, relative, policy) as received:
+        with response(
+            source,
+            relative,
+            policy,
+            authorization="Bearer " + token if token else None,
+        ) as received:
             data = received.read(bound + 1)
     except MirrorHTTPError as error:
         if error.status_code in {401, 403}:
@@ -156,6 +166,7 @@ def search(
     limit: int = SEARCH_LIMIT,
     source: str | None = None,
     policy: TransferPolicy | None = None,
+    token: str | None = None,
 ) -> list[HubResult]:
     """Search public Hub models by downloads; the query goes to the Hub."""
     words = " ".join(query.split())[:200]
@@ -170,7 +181,9 @@ def search(
             "full": "false",
         }
     )
-    parsed = _json(_read(source, "api/models?" + params, MAX_SEARCH_BYTES, policy))
+    parsed = _json(
+        _read(source, "api/models?" + params, MAX_SEARCH_BYTES, policy, token)
+    )
     if not isinstance(parsed, list):
         raise PreservationError("hub_metadata_invalid")
     results: list[HubResult] = []
@@ -364,6 +377,7 @@ def snapshot(
     *,
     source: str | None = None,
     policy: TransferPolicy | None = None,
+    token: str | None = None,
 ) -> HubSnapshot:
     """Pin a public repository to one commit and list every file's identity."""
     repository_id(repository)
@@ -372,7 +386,9 @@ def snapshot(
     relative = "api/models/" + quote(repository, safe="/")
     if revision is not None:
         relative += "/revision/" + revision
-    parsed = _json(_read(source, relative + "?blobs=true", MAX_INFO_BYTES, policy))
+    parsed = _json(
+        _read(source, relative + "?blobs=true", MAX_INFO_BYTES, policy, token)
+    )
     if not isinstance(parsed, dict):
         raise PreservationError("hub_metadata_invalid")
     info = cast(dict[str, object], parsed)
@@ -454,6 +470,7 @@ def exact_hashes(
     *,
     source: str | None = None,
     policy: TransferPolicy | None = None,
+    token: str | None = None,
 ) -> dict[str, tuple[int, str]]:
     """Give every selected file an exact size and SHA-256.
 
@@ -481,9 +498,78 @@ def exact_hashes(
             + "/"
             + quote(path, safe="/")
         )
-        data = _read(source, relative, item.size_bytes, policy)
+        data = _read(source, relative, item.size_bytes, policy, token)
         if len(data) != item.size_bytes or git_blob_id(data) != item.blob_id:
             raise PreservationError("hub_file_changed")
         fetched += len(data)
         exact[path] = (item.size_bytes, hashlib.sha256(data).hexdigest())
     return exact
+
+
+# A Hugging Face access token ------------------------------------------------
+#
+# Optional. It raises Hugging Face's rate limits and opens gated models the
+# person was granted. It is kept in the OS keychain, sent only to
+# huggingface.co itself (never across redirects, never to mirrors), and never
+# written to plans, logs or errors.
+
+TOKEN_SERVICE = "sovereign-huggingface"  # noqa: S105 - a keychain service name
+TOKEN_ACCOUNT = "token"  # noqa: S105 - a keychain account name, not a secret
+_TOKEN = re.compile(r"hf_[A-Za-z0-9]{20,200}")
+
+
+def token_valid(token: str) -> bool:
+    """Whether a string has the shape of a Hugging Face user access token."""
+    return bool(_TOKEN.fullmatch(token))
+
+
+def whoami(
+    token: str, *, source: str | None = None, policy: TransferPolicy | None = None
+) -> str:
+    """Return the account name a token belongs to; refused tokens raise."""
+    if not token_valid(token):
+        raise PreservationError("hub_token_invalid")
+    try:
+        parsed = _json(_read(source, "api/whoami-v2", 256 * 1024, policy, token))
+    except PreservationError as error:
+        if str(error) == "hub_access_required":
+            raise PreservationError("hub_token_invalid") from None
+        raise
+    name = (
+        cast(dict[str, object], parsed).get("name")
+        if isinstance(parsed, dict)
+        else None
+    )
+    if not isinstance(name, str) or not re.fullmatch(
+        r"[A-Za-z0-9][A-Za-z0-9_.-]{0,95}", name
+    ):
+        raise PreservationError("hub_metadata_invalid")
+    return name
+
+
+def save_token(token: str) -> None:
+    """Keep a token in the OS keychain and read it back."""
+    if not token_valid(token):
+        raise PreservationError("hub_token_invalid")
+    save_secret(
+        TOKEN_SERVICE,
+        TOKEN_ACCOUNT,
+        token,
+        label="Sovereign Hugging Face token",
+        error="hub_keychain_unavailable",
+    )
+    if load_token() != token:
+        raise PreservationError("hub_keychain_unavailable")
+
+
+def load_token() -> str:
+    """Read the stored token from the OS keychain."""
+    token = load_secret(TOKEN_SERVICE, TOKEN_ACCOUNT, error="hub_keychain_unavailable")
+    if not token_valid(token):
+        raise PreservationError("hub_keychain_unavailable")
+    return token
+
+
+def delete_token() -> None:
+    """Remove the stored token; an absent token is already removed."""
+    delete_secret(TOKEN_SERVICE, TOKEN_ACCOUNT, error="hub_keychain_unavailable")

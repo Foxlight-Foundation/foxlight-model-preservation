@@ -191,6 +191,9 @@ class LocalOwner:
             self._backup_calls = 0
             self._closing = False
             self._catalog_lock = threading.RLock()
+            # The Hugging Face token, read from the keychain at most once.
+            self._token_lock = threading.Lock()
+            self._token_cache: tuple[str | None] | None = None
             self._executor = ThreadPoolExecutor(
                 max_workers=1, thread_name_prefix="sovereign"
             )
@@ -377,6 +380,7 @@ class LocalOwner:
             return {
                 "host_kind": "sovereign",
                 "hub_search": self.hub_search_enabled(),
+                "hub_token": self._hub_token_user(),
                 "locations": [],
                 "models": [],
                 "copies": cast(list[JsonValue], copies),
@@ -1573,6 +1577,7 @@ class LocalOwner:
                     control,
                     deadline=deadline,
                     partial=partial,
+                    token=self._hub_token(),
                 )
                 return "origin"
             except OperationError:
@@ -1780,6 +1785,35 @@ class LocalOwner:
                     identity_json({"enabled": body["enabled"]}),
                 )
             return {"hub_search": body["enabled"]}
+        if action == "hub-token-set":
+            token = body.get("token")
+            if set(body) != {"token"} or not isinstance(token, str):
+                raise PreservationError("invalid_control")
+            self._open_check()
+            # Checked with Hugging Face before it is kept; never echoed back.
+            user = hub.whoami(token)
+            hub.save_token(token)
+            with self._lock:
+                self._check()
+                atomic_bytes(
+                    self._root, "hub-token.json", identity_json({"user": user})
+                )
+            with self._token_lock:
+                self._token_cache = (token,)
+            return {"hub_token": user}
+        if action == "hub-token-remove":
+            if body:
+                raise PreservationError("invalid_control")
+            self._open_check()
+            hub.delete_token()
+            with self._lock:
+                self._check()
+                atomic_bytes(
+                    self._root, "hub-token.json", identity_json({"user": None})
+                )
+            with self._token_lock:
+                self._token_cache = (None,)
+            return {"hub_token": None}
         if action == "hub-search":
             query = body.get("query")
             if set(body) != {"query"} or not isinstance(query, str) or len(query) > 200:
@@ -1789,7 +1823,10 @@ class LocalOwner:
             self._open_check()
             return {
                 "source": "huggingface",
-                "results": [item.view() for item in hub.search(query)],  # pyright: ignore[reportReturnType]
+                "results": [
+                    item.view()  # pyright: ignore[reportReturnType]
+                    for item in hub.search(query, token=self._hub_token())
+                ],
             }
         if action == "hub-review":
             repository = body.get("repository")
@@ -1803,7 +1840,9 @@ class LocalOwner:
             ):
                 raise PreservationError("invalid_control")
             self._open_check()
-            pinned = hub.snapshot(hub.repository_id(repository), revision)
+            pinned = hub.snapshot(
+                hub.repository_id(repository), revision, token=self._hub_token()
+            )
             return cast(
                 dict[str, JsonValue],
                 {**pinned.view(), "default_files": pinned.default_selection(variant)},
@@ -1828,7 +1867,9 @@ class LocalOwner:
             ):
                 raise PreservationError("invalid_control")
             self._open_check()
-            pinned = hub.snapshot(hub.repository_id(repository), revision)
+            pinned = hub.snapshot(
+                hub.repository_id(repository), revision, token=self._hub_token()
+            )
             return self._hub_plan(pinned, cast(list[str], files))
         if body.get("kind") == "receive" and set(body) == {
             "kind",
@@ -1855,7 +1896,11 @@ class LocalOwner:
                     str(body["catalog_id"]), card, metadata
                 )
             self._open_check()
-            pinned = hub.snapshot(card.artifact.repository, card.artifact.revision)
+            pinned = hub.snapshot(
+                card.artifact.repository,
+                card.artifact.revision,
+                token=self._hub_token(),
+            )
             gguf = card.card.get("gguf_file")
             files = set(
                 pinned.default_selection(gguf if isinstance(gguf, str) else None)
@@ -1888,6 +1933,32 @@ class LocalOwner:
             )
         return None
 
+    def _hub_token_user(self) -> str | None:
+        """The Hugging Face account a stored token belongs to, if any."""
+        try:
+            value = strict_json(read_metadata(self._root, "hub-token.json"))
+        except (OSError, PreservationError):
+            return None
+        user = value.get("user") if isinstance(value, dict) else None
+        return user if isinstance(user, str) else None
+
+    def _hub_token(self) -> str | None:
+        """The stored token, read from the keychain at most once.
+
+        An unavailable keychain means downloads proceed without a token rather
+        than fail; the person still sees their account under Source and privacy.
+        """
+        with self._token_lock:
+            if self._token_cache is None:
+                token = None
+                if self._hub_token_user() is not None:
+                    try:
+                        token = hub.load_token()
+                    except PreservationError:
+                        token = None
+                self._token_cache = (token,)
+            return self._token_cache[0]
+
     def _open_check(self) -> None:
         with self._lock:
             self._check()
@@ -1905,7 +1976,9 @@ class LocalOwner:
         selected = sorted(set(files))
         for path in selected:
             pinned.file(path)
-        exact = hub.exact_hashes(pinned, selected, OperationControl())
+        exact = hub.exact_hashes(
+            pinned, selected, OperationControl(), token=self._hub_token()
+        )
         licence = licence or pinned.licence
         recipe, _ = hub_recipe(
             pinned.repository,

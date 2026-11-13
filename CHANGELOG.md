@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Optional Hugging Face token. Under Source and privacy, a person can add a
+  Hugging Face access token for Hugging Face's higher rate limits and for gated
+  models they have been granted. Sovereign checks it with Hugging Face
+  (`whoami`) before keeping it, stores it in the OS keychain (macOS Keychain or
+  Secret Service), and shows only the account name afterwards; it can be
+  removed in one step. It is sent only to huggingface.co itself: Hub API
+  requests, and the first hop of a download, never a CDN redirect target, a
+  mirror, plain HTTP or I2P. It is never written to plans, logs or errors; an
+  unavailable keychain means downloads continue without it. New
+  `keychain` module (shared with bucket credentials); `transfer.response`
+  takes an `authorization` sent only to its exact HTTPS source; owner controls
+  `hub-token-set` and `hub-token-remove`; `read()` reports `hub_token` (the
+  account name).
+
 - Find searches Hugging Face, not only saved listings. Searching Hugging Face
   is a one-time choice ("Also search Hugging Face?"), because the search words
   go to huggingface.co; it can be turned off under Source and privacy, and it
