@@ -43,6 +43,7 @@ from ..models import (
     MAX_TOTAL_BYTES,
     FileIdentity,
     Manifest,
+    ManifestMember,
     PreservationError,
     Recipe,
     Record,
@@ -1555,6 +1556,7 @@ class LocalOwner:
         control: OperationControl,
         *,
         deadline: float,
+        preferred: tuple[str, ...] = (),
     ) -> str:
         """Download one signed catalog file, falling back to mirrors by its hash.
 
@@ -1629,8 +1631,10 @@ class LocalOwner:
             and address not in claimed
             and permitted(address, policy)
         )[:4]
-        # Mirrors claiming the file first, then seeds, then other known ones.
-        sources = tuple(dict.fromkeys((*claimed, *seeds, *known)))
+        # Mirrors holding this exact copy first, then those claiming the file,
+        # then seeds, then other known ones.
+        held = tuple(address for address in preferred if permitted(address, policy))
+        sources = tuple(dict.fromkeys((*held, *claimed, *seeds, *known)))
         if not sources:
             raise PreservationError("origin_unavailable") from origin_error
         control.phase("mirroring")
@@ -1669,6 +1673,10 @@ class LocalOwner:
     def _receive(
         self, job: Job, plan: dict[str, JsonValue], control: OperationControl
     ) -> None:
+        # Mirrors that hold this exact copy are asked first for its files.
+        holders = tuple(
+            str(address) for address in cast(list[JsonValue], plan.get("holders") or [])
+        )
         if plan.get("origin") == "mirror":
             # The plan holds the exact recipe and files reviewed; the job
             # verifies every byte against them.
@@ -1747,6 +1755,7 @@ class LocalOwner:
                     work / ".staging",
                     control,
                     deadline=deadline,
+                    preferred=holders,
                 )
                 supplied[source] = supplied.get(source, 0) + 1
         with directory(self.home / "job-sources", create=True) as root:
@@ -1990,6 +1999,49 @@ class LocalOwner:
             )
         return None
 
+    def _origin_check(self, manifest: PMFManifest | Manifest) -> str:
+        """Compare every member's files with Hugging Face at its own revision.
+
+        "matches" only when every member could be checked and all match;
+        "differs" when any file is missing or different; otherwise
+        "unconfirmed". Never a gate: the result is shown and recorded.
+        """
+        results: list[str] = []
+        for member in manifest.members:
+            if isinstance(member, ManifestMember):
+                repository, revision = member.origin_repository, member.origin_revision
+            else:
+                origin = member.origin
+                repository = origin.repository if origin is not None else None
+                revision = origin.revision if origin is not None else None
+            listed = {
+                file.path: file.sha256
+                for file in member.files
+                if file.path != NOTICE_PATH
+            }
+            if not repository or not revision or not listed:
+                results.append("unconfirmed")
+                continue
+            try:
+                pinned = hub.snapshot(repository, revision, token=self._hub_token())
+                exact = hub.exact_hashes(
+                    pinned, listed, OperationControl(), token=self._hub_token()
+                )
+                results.append(
+                    "matches"
+                    if all(exact[path][1] == sha for path, sha in listed.items())
+                    else "differs"
+                )
+            except PreservationError as error:
+                results.append(
+                    "differs"
+                    if str(error) in {"hub_file_unknown", "hub_file_changed"}
+                    else "unconfirmed"
+                )
+        if "differs" in results:
+            return "differs"
+        return "matches" if results and set(results) == {"matches"} else "unconfirmed"
+
     def _held_plan(self, manifest_id: str) -> dict[str, JsonValue]:
         """Plan saving a copy that community mirrors keep, by its content address.
 
@@ -2003,33 +2055,9 @@ class LocalOwner:
         if not holders:
             raise PreservationError("held_copy_unavailable")
         manifest, signers = fetch_held_manifest(manifest_id, holders, self._held_policy)
-        root = next(
-            member
-            for member in manifest.members
-            if member.member_id == manifest.root_member
-        )
         described = holding(manifest_id, manifest)
         repository, revision = described.origin_repository, described.origin_revision
-        check = "unconfirmed"
-        if repository and revision:
-            try:
-                pinned = hub.snapshot(repository, revision, token=self._hub_token())
-                listed = {
-                    file.path: file.sha256
-                    for file in root.files
-                    if file.path != NOTICE_PATH
-                }
-                exact = hub.exact_hashes(
-                    pinned, listed, OperationControl(), token=self._hub_token()
-                )
-                check = (
-                    "matches"
-                    if all(exact[path][1] == sha for path, sha in listed.items())
-                    else "differs"
-                )
-            except PreservationError as error:
-                if str(error) in {"hub_file_unknown", "hub_file_changed"}:
-                    check = "differs"
+        check = self._origin_check(manifest)
         hosts = sorted({urlsplit(address).hostname or address for address in holders})
         origin_text = (
             f"{repository}@{revision}" if repository and revision else "not stated"
@@ -2053,6 +2081,7 @@ class LocalOwner:
                 "origin": "mirror",
                 "name": recipe.name,
                 "manifest": manifest_id,
+                "holders": cast(JsonValue, list(holders[:8])),
                 "recipe": recipe.model_dump(mode="json"),
                 "files": [
                     [repo, rev, path, file.size_bytes, file.object_id or ""]

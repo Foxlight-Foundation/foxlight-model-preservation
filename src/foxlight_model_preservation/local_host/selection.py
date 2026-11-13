@@ -35,6 +35,8 @@ NOTICE = (
     b"Original cards and registry proof are retained.\n"
 )
 NOTICE_PATH = ".sovereign-capture-notice.txt"
+# Where a held copy's original documents are kept, by document ID.
+HELD_DOCUMENTS = ".sovereign-held-documents/"
 
 
 def _registry_groups(
@@ -627,6 +629,29 @@ def held_recipe(
                 files=(*sources, notice),
             )
         )
+    if isinstance(manifest, PMFManifest) and manifest.documents:
+        # Original cards, registry evidence and source documents travel with
+        # the copy: each is kept by its hash beside the member it belongs to.
+        owners = {member.member_id: member for member in members}
+        for document in manifest.documents:
+            target = owners.get(document.member_id or "", owners[manifest.root_member])
+            path = HELD_DOCUMENTS + document.document_id
+            files[(target.origin_repository, target.origin_revision, path)] = (
+                ArtifactFile(
+                    path=path,
+                    size_bytes=document.size,
+                    object_id="sha256:" + document.sha256,
+                )
+            )
+            owners[target.member_id] = target.model_copy(
+                update={
+                    "files": (
+                        *target.files,
+                        SourceFile(path=path, expected_sha256=document.sha256),
+                    )
+                }
+            )
+        members = [owners[member.member_id] for member in members]
     recipe = Recipe(
         schema_version="foxlight.model-preservation.v1",
         name=manifest.name[:200],

@@ -205,6 +205,7 @@ def test_a_held_copy_is_found_and_saved_from_mirrors(
                 {"kind": "receive", "origin": "mirror", "manifest": capture.identity},
             )
             assert plan["origin"] == "mirror"
+            assert plan["holders"] == [address]  # asked first for every file
             assert plan["details"]["origin_check"] == "unconfirmed"
             assert plan["file_count"] == held[0].file_count
             receipt = owner.control(
@@ -238,3 +239,121 @@ def test_a_held_copy_is_found_and_saved_from_mirrors(
         server.shutdown()
         server.server_close()
         thread.join(5)
+
+
+def test_a_held_pmf_copy_keeps_its_original_documents(capture: Capture) -> None:
+    from foxlight_model_preservation.local_host.selection import (
+        HELD_DOCUMENTS,
+        held_recipe,
+    )
+    from foxlight_model_preservation.pmf_models import (
+        PMFDocument,
+        PMFManifest,
+        PMFMember,
+        PMFOrigin,
+    )
+    from foxlight_model_preservation.storage import verify_store
+
+    original = verify_store(capture.store, capture.identity, capture.trust)
+    card = b'{"card": "original"}'
+    manifest = PMFManifest(
+        schema_version="pmf.manifest.v0.1",
+        name="Held model",
+        root_member=original.root_member,
+        members=tuple(
+            PMFMember(
+                member_id=item.member_id,
+                role=item.role,
+                format=item.format,
+                origin=PMFOrigin(
+                    repository=item.origin_repository,
+                    revision=item.origin_revision,
+                    revision_scheme="git-sha1",
+                ),
+                dependencies=item.dependencies,
+                files=item.files,
+                intake=item.intake,
+            )
+            for item in original.members
+        ),
+        documents=(
+            PMFDocument(
+                document_id="original-card",
+                member_id=original.root_member,
+                role="source-card",
+                media_type="application/json",
+                sha256=digest(card),
+                size=len(card),
+            ),
+        ),
+    )
+    recipe, files = held_recipe(manifest, "Kept from community mirrors.")
+    root = next(m for m in recipe.members if m.member_id == recipe.root_member)
+    path = HELD_DOCUMENTS + "original-card"
+    assert any(f.path == path and f.expected_sha256 == digest(card) for f in root.files)
+    assert files[(root.origin_repository, root.origin_revision, path)].object_id == (
+        "sha256:" + digest(card)
+    )
+
+
+def test_an_origin_matches_only_when_every_member_matches(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from foxlight_model_preservation import hub
+    from foxlight_model_preservation.local_host.owner import LocalOwner
+    from foxlight_model_preservation.models import FileIdentity
+    from foxlight_model_preservation.pmf_models import PMFManifest, PMFMember, PMFOrigin
+
+    def member(member_id: str, repo: str, data: bytes, deps: tuple[str, ...] = ()):
+        from foxlight_model_preservation.models import Intake
+
+        return PMFMember(
+            member_id=member_id,
+            role="base" if member_id == "base" else "companion",
+            format="gguf",
+            dependencies=deps,
+            origin=PMFOrigin(
+                repository=repo, revision="a" * 40, revision_scheme="git-sha1"
+            ),
+            files=(FileIdentity(path="w.gguf", size=len(data), sha256=digest(data)),),
+            intake=Intake(
+                audience="private",
+                license_id="apache-2.0",
+                terms_reference="https://example.invalid",
+                decision="test",
+                notice_paths=("w.gguf",),
+            ),
+        )
+
+    good, hub_has = b"base weights", b"projector weights"
+    manifest = PMFManifest(
+        schema_version="pmf.manifest.v0.1",
+        name="Two members",
+        root_member="base",
+        members=(
+            member("base", "org/base", good, ("proj",)),
+            member("proj", "org/proj", b"tampered"),
+        ),
+    )
+    hub_bytes = {"org/base": good, "org/proj": hub_has}
+
+    def snapshot(repository: str, revision: str, **_k: object) -> hub.HubSnapshot:
+        data = hub_bytes[repository]
+        return hub.HubSnapshot(
+            repository,
+            revision,
+            (hub.HubFile("w.gguf", len(data), digest(data), None),),
+            None,
+            False,
+            None,
+            None,
+        )
+
+    monkeypatch.setattr(hub, "snapshot", snapshot)
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        assert owner._origin_check(manifest) == "differs"  # noqa: SLF001
+        hub_bytes["org/proj"] = b"tampered"
+        assert owner._origin_check(manifest) == "matches"  # noqa: SLF001
+    finally:
+        owner.close()
