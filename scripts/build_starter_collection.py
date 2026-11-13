@@ -54,6 +54,7 @@ from foxlight_model_preservation.bucket import (
     BucketClient,
     BucketTarget,
     load_credentials,
+    publish_holdings,
     publish_objects,
     publish_peers,
     publish_to_bucket,
@@ -65,6 +66,7 @@ from foxlight_model_preservation.licences import (
     normalize_license,
 )
 from foxlight_model_preservation.mirror_cards import build_peers, issue_card
+from foxlight_model_preservation.mirror_holdings import issue_holdings, store_holdings
 from foxlight_model_preservation.mirror_models import Terms
 from foxlight_model_preservation.mirror_objects import issue_objects, served_hashes
 from foxlight_model_preservation.models import (
@@ -781,6 +783,21 @@ def publish(
     publish_peers(client, build_peers(card, ()))
     # Same key: lets a catalog save find any starter file by its hash.
     publish_objects(client, issue_objects(card_key, served_hashes(store)))
+    # Same key: names what the starter mirror keeps, so Find can search it.
+    titles = {
+        entry.manifest: (entry.title, entry.licence.license_id)
+        for entry in starter.entries
+    }
+    holdings = [
+        held.model_copy(
+            update={
+                "name": titles[held.manifest][0][:200],
+                "licence": titles[held.manifest][1][:120] or held.licence,
+            }
+        )
+        for held in store_holdings(store, titles)
+    ]
+    publish_holdings(client, issue_holdings(card_key, holdings))
     return {
         "list_id": list_id,
         "list_path": f"starter/{list_id}.json",

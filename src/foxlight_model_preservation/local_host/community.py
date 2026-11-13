@@ -48,6 +48,7 @@ from ..bucket import (
     check_bucket,
     delete_credentials,
     load_credentials,
+    publish_holdings,
     publish_objects,
     publish_peers,
     publish_to_bucket,
@@ -78,6 +79,7 @@ from ..mirror_cards import (
     verify_card,
 )
 from ..mirror_directory import MirrorDirectory
+from ..mirror_holdings import issue_holdings, store_holdings
 from ..mirror_intake import retain_local
 from ..mirror_models import HeldModel, MirrorObservation, SourceGrant, Terms
 from ..mirror_objects import issue_objects, served_hashes
@@ -1261,18 +1263,27 @@ class CommunityMirror:
         document = build_peers(card, self.directory.gossip())
         # Object coverage lets catalog saves find files here by hash. It is
         # signed by the same mirror key and served beside the peers document.
-        objects = None
+        objects = holdings = None
         if card is not None:
             # Optional: a coverage problem must never stop the card renewing.
             with contextlib.suppress(PreservationError, OSError):
                 objects = issue_objects(
                     self._mirror_key(), served_hashes(self.path / "mirror" / "public")
                 )
+            # What this mirror keeps, by name, so others can find it in Find.
+            # It lists exactly the copies the card covers.
+            with contextlib.suppress(PreservationError, OSError):
+                holdings = issue_holdings(
+                    self._mirror_key(),
+                    store_holdings(self.path / "mirror" / "public", held),
+                )
         try:
             with directory(self.path / "mirror") as root:
                 atomic_bytes(root, "peers.json", document)
                 if objects is not None:
                     atomic_bytes(root, "objects.json", objects)
+                if holdings is not None:
+                    atomic_bytes(root, "holdings.json", holdings)
         except FileNotFoundError:
             pass  # No mirror yet; the next sync creates it and announces.
         # Only a document carrying this mirror's card is worth replacing the
@@ -1287,6 +1298,8 @@ class CommunityMirror:
                 publish_peers(client, document)
                 if objects is not None:
                     publish_objects(client, objects)
+                if holdings is not None:
+                    publish_holdings(client, holdings)
             except (ValueError, OSError):
                 pass  # The next round publishes it again.
         return card

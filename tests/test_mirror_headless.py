@@ -1142,6 +1142,7 @@ def test_gossip_round_reads_stay_within_its_reservation(tmp_path, capture, monke
     from foxlight_model_preservation import mirror_announce, nostr
     from foxlight_model_preservation.mirror_cards import MAX_PEERS_BYTES, issue_card
     from foxlight_model_preservation.mirror_directory import MirrorDirectory
+    from foxlight_model_preservation.mirror_holdings import MAX_HOLDINGS_BYTES
     from foxlight_model_preservation.mirror_objects import MAX_OBJECTS_BYTES
     from foxlight_model_preservation.models import MAX_METADATA_BYTES
 
@@ -1242,6 +1243,7 @@ def test_gossip_round_reads_stay_within_its_reservation(tmp_path, capture, monke
     assert (
         mirror_announce.CRAWL_DOCUMENTS * (MAX_PEERS_BYTES + 1)
         + mirror_announce.CRAWL_DOCUMENTS * (MAX_OBJECTS_BYTES + 1)
+        + mirror_announce.CRAWL_DOCUMENTS * (MAX_HOLDINGS_BYTES + 1)
         + mirror_announce.SPOT_CHECKS * 2 * (MAX_METADATA_BYTES + 1)
         + mirror_announce.RELAY_FIND_BYTES
         + mirror_announce.RELAY_PUBLISH_BYTES

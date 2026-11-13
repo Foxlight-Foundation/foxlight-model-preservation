@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- Mirror holdings in Find. Community, bucket and standalone mirrors (and the
+  starter mirror) publish a signed list of the copies they keep at
+  `/.well-known/sovereign/holdings.json` (`sovereign.mirror-holdings.v1`: name,
+  claimed origin repository and revision, format, size, licence, uses; signed
+  by the mirror key, short-lived, at most 1 MiB). Crawls keep a list only when
+  the card's own key signed it, and search them on the device: one result per
+  copy, with every mirror that keeps it. Saving a held copy fetches its
+  manifest by content address (no signer needs to be trusted), checks its
+  claimed origin against Hugging Face (matches, differs or unconfirmed), and
+  downloads every file by hash with the usual mirror fallback, repacked under
+  the owner's own key with the provenance recorded in the copy. A copy whose
+  origin is not confirmed (unconfirmed or differs) is saved only after the
+  owner explicitly acknowledges that (`accept_unconfirmed_origin`), which Core
+  requires and the copy records; AGENTS.md's trust rule says so. New
+  `mirror_holdings` module; owner controls `held-refresh`, `held-search` and a
+  `receive` plan with `origin: mirror`; the gossip reservation grows by the
+  holdings reads (72 MiB).
+
 - Install docs point at the public 0.32 cohort: core 0.32.0, Library 0.28.0,
   Mac build 14, Linux revision 9 (guided setup 0.1.7, graphical setup 0.1.9)
   and `sovereign-mirror:0.32.0`.

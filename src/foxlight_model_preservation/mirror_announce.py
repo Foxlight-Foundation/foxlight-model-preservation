@@ -22,6 +22,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from .discovery import list_sources, search_sources
 from .mirror_cards import MAX_PEERS_BYTES, base_url, build_peers, issue_card
 from .mirror_directory import MirrorDirectory
+from .mirror_holdings import MAX_HOLDINGS_BYTES, issue_holdings, store_holdings
 from .mirror_models import AnnouncePolicy
 from .mirror_objects import MAX_OBJECTS_BYTES, issue_objects, served_hashes
 from .mirror_rendezvous import Rendezvous, rendezvous_available
@@ -35,7 +36,9 @@ from .transfer import TransferPolicy
 
 # Conservative per-round ingress charge for peers documents, relay replies and
 # spot-check manifests. Gossip is skipped when the daily budget cannot cover it.
-GOSSIP_RESERVATION = 64 * 1024**2
+# 64 MiB for peers, coverage, spot checks and relays, plus each crawled
+# mirror's holdings list (CRAWL_DOCUMENTS of up to 1 MiB).
+GOSSIP_RESERVATION = 72 * 1024**2
 # Every read in a round is capped so their bodies fit that reservation:
 # peers documents, spot-check manifests (two addresses each) and relay frames.
 # The remainder covers HTTP response headers; DHT datagrams are not counted.
@@ -47,6 +50,8 @@ ROUND_BODY_BYTES = (
     CRAWL_DOCUMENTS * (MAX_PEERS_BYTES + 1)
     # Each crawled mirror's signed object coverage is read beside its peers.
     + CRAWL_DOCUMENTS * (MAX_OBJECTS_BYTES + 1)
+    # ... and its signed holdings list.
+    + CRAWL_DOCUMENTS * (MAX_HOLDINGS_BYTES + 1)
     + SPOT_CHECKS * 2 * (MAX_METADATA_BYTES + 1)
     + RELAY_FIND_BYTES
     + RELAY_PUBLISH_BYTES
@@ -171,6 +176,16 @@ class Announcer:
                         issue_objects(
                             mirror_key(self.ledger),
                             served_hashes(self.ledger.path / "public"),
+                        ),
+                    )
+                # What this mirror keeps, by name, so Find can search it.
+                with contextlib.suppress(PreservationError, OSError):
+                    atomic_bytes(
+                        root,
+                        "holdings.json",
+                        issue_holdings(
+                            mirror_key(self.ledger),
+                            store_holdings(self.ledger.path / "public", serving),
                         ),
                     )
         return card

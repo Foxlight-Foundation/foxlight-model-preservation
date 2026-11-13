@@ -7,6 +7,7 @@ closing the application requests a cooperative stop and retains its journal.
 
 from __future__ import annotations
 
+import contextlib
 import http.client
 import os
 import re
@@ -36,12 +37,15 @@ from ..licences import (
     terms_review,
 )
 from ..mirror_directory import fetch_with_mirrors, load_seeds, permitted
+from ..mirror_holdings import fetch_held_manifest, holding
 from ..mirror_models import MirrorObservation
 from ..models import (
     MAX_TOTAL_BYTES,
     FileIdentity,
     Manifest,
+    ManifestMember,
     PreservationError,
+    Recipe,
     Record,
     TrustProfile,
 )
@@ -91,6 +95,7 @@ from .selection import (
     check_companions,
     companion_files,
     download_file,
+    held_recipe,
     hub_recipe,
     registry_file_map,
     registry_recipe,
@@ -161,6 +166,8 @@ class LocalOwner:
     """Own local storage and bounded background work with one process writer."""
 
     _seeds_learned_at = float("-inf")
+    # Reaching community mirrors for their holdings: public HTTPS only.
+    _held_policy = TransferPolicy(timeout=15, deadline_seconds=60)
 
     def __init__(self, home: Path, *, catalog: RegistryCatalog | None = None) -> None:
         self.home = home.absolute()
@@ -1009,9 +1016,10 @@ class LocalOwner:
                 raise PreservationError("invalid_control")
             if (
                 action == "start"
-                and set(body) - {"accepted_terms"}
+                and set(body) - {"accepted_terms", "accept_unconfirmed_origin"}
                 == {"plan_id", "operation_id", "confirmed"}
                 and body["confirmed"] is True
+                and body.get("accept_unconfirmed_origin", False) in (True, False)
             ):
                 plan_id = str(body["plan_id"])
                 if not re.fullmatch(r"[0-9a-f]{64}", plan_id):
@@ -1024,6 +1032,16 @@ class LocalOwner:
                 self._accept_terms(
                     plan, plan_id, str(body["operation_id"]), body.get("accepted_terms")
                 )
+                details = plan.get("details")
+                if (
+                    plan.get("origin") == "mirror"
+                    and isinstance(details, dict)
+                    and details.get("origin_check") != "matches"
+                    and body.get("accept_unconfirmed_origin") is not True
+                ):
+                    # Nothing independent vouches for these bytes; the owner
+                    # must say so explicitly, and the copy records it.
+                    raise PreservationError("held_origin_acknowledgement_required")
                 return self._start(
                     {**plan, "plan_id": plan_id}, str(body["operation_id"])
                 )
@@ -1549,6 +1567,7 @@ class LocalOwner:
         control: OperationControl,
         *,
         deadline: float,
+        preferred: tuple[str, ...] = (),
     ) -> str:
         """Download one signed catalog file, falling back to mirrors by its hash.
 
@@ -1623,8 +1642,10 @@ class LocalOwner:
             and address not in claimed
             and permitted(address, policy)
         )[:4]
-        # Mirrors claiming the file first, then seeds, then other known ones.
-        sources = tuple(dict.fromkeys((*claimed, *seeds, *known)))
+        # Mirrors holding this exact copy first, then those claiming the file,
+        # then seeds, then other known ones.
+        held = tuple(address for address in preferred if permitted(address, policy))
+        sources = tuple(dict.fromkeys((*held, *claimed, *seeds, *known)))
         if not sources:
             raise PreservationError("origin_unavailable") from origin_error
         control.phase("mirroring")
@@ -1663,7 +1684,23 @@ class LocalOwner:
     def _receive(
         self, job: Job, plan: dict[str, JsonValue], control: OperationControl
     ) -> None:
-        if plan.get("origin") == "hub":
+        # Mirrors that hold this exact copy are asked first for its files.
+        holders = tuple(
+            str(address) for address in cast(list[JsonValue], plan.get("holders") or [])
+        )
+        if plan.get("origin") == "mirror":
+            # The plan holds the exact recipe and files reviewed; the job
+            # verifies every byte against them.
+            recipe = Recipe.model_validate_json(identity_json(plan["recipe"]))
+            selected_files = {
+                (str(row[0]), str(row[1]), str(row[2])): ArtifactFile(
+                    path=str(row[2]),
+                    size_bytes=cast(int, row[3]),
+                    object_id=str(row[4]),
+                )
+                for row in cast(list[list[JsonValue]], plan["files"])
+            }
+        elif plan.get("origin") == "hub":
             # The reviewed plan carries the exact commit, paths, sizes and
             # SHA-256s; the recipe is rebuilt from them and must match.
             exact = {
@@ -1729,6 +1766,7 @@ class LocalOwner:
                     work / ".staging",
                     control,
                     deadline=deadline,
+                    preferred=holders,
                 )
                 supplied[source] = supplied.get(source, 0) + 1
         with directory(self.home / "job-sources", create=True) as root:
@@ -1814,6 +1852,35 @@ class LocalOwner:
             with self._token_lock:
                 self._token_cache = (None,)
             return {"hub_token": None}
+        if action == "held-refresh":
+            if body:
+                raise PreservationError("invalid_control")
+            self._open_check()
+            # Bounded discovery from the seed mirrors, expanding to the mirrors
+            # they know, so community holdings are findable without sharing.
+            with contextlib.suppress(OSError, ValueError, http.client.HTTPException):
+                self.community.directory.crawl(
+                    load_seeds()[:4],
+                    TransferPolicy(deadline_seconds=60, timeout=8),
+                    max_documents=16,
+                    expand=True,
+                    control=OperationControl(),
+                )
+            return {"mirrors": len(self.community.directory.read().mirrors)}
+        if action == "held-search":
+            query = body.get("query", "")
+            if set(body) - {"query"} or not isinstance(query, str) or len(query) > 200:
+                raise PreservationError("invalid_control")
+            self._open_check()
+            return {
+                "source": "mirrors",
+                "results": cast(
+                    JsonValue,
+                    self.community.directory.held_models(
+                        query, policy=self._held_policy
+                    ),
+                ),
+            }
         if action == "hub-search":
             query = body.get("query")
             if set(body) != {"query"} or not isinstance(query, str) or len(query) > 200:
@@ -1849,6 +1916,16 @@ class LocalOwner:
             )
         if action != "plan":
             return None
+        if body.get("kind") == "receive" and body.get("origin") == "mirror":
+            manifest = body.get("manifest")
+            if (
+                set(body) != {"kind", "origin", "manifest"}
+                or not isinstance(manifest, str)
+                or not re.fullmatch(r"[0-9a-f]{64}", manifest)
+            ):
+                raise PreservationError("invalid_control")
+            self._open_check()
+            return self._held_plan(manifest)
         if body.get("kind") == "receive" and body.get("origin") == "hub":
             if set(body) != {"kind", "origin", "repository", "revision", "files"}:
                 raise PreservationError("invalid_control")
@@ -1932,6 +2009,128 @@ class LocalOwner:
                 },
             )
         return None
+
+    def _origin_check(self, manifest: PMFManifest | Manifest) -> str:
+        """Compare every member's files with Hugging Face at its own revision.
+
+        "matches" only when every member could be checked and all match;
+        "differs" when any file is missing or different; otherwise
+        "unconfirmed". Never a gate: the result is shown and recorded.
+        """
+        results: list[str] = []
+        for member in manifest.members:
+            if isinstance(member, ManifestMember):
+                repository, revision = member.origin_repository, member.origin_revision
+            else:
+                origin = member.origin
+                repository = origin.repository if origin is not None else None
+                revision = origin.revision if origin is not None else None
+            listed = {
+                file.path: file.sha256
+                for file in member.files
+                if file.path != NOTICE_PATH
+            }
+            if not repository or not revision or not listed:
+                results.append("unconfirmed")
+                continue
+            try:
+                pinned = hub.snapshot(repository, revision, token=self._hub_token())
+                exact = hub.exact_hashes(
+                    pinned, listed, OperationControl(), token=self._hub_token()
+                )
+                results.append(
+                    "matches"
+                    if all(exact[path][1] == sha for path, sha in listed.items())
+                    else "differs"
+                )
+            except PreservationError as error:
+                results.append(
+                    "differs"
+                    if str(error) in {"hub_file_unknown", "hub_file_changed"}
+                    else "unconfirmed"
+                )
+        if "differs" in results:
+            return "differs"
+        return "matches" if results and set(results) == {"matches"} else "unconfirmed"
+
+    def _held_plan(self, manifest_id: str) -> dict[str, JsonValue]:
+        """Plan saving a copy that community mirrors keep, by its content address.
+
+        The manifest's identity proves its file list; no signer is trusted.
+        The origin it claims is checked against Hugging Face when possible,
+        and the result is recorded with the copy rather than gating it.
+        """
+        holders = self.community.directory.holders(
+            manifest_id, policy=self._held_policy
+        )
+        if not holders:
+            raise PreservationError("held_copy_unavailable")
+        manifest, signers = fetch_held_manifest(manifest_id, holders, self._held_policy)
+        described = holding(manifest_id, manifest)
+        repository, revision = described.origin_repository, described.origin_revision
+        check = self._origin_check(manifest)
+        hosts = sorted({urlsplit(address).hostname or address for address in holders})
+        origin_text = (
+            f"{repository}@{revision}" if repository and revision else "not stated"
+        )
+        decision = (
+            f"Kept from community mirrors ({', '.join(hosts[:8])}). "
+            f"Claimed origin {origin_text}: "
+            + {
+                "matches": "matches Hugging Face.",
+                "differs": "differs from Hugging Face.",
+                "unconfirmed": "not confirmed (Hugging Face unavailable).",
+            }[check]
+            + f" Original signer {', '.join(signers[:4])}. "
+            + (
+                ""
+                if check == "matches"
+                else "Kept only after the owner acknowledged that its origin could "
+                "not be confirmed. "
+            )
+            + "Explicit private preservation; no redistribution grant."
+        )
+        recipe, selected = held_recipe(manifest, decision)
+        licence = described.licence
+        return self._plan(
+            {
+                "kind": "receive",
+                "origin": "mirror",
+                "name": recipe.name,
+                "manifest": manifest_id,
+                "holders": cast(JsonValue, list(holders[:8])),
+                "recipe": recipe.model_dump(mode="json"),
+                "files": [
+                    [repo, rev, path, file.size_bytes, file.object_id or ""]
+                    for (repo, rev, path), file in sorted(selected.items())
+                ],
+                "details": {
+                    "license": licence,
+                    "origin_repository": repository,
+                    "origin_revision": revision,
+                    "origin_check": check,
+                    "mirrors": cast(JsonValue, hosts[:8]),
+                    "signers": cast(JsonValue, list(signers[:4])),
+                    "file_list": "mirror",
+                },
+                "terms": terms_review(
+                    member_terms(
+                        recipe.members,
+                        fallback=licence or "",
+                        fallback_origin=(repository or "", revision or ""),
+                    )
+                ),
+                "historical": False,
+                "file_count": len(selected),
+                "projector_included": any(
+                    "mmproj" in path.lower() for (_r, _v, path) in selected
+                ),
+                "members": [member.origin_repository for member in recipe.members],
+                "size_bytes": sum(file.size_bytes for file in selected.values()),
+                "source": "community mirrors, and huggingface.co while it still has "
+                "the same files",
+            }
+        )
 
     def _hub_token_user(self) -> str | None:
         """The Hugging Face account a stored token belongs to, if any."""

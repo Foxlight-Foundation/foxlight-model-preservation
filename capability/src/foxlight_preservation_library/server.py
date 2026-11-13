@@ -72,6 +72,9 @@ CONTROL_TIMEOUTS: Final[dict[str, float]] = {
     # Hugging Face search and review make bounded Hub requests; a Hub save plan
     # also fetches the commit's small files to hash them before any download.
     "desktop-hub-search": 30,
+    # Discovering community mirrors reads bounded documents (about 60 s).
+    "desktop-held-refresh": 90,
+    "desktop-held-search": 30,
     "desktop-hub-review": 30,
     # Checking a token with Hugging Face, then keychain writes (30 s each).
     "desktop-hub-token-set": 120,
@@ -699,6 +702,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                         "api/desktop-search",
                         "api/desktop-hub-consent",
                         "api/desktop-hub-search",
+                        "api/desktop-held-refresh",
+                        "api/desktop-held-search",
                         "api/desktop-hub-review",
                         "api/desktop-hub-token-set",
                         "api/desktop-hub-token-remove",
