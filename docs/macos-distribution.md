@@ -13,10 +13,12 @@ rebuilding or signing them. Developer ID signing, Apple notarization and an
 installed-app journey remain separate checks. A locally passing Gatekeeper
 check does not establish clean-host acceptance, model compatibility or anonymity.
 
-The build14 recipe pairs the authenticated public core 0.32 / Library 0.28 cohort,
-which adds Hugging Face search in Find (any public model, pinned to an exact version and
-checked file by file), savable registry listings that pin a revision but carry
-no file list, and an optional Hugging Face token for faster and gated downloads. Build 13 paired core 0.31 / Library 0.27,
+The build15 recipe pairs the authenticated public core 0.33 / Library 0.29 cohort,
+which adds mirror holdings in Find (models community mirrors keep stay findable and
+savable after their original host removes them, with an origin check against
+Hugging Face). Build 14 paired core 0.32 / Library 0.28,
+which added Hugging Face search in Find, savable listings without their own file
+list and an optional Hugging Face token. Build 13 paired core 0.31 / Library 0.27,
 which added saves that fall back to community mirrors, resumable Hugging Face
 downloads and bucket upload retries. Build 12 paired core 0.30 / Library 0.26,
 which added the starter mirror fallback and starter collection, plainer first-time
