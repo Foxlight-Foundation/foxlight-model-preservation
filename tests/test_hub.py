@@ -399,3 +399,103 @@ def test_a_legacy_listing_keeps_its_own_licence_over_hub_metadata(
         assert plan["details"]["license"] == "listing-own-licence"
     finally:
         owner.close()
+
+
+def _legacy_catalog(tmp_path: Path, card_body: dict):
+    from datetime import UTC, datetime, timedelta
+
+    from test_local_owner import accepted_catalog
+
+    from foxlight_model_preservation.cards import create_card, identity_json
+    from foxlight_model_preservation.signing import encode_record
+    from foxlight_model_preservation.storage import atomic_bytes, directory
+
+    catalog, repo, _ = accepted_catalog(tmp_path, companion=False)
+    legacy = create_card(card_body)
+    repo.target = identity_json(
+        {
+            "cards": [legacy.model_dump(mode="json")],
+            "card_metadata": {legacy.card_id: {"provenance": "community"}},
+        }
+    )
+    repo.refresh(expires=datetime.now(UTC) + timedelta(days=1))
+    with directory(catalog.cache) as root:
+        atomic_bytes(root, "catalogs/" + digest(repo.target) + ".json", repo.target)
+        atomic_bytes(
+            root, "proofs/" + digest(repo.target) + ".json", encode_record(repo.proof())
+        )
+        atomic_bytes(
+            root, "accepted.json", identity_json({"catalog_id": digest(repo.target)})
+        )
+    return catalog, legacy
+
+
+def test_a_legacy_listing_with_a_companion_elsewhere_is_not_saveable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from test_cards_proofs import body
+
+    catalog, legacy = _legacy_catalog(
+        tmp_path, {**body(), "vision": {"weights_repo": "other/vision-tower"}}
+    )
+    asked: list[object] = []
+    monkeypatch.setattr(hub, "snapshot", lambda *a, **k: asked.append(a))
+    owner = LocalOwner(tmp_path / "owner", catalog=catalog)
+    try:
+        listing = owner.control("search", {})
+        assert listing["results"][0]["download_support"] == "companion_adapter_required"
+        with pytest.raises(PreservationError, match="companion_adapter_required"):
+            owner.control(
+                "plan",
+                {
+                    "kind": "receive",
+                    "catalog_id": listing["catalog_id"],
+                    "card_id": legacy.card_id,
+                },
+            )
+        assert asked == []  # Hugging Face was never contacted
+    finally:
+        owner.close()
+
+
+def test_a_legacy_listing_saves_the_projector_it_names(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from test_cards_proofs import body
+
+    catalog, legacy = _legacy_catalog(
+        tmp_path,
+        {
+            **body(),
+            "gguf_file": "m-Q4_K_M.gguf",
+            "vision": {"projector_file": "mmproj-F32.gguf"},
+        },
+    )
+    pinned = hub.HubSnapshot(
+        legacy.artifact.repository,
+        legacy.artifact.revision,
+        tuple(
+            hub.HubFile(path, 10, "0" * 64, None)
+            for path in ("m-Q4_K_M.gguf", "mmproj-F16.gguf", "mmproj-F32.gguf")
+        ),
+        None,
+        False,
+        None,
+        None,
+    )
+    monkeypatch.setattr(hub, "snapshot", lambda *a, **k: pinned)
+    owner = LocalOwner(tmp_path / "owner", catalog=catalog)
+    try:
+        listing = owner.control("search", {})
+        assert listing["results"][0]["download_support"] == "ready"
+        plan = owner.control(
+            "plan",
+            {
+                "kind": "receive",
+                "catalog_id": listing["catalog_id"],
+                "card_id": legacy.card_id,
+            },
+        )
+        assert sorted(plan["files"]) == ["m-Q4_K_M.gguf", "mmproj-F32.gguf"]
+    finally:
+        owner.close()

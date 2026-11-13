@@ -88,6 +88,8 @@ from .selection import (
     NOTICE,
     NOTICE_PATH,
     OriginHTTPError,
+    check_companions,
+    companion_files,
     download_file,
     hub_recipe,
     registry_file_map,
@@ -1842,6 +1844,9 @@ class LocalOwner:
                 )
                 if card.artifact.bundle is not None or card.card.get("image"):
                     return None
+                # Unsupported companion declarations are refused before any
+                # request reaches Hugging Face.
+                check_companions(card, None)
                 metadata = captured_card_metadata(proof, card)
                 # This path retains no card, so the listing's own licence is
                 # carried explicitly; only without one do the catalog and
@@ -1852,10 +1857,28 @@ class LocalOwner:
             self._open_check()
             pinned = hub.snapshot(card.artifact.repository, card.artifact.revision)
             gguf = card.card.get("gguf_file")
-            files = pinned.default_selection(gguf if isinstance(gguf, str) else None)
+            files = set(
+                pinned.default_selection(gguf if isinstance(gguf, str) else None)
+            )
+            named = companion_files(card)
+            if any("mmproj" in path.lower() for path in named):
+                # The listing names its projector; no other one is taken.
+                files = {path for path in files if "mmproj" not in path.lower()}
+            available = {item.path for item in pinned.files}
+            files |= {path for path in named if path in available}
+            check_companions(
+                card,
+                {
+                    (pinned.repository, pinned.revision, item.path): ArtifactFile(
+                        path=item.path, size_bytes=item.size_bytes
+                    )
+                    for item in pinned.files
+                    if item.path in files
+                },
+            )
             return self._hub_plan(
                 pinned,
-                files,
+                sorted(files),
                 licence=licence,
                 listing={
                     "catalog_id": str(body["catalog_id"]),

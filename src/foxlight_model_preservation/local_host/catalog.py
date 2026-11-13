@@ -398,7 +398,7 @@ class RegistryCatalog:
         licences = self.licences(digest(raw))
         for card in self._cards(raw):
             from .presentation import card_summary, search_words
-            from .selection import registry_file_map, registry_recipe
+            from .selection import check_companions, registry_file_map, registry_recipe
 
             # Display the same selected base-origin paths as download review.
             # Unsupported selections remain browsable with their original map.
@@ -452,7 +452,12 @@ class RegistryCatalog:
                 if support == "complete_signed_file_map_required" and not card.card.get(
                     "image"
                 ):
-                    support, file_list = "ready", "huggingface"
+                    try:
+                        # Declared companions must be in this one repository.
+                        check_companions(card, None)
+                        support, file_list = "ready", "huggingface"
+                    except PreservationError as companion:
+                        support = str(companion)
             rows.append(
                 {
                     "card_id": card.card_id,
