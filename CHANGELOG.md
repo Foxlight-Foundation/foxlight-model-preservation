@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Pin Sovereign Mac build 14 and Linux revision 9 to the authenticated
+  Library 0.28 installation archive (sha256 8ee926d2…, source d8055f4f; its
+  desktop lock carries core 0.32.0 and libtorrent 2.0.14), which adds Hugging
+  Face search in Find, savable listings without their own file list and an
+  optional Hugging Face token. Native signing, notarization, apt publication
+  and qualification remain separate gates.
+
 ## 0.32.0
 
 - Optional Hugging Face token. Under Source and privacy, a person can add a

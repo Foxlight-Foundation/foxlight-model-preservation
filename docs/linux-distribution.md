@@ -265,10 +265,14 @@ Skulk, capability SDK, model runtime, GPU or hosted account. Sharing is opt-in.
 To remove the software, use `sudo apt remove foxlight-sovereign`. The Library,
 models, provenance and saved recovery files remain under your control.
 
-The current recipe is **0.1.0 revision 8**, paired with the authenticated public
-core 0.31 / Library 0.27 cohort, which adds saves that fall back to community mirrors when Hugging Face can't provide a file
-(guided by signed mirror object coverage), resumable Hugging Face downloads that
-report each save's sources, and bucket uploads that survive slow connections.
+The current recipe is **0.1.0 revision 9**, paired with the authenticated public
+core 0.32 / Library 0.28 cohort, which adds Hugging Face search in Find (any public model, pinned to an exact version and
+checked file by file), savable registry listings that pin a revision but carry
+no file list, and an optional Hugging Face token for faster and gated downloads. Its packages, signed apt
+indexes and qualification are published separately; until then the channel and
+guided setup remain revision 8.
+Revision 8 (core 0.31 / Library 0.27) added saves that fall back to community
+mirrors, resumable Hugging Face downloads and bucket upload retries.
 Revision 7 (core 0.30 / Library 0.26) added the starter mirror fallback and
 starter collection, plainer first-time wording, and model licences from the
 registry's signed licence file.
