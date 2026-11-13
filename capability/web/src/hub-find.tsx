@@ -27,7 +27,7 @@ export function HubFind({query,enabled,busy,explainError,onEnabled,onPlan}:{quer
     {results?.length===0&&!searching&&<p className="sk-hint sk-pad">No public Hugging Face models match “{words}”.</p>}
     <div className="sk-cards">{results?.map(item=><article className="sk-card sk-result" key={item.repository} aria-label={item.repository}>
       <div className="sk-model-head"><Monogram text={initials(item.name)}/><div className="sk-model-title"><h3>{item.name}</h3><p className="sk-meta">{item.owner}{item.task&&` · ${item.task.replaceAll('-',' ')}`} · {count(item.downloads)} downloads</p></div><span className="sk-tag">Hugging Face</span></div>
-      {item.gated&&<p className="sk-hint sk-warn">Hugging Face asks for an account and permission before downloading this model.</p>}
+      {item.gated&&<p className="sk-hint sk-warn">Hugging Face asks for an account and permission before downloading this model. If you’ve been given access, add your Hugging Face token under Source and privacy.</p>}
       {open===item.repository?<HubFiles repository={item.repository} busy={busy} explainError={explainError} onClose={()=>setOpen(null)} onPlan={onPlan}/>:<div className="sk-actions"><button className="sk-btn sk-outline" disabled={busy} onClick={()=>setOpen(item.repository)}>Choose files</button></div>}
     </article>)}</div>
   </section>;
@@ -52,4 +52,15 @@ function HubFiles({repository,busy,explainError,onClose,onPlan}:{repository:stri
     <Details summary="Verification details"><p>This copy comes straight from Hugging Face, not from a reviewed listing. Sovereign pins it to this exact version, checks every file against its fingerprint, and can fetch the same files from community mirrors if Hugging Face can’t provide them.</p><Mono value={review.revision} label="exact version"/></Details>
     {review.gated&&<Pill tone="bad">Access required on Hugging Face</Pill>}
   </div>;
+}
+
+/** A Hugging Face token: checked with Hugging Face, kept in the system keychain, never shown again. */
+export function HubToken({user,busy,explainError,onChange}:{user:string|null;busy:boolean;explainError:(code:string)=>string;onChange:()=>Promise<void>}) {
+  const [token,setToken]=useState(''),[working,setWorking]=useState(false),[error,setError]=useState('');
+  async function run(action:string,body:Record<string,unknown>){setWorking(true);setError('');try{await api(action,body);setToken('');await onChange();}catch(err){setError(err instanceof Error?err.message:'hub_unavailable');}finally{setWorking(false);}}
+  if(user)return <div className="sk-hub-token"><p>Connected to Hugging Face as <strong>{user}</strong>. Downloads use your account’s higher limits and can include models you’ve been given access to.</p><button className="sk-btn sk-quiet" disabled={busy||working} onClick={()=>void run('desktop-hub-token-remove',{})}>Remove Hugging Face token</button>{error&&<Callout tone="bad" role="alert">{explainError(error)}</Callout>}</div>;
+  return <div className="sk-hub-token"><p>Optional: add a Hugging Face access token for faster downloads and models you’ve been given access to. Create a <strong>read</strong> token at huggingface.co under Settings → Access Tokens. Sovereign checks it with Hugging Face, keeps it in this computer’s keychain, and sends it only to huggingface.co.</p>
+    <label className="sk-field" htmlFor="hub-token"><span>Hugging Face token</span><input id="hub-token" className="sk-input" type="password" autoComplete="off" spellCheck={false} placeholder="hf_…" maxLength={210} value={token} onChange={event=>setToken(event.target.value.trim())}/></label>
+    <div className="sk-actions"><button className="sk-btn sk-outline" disabled={busy||working||!/^hf_[A-Za-z0-9]{20,200}$/.test(token)} onClick={()=>void run('desktop-hub-token-set',{token})}>{working?'Checking…':'Save token'}</button></div>
+    {error&&<Callout tone="bad" role="alert">{explainError(error)}</Callout>}</div>;
 }

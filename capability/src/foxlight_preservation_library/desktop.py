@@ -109,6 +109,8 @@ class DesktopClient(CoreClient):
                 "hub_file_changed",
                 "hub_small_files_too_large",
                 "hub_selection_empty",
+                "hub_token_invalid",
+                "hub_keychain_unavailable",
                 "companion_adapter_required",
                 "invalid_control",
                 "plan_changed",

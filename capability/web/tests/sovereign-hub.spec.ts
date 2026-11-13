@@ -37,3 +37,27 @@ test('Hugging Face search waits for consent, then plans the exact reviewed files
   expect(plans[0]).toEqual({kind:'receive',origin:'hub',repository,revision,files:['README.md','tiny-Q8_0.gguf']});
   await expect(page.getByText('pinned to one exact version',{exact:false})).toBeVisible();
 });
+
+test('a Hugging Face token is entered privately, shown only as the account, and removable',async({page})=>{
+  let user:string|null=null;const sent:unknown[]=[];
+  await page.route('**/api/library*',r=>r.fulfill({json:{host_kind:'sovereign',hub_search:true,hub_token:user,copies:[],jobs:[],next_offset:null}}));
+  await page.route('**/api/desktop-search',r=>r.fulfill({json:{catalog_id:'c'.repeat(64),results:[],total:0,next_offset:null}}));
+  await page.route('**/api/desktop-source-read',r=>r.fulfill({json:{sources:[]}}));
+  await page.route('**/api/desktop-source-search',r=>r.fulfill({json:{results:[],total:0,next_offset:null}}));
+  await page.route('**/api/desktop-copy-search',r=>r.fulfill({json:{results:[],total:0,stored_total:0,next_offset:null}}));
+  await page.route('**/api/desktop-hub-token-set',r=>{sent.push(r.request().postDataJSON());user='someone';return r.fulfill({json:{hub_token:user}});});
+  await page.route('**/api/desktop-hub-token-remove',r=>{user=null;return r.fulfill({json:{hub_token:null}});});
+  const token='hf_'+'A1b2C3d4'.repeat(4);
+  await page.goto('/');
+  await page.getByText('Source and privacy').click();
+  const field=page.getByLabel('Hugging Face token');
+  await expect(field).toHaveAttribute('type','password');
+  await expect(page.getByRole('button',{name:'Save token'})).toBeDisabled();
+  await field.fill(token);
+  await page.getByRole('button',{name:'Save token'}).click();
+  await expect(page.getByText('Connected to Hugging Face as',{exact:false})).toBeVisible();
+  expect(sent).toEqual([{token}]);
+  expect(await page.content()).not.toContain(token);
+  await page.getByRole('button',{name:'Remove Hugging Face token'}).click();
+  await expect(page.getByLabel('Hugging Face token')).toBeVisible();
+});

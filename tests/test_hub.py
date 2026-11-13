@@ -206,7 +206,7 @@ def _finish(owner: LocalOwner, receipt: dict[str, object], seconds: float = 60) 
 
 def _serve_origin(monkeypatch: pytest.MonkeyPatch, fake: FakeHub) -> None:
     def from_fake(
-        repository, revision, file, destination, control, *, deadline, partial
+        repository, revision, file, destination, control, *, deadline, partial, token
     ):
         assert (repository, revision) == (REPO, REVISION)
         destination.write_bytes(fake.files[file.path][0])

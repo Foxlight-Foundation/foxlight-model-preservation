@@ -69,8 +69,13 @@ that exact version, and if Hugging Face can't provide a file, Sovereign asks
 community mirrors for the same file by its fingerprint.
 
 A model straight from Hugging Face isn't a reviewed listing. Some models ask for
-a Hugging Face account and permission first; Sovereign shows that and can't
-download them for you.
+a Hugging Face account and permission first. If you've been given access, add
+your Hugging Face token under **Source and privacy**: create a **read** token at
+huggingface.co under Settings → Access Tokens and paste it in. A token also
+raises Hugging Face's download limits. Sovereign checks it with Hugging Face,
+keeps it in your computer's keychain, shows only your account name afterwards,
+and sends it only to huggingface.co, never to mirrors. Remove it there at any
+time.
 
 If a listing cannot be downloaded completely, choose another ready version or
 ask its publisher for a complete kit. Installing Skulk is not required to use

@@ -502,6 +502,13 @@ the same verification, resume and community-mirror fallback as a registry save.
 The model's declared licence is recorded in the copy. This is not registry
 review: it establishes exactly which bytes were kept, not who should be trusted.
 
+An optional Hugging Face access token raises Hugging Face's rate limits and
+opens gated models the person was granted. It is checked with Hugging Face
+before it is kept, stored in the OS keychain (macOS Keychain or Secret
+Service), and sent only to `huggingface.co` itself: API requests and the first
+hop of each download. It never follows a redirect to a CDN, never goes to a
+mirror, plain HTTP or I2P, and is never written to plans, logs or errors.
+
 Registry listings that pin a revision but carry no file list of their own are
 saved the same way: Sovereign takes Hugging Face's file list for the exact
 revision the listing pins. The registry listing and Skulk are unchanged.

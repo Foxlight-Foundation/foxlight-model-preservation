@@ -6,6 +6,9 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Add or remove a Hugging Face token under Source and privacy, for faster
+  downloads and gated models you've been given access to. Requires core 0.32.
+
 - Find searches Hugging Face as well as saved listings (one-time choice), with
   a file review that pins the exact version, offers GGUF quant choices and
   hands the plan to the usual "Keep a copy" review. Listings without their own
