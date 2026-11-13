@@ -25,7 +25,7 @@ No Skulk, hosted account, GPU or manual Python setup is required by the native a
 New here? Follow [your first model with Sovereign](docs/getting-started.md):
 install, find, preserve, send a kit and recover on another computer.
 
-- **Mac (Apple silicon):** [download Sovereign 0.1.0 build 13](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/sovereign-macos-v0.1.0-build13),
+- **Mac (Apple silicon):** [download Sovereign 0.1.0 build 14](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/sovereign-macos-v0.1.0-build14),
   open the DMG and drag **Sovereign** to **Applications**.
   [Verification and installation](docs/macos-distribution.md).
 - **Linux / APT (amd64 or arm64):** [graphical setup](docs/linux-distribution.md#graphical-setup-recommended) detects your processor and configures signed app updates. Guided terminal setup, manual apt and verified Debian packages are also available.
@@ -40,9 +40,9 @@ software signing, and an unfamiliar capture key still needs explicit review.
 
 The [independent Library](docs/sovereign-desktop.md) also supports signed catalog
 browsing, independent source following and offline search. The public Library
-0.27 installation archive includes both independent public packages.
+0.28 installation archive includes both independent public packages.
 For the independent interface, authenticate and extract the
-[Library 0.27 archive](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/library-v0.27.0),
+[Library 0.28 archive](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/library-v0.28.0),
 then select its desktop profile:
 
 ```sh
@@ -53,18 +53,26 @@ python3 install.py --directory "$HOME/sovereign-desktop" \
 
 This Python installation path needs Python 3.13+ and uv. Follow the
 [verification and offline installation guide](docs/installation.md) before
-executing the helper. The 0.27 desktop profile offers first-launch choices for **Browse public models**,
+executing the helper. The 0.28 desktop profile offers first-launch choices for **Browse public models**,
 **Open a recovery kit** and **Open a sharing file**, with reusable **Getting started** help.
 **Share** separates a kit to send from public-mirror review; **Recovery instructions**
 provides the saved copy’s public verification identifiers for separate comparison. No Skulk or managed SDK is required.
 
 ## Current public previews
 
-- **Standalone 0.31.0** includes persistent HTTP/IPFS/BitTorrent mirrors,
+- **Standalone 0.32.0** includes persistent HTTP/IPFS/BitTorrent mirrors,
   offline local-copy intake, portable handoffs, signed source following,
   retained-copy inspection/recovery-kit export, offline completion recovery,
   PirateFace lookup/intake and
   the separately opted-in I2P pilots.
+- **Standalone 0.32.0 / Library 0.28.0** search Hugging Face from Find (a
+  one-time choice, because search words go to huggingface.co), so any public
+  model can be kept: it is pinned to an exact version, every file is checked
+  against its fingerprint, its licence is recorded, and community mirrors can
+  supply the same files. Registry listings without their own file list become
+  savable, and an optional Hugging Face token (kept in the OS keychain, sent only
+  to huggingface.co) gives faster and gated downloads. They publish
+  `ghcr.io/foxlight-foundation/sovereign-mirror:0.32.0`.
 - **Standalone 0.31.0 / Library 0.27.0** fall back to community mirrors when
   saving from Find: Hugging Face is still tried first, and if it can't provide a
   file, Sovereign fetches the same file by its signed hash from the starter mirror
@@ -126,13 +134,13 @@ censorship resistance for at-risk users.
 ## Install
 
 Python 3.11+ on Linux or macOS, with an authenticated Python/uv toolchain. Use the
-[0.31.0 installation archive](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/v0.31.0)
+[0.32.0 installation archive](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/v0.32.0)
 and its detached attestation bundle. [Verify it first](docs/installation.md),
 extract it, then install into a new directory:
 
 ```sh
-python3 install.py --directory "$HOME/sovereign-0.31.0"
-"$HOME/sovereign-0.31.0/bin/model-preserve" --help
+python3 install.py --directory "$HOME/sovereign-0.32.0"
+"$HOME/sovereign-0.32.0/bin/model-preserve" --help
 ```
 
 The archive contains the exact package wheel, source, hash-locked dependencies

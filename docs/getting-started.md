@@ -4,8 +4,7 @@ Sovereign helps you find a model, keep its complete files, and recover them if
 their original host disappears. You do not need Skulk, an account or a GPU to
 keep or recover a model. Running it later needs a compatible model application.
 
-These instructions cover core 0.32 / Library 0.28 on Linux revision 9, and Mac build 13
-(core 0.31 / Library 0.27) until Mac build 14 is published.
+These instructions cover core 0.32 / Library 0.28: Mac build 14 and Linux revision 9.
 The first-launch choices, Getting started help, recipient instructions,
 Share → Save kit to send and **Help keep models available** on the Sharing screen
 require that matching cohort. Older native installers
@@ -15,7 +14,7 @@ is also available without a native app or Skulk.
 ## Install and open
 
 - **Apple silicon Mac:** download the DMG from the
-  [public Mac release](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/sovereign-macos-v0.1.0-build13),
+  [public Mac release](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/sovereign-macos-v0.1.0-build14),
   open it, drag **Sovereign** to **Applications**, then open Sovereign normally.
   macOS checks the app's Developer ID and notarization. See
   [Mac installation](macos-distribution.md) for supported systems and independent
