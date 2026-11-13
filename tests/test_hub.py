@@ -320,3 +320,82 @@ def test_a_hub_plan_refuses_files_the_commit_does_not_have(
             )
     finally:
         owner.close()
+
+
+def test_defaults_keep_weights_that_are_not_duplicate_encodings() -> None:
+    files = tuple(
+        hub.HubFile(path, 1, "0" * 64, None)
+        for path in (
+            "config.json",
+            "model.safetensors",
+            "pytorch_model.bin",
+            "rust_model.ot",
+            "onnx/model.onnx",
+            "voices/af.pt",
+            "unet/diffusion_pytorch_model.bin",
+            "unet/diffusion_pytorch_model.safetensors",
+        )
+    )
+    pinned = hub.HubSnapshot(REPO, REVISION, files, None, False, None, None)
+    assert pinned.default_selection() == [
+        "config.json",
+        "model.safetensors",
+        "unet/diffusion_pytorch_model.safetensors",
+        "voices/af.pt",
+    ]
+
+
+def test_a_legacy_listing_keeps_its_own_licence_over_hub_metadata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from test_cards_proofs import body
+    from test_local_owner import accepted_catalog
+
+    from foxlight_model_preservation.cards import create_card, identity_json
+    from foxlight_model_preservation.signing import encode_record
+    from foxlight_model_preservation.storage import atomic_bytes, directory
+
+    catalog, repo, _ = accepted_catalog(tmp_path, companion=False)
+    legacy = create_card({**body(), "license": {"name": "listing-own-licence"}})
+    repo.target = identity_json(
+        {
+            "cards": [legacy.model_dump(mode="json")],
+            "card_metadata": {legacy.card_id: {"provenance": "community"}},
+        }
+    )
+    repo.refresh(expires=datetime.now(UTC) + timedelta(days=1))
+    with directory(catalog.cache) as root:
+        atomic_bytes(root, "catalogs/" + digest(repo.target) + ".json", repo.target)
+        atomic_bytes(
+            root, "proofs/" + digest(repo.target) + ".json", encode_record(repo.proof())
+        )
+        atomic_bytes(
+            root, "accepted.json", identity_json({"catalog_id": digest(repo.target)})
+        )
+    pinned = hub.HubSnapshot(
+        legacy.artifact.repository,
+        legacy.artifact.revision,
+        (hub.HubFile("model.safetensors", len(WEIGHTS), digest(WEIGHTS), None),),
+        "apache-2.0",
+        False,
+        None,
+        None,
+    )
+    monkeypatch.setattr(hub, "snapshot", lambda *a, **k: pinned)
+    owner = LocalOwner(tmp_path / "owner", catalog=catalog)
+    try:
+        listing = owner.control("search", {})
+        plan = owner.control(
+            "plan",
+            {
+                "kind": "receive",
+                "catalog_id": listing["catalog_id"],
+                "card_id": legacy.card_id,
+            },
+        )
+        assert plan["origin"] == "hub"
+        assert plan["details"]["license"] == "listing-own-licence"
+    finally:
+        owner.close()

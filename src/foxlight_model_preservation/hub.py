@@ -258,7 +258,9 @@ class HubSnapshot:
         Q4_K_M-style quant when present), its split parts, one projector
         (F16 preferred) when the repository has any, and the small non-weight
         files. Other repositories take everything except
-        alternative encodings of weights that are also present as safetensors.
+        alternative encodings of weights that are also present as safetensors
+        (same folder and name), and alternative-runtime folders such as
+        ``onnx/``; other weight files are kept.
         """
         variants = self.variants()
         if variants:
@@ -292,16 +294,24 @@ class HubSnapshot:
                 elif not item.is_weight:
                     keep.append(item.path)
             return sorted(keep)
-        has_safetensors = any(
-            item.path.lower().endswith(".safetensors") for item in self.files
-        )
+        # Weights also present as safetensors in the same folder, under the
+        # same name, are an alternative encoding and skipped. Any other weight
+        # file (a voice, an adapter, a component) is part of the model.
+        safetensors = {
+            _weight_key(item.path)
+            for item in self.files
+            if item.path.lower().endswith(".safetensors")
+        }
         return sorted(
             item.path
             for item in self.files
             if not (
-                has_safetensors
+                safetensors
                 and (
-                    item.path.lower().endswith(_ALTERNATE)
+                    (
+                        item.path.lower().endswith(_ALTERNATE)
+                        and _weight_key(item.path) in safetensors
+                    )
                     or item.path.lower().startswith(_ALTERNATE_FOLDERS)
                 )
             )
@@ -327,6 +337,17 @@ class HubSnapshot:
                 for item in self.files
             ],
         }
+
+
+def _weight_key(path: str) -> tuple[str, str]:
+    """Folder and framework-neutral stem (``pytorch_model.bin`` ~ ``model``)."""
+    folder, _, name = path.lower().rpartition("/")
+    stem = name.rsplit(".", 1)[0]
+    for prefix in ("pytorch_", "tf_", "flax_", "rust_"):
+        if stem.startswith(prefix + "model"):
+            stem = stem[len(prefix) :]
+            break
+    return folder, stem
 
 
 def _preferred(variants: Sequence[str]) -> str:

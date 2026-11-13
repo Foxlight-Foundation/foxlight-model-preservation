@@ -1843,7 +1843,10 @@ class LocalOwner:
                 if card.artifact.bundle is not None or card.card.get("image"):
                     return None
                 metadata = captured_card_metadata(proof, card)
-                licence = self._registry_licence(
+                # This path retains no card, so the listing's own licence is
+                # carried explicitly; only without one do the catalog and
+                # registry licence file apply. Hub metadata is never preferred.
+                licence = card_license(card.card) or self._registry_licence(
                     str(body["catalog_id"]), card, metadata
                 )
             self._open_check()
