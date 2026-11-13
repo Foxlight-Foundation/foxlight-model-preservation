@@ -96,10 +96,24 @@ def load_secret(
     return raw.rstrip("\n")
 
 
+# ``security`` exits with errSecItemNotFound's code when nothing is stored.
+_MAC_NOT_FOUND = 44
+
+
 def delete_secret(
-    service: str, account: str, *, error: str, keychain: Path | None = None
+    service: str,
+    account: str,
+    *,
+    error: str,
+    keychain: Path | None = None,
+    strict: bool = False,
 ) -> None:
-    """Remove one secret; a missing entry is already removed."""
+    """Remove one secret; a missing entry is already removed.
+
+    With ``strict``, any other failure (a locked or unavailable keychain)
+    raises ``error``, so a caller never reports a secret removed that is
+    still stored.
+    """
     _check(service, account, error)
     if os.uname().sysname == "Darwin":
         command = [
@@ -113,10 +127,26 @@ def delete_secret(
         ]
     else:
         command = ["secret-tool", "clear", "service", service, "account", account]
+    if not strict:
+        try:
+            run(command, None, error)
+        except PreservationError:
+            pass  # Already absent, or the keychain is unavailable; nothing to leak.
+        return
+    returncode = _status(command, error)
+    darwin = os.uname().sysname == "Darwin"
+    if returncode != 0 and not (darwin and returncode == _MAC_NOT_FOUND):
+        raise PreservationError(error)
+
+
+def _status(command: list[str], error: str) -> int:
     try:
-        run(command, None, error)
-    except PreservationError:
-        pass  # Already absent, or the keychain is unavailable; nothing to leak.
+        completed = subprocess.run(  # noqa: S603 - fixed system keychain tools
+            command, capture_output=True, text=True, timeout=30, check=False
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        raise PreservationError(error) from None
+    return completed.returncode
 
 
 def run(command: list[str], stdin: str | None, error: str) -> str:

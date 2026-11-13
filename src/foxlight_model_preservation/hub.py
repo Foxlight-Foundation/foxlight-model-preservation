@@ -571,5 +571,11 @@ def load_token() -> str:
 
 
 def delete_token() -> None:
-    """Remove the stored token; an absent token is already removed."""
-    delete_secret(TOKEN_SERVICE, TOKEN_ACCOUNT, error="hub_keychain_unavailable")
+    """Remove the stored token; an absent token is already removed.
+
+    A locked or unavailable keychain raises, so the person can retry rather
+    than be told a token was removed that is still stored.
+    """
+    delete_secret(
+        TOKEN_SERVICE, TOKEN_ACCOUNT, error="hub_keychain_unavailable", strict=True
+    )

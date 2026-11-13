@@ -162,3 +162,47 @@ def test_a_refused_token_is_not_kept(
         assert saved == [] and owner.read()["hub_token"] is None
     finally:
         owner.close()
+
+
+def test_removing_a_token_reports_a_locked_keychain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import os
+    import subprocess
+
+    codes = iter([44, 0, 36])
+
+    def fake(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(command, next(codes), "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake)
+    monkeypatch.setattr(
+        os, "uname", lambda: os.uname_result(("Darwin", "", "", "", ""))
+    )
+    hub.delete_token()  # 44: nothing stored, already removed
+    hub.delete_token()  # 0: removed
+    with pytest.raises(PreservationError, match="hub_keychain_unavailable"):
+        hub.delete_token()  # 36: locked keychain
+
+
+def test_a_failed_removal_keeps_showing_the_account(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stored = {"token": TOKEN}
+    monkeypatch.setattr(hub, "whoami", lambda token, **_: "someone")
+    monkeypatch.setattr(hub, "save_token", lambda token: stored.update(token=token))
+    monkeypatch.setattr(hub, "load_token", lambda: stored["token"])
+
+    def locked() -> None:
+        raise PreservationError("hub_keychain_unavailable")
+
+    monkeypatch.setattr(hub, "delete_token", locked)
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        owner.control("hub-token-set", {"token": TOKEN})
+        with pytest.raises(PreservationError, match="hub_keychain_unavailable"):
+            owner.control("hub-token-remove", {})
+        assert owner.read()["hub_token"] == "someone"
+        assert owner._hub_token() == TOKEN  # noqa: SLF001
+    finally:
+        owner.close()
