@@ -1,11 +1,11 @@
 {
   "schema_version": "sovereign.linux-inputs.v1",
   "version": "0.1.0",
-  "revision": "8",
+  "revision": "9",
   "library": {
-    "url": "https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.27.0/foxlight-preservation-library-0.27.0-install.zip",
-    "sha256": "40ddc68bdd29e420855c5978ac418aeeee73948ce76dee4a1839e08162a167c2",
-    "source_revision": "ec4f166a9175cefbf2152a45919407f17ca5d84c"
+    "url": "https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.28.0/foxlight-preservation-library-0.28.0-install.zip",
+    "sha256": "8ee926d29590d44c298a8f29a7178697461be67e4e7273320ac64397354fba74",
+    "source_revision": "d8055f4fb4c34c73b2c324b954b8c5b6cf6947f6"
   },
   "architectures": {
     "amd64": {
