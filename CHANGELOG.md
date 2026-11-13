@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.33.0
+
 - Mirror holdings in Find. Community, bucket and standalone mirrors (and the
   starter mirror) publish a signed list of the copies they keep at
   `/.well-known/sovereign/holdings.json` (`sovereign.mirror-holdings.v1`: name,

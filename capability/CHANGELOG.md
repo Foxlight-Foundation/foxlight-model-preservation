@@ -6,11 +6,13 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+## 0.29.0
+
 - Find shows models kept by community mirrors, found from their signed lists
   and searched on this device, with "Kept by N mirrors" (also on matching
   Hugging Face results). Keeping one checks its origin against Hugging Face
   and says what was confirmed. Discovery starts only after Browse public
-  models or Hugging Face search was chosen. Requires core 0.33.
+  models or Hugging Face search was chosen. Requires core 0.33.0.
 
 - Install docs point at the public 0.32 cohort: core 0.32.0, Library 0.28.0,
   Mac build 14, Linux revision 9 (guided setup 0.1.7, graphical setup 0.1.9)
