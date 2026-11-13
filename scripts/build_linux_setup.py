@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 
 PROJECT = Path(__file__).resolve().parents[1]
-SETUP_VERSION = "0.1.9"
+SETUP_VERSION = "0.1.10"
 PACKAGE_VERSION = SETUP_VERSION + "-1"
 SHARE = Path("usr/share/foxlight-sovereign-setup")
 
