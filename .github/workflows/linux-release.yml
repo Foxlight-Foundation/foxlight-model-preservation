@@ -111,11 +111,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > notes.md <<'MD'
-          Independent Sovereign desktop for Ubuntu 24.04 on amd64 and arm64. Contains Library 0.28 / core 0.32, its own Python runtime and the Horizon interface with first-launch guidance, kit sharing, recovery instructions and the opt-in **Help keep models available** mirror; no Skulk, account or GPU is required. Installing starts no services, model downloads or sharing, and mirroring begins only after you turn it on.
+          Independent Sovereign desktop for Ubuntu 24.04 on amd64 and arm64. Contains Library 0.29 / core 0.33, its own Python runtime and the Horizon interface with first-launch guidance, kit sharing, recovery instructions and the opt-in **Help keep models available** mirror; no Skulk, account or GPU is required. Installing starts no services, model downloads or sharing, and mirroring begins only after you turn it on.
 
-          Download the package for your architecture, `SHA256SUMS`, and `linux-release.sigstore.json`. Verify the checksums and GitHub attestation before `sudo apt install ./foxlight-sovereign_0.1.0-9_ARCH.deb`. Launch **Sovereign** from your applications menu or run `sovereign`.
+          Download the package for your architecture, `SHA256SUMS`, and `linux-release.sigstore.json`. Verify the checksums and GitHub attestation before `sudo apt install ./foxlight-sovereign_0.1.0-10_ARCH.deb`. Launch **Sovereign** from your applications menu or run `sovereign`.
 
           Native installation, sandboxed window, file-chooser cancellation, PMF companion/provenance restoration and tamper refusal were tested on both architectures. Models are restored as files; model execution and other distributions are unqualified. Removing the package retains your Library. See [installation and verification](https://github.com/Foxlight-Foundation/foxlight-model-preservation/blob/main/docs/linux-distribution.md). Signed apt repository publication is separate from these attested packages.
           MD
           gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \
-            --verify-tag --prerelease --title 'Sovereign for Linux 0.1.0-9' --notes-file notes.md
+            --verify-tag --prerelease --title 'Sovereign for Linux 0.1.0-10' --notes-file notes.md

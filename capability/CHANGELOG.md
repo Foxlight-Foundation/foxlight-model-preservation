@@ -6,6 +6,12 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Pin Sovereign Mac build 15 and Linux revision 10 to the authenticated
+  Library 0.29 installation archive (sha256 ae9467bf…, source c300dd6e; its
+  desktop lock carries core 0.33.0 and libtorrent 2.0.14), which adds mirror
+  holdings in Find. Native signing, notarization, apt publication and
+  qualification remain separate gates.
+
 ## 0.29.0
 
 - Find shows models kept by community mirrors, found from their signed lists
