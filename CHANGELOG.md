@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.32.0
+
 - Optional Hugging Face token. Under Source and privacy, a person can add a
   Hugging Face access token for Hugging Face's higher rate limits and for gated
   models they have been granted. Sovereign checks it with Hugging Face
