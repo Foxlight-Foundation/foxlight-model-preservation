@@ -1,0 +1,145 @@
+"""Signed holdings: what a mirror keeps, searchable on the device."""
+
+from __future__ import annotations
+
+import random
+import shutil
+import threading
+import time
+import urllib.request
+from pathlib import Path
+
+import pytest
+from conftest import Capture
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+from foxlight_model_preservation.mirror_cards import build_peers, issue_card
+from foxlight_model_preservation.mirror_directory import MirrorDirectory
+from foxlight_model_preservation.mirror_holdings import (
+    HOLDINGS_PATH,
+    MAX_HOLDINGS_BYTES,
+    Holding,
+    issue_holdings,
+    store_holdings,
+    verify_holdings,
+)
+from foxlight_model_preservation.models import PreservationError
+from foxlight_model_preservation.seed import SeedServer
+from foxlight_model_preservation.signing import digest, public_record
+from foxlight_model_preservation.transfer import TransferPolicy
+
+LAB = TransferPolicy(allow_http=True, allow_private=True, timeout=3)
+
+
+def _entry(index: int, name: str = "model") -> Holding:
+    return Holding(
+        manifest=digest(f"{name} {index}".encode()),
+        name=f"{name} {index}",
+        origin_repository="example/model",
+        origin_revision="a" * 40,
+        format="gguf",
+        size_bytes=1000,
+        file_count=2,
+        licence="apache-2.0",
+        workloads=("chat",),
+    )
+
+
+def test_holdings_are_self_signed_short_lived_and_bounded() -> None:
+    key = Ed25519PrivateKey.generate()
+    document = issue_holdings(key, [_entry(1), _entry(1), _entry(2)])
+    held = verify_holdings(document, public_record(key))
+    assert sorted(entry.name for entry in held.entries) == ["model 1", "model 2"]
+    with pytest.raises(PreservationError, match="another mirror key"):
+        verify_holdings(document, public_record(Ed25519PrivateKey.generate()))
+    expired = issue_holdings(key, [_entry(1)], lifetime=60, now=int(time.time()) - 3600)
+    with pytest.raises(PreservationError, match="expired"):
+        verify_holdings(expired, public_record(key))
+    # A list larger than the budget drops entries rather than fail.
+    many = issue_holdings(key, [_entry(index) for index in range(5000)])
+    assert len(many) <= MAX_HOLDINGS_BYTES
+    assert 0 < len(verify_holdings(many, public_record(key)).entries) <= 2000
+
+
+def test_a_store_is_described_from_its_own_manifests(capture: Capture) -> None:
+    entries = store_holdings(capture.store, [capture.identity, digest(b"absent")])
+    assert [entry.manifest for entry in entries] == [capture.identity]
+    assert entries[0].size_bytes > 0 and entries[0].file_count >= 1
+
+
+def _serve(store: Path, capture: Capture, documents: dict[str, Path]):
+    server = SeedServer(("127.0.0.1", 0), store, (capture.identity,), capture.trust)
+    server.documents = documents
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server, thread, f"http://127.0.0.1:{server.server_address[1]}"
+
+
+def test_a_crawl_keeps_holdings_signed_by_the_card_key_and_searches_them(
+    tmp_path: Path, capture: Capture
+) -> None:
+    store = tmp_path / "served"
+    shutil.copytree(capture.store, store)
+    key = Ed25519PrivateKey.generate()
+    peers, holdings = tmp_path / "peers.json", tmp_path / "holdings.json"
+    server, thread, address = _serve(
+        store,
+        capture,
+        {"/.well-known/sovereign/peers.json": peers, "/" + HOLDINGS_PATH: holdings},
+    )
+    try:
+        peers.write_bytes(
+            build_peers(issue_card(key, (address,), {capture.identity}), ())
+        )
+        held = store_holdings(store, [capture.identity])
+        name = held[0].name
+        # A list signed by some other key is never kept.
+        holdings.write_bytes(issue_holdings(Ed25519PrivateKey.generate(), held))
+        client = MirrorDirectory(tmp_path / "client", rng=random.Random(1))  # noqa: S311
+        client.crawl((address,), LAB, expand=False)
+        assert client.held_models(policy=LAB) == []
+        holdings.write_bytes(issue_holdings(key, held))
+        client.crawl((address,), LAB, expand=False)
+        found = client.held_models(name.split()[0], policy=LAB)
+        assert [row["manifest"] for row in found] == [capture.identity]
+        assert found[0]["mirrors"] == [address] and found[0]["mirror_count"] == 1
+        assert client.held_models("no such model", policy=LAB) == []
+        assert client.holders(capture.identity, policy=LAB) == [address]
+        # The default HTTPS-only policy never offers a plain-HTTP mirror.
+        assert client.held_models(policy=TransferPolicy()) == []
+        # The served document is the one the mirror signed.
+        with urllib.request.urlopen(address + "/" + HOLDINGS_PATH, timeout=5) as reply:  # noqa: S310
+            assert verify_holdings(reply.read(), public_record(key)).entries == tuple(
+                held
+            )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(5)
+
+
+def test_one_copy_kept_by_two_mirrors_is_one_result(
+    tmp_path: Path, capture: Capture
+) -> None:
+    from foxlight_model_preservation.mirror_directory import _objects_name  # noqa: PLC2701
+    from foxlight_model_preservation.storage import atomic_bytes, directory
+
+    client = MirrorDirectory(tmp_path / "client", rng=random.Random(3))  # noqa: S311
+    keys = [Ed25519PrivateKey.generate() for _ in range(2)]
+    addresses = ["https://one.example", "https://two.example"]
+    cards = [
+        issue_card(key, (url,), {capture.identity})
+        for key, url in zip(keys, addresses, strict=True)
+    ]
+    client.ingest(cards)
+    held = [_entry(7, "shared")]
+    with directory(tmp_path / "client" / "holdings", create=True) as root:
+        for key in keys:
+            atomic_bytes(
+                root,
+                _objects_name(public_record(key).key_id),
+                issue_holdings(key, held),
+            )
+    rows = client.held_models("shared")
+    assert len(rows) == 1 and rows[0]["mirror_count"] == 2
+    assert sorted(rows[0]["mirrors"]) == addresses

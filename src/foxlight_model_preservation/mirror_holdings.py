@@ -26,14 +26,17 @@ from .mirror_cards import CLOCK_SKEW, MAX_CARD_SECONDS
 from .models import (
     MAX_METADATA_BYTES,
     Digest,
+    Manifest,
+    ManifestMember,
     PreservationError,
     Record,
     TrustedKey,
     TrustProfile,
 )
 from .pmf import load_pmf
-from .pmf_models import PMFManifest
+from .pmf_models import PMF_TYPE, PMFManifest
 from .signing import (
+    BUNDLE_TYPE,
     Envelope,
     canonical_bytes,
     decode_base64,
@@ -91,21 +94,25 @@ class MirrorHoldings(Record):
         return self
 
 
-def holding(manifest_id: str, manifest: PMFManifest) -> Holding:
-    """Describe a verified held copy from its own manifest."""
+def holding(manifest_id: str, manifest: PMFManifest | Manifest) -> Holding:
+    """Describe a held copy from its own manifest (PMF or the earlier format)."""
     root = next(
         member
         for member in manifest.members
         if member.member_id == manifest.root_member
     )
-    origin = root.origin
-    revision = origin.revision if origin is not None else None
+    if isinstance(root, ManifestMember):
+        repository, revision = root.origin_repository, root.origin_revision
+    else:
+        origin = root.origin
+        repository = origin.repository if origin is not None else None
+        revision = origin.revision if origin is not None else None
     licence = root.intake.license_id.strip().lower()
     return Holding(
         manifest=manifest_id,
         name=manifest.name[:200],
-        origin_repository=origin.repository[:200]
-        if origin is not None and origin.repository and len(origin.repository) >= 3
+        origin_repository=repository[:200]
+        if repository and len(repository) >= 3
         else None,
         origin_revision=revision
         if revision is not None and re.fullmatch(r"[0-9a-f]{40}", revision)
@@ -202,7 +209,16 @@ def store_holdings(store: Path, manifests: Iterable[str]) -> list[Holding]:
             payload = decode_base64(envelope.payload)
             if digest(payload) != manifest_id:
                 continue
-            entries.append(holding(manifest_id, load_pmf(payload)))
+            if envelope.payloadType == PMF_TYPE:
+                described = holding(manifest_id, load_pmf(payload))
+            elif envelope.payloadType == BUNDLE_TYPE:
+                described = holding(
+                    manifest_id,
+                    Manifest.model_validate_json(canonical_bytes(strict_json(payload))),
+                )
+            else:
+                continue
+            entries.append(described)
         except (OSError, ValueError, PreservationError):
             continue
     return entries
