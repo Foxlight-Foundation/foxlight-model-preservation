@@ -20,6 +20,7 @@ from .discovery import follow_source, list_sources, refresh_source, search_sourc
 from .discovery_models import MAX_SOURCES
 from .mirror_announce import Announcer, remove_peers
 from .mirror_cards import PEERS_PATH
+from .mirror_holdings import HOLDINGS_PATH
 from .mirror_models import (
     HeldModel,
     IntakePolicy,
@@ -1296,6 +1297,7 @@ class MirrorServer(SeedServer):
         self.documents = {
             "/" + PEERS_PATH: ledger.path / "peers.json",
             "/" + OBJECTS_PATH: ledger.path / "objects.json",
+            "/" + HOLDINGS_PATH: ledger.path / "holdings.json",
         }
         self.allowed = {}
         self.owners: dict[str, set[str]] = {}

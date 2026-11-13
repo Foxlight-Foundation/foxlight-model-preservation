@@ -37,6 +37,7 @@ from pydantic import Field, field_validator, model_validator
 from .archives import archive_objects, verify_archive_manifest
 from .keychain import delete_secret, load_secret, save_secret
 from .mirror_cards import PEERS_PATH, base_url
+from .mirror_holdings import HOLDINGS_PATH
 from .mirror_objects import OBJECTS_PATH
 from .models import PreservationError, Record, TrustProfile
 from .operations import OperationControl, OperationError
@@ -901,6 +902,11 @@ def publish_peers(client: BucketClient, document: bytes) -> None:
 def publish_objects(client: BucketClient, document: bytes) -> None:
     """Publish this bucket's signed object coverage beside its peers document."""
     client.put_bytes(OBJECTS_PATH, document, "application/json")
+
+
+def publish_holdings(client: BucketClient, document: bytes) -> None:
+    """Publish this bucket's signed holdings list beside its peers document."""
+    client.put_bytes(HOLDINGS_PATH, document, "application/json")
 
 
 def check_bucket(

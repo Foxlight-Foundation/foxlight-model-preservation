@@ -28,12 +28,12 @@ import random
 import threading
 import time
 import uuid
-from collections.abc import Callable, Generator, Iterable
+from collections.abc import Callable, Generator, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from importlib.resources import files
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 from urllib.parse import urlsplit
 
 from pydantic import Field, JsonValue, field_validator
@@ -49,6 +49,12 @@ from .mirror_cards import (
     read_peers,
 )
 from .mirror_cards import verify_card as _verify_card
+from .mirror_holdings import (
+    HOLDINGS_PATH,
+    MAX_HOLDINGS_BYTES,
+    MirrorHoldings,
+    verify_holdings,
+)
 from .mirror_objects import MAX_OBJECTS_BYTES, OBJECTS_PATH, verify_objects
 from .models import (
     MAX_METADATA_BYTES,
@@ -92,6 +98,8 @@ from .transfer import (
 MAX_MIRRORS = 2048
 # Cached signed object coverage, across every kept mirror.
 OBJECTS_CACHE_BYTES = 64 * 1024**2
+# Kept mirror holdings (what each mirror says it keeps), pruned the same way.
+HOLDINGS_CACHE_BYTES = 64 * 1024**2
 DROP_AFTER = 3
 MAX_CARD_BYTES = 64 * 1024
 # Comfortably below the 8 MiB metadata reader limit, so a full directory can
@@ -323,8 +331,9 @@ def _objects_name(key_id: str) -> str:
     return digest(key_id.encode()) + ".json"
 
 
-def _prune_objects(root: int, keep: set[str]) -> None:
+def _prune_objects(root: int, keep: set[str], budget: int | None = None) -> None:
     """Drop coverage of mirrors no longer kept, then the oldest past the budget."""
+    budget = OBJECTS_CACHE_BYTES if budget is None else budget
     entries: list[tuple[float, int, str]] = []
     for name in os.listdir(root):
         if name not in keep:
@@ -336,7 +345,7 @@ def _prune_objects(root: int, keep: set[str]) -> None:
             entries.append((info.st_mtime, info.st_size, name))
     total = sum(size for _mtime, size, _name in entries)
     for _mtime, size, name in sorted(entries):
-        if total <= OBJECTS_CACHE_BYTES:
+        if total <= budget:
             break
         with contextlib.suppress(FileNotFoundError):
             os.unlink(name, dir_fd=root)
@@ -527,6 +536,7 @@ class MirrorDirectory:
             added += self.ingest(cards)
             try:
                 self._keep_objects(base, cards, policy, deadline, active)
+                self._keep_holdings(base, cards, policy, deadline, active)
             except DeadlineExceeded:
                 break
             if not expand:
@@ -573,6 +583,129 @@ class MirrorDirectory:
                 atomic_bytes(root, _objects_name(card.mirror_key.key_id), data)
                 _prune_objects(root, {_objects_name(key) for key in admitted})
             return
+
+    def _keep_holdings(
+        self,
+        base: str,
+        cards: list[bytes],
+        policy: TransferPolicy,
+        deadline: float,
+        control: OperationControl,
+    ) -> None:
+        """Fetch and keep the holdings list of the mirror serving ``base``.
+
+        Kept exactly like object coverage: only a list signed by that mirror's
+        own card key, only for a mirror this directory keeps, within a budget.
+        """
+        admitted = set(self.read().mirrors)
+        for raw in cards:
+            try:
+                card = _verify_card(raw)
+            except (ValueError, PreservationError):
+                continue
+            if base not in card.addresses or card.mirror_key.key_id not in admitted:
+                continue
+            try:
+                data = _bounded_read(
+                    base, HOLDINGS_PATH, policy, MAX_HOLDINGS_BYTES, deadline, control
+                )
+                verify_holdings(data, card.mirror_key)
+            except OperationError:
+                raise
+            except (OSError, ValueError, http.client.HTTPException):
+                return
+            with directory(self.path / "holdings", create=True) as root:
+                atomic_bytes(root, _objects_name(card.mirror_key.key_id), data)
+                _prune_objects(
+                    root,
+                    {_objects_name(key) for key in admitted},
+                    HOLDINGS_CACHE_BYTES,
+                )
+            return
+
+    def _live_holdings(
+        self, policy: TransferPolicy, instant: int
+    ) -> Iterator[tuple[list[str], int, MirrorHoldings]]:
+        """Each live mirror's verified holdings, with its permitted addresses."""
+        for seen in self.read().mirrors.values():
+            card = None if _dropped(seen) else _live(seen, instant)
+            if card is None:
+                continue
+            addresses = [
+                address for address in card.addresses if permitted(address, policy)
+            ]
+            if not addresses:
+                continue
+            try:
+                with directory(self.path / "holdings") as root:
+                    data = read_metadata(root, _objects_name(card.mirror_key.key_id))
+                held = verify_holdings(data, card.mirror_key, now=instant)
+            except (FileNotFoundError, ValueError, PreservationError):
+                continue
+            yield addresses, seen.successes - seen.failures, held
+
+    def held_models(
+        self,
+        query: str = "",
+        *,
+        policy: TransferPolicy = DEFAULT_POLICY,
+        limit: int = 48,
+        now: int | None = None,
+    ) -> list[dict[str, JsonValue]]:
+        """Search, on this device, what known mirrors say they keep.
+
+        One result per copy (manifest), with every mirror that lists it; the
+        most widely kept first. Names and origins are the mirrors' claims.
+        """
+        instant = int(time.time()) if now is None else now
+        terms = query.casefold().split()
+        found: dict[str, dict[str, JsonValue]] = {}
+        mirrors: dict[str, list[str]] = {}
+        for addresses, _score, held in self._live_holdings(policy, instant):
+            for entry in held.entries:
+                text = " ".join(
+                    filter(
+                        None,
+                        (
+                            entry.name,
+                            entry.origin_repository,
+                            entry.format,
+                            entry.licence,
+                            *entry.workloads,
+                        ),
+                    )
+                ).casefold()
+                if not all(term in text for term in terms):
+                    continue
+                found.setdefault(entry.manifest, entry.model_dump(mode="json"))
+                listed = mirrors.setdefault(entry.manifest, [])
+                listed.extend(address for address in addresses if address not in listed)
+        rows = [
+            {
+                **row,
+                "mirrors": cast(JsonValue, mirrors[key][:8]),
+                "mirror_count": len(mirrors[key]),
+            }
+            for key, row in found.items()
+        ]
+        rows.sort(key=lambda row: (-cast(int, row["mirror_count"]), str(row["name"])))
+        return rows[:limit]
+
+    def holders(
+        self,
+        manifest: str,
+        *,
+        policy: TransferPolicy = DEFAULT_POLICY,
+        now: int | None = None,
+    ) -> list[str]:
+        """Addresses of live mirrors that list a copy, best-scoring first."""
+        instant = int(time.time()) if now is None else now
+        ranked: list[tuple[int, str]] = []
+        for addresses, score, held in self._live_holdings(policy, instant):
+            if any(entry.manifest == manifest for entry in held.entries):
+                ranked.extend((score, address) for address in addresses)
+        ranked.sort(key=lambda item: -item[0])
+        return list(dict.fromkeys(address for _score, address in ranked))
 
     def object_sources(
         self,
