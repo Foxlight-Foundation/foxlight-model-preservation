@@ -208,18 +208,25 @@ def test_a_held_copy_is_found_and_saved_from_mirrors(
             assert plan["holders"] == [address]  # asked first for every file
             assert plan["details"]["origin_check"] == "unconfirmed"
             assert plan["file_count"] == held[0].file_count
+            start = {
+                "plan_id": plan["plan_id"],
+                "operation_id": str(uuid.uuid4()),
+                "confirmed": True,
+                **(
+                    {"accepted_terms": plan["terms"]["accept"]}
+                    if plan["terms"]["accept"]
+                    else {}
+                ),
+            }
+            # Nothing independent vouches for these bytes: an explicit
+            # acknowledgement is required before anything downloads.
+            with pytest.raises(
+                PreservationError, match="held_origin_acknowledgement_required"
+            ):
+                owner.control("start", start)
+            assert owner.read()["jobs"] == []
             receipt = owner.control(
-                "start",
-                {
-                    "plan_id": plan["plan_id"],
-                    "operation_id": str(uuid.uuid4()),
-                    "confirmed": True,
-                    **(
-                        {"accepted_terms": plan["terms"]["accept"]}
-                        if plan["terms"]["accept"]
-                        else {}
-                    ),
-                },
+                "start", {**start, "accept_unconfirmed_origin": True}
             )
             end = time.monotonic() + 60
             while time.monotonic() < end:

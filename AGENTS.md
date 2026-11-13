@@ -8,6 +8,10 @@ accounts. Internal strategy, plans and operations belong in private foxlight-doc
 - Never commit private keys, credentials, real operator inventories or weights.
 - Signing a capture does not establish upstream authorship or qualification.
 - Require independent trust and exact manifest identity before fetching weights.
+  A copy found in community mirror holdings is identified by its exact
+  manifest ID; it may be saved when its origin is confirmed against Hugging
+  Face, or after the owner explicitly acknowledges that it could not be. The
+  acknowledgement is required by Core and recorded in the copy (Tom, 2026-11-13).
 - Keep consumers receive-only. Serving and public intake are explicit choices.
 - Publish complete generations only after all required bytes pass verification.
 - Public functions/classes require useful docstrings and precise types.

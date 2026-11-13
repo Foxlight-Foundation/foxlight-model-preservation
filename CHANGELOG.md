@@ -12,7 +12,10 @@
   manifest by content address (no signer needs to be trusted), checks its
   claimed origin against Hugging Face (matches, differs or unconfirmed), and
   downloads every file by hash with the usual mirror fallback, repacked under
-  the owner's own key with the provenance recorded in the copy. New
+  the owner's own key with the provenance recorded in the copy. A copy whose
+  origin is not confirmed (unconfirmed or differs) is saved only after the
+  owner explicitly acknowledges that (`accept_unconfirmed_origin`), which Core
+  requires and the copy records; AGENTS.md's trust rule says so. New
   `mirror_holdings` module; owner controls `held-refresh`, `held-search` and a
   `receive` plan with `origin: mirror`; the gossip reservation grows by the
   holdings reads (72 MiB).

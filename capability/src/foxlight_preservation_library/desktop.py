@@ -111,6 +111,7 @@ class DesktopClient(CoreClient):
                 "hub_selection_empty",
                 "hub_token_invalid",
                 "held_copy_unavailable",
+                "held_origin_acknowledgement_required",
                 "held_copy_origin_unknown",
                 "held_manifest_mismatch",
                 "held_manifest_unsupported",

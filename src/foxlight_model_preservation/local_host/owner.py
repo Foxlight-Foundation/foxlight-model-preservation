@@ -1016,9 +1016,10 @@ class LocalOwner:
                 raise PreservationError("invalid_control")
             if (
                 action == "start"
-                and set(body) - {"accepted_terms"}
+                and set(body) - {"accepted_terms", "accept_unconfirmed_origin"}
                 == {"plan_id", "operation_id", "confirmed"}
                 and body["confirmed"] is True
+                and body.get("accept_unconfirmed_origin", False) in (True, False)
             ):
                 plan_id = str(body["plan_id"])
                 if not re.fullmatch(r"[0-9a-f]{64}", plan_id):
@@ -1031,6 +1032,16 @@ class LocalOwner:
                 self._accept_terms(
                     plan, plan_id, str(body["operation_id"]), body.get("accepted_terms")
                 )
+                details = plan.get("details")
+                if (
+                    plan.get("origin") == "mirror"
+                    and isinstance(details, dict)
+                    and details.get("origin_check") != "matches"
+                    and body.get("accept_unconfirmed_origin") is not True
+                ):
+                    # Nothing independent vouches for these bytes; the owner
+                    # must say so explicitly, and the copy records it.
+                    raise PreservationError("held_origin_acknowledgement_required")
                 return self._start(
                     {**plan, "plan_id": plan_id}, str(body["operation_id"])
                 )
@@ -2071,7 +2082,13 @@ class LocalOwner:
                 "unconfirmed": "not confirmed (Hugging Face unavailable).",
             }[check]
             + f" Original signer {', '.join(signers[:4])}. "
-            "Explicit private preservation; no redistribution grant."
+            + (
+                ""
+                if check == "matches"
+                else "Kept only after the owner acknowledged that its origin could "
+                "not be confirmed. "
+            )
+            + "Explicit private preservation; no redistribution grant."
         )
         recipe, selected = held_recipe(manifest, decision)
         licence = described.licence
