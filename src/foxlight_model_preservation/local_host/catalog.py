@@ -398,7 +398,7 @@ class RegistryCatalog:
         licences = self.licences(digest(raw))
         for card in self._cards(raw):
             from .presentation import card_summary, search_words
-            from .selection import registry_file_map, registry_recipe
+            from .selection import check_companions, registry_file_map, registry_recipe
 
             # Display the same selected base-origin paths as download review.
             # Unsupported selections remain browsable with their original map.
@@ -441,11 +441,23 @@ class RegistryCatalog:
                 continue
             bundle = card.artifact.bundle
             tasks = details.get("workloads", [])
+            file_list = "registry"
             try:
                 registry_recipe(card, proof)
                 support = "ready"
             except PreservationError as error:
                 support = str(error)
+                # A listing without its own file list is saved from the exact
+                # revision it pins, with Hugging Face's list for that commit.
+                if support == "complete_signed_file_map_required" and not card.card.get(
+                    "image"
+                ):
+                    try:
+                        # Declared companions must be in this one repository.
+                        check_companions(card, None)
+                        support, file_list = "ready", "huggingface"
+                    except PreservationError as companion:
+                        support = str(companion)
             rows.append(
                 {
                     "card_id": card.card_id,
@@ -460,6 +472,7 @@ class RegistryCatalog:
                     ),
                     "publisher": card.artifact.repository.split("/", 1)[0],
                     "download_support": support,
+                    "file_list": file_list,
                     "details": details,
                     "format": card.artifact.format,
                     "quantization": card.artifact.quantization,
@@ -467,7 +480,7 @@ class RegistryCatalog:
                     if selected is not None
                     else bundle.download_size
                     if bundle
-                    else None,
+                    else _storage_size(card.card),
                     "workloads": tasks,
                     "complete_file_map": bool(bundle)
                     and all(
@@ -509,3 +522,10 @@ class RegistryCatalog:
             "freshness": "saved",
             "note": "Saved signed metadata. Download review checks freshness.",
         }
+
+
+def _storage_size(card: dict[str, JsonValue]) -> int | None:
+    """A legacy card's declared size, when it states one."""
+    storage = card.get("storage_size")
+    size = storage.get("in_bytes") if isinstance(storage, dict) else None
+    return size if type(size) is int and size > 0 else None

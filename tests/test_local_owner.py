@@ -788,9 +788,11 @@ def test_ready_catalog_filter_counts_matching_versions_without_network(tmp_path)
         all_rows = owner.control("search", {})
         ready = owner.control("search", {"ready_only": True})
         assert all_rows["total"] == all_rows["matching_total"] == 2
-        assert ready["total"] == ready["ready_total"] == 1
-        assert ready["matching_total"] == 2
-        assert ready["results"][0]["card_id"] == repo.card.card_id
+        # A listing without its own file list is saved from the exact revision
+        # it pins, with Hugging Face's list for that commit, so it is ready too.
+        assert ready["total"] == ready["ready_total"] == ready["matching_total"] == 2
+        lists = {row["card_id"]: row["file_list"] for row in ready["results"]}
+        assert lists == {repo.card.card_id: "registry", legacy.card_id: "huggingface"}
         with pytest.raises(PreservationError, match="invalid_control"):
             owner.control("search", {"ready_only": "true"})
     finally:

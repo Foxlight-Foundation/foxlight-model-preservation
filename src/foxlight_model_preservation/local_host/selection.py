@@ -98,6 +98,41 @@ def registry_file_map(
         for (repository, revision), (_, selected) in groups.items()
         for path, file in selected.items()
     }
+    check_companions(card, files)
+    return files
+
+
+def companion_files(card: ModelCardEnvelope) -> list[str]:
+    """Base-repository paths a card names as required companions."""
+    named: list[str] = []
+    vision = card.card.get("vision")
+    if isinstance(vision, dict) and isinstance(vision.get("projector_file"), str):
+        named.append(cast(str, vision["projector_file"]))
+    runtime = card.card.get("runtime")
+    if isinstance(runtime, dict):
+        if isinstance(runtime.get("served_spec_draft_file"), str):
+            named.append(cast(str, runtime["served_spec_draft_file"]))
+        if runtime.get("mtp_sidecar_repo") and runtime.get("mtp_heads"):
+            named.extend(("mtp.safetensors", "config.json"))
+    video = card.card.get("video")
+    companions = video.get("companions") if isinstance(video, dict) else None
+    if isinstance(companions, list):
+        for companion in cast(list[JsonValue], companions):
+            if isinstance(companion, dict) and isinstance(companion.get("path"), str):
+                named.append(cast(str, companion["path"]))
+    return named
+
+
+def check_companions(  # noqa: C901, PLR0912
+    card: ModelCardEnvelope,
+    files: dict[tuple[str, str, str], ArtifactFile] | None,
+) -> None:
+    """Refuse a card whose declared companions are not understood and complete.
+
+    With ``files``, every companion file the card names must be selected with
+    its declared size. Without, only the declarations are checked: each must
+    be in the card's own repository and revision.
+    """
     base = (card.artifact.repository, card.artifact.revision)
 
     def understood_sources(section: dict[str, JsonValue], known: set[str]) -> None:
@@ -121,6 +156,8 @@ def registry_file_map(
     ) -> None:
         if not isinstance(path, str):
             raise PreservationError("complete_signed_companion_map_required")
+        if files is None:
+            return
         selected = files.get((*origin, path))
         if selected is None or (size is not None and size != selected.size_bytes):
             raise PreservationError("complete_signed_companion_map_required")
@@ -174,6 +211,9 @@ def registry_file_map(
             )
             if not isinstance(repository, str) or not isinstance(revision, str):
                 raise PreservationError("companion_adapter_required")
+            if files is None and (repository, revision) != base:
+                # A Hub-backed save takes one repository at one commit.
+                raise PreservationError("companion_adapter_required")
             required_file(
                 (repository, revision),
                 companion.get("path"),
@@ -182,7 +222,6 @@ def registry_file_map(
     audio = card.card.get("audio")
     if isinstance(audio, dict):
         understood_sources(audio, set())
-    return files
 
 
 def registry_recipe(
@@ -432,3 +471,78 @@ def download_file(
         finally:
             connection.close()
     raise PreservationError("model download redirect limit exceeded")
+
+
+def hub_recipe(
+    repository: str,
+    revision: str,
+    exact: dict[str, tuple[int, str]],
+    *,
+    licence: str | None = None,
+    task: str | None = None,
+) -> tuple[Recipe, dict[tuple[str, str, str], ArtifactFile]]:
+    """Build a save recipe for selected Hub files at one pinned commit.
+
+    ``exact`` maps each selected path to its size and SHA-256 (see
+    :func:`foxlight_model_preservation.hub.exact_hashes`). The returned file
+    map has the same shape as :func:`registry_file_map`, so the download
+    loop, resume and mirror fallback are shared with registry saves.
+    """
+    if not exact:
+        raise PreservationError("hub_selection_empty")
+    files = {
+        (repository, revision, path): ArtifactFile(
+            path=path, size_bytes=size, object_id="sha256:" + sha256
+        )
+        for path, (size, sha256) in sorted(exact.items())
+    }
+    selection = hashlib.sha256(
+        identity_json(
+            cast(
+                JsonValue,
+                {
+                    "repository": repository,
+                    "revision": revision,
+                    "files": sorted(exact),
+                },
+            )
+        )
+    ).hexdigest()
+    member = RecipeMember(
+        member_id="base",
+        role="base",
+        format="huggingface",
+        origin_repository=repository,
+        origin_revision=revision,
+        artifact_identity="hub:" + selection,
+        loader_root=None,
+        dependencies=(),
+        retained_card=None,
+        intake=Intake(
+            audience="private",
+            license_id=licence or "see-original-card",
+            terms_reference=f"https://huggingface.co/{repository}/tree/{revision}",
+            decision="Explicit private preservation; no redistribution grant.",
+            notice_paths=(NOTICE_PATH,),
+        ),
+        files=(
+            *(
+                SourceFile(path=path, expected_sha256=sha256)
+                for path, (_, sha256) in sorted(exact.items())
+            ),
+            SourceFile(
+                path=NOTICE_PATH, expected_sha256=hashlib.sha256(NOTICE).hexdigest()
+            ),
+        ),
+    )
+    recipe = Recipe(
+        schema_version="foxlight.model-preservation.v1",
+        name=repository[:200],
+        root_member="base",
+        members=(member,),
+        workloads=(task,) if task else ("model",),
+        runtime_requirements=(
+            "Runtime compatibility and code authorization are not assessed.",
+        ),
+    )
+    return recipe, files

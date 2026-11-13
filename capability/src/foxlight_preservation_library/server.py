@@ -69,6 +69,11 @@ CONTROL_TIMEOUTS: Final[dict[str, float]] = {
     "desktop-community-bucket-connect": 150,
     "desktop-community-bucket-disconnect": 60,
     "desktop-community-check-address": 45,
+    # Hugging Face search and review make bounded Hub requests; a Hub save plan
+    # also fetches the commit's small files to hash them before any download.
+    "desktop-hub-search": 30,
+    "desktop-hub-review": 30,
+    "desktop-plan": 120,
     # Reviewing every public copy's signed terms can take several Core reads.
     "mirror-share-review": 60,
     "mirror-share-stop": 60,
@@ -689,6 +694,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                         "api/peer-read",
                         "api/core-features",
                         "api/desktop-search",
+                        "api/desktop-hub-consent",
+                        "api/desktop-hub-search",
+                        "api/desktop-hub-review",
                         "api/desktop-copy-search",
                         "api/desktop-copy-recovery-info",
                         "api/desktop-job-read",
