@@ -13,10 +13,11 @@ rebuilding or signing them. Developer ID signing, Apple notarization and an
 installed-app journey remain separate checks. A locally passing Gatekeeper
 check does not establish clean-host acceptance, model compatibility or anonymity.
 
-The build15 recipe pairs the authenticated public core 0.33 / Library 0.29 cohort,
-which adds mirror holdings in Find (models community mirrors keep stay findable and
-savable after their original host removes them, with an origin check against
-Hugging Face). Build 14 paired core 0.32 / Library 0.28,
+The build16 recipe pairs the authenticated public core 0.34 / Library 0.30 cohort,
+which adds model copies on any connected drive, NAS or folder (with verified
+moves of existing copies) and Pirate Face in Find (search, and saving models
+Hugging Face removed from its swarm, download-only, after an opt-in). Build 15 paired core 0.33 / Library 0.29, which added mirror
+holdings in Find. Build 14 paired core 0.32 / Library 0.28,
 which added Hugging Face search in Find, savable listings without their own file
 list and an optional Hugging Face token. Build 13 paired core 0.31 / Library 0.27,
 which added saves that fall back to community mirrors, resumable Hugging Face

@@ -6,6 +6,12 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Pin Sovereign Mac build 16 and Linux revision 11 to the authenticated
+  Library 0.30 installation archive (sha256 6ef98d6f…, source 2bc5f8a4; its
+  desktop lock carries core 0.34.0 and libtorrent 2.0.14), which adds model
+  copies on any drive or NAS and Pirate Face in Find. Native signing,
+  notarization, apt publication and qualification remain separate gates.
+
 ## 0.30.0
 
 - Library → **Where model copies are kept**: choose any connected drive, NAS or
