@@ -130,3 +130,46 @@ def test_a_buffer_on_another_drive_is_not_shared(owner, tmp_path, monkeypatch):
     monkeypatch.setattr(owner_module.os, "stat", other_drive)
     assert save(owner, tmp_path) == "origin"
     assert "partials" not in str(seen[0])  # job-local: same drive as the file
+
+
+def test_a_kept_buffer_counts_as_progress_and_running_saves_report_size(
+    owner, tmp_path, monkeypatch
+):
+    import uuid
+
+    from foxlight_model_preservation.local_host.owner import Job
+    from foxlight_model_preservation.storage import atomic_bytes
+
+    kept = owner._data() / "partials" / ("a" * 64 + ".partial")
+    kept.parent.mkdir(parents=True, exist_ok=True)
+    kept.write_bytes(b"x" * 400)
+
+    def finish(repository, revision, file, destination, control, *, partial, **kwargs):
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(b"done")
+
+    monkeypatch.setattr(owner_module, "download_file", finish)
+    control = OperationControl()
+    owner._save_file(
+        "org/model",
+        "b" * 40,
+        FILE,
+        tmp_path / "work" / "model.gguf",
+        tmp_path / "work" / ".staging",
+        control,
+        deadline=time.monotonic() + 60,
+    )
+    assert control.progress.bytes_reused == 400
+
+    job = Job(
+        job_id="c" * 64,
+        operation_id=str(uuid.uuid4()),
+        plan_id="d" * 64,
+        kind="receive",
+        state="running",
+        created_at=time.time(),
+        name="big",
+    )
+    atomic_bytes(owner._root, "plans/" + "d" * 64 + ".json", b'{"size_bytes":30000}')
+    assert owner._job_total(job) == 30000
+    assert owner._job_total(job.model_copy(update={"state": "succeeded"})) is None

@@ -6,6 +6,9 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Activity shows a running save's progress as "X of Y · N% · about M min left",
+  with the recent download rate; a resumed download starts from what was kept.
+
 - **Settings** area: Storage (Library location, backup folders), Search sources
   and privacy (each with an on/off), Sharing link and Appearance. The Backups tab
   and Find's Source and privacy panel move into it; the Library page keeps a

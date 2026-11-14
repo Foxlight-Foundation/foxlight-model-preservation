@@ -243,6 +243,7 @@ class LocalOwner:
             self._sharing_files: dict[str, str] = {}
             self._controls: dict[str, OperationControl] = {}
             self._progress: dict[str, Progress] = {}
+            self._totals: dict[str, int | None] = {}
             self._summaries: dict[str, dict[str, JsonValue]] = {}
             self._search_metadata: dict[str, str] = {}
             self._closed = False
@@ -688,6 +689,11 @@ class LocalOwner:
                         "bytes_received": self._progress[item.job_id].bytes_received
                         if item.job_id in self._progress
                         else 0,
+                        # Bytes kept from an earlier attempt count as done.
+                        "bytes_reused": self._progress[item.job_id].bytes_reused
+                        if item.job_id in self._progress
+                        else 0,
+                        "bytes_total": self._job_total(item),
                         "temporary_sharing_files": item.kind == "publish"
                         and item.job_id not in self._controls
                         and self.sharing.work_exists(item.job_id),
@@ -804,6 +810,24 @@ class LocalOwner:
                 ),
                 reverse=True,
             )
+
+    def _job_total(self, job: Job) -> int | None:
+        """The reviewed size of a running save, for "X of Y" progress."""
+        if job.state not in {"queued", "running"} or job.kind not in {
+            "receive",
+            "source_receive",
+        }:
+            return None
+        if job.job_id not in self._totals:
+            try:
+                plan = strict_json(
+                    read_metadata(self._root, "plans/" + job.plan_id + ".json")
+                )
+            except (OSError, PreservationError):
+                return None
+            size = plan.get("size_bytes") if isinstance(plan, dict) else None
+            self._totals[job.job_id] = size if type(size) is int and size > 0 else None
+        return self._totals[job.job_id]
 
     def _remove_activity(self, body: dict[str, JsonValue]) -> dict[str, JsonValue]:
         """Remove finished entries from Activity, with what only they use.
@@ -2084,6 +2108,9 @@ class LocalOwner:
             if file.object_id is not None and file.object_id.startswith("sha256:"):
                 shared = self._shared_partial(key, held, destination)
                 partial = shared or partial
+                if shared is not None and origin:
+                    # Kept from an earlier save of this file: already done.
+                    control.advance(reused=_size(shared))
             origin_error: BaseException | None = None
             stalls = 0
             while origin and stalls < ORIGIN_STALLS:
