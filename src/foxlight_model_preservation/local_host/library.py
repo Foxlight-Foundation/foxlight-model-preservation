@@ -369,7 +369,15 @@ def move_tree(
         shutil.rmtree(staging)
     os.mkdir(staging, mode=0o700)
     expected: dict[Path, str] = {}
-    for folder, folders, files in os.walk(source, followlinks=False):
+
+    def unreadable(error: OSError) -> None:
+        # A folder that can't be listed (e.g. a NAS hiccup) must stop the
+        # move: skipping it would put an incomplete copy in place.
+        raise error
+
+    for folder, folders, files in os.walk(
+        source, onerror=unreadable, followlinks=False
+    ):
         control.checkpoint()
         relative = Path(folder).relative_to(source)
         for name in folders:

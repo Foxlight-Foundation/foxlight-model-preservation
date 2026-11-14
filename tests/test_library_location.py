@@ -460,3 +460,19 @@ def test_home_is_searched_first_once_it_is_current_again(tmp_path):
     (home / "copies/same").mkdir(parents=True)
     assert library.roots()[0] == home
     assert library.find("copies/same") == home / "copies/same"
+
+
+def test_an_unreadable_source_folder_stops_the_move(tmp_path, monkeypatch):
+    source = tmp_path / "source"
+    (source / "store/objects/sha256").mkdir(parents=True)
+    (source / "store/objects/sha256" / ("a" * 64)).write_bytes(b"x")
+    real = os.scandir
+
+    def flaky(path="."):
+        if str(path).endswith("sha256"):
+            raise OSError(5, "Input/output error")
+        return real(path)
+
+    monkeypatch.setattr(os, "scandir", flaky)
+    with pytest.raises(OSError):
+        move_tree(source, tmp_path / "moved", {}, OperationControl(), lambda _: None)

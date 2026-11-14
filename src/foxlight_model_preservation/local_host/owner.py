@@ -301,6 +301,8 @@ class LocalOwner:
         return {
             **view,
             "elsewhere_copies": len(moved),
+            # Published copies' stores and the community pool still to move.
+            "elsewhere_other": len(elsewhere) - len(moved),
             "elsewhere_bytes": sum(
                 copy.size_bytes
                 for copy in self._journal.copies
