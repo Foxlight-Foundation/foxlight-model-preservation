@@ -110,3 +110,62 @@ def test_a_copy_in_use_is_not_removed(tmp_path, kit, monkeypatch):
         owner._controls.pop(started["job_id"])
     finally:
         owner.close()
+
+
+def test_a_finished_save_keeps_no_second_copy_in_its_working_folder(tmp_path, kit):
+    owner = LocalOwner(tmp_path / "home")
+    try:
+        saved = import_copy(owner, kit)
+        # Removed right after the copy is recorded (just after "succeeded").
+        import time
+
+        end = time.monotonic() + 10
+        work = owner.home / "work" / saved["job_id"]
+        while work.exists() and time.monotonic() < end:
+            time.sleep(0.02)
+        assert not work.exists()
+        # Leftovers from earlier releases are cleared on the next start.
+        leftover = owner.home / "work" / saved["copy_id"] / "original"
+        leftover.mkdir(parents=True)
+        (leftover / "weights.bin").write_bytes(b"x" * 1000)
+    finally:
+        owner.close()
+    reopened = LocalOwner(tmp_path / "home")
+    try:
+        end = time.monotonic() + 10
+        while leftover.parent.exists() and time.monotonic() < end:
+            time.sleep(0.05)
+        assert not leftover.parent.exists()
+        assert reopened.read()["copies"]  # the saved copy is untouched
+    finally:
+        reopened.close()
+
+
+def test_removing_a_failed_save_releases_its_partial_store(tmp_path):
+    import time
+    import uuid
+
+    from foxlight_model_preservation.local_host.owner import Job
+
+    owner = LocalOwner(tmp_path / "home")
+    try:
+        job = Job(
+            job_id="f" * 64,
+            operation_id=str(uuid.uuid4()),
+            plan_id="e" * 64,
+            kind="source_receive",
+            state="failed",
+            created_at=time.time(),
+            name="half-downloaded",
+            error_code="origin_unavailable",
+        )
+        owner._journal = owner._journal.model_copy(update={"jobs": (job,)})
+        partial = owner.home / "copies" / job.job_id / "objects"
+        partial.mkdir(parents=True)
+        (partial / "piece").write_bytes(b"x" * 100)
+        assert owner.control("activity-remove", {"job_ids": [job.job_id]}) == {
+            "removed": 1
+        }
+        assert not partial.parent.exists()
+    finally:
+        owner.close()

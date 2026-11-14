@@ -17,7 +17,7 @@ import stat
 import threading
 import time
 import uuid
-from collections.abc import Generator
+from collections.abc import Generator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
@@ -286,6 +286,16 @@ class LocalOwner:
             else:
                 # A withdrawal that failed before the last shutdown resumes.
                 self._bucket_withdrawal()
+            # Earlier releases kept each finished save's working files (a full
+            # second copy of the model); clear them in the background.
+            saved = [copy.copy_id for copy in self._journal.copies]
+            if saved:
+                threading.Thread(
+                    target=self._discard_work,
+                    args=(saved,),
+                    name="sovereign-work-cleanup",
+                    daemon=True,
+                ).start()
         except BaseException:
             self._stack.close()
             raise
@@ -847,6 +857,19 @@ class LocalOwner:
             self._save()
         return {"removed": len(removed)}
 
+    def _discard_work(self, job_ids: Sequence[str]) -> None:
+        """Delete finished jobs' working folders; never a saved copy itself."""
+        for job_id in job_ids:
+            with contextlib.suppress(OSError, PreservationError):
+                for root in self.library.roots():
+                    work = root / "work" / job_id
+                    if (
+                        work.is_dir()
+                        and not work.is_symlink()
+                        and shutil.rmtree.avoids_symlink_attacks
+                    ):
+                        shutil.rmtree(work)
+
     def _remove_job_files(self, job: Job) -> None:
         """Delete the files only this finished entry uses; keep everything else."""
         for relative in (
@@ -854,11 +877,22 @@ class LocalOwner:
         ):
             with contextlib.suppress(OSError, PreservationError):
                 self.library.find(relative).unlink(missing_ok=True)
-        if job.state != "succeeded" or job.copy_id is None:
+        self._discard_work([job.job_id])
+        saved = {copy.copy_id for copy in self._journal.copies}
+        if job.kind in {"receive", "source_receive", "kit_import"} and (
+            job.job_id not in saved
+        ):
+            # A failed save can leave a partial store under its own job ID
+            # (native receives write straight into it); no copy refers to it.
             with contextlib.suppress(OSError, PreservationError):
-                work = self.library.find("work/" + job.job_id)
-                if work.is_dir() and shutil.rmtree.avoids_symlink_attacks:
-                    shutil.rmtree(work)
+                for root in self.library.roots():
+                    partial = root / "copies" / job.job_id
+                    if (
+                        partial.is_dir()
+                        and not partial.is_symlink()
+                        and shutil.rmtree.avoids_symlink_attacks
+                    ):
+                        shutil.rmtree(partial)
         if job.kind == "publish":
             with contextlib.suppress(OSError, PreservationError):
                 self.sharing.remove_work(job.job_id)
@@ -906,6 +940,7 @@ class LocalOwner:
         self._search_metadata.pop(copy.copy_id, None)
         if store.is_dir() and shutil.rmtree.avoids_symlink_attacks:
             shutil.rmtree(store)
+        self._discard_work([copy.copy_id])
         if self.community.consented():
             self._community_refresh()
         return {"removed": copy.copy_id}
@@ -3013,6 +3048,9 @@ class LocalOwner:
             # A new backup joins the community mirror with no per-model step.
             if self.community.consented():
                 self._community_refresh()
+        # The verified copy is complete: its downloads and packed original in
+        # the job's working folder are a redundant second copy.
+        self._discard_work([job.job_id])
 
     def _community_refresh(self) -> None:
         """Re-sync and restart the community mirror, starting it if needed."""
