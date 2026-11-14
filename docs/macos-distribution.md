@@ -17,7 +17,7 @@ The build18 recipe pairs the authenticated public core 0.35 / Library 0.31 cohor
 which adds mirrors seeding matching Pirate Face torrents from their stored
 files (opt-in, after a full piece check), Activity showing each stage of a
 save as a ring with its percentage, and a fix for saves that froze when a
-library drive stopped answering. Build 17 paired core 0.34.1 / Library 0.30.1 kept large Hugging Face downloads resuming,
+library drive stopped answering. Build 17 paired core 0.34.1 / Library 0.30.1, which kept large Hugging Face downloads resuming,
 stopped keeping a second copy of each saved model, and added removing
 Activity entries and saved models, a Settings area and download progress. Build 16 paired core
 0.34 / Library 0.30, which added model copies on any connected drive, NAS or
