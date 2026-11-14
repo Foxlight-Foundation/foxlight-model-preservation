@@ -6,10 +6,12 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+## 0.30.0
+
 - Library → **Where model copies are kept**: choose any connected drive, NAS or
   folder (native folder picker on Mac and Linux), see free space there, move
   existing copies with read-back verification, and get a clear message when the
-  drive is unplugged.
+  drive is unplugged. Requires core 0.34.0.
 
 - Find: **From Pirate Face** results and seed counts, saving rescued models from
   the swarm, swarm-download and search choices under Source and privacy, and

@@ -1,9 +1,9 @@
 # systemd *user* unit for one headless mirror named by the instance (%i).
 #
 # Paths follow docs/installation.md: install a release with
-#   python3 install.py --directory "$HOME/sovereign-0.33.0"
+#   python3 install.py --directory "$HOME/sovereign-0.34.0"
 # and point a stable link at it (repoint the link to upgrade):
-#   ln -sfn "$HOME/sovereign-0.33.0" "$HOME/sovereign"
+#   ln -sfn "$HOME/sovereign-0.34.0" "$HOME/sovereign"
 # The mirror lives in ~/sovereign-mirrors/<instance> (mkdir -m 0700
 # ~/sovereign-mirrors). Set it up first with
 #   ~/sovereign/bin/model-preserve mirror quickstart \

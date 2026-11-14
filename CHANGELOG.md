@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.34.0
+
 - Model copies can be kept on any connected drive, NAS or folder (Library →
   Where model copies are kept). New saves, downloads in progress, uploads,
   exported kits, restores and published copies' stores use the chosen folder,
