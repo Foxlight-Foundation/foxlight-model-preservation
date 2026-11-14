@@ -724,6 +724,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                         "api/desktop-copy-search",
                         "api/desktop-copy-recovery-info",
                         "api/desktop-job-read",
+                        "api/desktop-activity-remove",
+                        "api/desktop-copy-remove",
                         "api/desktop-source-read",
                         "api/desktop-source-search",
                         "api/desktop-source-review",

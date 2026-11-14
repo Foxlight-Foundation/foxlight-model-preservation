@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Finished Activity entries can be removed (one at a time, or every finished
+  entry at once); running work is never touched, saved copies, restored
+  folders and backups are kept, and an exported kit file or a failed save's
+  working files go with their entry. Removed requests still can't be replayed.
+  A saved copy can be removed from the Library after an explicit
+  confirmation, unless a running job uses it; it stops being shared unless
+  another copy provides the same model.
+- A finished save no longer keeps its working folder, which held a full second
+  copy of the model (downloaded files and a packed original); leftovers from
+  earlier releases are cleared in the background at startup. Removing a copy
+  also removes its working folder, and removing a failed save from Activity
+  releases the partial store it wrote.
+
 - Large Hugging Face downloads no longer fail after two dropped connections:
   a file keeps resuming while each attempt makes progress, and gives up (to
   mirrors) only after several attempts in a row add nothing, with growing

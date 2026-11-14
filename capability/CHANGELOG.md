@@ -6,6 +6,10 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Activity: **Remove from Activity** on finished entries and **Clear finished**
+  (confirmed with a second click). Library: **Remove from Library** with a
+  confirmation that explains what is kept.
+
 - A failed download now says that what was downloaded is kept and that saving
   again continues where it stopped.
 

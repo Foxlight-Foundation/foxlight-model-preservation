@@ -17,7 +17,7 @@ import stat
 import threading
 import time
 import uuid
-from collections.abc import Generator
+from collections.abc import Generator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
@@ -286,6 +286,16 @@ class LocalOwner:
             else:
                 # A withdrawal that failed before the last shutdown resumes.
                 self._bucket_withdrawal()
+            # Earlier releases kept each finished save's working files (a full
+            # second copy of the model); clear them in the background.
+            saved = [copy.copy_id for copy in self._journal.copies]
+            if saved:
+                threading.Thread(
+                    target=self._discard_work,
+                    args=(saved,),
+                    name="sovereign-work-cleanup",
+                    daemon=True,
+                ).start()
         except BaseException:
             self._stack.close()
             raise
@@ -795,6 +805,153 @@ class LocalOwner:
                 reverse=True,
             )
 
+    def _remove_activity(self, body: dict[str, JsonValue]) -> dict[str, JsonValue]:
+        """Remove finished entries from Activity, with what only they use.
+
+        ``{"job_ids": [...]}`` removes those entries; ``{"finished": true}``
+        removes every finished one. Running work is never touched. Saved copies,
+        restored folders and backups on other drives are kept; an exported kit
+        file, a failed save's working files and a failed publication's
+        temporary files go with their entry. A removed request still can't be
+        replayed: its operation receipt stays.
+        """
+        identifiers = body.get("job_ids")
+        if body == {"finished": True}:
+            selected = [job.job_id for job in self._journal.jobs] + [
+                name[21:85] for name in self._history_names()
+            ]
+        elif (
+            set(body) == {"job_ids"}
+            and isinstance(identifiers, list)
+            and 0 < len(identifiers) <= 256
+            and all(isinstance(item, str) for item in identifiers)
+        ):
+            selected = [str(item) for item in identifiers]
+        else:
+            raise PreservationError("invalid_control")
+        removed: set[str] = set()
+        for identifier in dict.fromkeys(selected):
+            job = self._job(identifier)
+            if job.state in {"queued", "running"} or job.job_id in self._controls:
+                continue
+            # Replays of this request stay recognised after it leaves Activity.
+            atomic_bytes(
+                self._root,
+                "history/operations/" + digest(job.operation_id.encode()) + ".json",
+                encode_record(job),
+            )
+            with directory(self.home / "history/receipts", create=True) as root:
+                for name in os.listdir(root):
+                    if name.endswith("-" + job.job_id + ".json"):
+                        os.unlink(name, dir_fd=root)
+            self._remove_job_files(job)
+            removed.add(job.job_id)
+        if removed:
+            self._journal = self._journal.model_copy(
+                update={
+                    "jobs": tuple(
+                        job for job in self._journal.jobs if job.job_id not in removed
+                    )
+                }
+            )
+            self._save()
+        return {"removed": len(removed)}
+
+    def _discard_work(self, job_ids: Sequence[str]) -> None:
+        """Delete finished jobs' working folders; never a saved copy itself."""
+        for job_id in job_ids:
+            with contextlib.suppress(OSError, PreservationError):
+                for root in self.library.roots():
+                    work = root / "work" / job_id
+                    if (
+                        work.is_dir()
+                        and not work.is_symlink()
+                        and shutil.rmtree.avoids_symlink_attacks
+                    ):
+                        shutil.rmtree(work)
+
+    def _remove_job_files(self, job: Job) -> None:
+        """Delete the files only this finished entry uses; keep everything else."""
+        for relative in (
+            ("kits/" + job.job_id + ".foxkit",) if job.kind == "kit_export" else ()
+        ):
+            with contextlib.suppress(OSError, PreservationError):
+                self.library.find(relative).unlink(missing_ok=True)
+        self._discard_work([job.job_id])
+        saved = {copy.copy_id for copy in self._journal.copies}
+        if job.kind in {"receive", "source_receive", "kit_import"} and (
+            job.job_id not in saved
+        ):
+            # A failed save can leave a partial store under its own job ID
+            # (native receives write straight into it); no copy refers to it.
+            with contextlib.suppress(OSError, PreservationError):
+                for root in self.library.roots():
+                    partial = root / "copies" / job.job_id
+                    if (
+                        partial.is_dir()
+                        and not partial.is_symlink()
+                        and shutil.rmtree.avoids_symlink_attacks
+                    ):
+                        shutil.rmtree(partial)
+        if job.kind == "publish":
+            with contextlib.suppress(OSError, PreservationError):
+                self.sharing.remove_work(job.job_id)
+        with contextlib.suppress(OSError):
+            with directory(self.home / "job-sources", create=True) as root:
+                os.unlink(job.job_id + ".json", dir_fd=root)
+        self._progress.pop(job.job_id, None)
+
+    def _remove_copy(self, body: dict[str, JsonValue]) -> dict[str, JsonValue]:
+        """Delete one saved copy and its files, after an explicit confirmation.
+
+        Refused while any running job uses it or copies are being moved. It
+        stops being shared at the next sync unless another copy provides the
+        same model; backups and kits already written elsewhere are kept.
+        """
+        if set(body) != {"copy_id", "confirmed"} or body["confirmed"] is not True:
+            raise PreservationError("invalid_control")
+        copy = self._copy(str(body["copy_id"]))
+        if self._move_thread is not None:
+            raise PreservationError("library_moving")
+        for job in self._journal.jobs:
+            if job.job_id not in self._controls:
+                continue
+            try:
+                plan = strict_json(
+                    read_metadata(self._root, "plans/" + job.plan_id + ".json")
+                )
+            except (OSError, PreservationError):
+                continue
+            if isinstance(plan, dict) and plan.get("copy_id") == copy.copy_id:
+                raise PreservationError("copy_busy_try_again")
+        store = self._copy_store(copy.copy_id)
+        if not store.is_dir() or store.is_symlink():
+            # Its drive is unplugged (or the store is gone): keep the entry so
+            # removal can finish once the drive is back.
+            raise PreservationError("library_storage_unavailable")
+        if not shutil.rmtree.avoids_symlink_attacks:
+            raise PreservationError("safe_temporary_cleanup_unavailable")
+        # Files first: if deleting fails part way, the entry stays and
+        # removing it again finishes the job.
+        shutil.rmtree(store)
+        self._journal = self._journal.model_copy(
+            update={
+                "copies": tuple(
+                    item
+                    for item in self._journal.copies
+                    if item.copy_id != copy.copy_id
+                )
+            }
+        )
+        self._save()
+        self.community.forget(copy.copy_id)
+        self._summaries.pop(copy.copy_id, None)
+        self._search_metadata.pop(copy.copy_id, None)
+        self._discard_work([copy.copy_id])
+        if self.community.consented():
+            self._community_refresh()
+        return {"removed": copy.copy_id}
+
     def _job(self, identifier: str) -> Job:
         if not re.fullmatch(r"[0-9a-f]{64}", identifier):
             raise PreservationError("invalid_job_identity")
@@ -1067,6 +1224,10 @@ class LocalOwner:
                 ):
                     raise PreservationError("backup_busy_try_again")
                 return self.backups.forget(str(body["destination_id"]))
+            if action == "activity-remove":
+                return self._remove_activity(body)
+            if action == "copy-remove":
+                return self._remove_copy(body)
             if action == "job-read" and set(body) == {"job_id"}:
                 return self._job(str(body["job_id"])).model_dump(mode="json")
             if action == "copy-recovery-info" and set(body) == {"copy_id"}:
@@ -2894,6 +3055,9 @@ class LocalOwner:
             # A new backup joins the community mirror with no per-model step.
             if self.community.consented():
                 self._community_refresh()
+        # The verified copy is complete: its downloads and packed original in
+        # the job's working folder are a redundant second copy.
+        self._discard_work([job.job_id])
 
     def _community_refresh(self) -> None:
         """Re-sync and restart the community mirror, starting it if needed."""
