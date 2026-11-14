@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- The I2P pilot launcher reports the RPC port it bound at start. A status
+  written during shutdown could record Jetty's closed-connector value (-2),
+  which failed status validation; this made the native pilot check flaky.
+  Pilot runtimes built from the previous launcher are refused as unsupported
+  and need rebuilding with `scripts/build_i2p_runtime.py`.
+
 - Guided Linux setup 0.1.8 and graphical setup 0.1.10 install revision 10
   (core 0.33 / Library 0.29), now served by the signed apt channel; package pins
   amd64 15e7ccf3… and arm64 949da3ea…, documented bootstrap hash fa79ef17….

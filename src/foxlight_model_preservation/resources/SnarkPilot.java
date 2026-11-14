@@ -105,6 +105,9 @@ public final class SnarkPilot {
             try { server.stop(); } catch (Exception ignored) { }
         }, "sovereign-i2p-owned-shutdown"));
         server.start();
+        // Report the port bound at start: once the connector closes during
+        // shutdown Jetty returns -2, which a late status write would record.
+        int rpcPort = connector.getLocalPort();
         long nextBootstrap = 0;
         while (System.nanoTime() < deadline) {
             DHT dht = manager.util().getDHT();
@@ -121,7 +124,7 @@ public final class SnarkPilot {
                 }
                 nextBootstrap = System.nanoTime() + 5000000000L;
             }
-            String status = "{\"rpc_port\":" + connector.getLocalPort()
+            String status = "{\"rpc_port\":" + rpcPort
                 + ",\"pid\":" + ProcessHandle.current().pid()
                 + ",\"connected\":" + connected
                 + ",\"dht_nodes\":" + (dht == null ? 0 : dht.size())
