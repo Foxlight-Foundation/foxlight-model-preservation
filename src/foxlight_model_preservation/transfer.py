@@ -789,7 +789,9 @@ def fetch(
                         raise SourcesExhausted(
                             "no mirror supplied a complete verified object"
                         )
-                active.phase("checking")
+                # Distinct from each object's own check while downloading, so
+                # a host can show this whole-model check as its own stage.
+                active.phase("verifying")
                 for file in files:
                     verify_object(target, file, control=active)
                 active.phase("publishing")

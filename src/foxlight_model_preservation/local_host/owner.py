@@ -847,14 +847,16 @@ class LocalOwner:
     def _follow_fetch(
         self, job_id: str, previous: Progress | None, snapshot: Progress
     ) -> None:
-        """A fetch checks every object after downloading: show that as its own
-        stage, counted from where it began; a retry goes back to downloading.
-        Called under the owner lock."""
+        """A fetch checks every object after its downloads ("verifying"): show
+        that as its own stage, counted from where it began; a retry goes back
+        to downloading. Called under the owner lock."""
         current = self._finishing.get(job_id)
-        if current is None and snapshot.stage == "checking":
-            if previous is not None and previous.stage in {"downloading", "mirroring"}:
-                self._finishing[job_id] = "verify"
-                self._stage_base[job_id] = snapshot.bytes_hashed
+        if current is None and snapshot.stage == "verifying":
+            self._finishing[job_id] = "verify"
+            # Hashing reported before this point belongs to the downloads.
+            self._stage_base[job_id] = (
+                previous.bytes_hashed if previous is not None else 0
+            )
         elif current == "verify" and snapshot.stage in {"downloading", "mirroring"}:
             del self._finishing[job_id]
             self._stage_base.pop(job_id, None)

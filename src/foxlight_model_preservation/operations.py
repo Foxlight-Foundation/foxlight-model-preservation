@@ -42,6 +42,8 @@ Stage = Literal[
     "copying",
     "downloading",
     "mirroring",
+    # A fetch's final check of every object, after its downloads.
+    "verifying",
     "publishing",
     "sharing",
     "complete",

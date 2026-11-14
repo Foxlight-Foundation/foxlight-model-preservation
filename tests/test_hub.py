@@ -632,17 +632,20 @@ def test_a_catalog_save_shows_its_download_check_as_a_stage(tmp_path: Path) -> N
             return [(s["name"], s["state"], s["done"]) for s in stages]
 
         report("downloading", 600)
+        # Each object's own check while downloading stays part of Download.
+        report("checking", 1_000)
+        report("downloading", 1_000)
         assert states()[0][:2] == ("download", "active")
-        # The fetch checks what it downloaded: counted from where it began.
-        report("checking", 600)
-        report("checking", 850)
+        # The fetch's final check of every object: counted from where it began.
+        report("verifying", 1_000)
+        report("verifying", 1_250)
         assert states()[:2] == [("download", "done", 1_000), ("verify", "active", 250)]
         # A retry goes back to downloading.
         report("downloading", 900)
         assert states()[1][1] == "waiting"
         # A copy already in PMF has nothing to store again.
         owner._stage_names[job.job_id] = PMF_SOURCE_STAGES
-        report("checking", 950)
+        report("verifying", 950)
         assert [name for name, _, _ in states()] == ["download", "verify"]
     finally:
         owner.close()
