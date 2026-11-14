@@ -699,7 +699,7 @@ class CommunityMirror:
         policy = self.policy()
         path = self._mirror()
         if not path.exists():
-            path = self.library.root() / "sharing/community/mirror"
+            path = self.library.private_root() / "sharing/community/mirror"
             with directory(path.parent, create=True):
                 pass
             MirrorLedger.initialize(

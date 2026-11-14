@@ -263,3 +263,114 @@ def test_community_pool_is_created_on_the_library_drive_and_moves_there(tmp_path
     choose(library, tmp_path / "drive2")
     community = CommunityMirror(home, Sharing(home, library))
     assert community.ledger().path == tmp_path / "drive2/sharing/community/mirror"
+
+
+def test_moved_mirrors_reopen_and_share_objects_with_moved_copies(tmp_path, capture):
+    from foxlight_model_preservation.mirror_state import MirrorLedger
+
+    kit = tmp_path / "selected.foxkit"
+    export_kit(capture.store, capture.identity, capture.trust, kit)
+    content = kit.read_bytes()
+    owner = LocalOwner(tmp_path / "home")
+    try:
+        upload = owner.control("upload-create", {"size_bytes": len(content)})
+        owner.upload(upload["upload_id"], 0, content)
+        plan = owner.control(
+            "plan", {"kind": "kit_import", "upload_id": upload["upload_id"]}
+        )
+        job = finish(owner, submit(owner, plan))
+        copy = owner.home / "copies" / job["copy_id"]
+        shared = next(p for p in (copy / "objects/sha256").iterdir())
+        # A published copy's store holding the same object, and its ledger.
+        public = owner.home / "sharing/mirrors" / ("e" * 64)
+        public.parent.mkdir(parents=True, mode=0o700)
+        MirrorLedger.initialize(
+            public,
+            name="test",
+            disk_bytes=10**9,
+            ingress_daily=1,
+            egress_daily=10**6,
+            egress_monthly=10**7,
+            bind="127.0.0.1",
+            port=0,
+        )
+        (public / "store/objects/sha256").mkdir(parents=True)
+        os.link(shared, public / "store/objects/sha256" / shared.name)
+        # An upload started before the change stays usable afterwards.
+        pending = owner.control("upload-create", {"size_bytes": len(content)})
+        drive = tmp_path / "drive"
+        drive.mkdir()
+        review = owner.control("library-review", {"path": str(drive / "Library")})
+        owner.control(
+            "library-setup", {"review_id": review["review_id"], "confirmed": True}
+        )
+        assert pending["upload_id"] in {
+            item["upload_id"] for item in owner.read()["uploads"]
+        }
+        owner.upload(pending["upload_id"], 0, content)
+        owner.control("library-move", {})
+        assert wait_moved(owner)["move"]["state"] == "done"
+        folder = drive / "Library"
+        moved_public = folder / "sharing/mirrors" / ("e" * 64)
+        assert MirrorLedger(moved_public).read().name == "test"  # re-enrolled
+        assert (
+            os.stat(moved_public / "store/objects/sha256" / shared.name).st_ino
+            == os.stat(
+                folder / "copies" / job["copy_id"] / "objects/sha256" / shared.name
+            ).st_ino
+        )
+        # The earlier folder (home) held the pending upload; it is still found.
+        plan = owner.control(
+            "plan", {"kind": "kit_import", "upload_id": pending["upload_id"]}
+        )
+        assert plan["kind"] == "kit_import"
+    finally:
+        owner.close()
+
+
+def test_earlier_folders_are_kept_while_kits_or_restores_remain(tmp_path):
+    home = tmp_path / "home"
+    home.mkdir(mode=0o700)
+    library = Library(home)
+    first = tmp_path / "first"
+    choose(library, first)
+    (first / "kits").mkdir()
+    (first / "kits/old.foxkit").write_bytes(b"kit")
+    choose(library, tmp_path / "second")
+    assert str(first) in library.view()["previous"]
+    assert library.find("kits/old.foxkit") == first / "kits/old.foxkit"
+
+
+def test_move_copies_when_hard_links_are_unavailable(tmp_path, monkeypatch):
+    data = b"weights" * 100
+    name = digest(data)
+    source = tmp_path / "source"
+    (source / "store/objects/sha256").mkdir(parents=True)
+    (source / "store/objects/sha256" / name).write_bytes(data)
+    links = {name: tmp_path / "elsewhere"}
+    (tmp_path / "elsewhere").write_bytes(data)
+
+    def refuse(*_args, **_kwargs):
+        raise OSError(45, "Operation not supported")
+
+    monkeypatch.setattr(os, "link", refuse)
+    move_tree(source, tmp_path / "moved", links, OperationControl(), lambda _: None)
+    assert (tmp_path / "moved/store/objects/sha256" / name).read_bytes() == data
+
+
+def test_mirror_stores_stay_home_on_drives_without_owner_only_permissions(
+    tmp_path, monkeypatch
+):
+    home = tmp_path / "home"
+    home.mkdir(mode=0o700)
+    library = Library(home)
+    choose(library, tmp_path / "exfat")
+    settings = library.settings()
+    assert settings.current is not None
+    library._write(  # what an exFAT or SMB volume reports
+        settings.model_copy(
+            update={"current": settings.current.model_copy(update={"private": False})}
+        )
+    )
+    assert library.root() == tmp_path / "exfat"
+    assert library.private_root() == home

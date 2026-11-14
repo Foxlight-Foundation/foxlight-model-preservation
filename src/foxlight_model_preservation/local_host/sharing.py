@@ -386,7 +386,7 @@ class Sharing:
         network_bytes = (
             public_network_pmf(public_manifest)[1].total_bytes + MAX_METADATA_BYTES
         )
-        mirrors = self.library.root() / "sharing/mirrors"
+        mirrors = self.library.private_root() / "sharing/mirrors"
         with directory(mirrors, create=True):
             pass
         ledger = MirrorLedger.initialize(
@@ -443,7 +443,7 @@ class Sharing:
 
     def require_space(self, store: Path, size: int) -> None:
         """Refuse publication without working space; linked stores need little."""
-        data = self.library.root()
+        data = self.library.private_root()
         linked = os.stat(store).st_dev == os.stat(data).st_dev
         needed = 8 * MAX_METADATA_BYTES if linked else size * 3
         if shutil.disk_usage(data).free < needed + HEADROOM:
@@ -495,7 +495,7 @@ class Sharing:
         public_id = str(plan["public_manifest_id"])
         public_v1_id = str(plan["public_v1_id"])
         original_id, _, original_trust, _ = self._origin(store, identity, trust)
-        work = self.library.root() / "sharing/work" / job_id
+        work = self.library.private_root() / "sharing/work" / job_id
         with directory(work, create=True):
             pass
         original = work / "original"

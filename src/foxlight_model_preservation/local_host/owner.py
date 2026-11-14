@@ -39,6 +39,7 @@ from ..licences import (
 from ..mirror_directory import fetch_with_mirrors, load_seeds, permitted
 from ..mirror_holdings import fetch_held_manifest, holding
 from ..mirror_models import MirrorObservation
+from ..mirror_state import reenroll
 from ..models import (
     MAX_TOTAL_BYTES,
     FileIdentity,
@@ -269,8 +270,11 @@ class LocalOwner:
         """The library folder new copies and their working data go to."""
         return self.library.root()
 
-    def _uploads(self) -> Path:
-        return self._data() / "uploads"
+    def _uploads(self, identifier: str | None = None) -> Path:
+        """Where a new upload goes, or where an existing one already is."""
+        if identifier is None:
+            return self._data() / "uploads"
+        return self.library.find("uploads/" + identifier + ".json").parent
 
     def _work(self, job_id: str) -> Path:
         # Resumed work stays where it started; new work uses the library folder.
@@ -310,9 +314,12 @@ class LocalOwner:
             store = self._copy_store(copy.copy_id)
             if store.parent.parent != current and store.is_dir():
                 found.append(("copies/" + copy.copy_id, store))
+        # Mirror stores need owner-only folders; on a drive that can't keep
+        # them they stay where they are (see Library.private_root).
+        mirror_root = self.library.private_root()
         for root in self.library.roots():
             mirrors = root / "sharing/mirrors"
-            if root == current or not mirrors.is_dir():
+            if root == mirror_root or not mirrors.is_dir():
                 continue
             for name in sorted(os.listdir(mirrors)):
                 relative = "sharing/mirrors/" + name
@@ -322,7 +329,7 @@ class LocalOwner:
                     found.append((relative, mirrors / name))
         # The community pool goes last: its objects link to the moved copies.
         pool = self.library.find("sharing/community/mirror")
-        if pool.parent.parent.parent != current and pool.is_dir():
+        if pool.parent.parent.parent != mirror_root and pool.is_dir():
             found.append(("sharing/community/mirror", pool))
         return found
 
@@ -422,7 +429,11 @@ class LocalOwner:
         try:
             for relative, source in items:
                 control.checkpoint()
-                current = self.library.root()
+                current = (
+                    self.library.root()
+                    if relative.startswith("copies/")
+                    else self.library.private_root()
+                )
                 target = current / relative
                 with directory(target.parent, create=True):
                     pass
@@ -445,10 +456,17 @@ class LocalOwner:
                             copy.trust,
                             control=control.fork(),
                         )
+                    if (staging / "mirror.json").is_file():
+                        # A mirror's ledger pins its folders' identities; the
+                        # verified new folders become its enrolled ones.
+                        reenroll(staging)
                     with self._lock:
                         os.rename(staging, target)
                         with directory(target.parent) as parent:
                             os.fsync(parent)
+                    for key, value in list(links.items()):
+                        if staging in value.parents:
+                            links[key] = target / value.relative_to(staging)
                 except BaseException:
                     with contextlib.suppress(OSError):
                         shutil.rmtree(staging)
@@ -468,9 +486,21 @@ class LocalOwner:
             settings = self.library.settings()
             for location in settings.previous:
                 root = Path(location.path)
-                if not any(
-                    (root / folder).is_dir() and os.listdir(root / folder)
-                    for folder in ("copies", "sharing/mirrors")
+                # Kits, restores, uploads and resumable work stay findable too.
+                if (
+                    not any(
+                        (root / folder).is_dir() and os.listdir(root / folder)
+                        for folder in (
+                            "copies",
+                            "sharing/mirrors",
+                            "sharing/work",
+                            "kits",
+                            "restored",
+                            "uploads",
+                            "work",
+                        )
+                    )
+                    and not (root / "sharing/community/mirror").exists()
                 ):
                     self.library.forget_previous(location.path)
         except OperationCancelled:
@@ -578,8 +608,10 @@ class LocalOwner:
             uploads: list[JsonValue] = []
             # A disconnected library drive hides pending uploads; it never
             # stops the Library screen from reading.
-            if self.library.available():
-                with directory(self._uploads(), create=True) as source:
+            for folder in self.library.roots():
+                if not (folder / "uploads").is_dir():
+                    continue
+                with directory(folder / "uploads") as source:
                     for name in sorted(os.listdir(source)):
                         if re.fullmatch(r"[0-9a-f]{32}\.json", name):
                             uploads.append(self._upload(name[:-5]))
@@ -1008,7 +1040,7 @@ class LocalOwner:
                 ):
                     raise PreservationError("source_document_too_large")
                 with (
-                    directory(self._uploads()) as root,
+                    directory(self._uploads(str(body["upload_id"]))) as root,
                     open_file(root, str(body["upload_id"])) as stream,
                 ):
                     document = stream.read(MAX_STATE_BYTES + 1)
@@ -1228,7 +1260,9 @@ class LocalOwner:
                     )
                 if kind == "kit_import" and set(body) == {"kind", "upload_id"}:
                     uploaded = self._upload(str(body["upload_id"]))
-                    info = inspect_kit(self._uploads() / str(body["upload_id"]))
+                    info = inspect_kit(
+                        self._uploads(str(body["upload_id"])) / str(body["upload_id"])
+                    )
                     if uploaded["offset"] != uploaded["size_bytes"]:
                         raise PreservationError("kit_upload_incomplete")
                     return self._plan(
@@ -1242,7 +1276,8 @@ class LocalOwner:
                             "manifest_id": info.manifest_id,
                             "envelope_sha256": digest(
                                 read_kit_envelope(
-                                    self._uploads() / str(body["upload_id"])
+                                    self._uploads(str(body["upload_id"]))
+                                    / str(body["upload_id"])
                                 )
                             ),
                             "threshold": info.trust.threshold,
@@ -1303,7 +1338,7 @@ class LocalOwner:
                             or plan.get("upload_id") == identifier
                         ):
                             raise PreservationError("kit_upload_in_use")
-                with directory(self._uploads()) as root:
+                with directory(self._uploads(identifier)) as root:
                     names = [
                         name
                         for name in (identifier, identifier + ".json")
@@ -1355,7 +1390,7 @@ class LocalOwner:
             raise PreservationError("invalid_upload")
         from ..storage import open_file
 
-        with directory(self._uploads()) as root:
+        with directory(self._uploads(identifier)) as root:
             meta = strict_json(read_metadata(root, identifier + ".json"))
             if not isinstance(meta, dict):
                 raise PreservationError("invalid_upload")
@@ -1387,7 +1422,7 @@ class LocalOwner:
             ):
                 raise PreservationError("kit_transfer_refused")
             with (
-                directory(self._uploads()) as root,
+                directory(self._uploads(identifier)) as root,
                 open_file(root, identifier, write=True) as stream,
             ):
                 stream.seek(offset)
@@ -2671,7 +2706,7 @@ class LocalOwner:
         with directory(destination.parent, create=True):
             pass
         trust = TrustProfile.model_validate_json(identity_json(plan["trust"]))
-        uploaded = self._uploads() / str(plan["upload_id"])
+        uploaded = self._uploads(str(plan["upload_id"])) / str(plan["upload_id"])
         envelope = read_kit_envelope(uploaded)
         if digest(envelope) != plan["envelope_sha256"]:
             raise PreservationError("selected_kit_envelope_changed")

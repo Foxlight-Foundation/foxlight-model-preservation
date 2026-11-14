@@ -159,6 +159,18 @@ class Library:
                 return candidate
         return self.root() / relative
 
+    def private_root(self) -> Path:
+        """Where mirror stores go: they need owner-only folders.
+
+        A library folder on a drive that can't keep owner-only permissions
+        (exFAT, some network shares) still holds copies; published copies and
+        the community pool then stay in the owner's home.
+        """
+        current = self.settings().current
+        if current is not None and not current.private:
+            return self.home
+        return self.root()
+
     def free_bytes(self) -> int:
         """Free space where the next copy will be written."""
         return shutil.disk_usage(self.root()).free
@@ -376,9 +388,13 @@ def move_tree(
             )
             linked = links.get(object_hash) if object_hash else None
             if linked is not None and os.stat(linked).st_dev == os.stat(staging).st_dev:
-                os.link(linked, target)
-                expected[target] = object_hash  # type: ignore[assignment]
-                continue
+                try:
+                    os.link(linked, target)
+                except OSError:
+                    pass  # e.g. exFAT has no hard links: copy instead
+                else:
+                    expected[target] = object_hash  # type: ignore[assignment]
+                    continue
             hasher = hashlib.sha256()
             with open(original, "rb") as reader, open(target, "xb") as writer:
                 while chunk := reader.read(CHUNK_SIZE):
