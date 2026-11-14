@@ -30,6 +30,7 @@ from .mirror_state import MirrorLedger
 from .models import MAX_METADATA_BYTES, PreservationError
 from .nostr import DEFAULT_RELAYS, find_cards, publish_card
 from .operations import OperationControl
+from .pirateface_seed import issue_torrents, seeded
 from .signing import create_key, load_key, public_record
 from .storage import atomic_bytes, read_metadata
 from .transfer import TransferPolicy
@@ -186,6 +187,17 @@ class Announcer:
                         issue_holdings(
                             mirror_key(self.ledger),
                             store_holdings(self.ledger.path / "public", serving),
+                        ),
+                    )
+                # The Pirate Face torrents it seeds, so the swarm stays
+                # findable from mirrors.
+                with contextlib.suppress(PreservationError, OSError, ValueError):
+                    atomic_bytes(
+                        root,
+                        "torrents.json",
+                        issue_torrents(
+                            mirror_key(self.ledger),
+                            seeded(self.ledger.read(), serving),
                         ),
                     )
         return card

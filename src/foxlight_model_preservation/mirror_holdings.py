@@ -202,29 +202,38 @@ def store_holdings(store: Path, manifests: Iterable[str]) -> list[Holding]:
     """
     entries: list[Holding] = []
     for manifest_id in sorted(set(manifests))[:MAX_ENTRIES]:
+        manifest = held_manifest(store, manifest_id)
+        if manifest is None:
+            continue
         try:
-            raw = (store / manifest_path(manifest_id)).read_bytes()
-            if len(raw) > MAX_METADATA_BYTES:
-                continue
-            envelope = Envelope.model_validate_json(
-                canonical_bytes(strict_json(raw, maximum_bytes=MAX_METADATA_BYTES))
-            )
-            payload = decode_base64(envelope.payload)
-            if digest(payload) != manifest_id:
-                continue
-            if envelope.payloadType == PMF_TYPE:
-                described = holding(manifest_id, load_pmf(payload))
-            elif envelope.payloadType == BUNDLE_TYPE:
-                described = holding(
-                    manifest_id,
-                    Manifest.model_validate_json(canonical_bytes(strict_json(payload))),
-                )
-            else:
-                continue
-            entries.append(described)
-        except (OSError, ValueError, PreservationError):
+            entries.append(holding(manifest_id, manifest))
+        except (StopIteration, ValueError, PreservationError):
             continue
     return entries
+
+
+def held_manifest(store: Path, manifest_id: str) -> PMFManifest | Manifest | None:
+    """A stored copy's own manifest, or None when it is unreadable.
+
+    The payload must hash to its identity, so it describes the exact copy.
+    """
+    try:
+        raw = (store / manifest_path(manifest_id)).read_bytes()
+        if len(raw) > MAX_METADATA_BYTES:
+            return None
+        envelope = Envelope.model_validate_json(
+            canonical_bytes(strict_json(raw, maximum_bytes=MAX_METADATA_BYTES))
+        )
+        payload = decode_base64(envelope.payload)
+        if digest(payload) != manifest_id:
+            return None
+        if envelope.payloadType == PMF_TYPE:
+            return load_pmf(payload)
+        if envelope.payloadType == BUNDLE_TYPE:
+            return Manifest.model_validate_json(canonical_bytes(strict_json(payload)))
+    except (OSError, ValueError, PreservationError):
+        pass
+    return None
 
 
 def fetch_held_manifest(

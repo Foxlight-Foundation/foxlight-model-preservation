@@ -7,10 +7,11 @@ import {Announce,LicenceFamilies,LicenceList,ShareChoice,UploadLimits,describeLi
 
 type Status='sharing'|'eligible'|'failed'|'withheld'|'not_chosen'|'license_not_selected'|'no_license'|'unsupported';
 interface CommunityCopy {copy_id:string;name:string;size_bytes:number;status:Status;licenses:string[];public_manifest_id:string|null;error_code?:string|null}
-interface Policy {enabled:boolean;share:'eligible'|'chosen';licenses:string[];chosen:string[];withheld:string[];daily_upload_bytes:number|null;monthly_upload_bytes:number|null;port:number;consent_expires:number|null;public_url?:string|null;announce_dht?:boolean;publish_nostr?:boolean;nostr_relays?:string[]}
+interface Policy {enabled:boolean;share:'eligible'|'chosen';licenses:string[];chosen:string[];withheld:string[];daily_upload_bytes:number|null;monthly_upload_bytes:number|null;port:number;consent_expires:number|null;public_url?:string|null;announce_dht?:boolean;publish_nostr?:boolean;nostr_relays?:string[];seed_pirate_face?:boolean}
+interface PirateFaceStatus {available:boolean;on:boolean;checked:number;listed:number;matched:number;seeding:number;differs:number}
 interface Reachability {status:'public_address'|'private_network'|'offline';local_address:string|null;port:number;mirror_url:string|null}
 type Reason='awaiting_review'|'address_invalid'|'turned_off'|'not_sharing'|'dht_unavailable'|'nothing_shared'|'no_reachable_address'|'address_not_plain_http'|'no_relays';
-export interface Community {policy:Policy;consented:boolean;default_licenses:string[];licence_families?:LicenceDefinition;copies:CommunityCopy[];sharing_count:number;running:boolean;http_port:number|null;reachability:Reachability;last_error:string|null;bucket:BucketSummary|null;bucket_providers:BucketProvider[];uploaded_today_bytes?:number;uploaded_this_month_bytes?:number;dht_available?:boolean;dht_announcing?:boolean;nostr_publishing?:boolean;announce_reasons?:{dht:Reason[];nostr:Reason[]};announce_review_required?:boolean;address_invalid?:boolean}
+export interface Community {policy:Policy;consented:boolean;default_licenses:string[];licence_families?:LicenceDefinition;copies:CommunityCopy[];sharing_count:number;running:boolean;http_port:number|null;reachability:Reachability;last_error:string|null;bucket:BucketSummary|null;bucket_providers:BucketProvider[];uploaded_today_bytes?:number;uploaded_this_month_bytes?:number;dht_available?:boolean;dht_announcing?:boolean;nostr_publishing?:boolean;announce_reasons?:{dht:Reason[];nostr:Reason[]};announce_review_required?:boolean;address_invalid?:boolean;pirate_face?:PirateFaceStatus}
 type CheckOutcome='too_slow'|'this_mirror'|'other_mirror'|'no_card'|'not_a_mirror'|'http_error'|'private_address'|'unreachable';
 interface AddressCheck {address:string;outcome:CheckOutcome;http_status:number|null}
 
@@ -50,7 +51,7 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
  const [setup,setSetup]=useState<false|'all'|'announce'>(false),[agreed,setAgreed]=useState(false),[share,setShare]=useState<'eligible'|'chosen'>('eligible');
  const [licenses,setLicenses]=useState<string[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const [limits,setLimits]=useState<[number|null,number|null]>([null,null]);
- const [address,setAddress]=useState(''),[dht,setDht]=useState(true),[nostr,setNostr]=useState(true);
+ const [address,setAddress]=useState(''),[dht,setDht]=useState(true),[nostr,setNostr]=useState(true),[pirate,setPirate]=useState(false);
  const [checking,setChecking]=useState(false),[check,setCheck]=useState<AddressCheck|null>(null);
  const live=useRef(true);
  useEffect(()=>{live.current=true;return()=>{live.current=false;};},[]);
@@ -62,13 +63,15 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
  const refresh=useCallback(async()=>{try{const value=await api<Community>('desktop-community-read',{});if(live.current){loaded.current=true;setState(value);setUnavailable(false);}}catch{if(live.current&&!loaded.current)setUnavailable(true);}},[]);
  useEffect(()=>{void refresh();const timer=setInterval(()=>void refresh(),5000);return()=>clearInterval(timer);},[refresh,version]);
  async function act(action:string,body:Record<string,unknown>){setBusy(true);setError('');try{const value=await api<Community>(action,body);if(live.current)setState(value);return true;}catch(err){if(live.current)setError(err instanceof Error?err.message:'host_unavailable');return false;}finally{if(live.current)setBusy(false);}}
- function open(mode:'all'|'announce'='all'){if(!state)return;setLicenses(state.policy.licenses);setShare(state.policy.share);setLimits([state.policy.daily_upload_bytes,state.policy.monthly_upload_bytes]);setAddress(state.policy.public_url??'');setDht(state.policy.announce_dht??true);setNostr(state.policy.publish_nostr??true);setAgreed(false);setError('');setSetup(mode);}
+ function open(mode:'all'|'announce'='all'){if(!state)return;setLicenses(state.policy.licenses);setShare(state.policy.share);setLimits([state.policy.daily_upload_bytes,state.policy.monthly_upload_bytes]);setAddress(state.policy.public_url??'');setDht(state.policy.announce_dht??true);setNostr(state.policy.publish_nostr??true);setPirate(state.policy.seed_pirate_face??false);setAgreed(false);setError('');setSetup(mode);}
  // What people find is chosen with its disclosure on screen; sending the
  // disclosure version records that the owner saw it (with the consent, or later).
  const findChoices=()=>({public_url:address.trim()||null,announce_dht:dht,publish_nostr:nostr,announce_disclosure:1});
  // Saved limits are left exactly as they are unless the owner changes them.
  const limitsChanged=()=>!state||limits[0]!==state.policy.daily_upload_bytes||limits[1]!==state.policy.monthly_upload_bytes;
- const choices=()=>({share,licenses,...(limitsChanged()?{daily_upload_bytes:limits[0],monthly_upload_bytes:limits[1]}:{}),...findChoices()});
+ // Sent only when changed: turning it on or off restarts serving briefly.
+ const pirateChanged=()=>!!state&&pirate!==(state.policy.seed_pirate_face??false);
+ const choices=()=>({share,licenses,...(limitsChanged()?{daily_upload_bytes:limits[0],monthly_upload_bytes:limits[1]}:{}),...(pirateChanged()?{seed_pirate_face:pirate}:{}),...findChoices()});
  async function turnOn(){if(await act('desktop-community-configure',{enabled:true,consent:true,...choices()}))setSetup(false);}
  async function checkAddress(){setChecking(true);setCheck(null);setError('');try{const value=await api<AddressCheck>('desktop-community-check-address',{});if(live.current)setCheck(value);}catch(err){if(live.current)setError(err instanceof Error?err.message:'host_unavailable');}finally{if(live.current)setChecking(false);}}
  if(unavailable||!state)return null;
@@ -81,6 +84,11 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
  const plainHttp=/^http:\/\//i.test(typed),badAddress=typed!==''&&!/^https?:\/\/\S+$/i.test(typed);
  const announced=[dht&&'the BitTorrent DHT',nostr&&`${relays.length} Nostr ${relays.length===1?'relay':'relays'}`].filter((item):item is string=>!!item);
  const reasons=state.announce_reasons??{dht:[],nostr:[]};
+ const pf=state.pirate_face;
+ const pirateStep=(n:number)=>pf&&<Step n={n} title="Pirate Face">
+   <Announce checked={pirate&&pf.available} disabled={!pf.available} onChange={setPirate} title="Also seed on Pirate Face">Looks up each shared model on Pirate Face (pirateface.co). Where its torrent holds exactly the files this computer shares, this computer seeds it too, straight from those files: no second copy. Every piece is checked against them first, and nothing is ever downloaded. Peers in the public BitTorrent swarm see this computer’s address, and your upload limits apply.{!pf.available&&' This copy of Sovereign doesn’t include the BitTorrent component, so this can’t be turned on.'}</Announce>
+  </Step>;
+ const pirateRow=pf&&policy.seed_pirate_face&&<Row k="Pirate Face">{!pf.available?'Can’t seed: this copy of Sovereign doesn’t include the BitTorrent component':pf.checked===0?'Looking up your shared models…':`Seeding ${pf.seeding} of ${pf.matched} matching ${pf.matched===1?'torrent':'torrents'} · ${pf.listed} of ${pf.checked} looked-up ${pf.checked===1?'model':'models'} listed`}{pf.differs>0&&` · ${pf.differs} listed with different files, not seeded`}</Row>;
  const findable=<ul className="sk-community-announce" aria-label="How people find this mirror">
   <li>{state.dht_announcing?'Announced on the BitTorrent DHT. Anyone can look up this computer’s address there as a Sovereign mirror.':`Not announced on the BitTorrent DHT: ${why(reasons.dht,dhtWhy)}.`}</li>
   <li>{state.nostr_publishing?`Published to ${relays.length} Nostr ${relays.length===1?'relay':'relays'}. Anyone can read this mirror’s addresses there.`:`Not published to Nostr relays: ${why(reasons.nostr,nostrWhy)}.`}</li>
@@ -118,6 +126,7 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
    {state.announce_reasons&&findable}
    <Row k="Shares">{policy.share==='eligible'?'Every backup whose licence is on your list':'Only the backups you choose'}</Row>
    <Row k="Licences">{describeLicences(policy.licenses,state.licence_families)}</Row>
+   {pirateRow}
    <Row k="Uploaded today">{bytes(state.uploaded_today_bytes??0)}{policy.daily_upload_bytes===null?' · no limit':<> of {bytes(policy.daily_upload_bytes)}</>}</Row>
    <Row k="Uploaded this month">{bytes(state.uploaded_this_month_bytes??0)}{policy.monthly_upload_bytes===null?' · no limit':<> of {bytes(policy.monthly_upload_bytes)}</>}</Row>
    {policy.consent_expires&&<Row k="Keeps sharing until">{new Date(policy.consent_expires*1000).toLocaleDateString()}, then asks again</Row>}
@@ -152,13 +161,14 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
     {state.licence_families?<LicenceFamilies definition={state.licence_families} licenses={licenses} onChange={setLicenses} copies={state.copies.filter(item=>item.status!=='unsupported')} noun={['backup','backups']}/>:<LicenceList licenses={licenses} onChange={setLicenses} defaults={state.default_licenses}/>}
    </Step>
    {announceStep(3)}
-   <Step n={4} title="What others can see">
+   {pirateStep(4)}
+   <Step n={pf?5:4} title="What others can see">
     <p>Anyone who connects can download the shared models and will see this computer’s network address. Direct sharing isn’t anonymous or encrypted.</p>
     <UploadLimits daily={limits[0]} monthly={limits[1]} onChange={(daily,monthly)=>setLimits([daily,monthly])}/>
     <Row k="Port">{policy.port}</Row>
     <p>Sharing keeps running after you restart this computer, for one year, then asks again. Turn it off at any time.</p>
    </Step>
-   <Consent checked={agreed} onChange={setAgreed}>Keep sharing these models from this computer until I turn it off{announced.length?`, and announce it publicly on ${listed(announced)}`:', without announcing it publicly'}.</Consent>
+   <Consent checked={agreed} onChange={setAgreed}>Keep sharing these models from this computer until I turn it off{announced.length?`, and announce it publicly on ${listed(announced)}`:', without announcing it publicly'}{pirate&&pf?.available?', and seed matching Pirate Face torrents':''}.</Consent>
   </Sheet>,document.body)}
  </section>;
 }

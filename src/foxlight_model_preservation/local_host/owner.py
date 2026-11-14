@@ -1218,6 +1218,14 @@ class LocalOwner:
                     if self._gossip_control is not None:
                         self._gossip_control.cancel()
                     self._gossip_wake.set()
+                    # Seeding on Pirate Face changes the mirror's transports,
+                    # which only a stopped controller may do: restart it.
+                    if (
+                        "seed_pirate_face" in body
+                        and self._community_control is not None
+                    ):
+                        self._community_control.cancel()
+                        self._community_wake.set()
                     # Turning sharing off always stops the running mirror, even
                     # if saving or revoking failed part-way.
                     if not self.community.consented():

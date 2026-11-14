@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Mirrors can also seed Pirate Face torrents ("Also seed on Pirate Face" in
+  Help keep models available; `mirror transports --pirate-face`). Off by
+  default. Matching torrents are seeded straight from the stored files after a
+  full piece check, never downloading or copying; verified torrents are listed
+  in a signed `/.well-known/sovereign/torrents.json`. Mirror ledger v7.
+
 - Install docs point at the public 0.34.1 cohort: core 0.34.1, Library 0.30.1,
   Mac build 17, Linux revision 12 (guided setup 0.1.10, graphical setup 0.1.12)
   and `sovereign-mirror:0.34.1`.

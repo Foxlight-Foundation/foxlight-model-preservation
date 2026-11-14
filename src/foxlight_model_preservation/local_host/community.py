@@ -81,7 +81,14 @@ from ..mirror_cards import (
 from ..mirror_directory import MirrorDirectory
 from ..mirror_holdings import issue_holdings, store_holdings
 from ..mirror_intake import retain_local
-from ..mirror_models import HeldModel, MirrorObservation, SourceGrant, Terms
+from ..mirror_models import (
+    HeldModel,
+    MirrorObservation,
+    MirrorState,
+    SourceGrant,
+    Terms,
+)
+from ..mirror_native import configure as configure_native
 from ..mirror_objects import issue_objects, served_hashes
 from ..mirror_rendezvous import Rendezvous, rendezvous_available
 from ..mirror_state import MirrorLedger, grant_restart
@@ -95,6 +102,7 @@ from ..models import (
 )
 from ..nostr import DEFAULT_RELAYS, find_cards, publish_card
 from ..operations import OperationControl, OperationError, failure_code
+from ..pirateface_seed import issue_torrents, seeded
 from ..signing import (
     canonical_bytes,
     create_key,
@@ -172,6 +180,9 @@ class CommunityPolicy(Record):
     nostr_relays: tuple[str, ...] = Field(default=DEFAULT_RELAYS, max_length=16)
     consent_expires: int | None = None
     rarest_first: bool = False
+    # Also seed each shared model's matching Pirate Face torrent from the
+    # mirror's stored files (after looking it up on Pirate Face).
+    seed_pirate_face: bool = False
 
     @field_validator("public_url")
     @classmethod
@@ -534,6 +545,7 @@ class CommunityMirror:
             "nostr_relays",
             "rarest_first",
             "announce_disclosure",
+            "seed_pirate_face",
         }
         if not body or not set(body) <= allowed:
             raise PreservationError("invalid_control")
@@ -883,6 +895,7 @@ class CommunityMirror:
             for held in ledger.read().models.values()
         ):
             raise PreservationError("community_nothing_to_share")
+        self._apply_pirate_face(ledger, policy)
         grant_restart(ledger, policy.consent_expires)
 
         def record(value: MirrorObservation) -> None:
@@ -891,6 +904,49 @@ class CommunityMirror:
                 observe(value)
 
         run_mirror(ledger, resume=True, control=control, observe=record)
+
+    def _apply_pirate_face(self, ledger: MirrorLedger, policy: CommunityPolicy) -> bool:
+        """Match the mirror's Pirate Face seeding to the choice; True if changed."""
+        native = ledger.read().native_policy
+        current = bool(native and native.pirate_face)
+        wanted = (
+            policy.seed_pirate_face
+            and self.consented(policy)
+            and rendezvous_available()
+        )
+        if current == wanted or (native is None and not wanted):
+            return False
+        configure_native(ledger, pirate_face=wanted, max_active=4)
+        return True
+
+    def pirate_face_status(self, state: MirrorState) -> dict[str, JsonValue]:
+        """How many shared models were found on Pirate Face, and are seeded."""
+        shared = {
+            identity
+            for identity, held in state.models.items()
+            if held.state == "retained" and not held.blocked and not held.error
+        }
+        records = [
+            record
+            for identity, record in state.pirate_face.items()
+            if identity in shared
+        ]
+        native = state.native_policy
+        return {
+            "available": rendezvous_available(),
+            "on": bool(native and native.pirate_face),
+            "checked": len(records),
+            "listed": sum(1 for record in records if record.listed),
+            "matched": sum(1 for record in records if record.objects),
+            "seeding": sum(
+                1
+                for record in records
+                if record.objects and record.verified and record.error is None
+            ),
+            "differs": sum(
+                1 for record in records if record.error == "pirate_face_copy_differs"
+            ),
+        }
 
     def revoke_grant(self) -> bool:
         """Clear the mirror's standing restart grant; report whether it is gone."""
@@ -1314,7 +1370,7 @@ class CommunityMirror:
         document = build_peers(card, self.directory.gossip())
         # Object coverage lets catalog saves find files here by hash. It is
         # signed by the same mirror key and served beside the peers document.
-        objects = holdings = None
+        objects = holdings = torrents = None
         if card is not None:
             # Optional: a coverage problem must never stop the card renewing.
             with contextlib.suppress(PreservationError, OSError):
@@ -1328,6 +1384,12 @@ class CommunityMirror:
                     self._mirror_key(),
                     store_holdings(self._mirror() / "public", held),
                 )
+            # The Pirate Face torrents it seeds, when that is turned on.
+            with contextlib.suppress(PreservationError, OSError, ValueError):
+                torrents = issue_torrents(
+                    self._mirror_key(),
+                    seeded(MirrorLedger(self._mirror()).read(), held),
+                )
         try:
             with directory(self._mirror()) as root:
                 atomic_bytes(root, "peers.json", document)
@@ -1335,6 +1397,8 @@ class CommunityMirror:
                     atomic_bytes(root, "objects.json", objects)
                 if holdings is not None:
                     atomic_bytes(root, "holdings.json", holdings)
+                if torrents is not None:
+                    atomic_bytes(root, "torrents.json", torrents)
         except FileNotFoundError:
             pass  # No mirror yet; the next sync creates it and announces.
         # Only a document carrying this mirror's card is worth replacing the
@@ -1602,6 +1666,7 @@ class CommunityMirror:
             usage = {
                 "uploaded_today_bytes": state.egress_day_used,
                 "uploaded_this_month_bytes": state.egress_month_used,
+                "pirate_face": self.pirate_face_status(state),
             }
         return {
             "policy": policy.model_dump(mode="json"),
