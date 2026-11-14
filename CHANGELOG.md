@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.35.0
+
+- Running saves report each stage (download, then checking and signing,
+  storing and a final check; a catalog save's download check is its own
+  stage) with that stage's own work done and total, so progress after the
+  download is visible. A fetch's final whole-model check reports a distinct
+  `verifying` stage.
+
 - A drive that stops answering can no longer freeze a save. Free-space probes
   run on their own thread and give up after two seconds (reporting the space
   as unknown, one probe per drive at a time), and the Library screen asks the
