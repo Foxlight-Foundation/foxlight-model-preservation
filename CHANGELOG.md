@@ -23,6 +23,10 @@
   Face doesn't list can be offered for rescue with a button; nothing is sent
   otherwise.
 
+- Install docs point at the public 0.33 cohort: core 0.33.0, Library 0.29.0,
+  Mac build 15, Linux revision 10 (guided setup 0.1.8, graphical setup 0.1.10)
+  and `sovereign-mirror:0.33.0`.
+
 - The I2P pilot launcher reports the RPC port it bound at start. A status
   written during shutdown could record Jetty's closed-connector value (-2),
   which failed status validation; this made the native pilot check flaky.
