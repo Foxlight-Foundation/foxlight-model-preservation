@@ -1475,7 +1475,11 @@ def run_mirror(
         state = ledger.read()
         if not state.http_enabled and not (
             state.native_policy
-            and (state.native_policy.ipfs_binary or state.native_policy.torrent)
+            and (
+                state.native_policy.ipfs_binary
+                or state.native_policy.torrent
+                or state.native_policy.pirate_face
+            )
         ):
             raise PreservationError("select at least one mirror serving transport")
         if state.sources and not reached(

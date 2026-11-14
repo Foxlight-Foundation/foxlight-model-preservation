@@ -245,3 +245,28 @@ def test_lookups_and_checks_never_change_the_restart_identity(tmp_path, capture)
     # The choice itself is policy: turning it off is a new identity.
     configure(ledger, pirate_face=False)
     assert policy_id(ledger.read()) != before
+
+
+def test_a_check_never_vouches_for_a_torrent_that_replaced_it(
+    tmp_path, capture, monkeypatch
+) -> None:
+    from foxlight_model_preservation.pirateface_seed import record_seed
+
+    ledger, _ = mirror(tmp_path, capture)
+    cycle(ledger)
+    configure(ledger, pirate_face=True)
+    files = _weights(capture)
+    hashes = {name: _sha(data) for name, data in files.items()}
+    sizes = [(name, len(data)) for name, data in files.items()]
+    _listing(monkeypatch, _swarm(*sizes), hashes)
+    first = refresh(ledger, capture.identity, "test/weights")
+    checked = (first.infohash, first.objects)
+    # A lookup replaces the torrent while a session is checking the old one.
+    _listing(monkeypatch, _swarm(*sizes, infohash="e" * 40), hashes)
+    refresh(ledger, capture.identity, "test/weights")
+    record_seed(ledger, capture.identity, checked=checked, verified=True)
+    record_seed(ledger, capture.identity, checked=checked, error="refused")
+    current = ledger.read().pirate_face[capture.identity]
+    assert current.infohash == "e" * 40
+    assert not current.verified and current.error is None
+    assert seeded(ledger.read(), [capture.identity]) == []

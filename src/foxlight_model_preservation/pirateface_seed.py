@@ -249,13 +249,26 @@ def due(record: PirateFaceSeed | None, now: int) -> bool:
     return now - record.checked_at >= wait
 
 
-def record_seed(ledger: MirrorLedger, manifest: str, **changes: object) -> None:
-    """Change one held copy's Pirate Face record, if it still has one."""
+def record_seed(
+    ledger: MirrorLedger,
+    manifest: str,
+    *,
+    checked: tuple[str, tuple[str, ...]] | None = None,
+    **changes: object,
+) -> None:
+    """Change one held copy's Pirate Face record, if it still has one.
+
+    ``checked`` names the torrent and mapping a session checked: the change
+    applies only while the record still names exactly those, so a lookup that
+    replaced the torrent meanwhile is never marked checked (or refused).
+    """
 
     def apply(state: MirrorState) -> MirrorState:
         records = dict(state.pirate_face)
         current = records.get(manifest)
         if current is None:
+            return state
+        if checked is not None and (current.infohash, current.objects) != checked:
             return state
         records[manifest] = PirateFaceSeed.model_validate(
             {**current.model_dump(), **changes}
@@ -375,6 +388,8 @@ def seed(
         with os.fdopen(descriptor, "rb") as stream:
             data = stream.read(MAX_TORRENT_BYTES + 1)
     swarm = parse_torrent(data, record.infohash, record.repository)
+    # Receipts from this session apply only to the torrent it checks.
+    checked = (record.infohash, record.objects)
     record_seed(
         ledger,
         manifest,
@@ -395,12 +410,16 @@ def seed(
     try:
         seeder.run(
             control,
-            verified=lambda: record_seed(ledger, manifest, verified=True),
+            verified=lambda: record_seed(
+                ledger, manifest, checked=checked, verified=True
+            ),
         )
     except OperationError:
         raise  # Stopped, not refused: the next session carries on.
     except PreservationError as error:
-        record_seed(ledger, manifest, error=str(error)[:400], verified=False)
+        record_seed(
+            ledger, manifest, checked=checked, error=str(error)[:400], verified=False
+        )
         raise
     finally:
         seeder.close()
