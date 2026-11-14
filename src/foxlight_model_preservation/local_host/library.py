@@ -81,6 +81,47 @@ def _identity(path: Path) -> tuple[int, int]:
     return value.st_dev, value.st_ino
 
 
+# A drive that stops answering (a stalled network share, or a request macOS's
+# exFAT driver never completes) must never freeze the app: a free-space probe
+# gives up after this long and the space is reported as unknown.
+PROBE_SECONDS = 2.0
+_probe_lock = threading.Lock()
+_probing: dict[str, threading.Thread] = {}
+_probed: dict[str, int | None] = {}
+
+
+def free_space(path: Path, seconds: float = PROBE_SECONDS) -> int | None:
+    """Free bytes at ``path``, or None when the drive doesn't answer in time.
+
+    The probe runs on its own thread, one per path at a time: a probe stuck in
+    the operating system is left to finish on its own, never waited on again,
+    and later calls report the space as unknown until it returns.
+    """
+    key = str(path)
+    with _probe_lock:
+        probe = _probing.get(key)
+        if probe is None:
+
+            def run() -> None:
+                try:
+                    value: int | None = shutil.disk_usage(path).free
+                except OSError:
+                    value = None
+                with _probe_lock:
+                    _probed[key] = value
+                    _probing.pop(key, None)
+
+            probe = threading.Thread(
+                target=run, name="sovereign-drive-probe", daemon=True
+            )
+            _probing[key] = probe
+            _probed.pop(key, None)
+            probe.start()
+    probe.join(seconds)
+    with _probe_lock:
+        return None if key in _probing else _probed.get(key)
+
+
 class Library:
     """Resolve and change where large model data lives."""
 
@@ -173,20 +214,16 @@ class Library:
             return self.home
         return self.root()
 
-    def free_bytes(self) -> int:
-        """Free space where the next copy will be written."""
-        return shutil.disk_usage(self.root()).free
+    def free_bytes(self) -> int | None:
+        """Free space where the next copy will be written; None if unknown."""
+        return free_space(self.root())
 
     def view(self) -> dict[str, JsonValue]:
         """Local state for the Library screen; probes only already-known folders."""
         settings = self.settings()
         current = settings.current
         available = current is None or self._available(current)
-        free: int | None
-        try:
-            free = shutil.disk_usage(Path(current.path) if current else self.home).free
-        except OSError:
-            free = None
+        free = free_space(Path(current.path) if current else self.home)
         return {
             "path": current.path if current else None,
             "system": current is None,

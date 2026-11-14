@@ -6,6 +6,10 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- A save to a library drive that stops answering (for example an exFAT drive
+  on macOS 26) no longer freezes; free space shows as unknown until the drive
+  answers again.
+
 - Mirrors can also seed Pirate Face torrents ("Also seed on Pirate Face" in
   Help keep models available; `mirror transports --pirate-face`). Off by
   default. Matching torrents are seeded straight from the stored files after a
