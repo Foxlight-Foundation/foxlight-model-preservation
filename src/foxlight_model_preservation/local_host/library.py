@@ -85,41 +85,44 @@ def _identity(path: Path) -> tuple[int, int]:
 # exFAT driver never completes) must never freeze the app: a free-space probe
 # gives up after this long and the space is reported as unknown.
 PROBE_SECONDS = 2.0
+# While a probe is running, a recent answer still stands; an older one doesn't.
+PROBE_FRESH_SECONDS = 60.0
 _probe_lock = threading.Lock()
 _probing: dict[str, threading.Thread] = {}
-_probed: dict[str, int | None] = {}
+_probed: dict[str, tuple[int | None, float]] = {}
 
 
 def free_space(path: Path, seconds: float = PROBE_SECONDS) -> int | None:
     """Free bytes at ``path``, or None when the drive doesn't answer in time.
 
-    The probe runs on its own thread, one per path at a time: a probe stuck in
-    the operating system is left to finish on its own, never waited on again,
-    and later calls report the space as unknown until it returns.
+    The probe runs on its own thread, one per path at a time, and only the
+    call that starts it waits. While a probe is running (or stuck in the
+    operating system), later calls return at once: the last answer if it is
+    recent, else None.
     """
     key = str(path)
     with _probe_lock:
-        probe = _probing.get(key)
-        if probe is None:
+        if key in _probing:
+            value, at = _probed.get(key, (None, 0.0))
+            return value if time.monotonic() - at < PROBE_FRESH_SECONDS else None
 
-            def run() -> None:
-                try:
-                    value: int | None = shutil.disk_usage(path).free
-                except OSError:
-                    value = None
-                with _probe_lock:
-                    _probed[key] = value
-                    _probing.pop(key, None)
+        def run() -> None:
+            try:
+                value: int | None = shutil.disk_usage(path).free
+            except OSError:
+                value = None
+            with _probe_lock:
+                _probed[key] = (value, time.monotonic())
+                _probing.pop(key, None)
 
-            probe = threading.Thread(
-                target=run, name="sovereign-drive-probe", daemon=True
-            )
-            _probing[key] = probe
-            _probed.pop(key, None)
-            probe.start()
+        probe = threading.Thread(target=run, name="sovereign-drive-probe", daemon=True)
+        _probing[key] = probe
+        probe.start()
     probe.join(seconds)
     with _probe_lock:
-        return None if key in _probing else _probed.get(key)
+        if key in _probing:
+            return None
+        return _probed.get(key, (None, 0.0))[0]
 
 
 class Library:
