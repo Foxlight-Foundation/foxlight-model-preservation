@@ -63,6 +63,12 @@ class DesktopClient(CoreClient):
                 return await self._choose_folder()
             if (
                 method == "POST"
+                and path == "desktop-library-folder-choose"
+                and body == {}
+            ):
+                return await self._choose_folder(library=True)
+            if (
+                method == "POST"
                 and path == "desktop-reveal"
                 and body is not None
                 and set(body) == {"job_id"}
@@ -145,6 +151,18 @@ class DesktopClient(CoreClient):
                 "backup_requires_empty_private_folder",
                 "backup_destination_capacity",
                 "backup_busy_try_again",
+                "library_storage_unavailable",
+                "library_folder_unavailable",
+                "library_folder_inside_sovereign",
+                "library_folder_not_empty",
+                "library_folder_not_yours",
+                "library_folder_belongs_to_another",
+                "library_folder_changed",
+                "library_moving",
+                "library_location_limit",
+                "library_busy_try_again",
+                "library_move_unsupported_file",
+                "library_move_verification_failed",
                 "sharing_projection_unavailable",
                 "public_copy_review_changed",
                 "sharing_busy_try_again",
@@ -225,7 +243,7 @@ class DesktopClient(CoreClient):
                     pass
                 await process.wait()
 
-    async def _choose_folder(self) -> dict[str, JsonValue]:
+    async def _choose_folder(self, *, library: bool = False) -> dict[str, JsonValue]:
         if self._closing:
             raise CoreRefused("sovereign_owner_closing")
         binary = shutil.which("zenity", path="/usr/bin:/bin")
@@ -238,7 +256,9 @@ class DesktopClient(CoreClient):
                 binary,
                 "--file-selection",
                 "--directory",
-                "--title=Choose a backup drive or folder",
+                "--title=Choose where Sovereign keeps model copies"
+                if library
+                else "--title=Choose a backup drive or folder",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
             )
@@ -253,7 +273,8 @@ class DesktopClient(CoreClient):
                     raise CoreRefused("folder_picker_unavailable")
                 return {
                     "path": str(
-                        Path(output.decode().removesuffix("\n")) / "Sovereign Backups"
+                        Path(output.decode().removesuffix("\n"))
+                        / ("Sovereign Library" if library else "Sovereign Backups")
                     )
                 }
             except TimeoutError as error:

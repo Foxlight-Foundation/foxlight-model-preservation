@@ -6,6 +6,11 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Library → **Where model copies are kept**: choose any connected drive, NAS or
+  folder (native folder picker on Mac and Linux), see free space there, move
+  existing copies with read-back verification, and get a clear message when the
+  drive is unplugged.
+
 - Install docs point at the public 0.33 cohort: core 0.33.0, Library 0.29.0,
   Mac build 15, Linux revision 10 (guided setup 0.1.8, graphical setup 0.1.10)
   and `sovereign-mirror:0.33.0`.
@@ -288,7 +293,6 @@ tagged `library-v*`; versions without a tag are source previews installed from
 - Advance the optional Core-backed preview to the verified companion-recovery
   and model-description host revision. The immutable installer checksum stays
   unchanged; existing preview data and separate runtime/code permissions remain.
-
 
 - Explain required repository-code permission accurately for Skulk recovery and
   point to standalone files-only recovery when that permission is not desired.

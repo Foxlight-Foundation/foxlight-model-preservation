@@ -98,6 +98,7 @@ struct LibraryWebView: NSViewRepresentable {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.userContentController.addScriptMessageHandler(context.coordinator, contentWorld: .page, name: "chooseBackupFolder")
+        configuration.userContentController.addScriptMessageHandler(context.coordinator, contentWorld: .page, name: "chooseLibraryFolder")
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.navigationDelegate = context.coordinator
         view.uiDelegate = context.coordinator
@@ -110,7 +111,8 @@ struct LibraryWebView: NSViewRepresentable {
         let base: URL
         init(base: URL) { self.base = base }
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage, replyHandler: @escaping (Any?, String?) -> Void) {
-            guard message.name == "chooseBackupFolder", message.frameInfo.isMainFrame,
+            let library = message.name == "chooseLibraryFolder"
+            guard message.name == "chooseBackupFolder" || library, message.frameInfo.isMainFrame,
                   let url = message.frameInfo.request.url, permitted(url),
                   let body = message.body as? [String: Any], body.isEmpty else {
                 replyHandler(nil, "Folder selection is available only from Sovereign."); return
@@ -118,9 +120,11 @@ struct LibraryWebView: NSViewRepresentable {
             let panel = NSOpenPanel()
             panel.canChooseFiles = false; panel.canChooseDirectories = true
             panel.allowsMultipleSelection = false; panel.canCreateDirectories = false
-            panel.message = "Choose a connected drive or folder. Sovereign will review a dedicated backup folder before creating it."
+            panel.message = library
+                ? "Choose a connected drive, network share or folder. Sovereign will review a dedicated folder for model copies before creating it."
+                : "Choose a connected drive or folder. Sovereign will review a dedicated backup folder before creating it."
             panel.begin { result in
-                replyHandler(result == .OK ? panel.url?.appendingPathComponent("Sovereign Backups").path : nil, nil)
+                replyHandler(result == .OK ? panel.url?.appendingPathComponent(library ? "Sovereign Library" : "Sovereign Backups").path : nil, nil)
             }
         }
         func permitted(_ url: URL) -> Bool {

@@ -66,6 +66,10 @@ STATIC_ASSET_LIMIT: Final = 2 * 1024 * 1024
 # the real outcome rather than reporting a failure while the check continues.
 CONTROL_TIMEOUTS: Final[dict[str, float]] = {
     "desktop-folder-choose": 610,
+    "desktop-library-folder-choose": 610,
+    # A library folder on a NAS can be slow to inspect or create.
+    "desktop-library-review": 60,
+    "desktop-library-setup": 60,
     "desktop-community-bucket-connect": 150,
     "desktop-community-bucket-disconnect": 60,
     "desktop-community-check-address": 45,
@@ -719,6 +723,12 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                         "api/desktop-backup-setup",
                         "api/desktop-backup-forget",
                         "api/desktop-folder-choose",
+                        "api/desktop-library-folder-choose",
+                        "api/desktop-library-review",
+                        "api/desktop-library-setup",
+                        "api/desktop-library-use-home",
+                        "api/desktop-library-move",
+                        "api/desktop-library-move-stop",
                         "api/desktop-sharing-read",
                         "api/desktop-sharing-review",
                         "api/desktop-sharing-work-remove",

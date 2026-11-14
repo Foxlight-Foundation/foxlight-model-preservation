@@ -161,6 +161,39 @@ Once independently accepted metadata is retained, stopping a source does not
 revoke a saved model, delete its files or change its signing policy. Neither this
 flow nor following/searching a source starts sharing, seeding or model execution.
 
+## Where model copies are kept
+
+By default, model copies live in Sovereign's own data folder on the system drive.
+In **Library → Where model copies are kept → Change location**, choose any
+connected drive, mounted network share (NAS) or folder. Sovereign creates one
+dedicated folder there (or uses an empty one you pick) and marks it as this
+Sovereign's Library. From then on, new saves, downloads in progress, uploaded
+kits, exported kits, restored folders and published copies' stores go there, and
+the free-space check before a save measures that drive. Keys, settings and the
+activity journal stay on this computer.
+
+Copies you already have keep working where they are. The Library offers to
+move them: each copy is copied to the new folder, every file is read back from
+the new drive and the copy's signatures are checked before the switch, and only
+then is the original removed. A move waits until no save, export or sharing
+session is running, and new saves wait while it runs. Stopping a move keeps
+whatever has not been moved yet where it was.
+
+If the drive is unplugged, saving stops with a message to connect it; Sovereign
+never recreates the folder or falls back to the system drive on its own. Copies
+on other connected folders keep working. **Keep new copies on this computer**
+switches back without moving or deleting anything, and choosing the same
+folder again reattaches it with its copies.
+
+A Library folder belongs to one Sovereign. A folder holding another Sovereign's
+marker is refused, so two computers can't write to the same folder on a NAS.
+Drive formats and shares that can't hold owner-only permissions (for example
+exFAT, or some network shares) are accepted, and the Library says that other
+people who can use that drive can read the copies; every file is checked
+against its fingerprint before it is shared or exported. Copies kept by **Help
+keep models available** for other people live in the Library folder too; moving
+them pauses serving only while that pool itself is copied and checked.
+
 ## Backup folders and public sharing
 
 These controls ship in core 0.33 / Library 0.29, Mac build 15 and Linux
@@ -582,7 +615,8 @@ explicitly enrolled backup folders.
 Default data locations are `~/Library/Application Support/Foxlight/Sovereign` on
 macOS and `$XDG_DATA_HOME/foxlight/sovereign` (normally
 `~/.local/share/foxlight/sovereign`) on Linux. `--home` selects a dedicated private
-folder. Concurrent owners or changed storage identities are refused. Original
+folder; model copies can live elsewhere (see Where model copies are kept).
+Concurrent owners or changed storage identities are refused. Original
 runtime-owned stores are not modified. Capturing can require several times the
 selected bytes for private working copies; insufficient local space refuses the
 download before object requests. Storage needs normal POSIX rename/fsync/flock

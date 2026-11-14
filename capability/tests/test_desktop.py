@@ -296,6 +296,9 @@ async def test_linux_folder_selection_keeps_unicode_and_trailing_spaces(
     try:
         reply = await client.request("POST", "desktop-folder-choose", {})
         assert reply["path"] == "/controlled/備份  /Sovereign Backups"
+        # The Library location gets its own dedicated folder name.
+        reply = await client.request("POST", "desktop-library-folder-choose", {})
+        assert reply["path"] == "/controlled/備份  /Sovereign Library"
     finally:
         await client.close()
 

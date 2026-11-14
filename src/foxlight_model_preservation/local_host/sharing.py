@@ -68,6 +68,7 @@ from ..signing import (
     strict_json,
 )
 from ..storage import atomic_bytes, directory, manifest_path, object_path, read_metadata
+from .library import Library
 from .presentation import metadata_page
 
 
@@ -95,8 +96,16 @@ class MemberDecision(Record):
 class Sharing:
     """Keep public owner state separate from private Library captures and keys."""
 
-    def __init__(self, home: Path) -> None:
+    def __init__(self, home: Path, library: Library | None = None) -> None:
         self.home = home
+        # Published copies' stores sit beside the copies they link to.
+        self.library = library or Library(home)
+
+    def _mirror(self, public_id: str) -> Path:
+        return self.library.find("sharing/mirrors/" + public_id)
+
+    def _work_root(self, identifier: str) -> Path:
+        return self.library.find("sharing/work/" + identifier).parent
 
     def read(self, offset: int = 0) -> dict[str, JsonValue]:
         """List completed public selections locally; never probe or start serving."""
@@ -122,7 +131,7 @@ class Sharing:
     def _view(self, copy: PublicCopy) -> dict[str, JsonValue]:
         available = False
         try:
-            state = MirrorLedger(self.home / "sharing/mirrors" / copy.public_id).read()
+            state = MirrorLedger(self._mirror(copy.public_id)).read()
             held = state.models.get(copy.manifest_id)
             available = bool(
                 held
@@ -377,10 +386,11 @@ class Sharing:
         network_bytes = (
             public_network_pmf(public_manifest)[1].total_bytes + MAX_METADATA_BYTES
         )
-        with directory(self.home / "sharing/mirrors", create=True):
+        mirrors = self.library.private_root() / "sharing/mirrors"
+        with directory(mirrors, create=True):
             pass
         ledger = MirrorLedger.initialize(
-            self.home / "sharing/mirrors" / job_id,
+            mirrors / job_id,
             name=public_manifest.name,
             disk_bytes=max(network_bytes * 3 + 2 * HEADROOM, 512 * 1024**2),
             ingress_daily=1,
@@ -433,9 +443,10 @@ class Sharing:
 
     def require_space(self, store: Path, size: int) -> None:
         """Refuse publication without working space; linked stores need little."""
-        linked = os.stat(store).st_dev == os.stat(self.home).st_dev
+        data = self.library.private_root()
+        linked = os.stat(store).st_dev == os.stat(data).st_dev
         needed = 8 * MAX_METADATA_BYTES if linked else size * 3
-        if shutil.disk_usage(self.home).free < needed + HEADROOM:
+        if shutil.disk_usage(data).free < needed + HEADROOM:
             raise PreservationError("insufficient_space")
 
     def origin_manifest(
@@ -484,7 +495,7 @@ class Sharing:
         public_id = str(plan["public_manifest_id"])
         public_v1_id = str(plan["public_v1_id"])
         original_id, _, original_trust, _ = self._origin(store, identity, trust)
-        work = self.home / "sharing/work" / job_id
+        work = self.library.private_root() / "sharing/work" / job_id
         with directory(work, create=True):
             pass
         original = work / "original"
@@ -550,7 +561,11 @@ class Sharing:
         if re.fullmatch(r"[0-9a-f]{64}", identifier) is None:
             raise PreservationError("invalid_control")
         try:
-            with directory(self.home / "sharing/work") as root:
+            folder = self._work_root(identifier)
+        except PreservationError:
+            return False  # Its library drive is unplugged: nothing to inspect.
+        try:
+            with directory(folder) as root:
                 value = os.stat(identifier, dir_fd=root, follow_symlinks=False)
                 return stat.S_ISDIR(value.st_mode)
         except FileNotFoundError:
@@ -562,7 +577,7 @@ class Sharing:
             return
         if not shutil.rmtree.avoids_symlink_attacks:
             raise PreservationError("safe_temporary_cleanup_unavailable")
-        with directory(self.home / "sharing/work") as root:
+        with directory(self._work_root(identifier)) as root:
             shutil.rmtree(identifier, dir_fd=root)
             os.fsync(root)
 
@@ -571,7 +586,7 @@ class Sharing:
     ) -> dict[str, JsonValue]:
         """Review retained bytes, finite duration and durable upload allowances."""
         copy = self.get(identifier)
-        ledger = MirrorLedger(self.home / "sharing/mirrors" / identifier)
+        ledger = MirrorLedger(self._mirror(identifier))
         state = ledger.read()
         self._http_only(state)
         self._single_selection(state, copy.manifest_id)
@@ -619,7 +634,7 @@ class Sharing:
     def require_session(self, plan: dict[str, JsonValue]) -> None:
         """Refuse a handoff whose original exact selection or policy is withdrawn."""
         copy = self.get(str(plan["public_id"]))
-        state = MirrorLedger(self.home / "sharing/mirrors" / copy.public_id).read()
+        state = MirrorLedger(self._mirror(copy.public_id)).read()
         self._http_only(state)
         self._single_selection(state, copy.manifest_id)
         held = state.models.get(copy.manifest_id)
@@ -644,7 +659,7 @@ class Sharing:
     ) -> None:
         """Start only the separately approved HTTP mirror and drain it on stop."""
         copy = self.get(str(plan["public_id"]))
-        ledger = MirrorLedger(self.home / "sharing/mirrors" / copy.public_id)
+        ledger = MirrorLedger(self._mirror(copy.public_id))
         if digest(encode_record(ledger.read())) != plan["ledger_sha256"]:
             raise PreservationError("public_copy_review_changed")
         self.require_session(plan)

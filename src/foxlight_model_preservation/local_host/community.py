@@ -105,6 +105,7 @@ from ..signing import (
 )
 from ..storage import atomic_bytes, directory, manifest_path, read_metadata
 from ..transfer import MirrorHTTPError, TransferPolicy, response
+from .library import Library
 from .presentation import captured_card_metadata, card_summary
 from .sharing import MemberDecision, Sharing
 
@@ -409,6 +410,9 @@ class CommunityMirror:
     def __init__(self, home: Path, sharing: Sharing) -> None:
         self.home = home
         self.sharing = sharing
+        # Settings and the mirror key stay in the home; the served pool sits in
+        # the library folder beside the copies its objects are linked from.
+        self.library = getattr(sharing, "library", None) or Library(home)
         self.path = home / "sharing/community"
         self.observation: MirrorObservation | None = None
         self.last_error: str | None = None
@@ -631,7 +635,9 @@ class CommunityMirror:
         decisions: list[JsonValue] | None = None
         try:
             manifest = self.sharing.origin_manifest(
-                self.home / "copies" / copy.copy_id, copy.manifest_id, copy.trust
+                self.library.find("copies/" + copy.copy_id),
+                copy.manifest_id,
+                copy.trust,
             )
             members = _data_members(manifest)
             already_public = all(
@@ -680,12 +686,30 @@ class CommunityMirror:
 
     # Mirror ------------------------------------------------------------------
 
+    def pool_available(self) -> bool:
+        """False while the pool's library drive is unplugged (not merely empty)."""
+        if self.library.available():
+            return True
+        return any(
+            (root / "sharing/community/mirror").is_dir()
+            for root in self.library.roots()
+        )
+
+    def _mirror(self) -> Path:
+        try:
+            return self.library.find("sharing/community/mirror")
+        except PreservationError:
+            # The library drive is unplugged: reads see no pool. Creating one
+            # (ledger) still refuses rather than using the system drive.
+            return self.path / "mirror"
+
     def ledger(self) -> MirrorLedger:
         """Open the one community mirror, creating it the first time it is used."""
         policy = self.policy()
-        path = self.path / "mirror"
+        path = self._mirror()
         if not path.exists():
-            with directory(self.path, create=True):
+            path = self.library.private_root() / "sharing/community/mirror"
+            with directory(path.parent, create=True):
                 pass
             MirrorLedger.initialize(
                 path,
@@ -693,7 +717,7 @@ class CommunityMirror:
                 # Linked objects cost no new space; the logical budget is the
                 # whole volume and real free space is still checked per model.
                 disk_bytes=min(
-                    max(shutil.disk_usage(self.path).total, 256 * 1024**2),
+                    max(shutil.disk_usage(path.parent).total, 256 * 1024**2),
                     2**53 - 1,
                 ),
                 ingress_daily=1,
@@ -731,13 +755,16 @@ class CommunityMirror:
         ledger = self.ledger()
         added = 0
         wanted: set[str] = set()
+        # A pool created while an earlier library drive was unplugged lacks the
+        # selections recorded for the old one: those copies join it again.
+        present = set(ledger.read().models)
         for copy in copies:
             control.checkpoint()
             view = self.candidate(copy)
             if view["status"] not in {"sharing", "eligible", "failed"}:
                 continue
             identity = self.joined().copies.get(copy.copy_id)
-            if identity is None:
+            if identity is None or identity not in present:
                 try:
                     self._join(ledger, copy, view, control)
                 except OperationError:
@@ -772,7 +799,7 @@ class CommunityMirror:
         view: dict[str, JsonValue],
         control: OperationControl,
     ) -> None:
-        store = self.home / "copies" / copy.copy_id
+        store = self.library.find("copies/" + copy.copy_id)
         plan = self.sharing.plan(store, copy.manifest_id, copy.trust, view["decisions"])
         self.sharing.require_space(store, cast(int, plan["size_bytes"]))
         job_id = digest(("community:" + copy.copy_id).encode())
@@ -849,7 +876,7 @@ class CommunityMirror:
     def revoke_grant(self) -> bool:
         """Clear the mirror's standing restart grant; report whether it is gone."""
         try:
-            MirrorLedger(self.path / "mirror").update(
+            MirrorLedger(self._mirror()).update(
                 lambda current: current.model_copy(update={"restart": None})
             )
         except FileNotFoundError:
@@ -985,7 +1012,7 @@ class CommunityMirror:
 
     def _bucket_held(self) -> dict[str, HeldModel]:
         try:
-            return dict(MirrorLedger(self.path / "mirror").read().models)
+            return dict(MirrorLedger(self._mirror()).read().models)
         except FileNotFoundError:
             return {}
 
@@ -1054,7 +1081,7 @@ class CommunityMirror:
 
     def _bucket_manifest(self, identity: str, trust: TrustProfile) -> ArchiveManifest:
         """Verify the retained signed manifest of one model the bucket serves."""
-        with directory(self.path / "mirror/store") as root:
+        with directory(self._mirror() / "store") as root:
             return verify_archive_manifest(
                 read_metadata(root, manifest_path(identity)), trust, identity
             )
@@ -1099,7 +1126,7 @@ class CommunityMirror:
             raise PreservationError("bucket_model_unavailable")
         try:
             invitation = create_invitation(
-                self.path / "mirror/store",
+                self._mirror() / "store",
                 manifest_id,
                 held.grant.trust,
                 (state.target.public_url,),
@@ -1165,8 +1192,13 @@ class CommunityMirror:
                 load_credentials(state.target.key_name),
                 self.bucket_policy,
             )
+            if self.consented() and not self.pool_available():
+                # Sharing is on but the pool's drive is unplugged: nothing was
+                # withdrawn, so leave the bucket as it is until it is back.
+                # Turning sharing off still withdraws everything below.
+                return state
             try:
-                ledger = MirrorLedger(self.path / "mirror")
+                ledger = MirrorLedger(self._mirror())
                 models = ledger.read().models
             except FileNotFoundError:
                 # Never shared yet: there is nothing to upload, only to withdraw.
@@ -1199,7 +1231,7 @@ class CommunityMirror:
                         return self.bucket()
                 try:
                     publish_to_bucket(
-                        self.path / "mirror/store",
+                        self._mirror() / "store",
                         identity,
                         models[identity].grant.trust,
                         client,
@@ -1230,7 +1262,7 @@ class CommunityMirror:
     def held(self) -> frozenset[str]:
         """Public identities this mirror retains and serves right now."""
         try:
-            models = MirrorLedger(self.path / "mirror").read().models
+            models = MirrorLedger(self._mirror()).read().models
         except FileNotFoundError:
             return frozenset()
         return frozenset(
@@ -1268,17 +1300,17 @@ class CommunityMirror:
             # Optional: a coverage problem must never stop the card renewing.
             with contextlib.suppress(PreservationError, OSError):
                 objects = issue_objects(
-                    self._mirror_key(), served_hashes(self.path / "mirror" / "public")
+                    self._mirror_key(), served_hashes(self._mirror() / "public")
                 )
             # What this mirror keeps, by name, so others can find it in Find.
             # It lists exactly the copies the card covers.
             with contextlib.suppress(PreservationError, OSError):
                 holdings = issue_holdings(
                     self._mirror_key(),
-                    store_holdings(self.path / "mirror" / "public", held),
+                    store_holdings(self._mirror() / "public", held),
                 )
         try:
-            with directory(self.path / "mirror") as root:
+            with directory(self._mirror()) as root:
                 atomic_bytes(root, "peers.json", document)
                 if objects is not None:
                     atomic_bytes(root, "objects.json", objects)
@@ -1542,7 +1574,7 @@ class CommunityMirror:
         rows = [self.candidate(copy) for copy in copies]
         observation = self.observation
         usage: dict[str, JsonValue] = {}
-        path = self.path / "mirror"
+        path = self._mirror()
         try:
             state = MirrorLedger(path).read()
         except FileNotFoundError:

@@ -143,6 +143,26 @@ _LEDGER_LOCKS: dict[Path, threading.RLock] = {}
 _LEDGER_LOCKS_GUARD = threading.Lock()
 
 
+def reenroll(path: Path) -> None:
+    """Record a moved mirror's own directories as its enrolled identities.
+
+    Only for a mirror tree its owner has just copied to a new folder and
+    verified, before that folder is put in place; every other open still
+    refuses changed directory identities.
+    """
+    with directory(path) as root:
+        with open_file(root, "mirror.json") as stream:
+            state, _legacy = decode_state(stream.read(MAX_STATE + 1))
+        identities: dict[str, tuple[int, int]] = {}
+        for name in DIRECTORIES:
+            info = os.stat(name, dir_fd=root, follow_symlinks=False)
+            if not stat.S_ISDIR(info.st_mode):
+                raise PreservationError("mirror directories must be owner-only")
+            identities[name] = (info.st_dev, info.st_ino)
+        moved = state.model_copy(update={"identity": identities})
+        atomic_bytes(root, "mirror.json", encode_state(moved))
+
+
 class MirrorLedger:
     """Bound a controller to enrolled directory identities and an atomic ledger."""
 
