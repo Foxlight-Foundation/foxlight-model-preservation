@@ -1192,9 +1192,10 @@ class CommunityMirror:
                 load_credentials(state.target.key_name),
                 self.bucket_policy,
             )
-            if not self.pool_available():
-                # The pool's drive is unplugged: nothing was withdrawn, so
-                # leave the bucket exactly as it is until it is back.
+            if self.consented() and not self.pool_available():
+                # Sharing is on but the pool's drive is unplugged: nothing was
+                # withdrawn, so leave the bucket as it is until it is back.
+                # Turning sharing off still withdraws everything below.
                 return state
             try:
                 ledger = MirrorLedger(self._mirror())
