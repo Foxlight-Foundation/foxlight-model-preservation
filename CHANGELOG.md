@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Install docs point at the public 0.34.1 cohort: core 0.34.1, Library 0.30.1,
+  Mac build 17, Linux revision 12 (guided setup 0.1.10, graphical setup 0.1.12)
+  and `sovereign-mirror:0.34.1`.
+
 - Guided Linux setup 0.1.10 and graphical setup 0.1.12 install revision 12
   (core 0.34.1 / Library 0.30.1), now served by the signed apt channel; package
   pins amd64 2e411251… and arm64 2d9ee511…, documented bootstrap hash 9f9c8e2c….
