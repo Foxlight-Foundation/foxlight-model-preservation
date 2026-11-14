@@ -11,6 +11,10 @@
   back to the system drive; a folder marked by another Sovereign is refused.
   The pool **Help keep models available** keeps for others lives there too.
 
+- Install docs point at the public 0.33 cohort: core 0.33.0, Library 0.29.0,
+  Mac build 15, Linux revision 10 (guided setup 0.1.8, graphical setup 0.1.10)
+  and `sovereign-mirror:0.33.0`.
+
 - The I2P pilot launcher reports the RPC port it bound at start. A status
   written during shutdown could record Jetty's closed-connector value (-2),
   which failed status validation; this made the native pilot check flaky.
@@ -614,7 +618,6 @@
   prior metadata. Signed card/archive/kit formats and trust roles are unchanged.
 - Add a narrowly scoped native Mac backup-folder picker and Linux picker
   dependency; preserve correct `.foxhandoff` filenames in native save dialogs.
-
 
 - Preserve complete signed selections with vision/audio/video metadata, named
   projectors, video companions and same-repository draft/active MTP files.

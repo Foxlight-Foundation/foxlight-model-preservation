@@ -11,6 +11,10 @@ tagged `library-v*`; versions without a tag are source previews installed from
   existing copies with read-back verification, and get a clear message when the
   drive is unplugged.
 
+- Install docs point at the public 0.33 cohort: core 0.33.0, Library 0.29.0,
+  Mac build 15, Linux revision 10 (guided setup 0.1.8, graphical setup 0.1.10)
+  and `sovereign-mirror:0.33.0`.
+
 - Guided Linux setup 0.1.8 and graphical setup 0.1.10 install revision 10
   (core 0.33 / Library 0.29), now served by the signed apt channel; package pins
   amd64 15e7ccf3… and arm64 949da3ea…, documented bootstrap hash fa79ef17….
@@ -289,7 +293,6 @@ tagged `library-v*`; versions without a tag are source previews installed from
 - Advance the optional Core-backed preview to the verified companion-recovery
   and model-description host revision. The immutable installer checksum stays
   unchanged; existing preview data and separate runtime/code permissions remain.
-
 
 - Explain required repository-code permission accurately for Skulk recovery and
   point to standalone files-only recovery when that permission is not desired.
