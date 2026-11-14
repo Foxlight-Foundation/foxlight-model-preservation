@@ -6,6 +6,11 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Pin Sovereign Mac build 17 and Linux revision 12 to the authenticated
+  Library 0.30.1 installation archive (sha256 d142afdc…, source 639c7291; its
+  desktop lock carries core 0.34.1 and libtorrent 2.0.14). Native signing,
+  notarization, apt publication and qualification remain separate gates.
+
 ## 0.30.1
 
 - Activity shows a running save's progress as "X of Y · N% · about M min left",
