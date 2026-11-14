@@ -184,7 +184,9 @@ def test_stock_i2p_http_updates_and_full_recovery(capture, native_network, tmp_p
         # In the private network a fresh lease set can take over two minutes to
         # become findable (CI artifacts show first replies after ~130 s), so wait
         # on actual reachability with room for that, not a fixed sleep.
-        wait_until(reachable, seconds=240)
+        # Private-network routing is slow and variable on CI runners; 240 s
+        # ran out on #184.
+        wait_until(reachable, seconds=480)
         status = refresh_source_i2p(
             cache, source_identity(bootstrap), proxy=proxy, allow_i2p=True
         )
