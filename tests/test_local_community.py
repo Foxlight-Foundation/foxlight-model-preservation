@@ -1063,6 +1063,10 @@ def test_seeding_on_pirate_face_restarts_serving_with_the_new_choice(
     owner = LocalOwner(home)
     try:
         saved(owner, tmp_path, capture)
+        # Offered at first setup, before any mirror exists.
+        first = owner.control("community-read", {})["pirate_face"]
+        assert first["available"] is True and first["on"] is False
+        assert not (home / "sharing/community/mirror").exists()
         view = enable(owner, port)
         assert view["policy"]["seed_pirate_face"] is False
         identity = wait_for(

@@ -1658,15 +1658,25 @@ class CommunityMirror:
         observation = self.observation
         usage: dict[str, JsonValue] = {}
         path = self._mirror()
+        # Shown before the mirror exists, so the choice is offered at setup.
+        pirate_face: dict[str, JsonValue] = {
+            "available": rendezvous_available(),
+            "on": False,
+            "checked": 0,
+            "listed": 0,
+            "matched": 0,
+            "seeding": 0,
+            "differs": 0,
+        }
         try:
             state = MirrorLedger(path).read()
         except FileNotFoundError:
             pass  # Not created yet, or being created by the mirror thread.
         else:
+            pirate_face = self.pirate_face_status(state)
             usage = {
                 "uploaded_today_bytes": state.egress_day_used,
                 "uploaded_this_month_bytes": state.egress_month_used,
-                "pirate_face": self.pirate_face_status(state),
             }
         return {
             "policy": policy.model_dump(mode="json"),
@@ -1685,6 +1695,7 @@ class CommunityMirror:
             **self.announcements(),
             "last_error": self.last_error,
             "bucket": self._bucket_summary(),
+            "pirate_face": pirate_face,
             "bucket_providers": [
                 {
                     "id": key,
