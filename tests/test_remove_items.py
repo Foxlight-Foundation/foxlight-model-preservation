@@ -59,18 +59,33 @@ def test_finished_activity_entries_are_removed_with_their_own_files(tmp_path, ki
         owner.close()
 
 
-def test_running_work_is_never_removed(tmp_path, kit, monkeypatch):
+def test_running_work_is_never_removed(tmp_path):
+    import time
+    import uuid
+
+    from foxlight_model_preservation.local_host.owner import Job
+
     owner = LocalOwner(tmp_path / "home")
     try:
-        saved = import_copy(owner, kit)
-        owner._controls[saved["job_id"]] = object()  # still running
-        assert owner.control("activity-remove", {"job_ids": [saved["job_id"]]}) == {
+        running = Job(
+            job_id="9" * 64,
+            operation_id=str(uuid.uuid4()),
+            plan_id="8" * 64,
+            kind="receive",
+            state="running",
+            created_at=time.time(),
+            name="still downloading",
+        )
+        owner._journal = owner._journal.model_copy(update={"jobs": (running,)})
+        assert owner.control("activity-remove", {"job_ids": [running.job_id]}) == {
             "removed": 0
         }
-        owner._controls.pop(saved["job_id"])
+        assert owner.control("activity-remove", {"finished": True}) == {"removed": 0}
+        assert [job["job_id"] for job in owner.read()["jobs"]] == [running.job_id]
         with pytest.raises(PreservationError):
             owner.control("activity-remove", {"job_ids": "all"})
     finally:
+        owner._journal = owner._journal.model_copy(update={"jobs": ()})
         owner.close()
 
 
