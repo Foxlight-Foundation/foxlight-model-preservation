@@ -161,10 +161,24 @@ Once independently accepted metadata is retained, stopping a source does not
 revoke a saved model, delete its files or change its signing policy. Neither this
 flow nor following/searching a source starts sharing, seeding or model execution.
 
+## Settings
+
+**Settings** gathers every choice in one place:
+
+- **Storage:** where model copies are kept, and backup folders.
+- **Search sources and privacy:** Hugging Face search, the Hugging Face token,
+  Pirate Face search and swarm downloads, each with a plain on/off.
+- **Sharing:** a link to **Help keep models available** and its options, which
+  stay together under Sharing.
+- **Appearance:** light or dark.
+
+Find keeps its in-context prompts ("Also search Hugging Face?") and links here;
+the Library page says where copies are kept, with a link to change it.
+
 ## Where model copies are kept
 
 By default, model copies live in Sovereign's own data folder on the system drive.
-In **Library → Where model copies are kept → Change location**, choose any
+In **Settings → Storage → Where model copies are kept → Change location**, choose any
 connected drive, mounted network share (NAS) or folder. Sovereign creates one
 dedicated folder there (or uses an empty one you pick) and marks it as this
 Sovereign's Library. From then on, new saves, downloads in progress, uploaded
@@ -204,7 +218,8 @@ acquire them automatically.
 
 ### Keep a complete backup on another drive
 
-In **Backups → Add backup folder**, choose a connected drive or mounted NAS.
+In **Settings → Storage → Backup folders → Add backup folder**, choose a connected
+drive or mounted NAS.
 The Mac shell offers a native folder picker; the Linux desktop package includes
 Zenity for folder selection. Its interactive request permits up to ten minutes;
 cancelling the request or quitting stops its owned picker process. Ordinary

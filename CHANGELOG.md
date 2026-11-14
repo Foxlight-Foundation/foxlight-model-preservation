@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Library: one **Settings** area gathers storage (where model copies are kept,
+  backup folders), search sources and privacy (Hugging Face search and token,
+  Pirate Face search, swarm downloads), a link to sharing settings and the
+  theme. The Backups tab and Find's Source and privacy panel move into it.
+
 - Finished Activity entries can be removed (one at a time, or every finished
   entry at once); running work is never touched, saved copies, restored
   folders and backups are kept, and an exported kit file or a failed save's

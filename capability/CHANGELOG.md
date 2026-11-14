@@ -6,6 +6,11 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- **Settings** area: Storage (Library location, backup folders), Search sources
+  and privacy (each with an on/off), Sharing link and Appearance. The Backups tab
+  and Find's Source and privacy panel move into it; the Library page keeps a
+  one-line summary of where copies are kept.
+
 - Activity: **Remove from Activity** on finished entries and **Clear finished**
   (confirmed with a second click). Library: **Remove from Library** with a
   confirmation that explains what is kept.

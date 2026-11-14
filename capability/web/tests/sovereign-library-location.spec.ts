@@ -22,7 +22,7 @@ test('model copies can be kept on another drive, and older copies moved there',a
     return r.fulfill({json:library});
   });
   await page.goto('/');
-  await page.getByRole('button',{name:'Library'}).first().click();
+  await page.getByRole('button',{name:'Settings',exact:true}).first().click();
   const card=page.getByRole('region',{name:'Where model copies are kept'});
   await expect(card.getByText('This computer’s drive')).toBeVisible();
   await card.getByRole('button',{name:'Change location'}).click();
@@ -46,7 +46,7 @@ test('an unplugged library drive is reported, never replaced',async({page})=>{
   await common(page);
   await page.route('**/api/library*',r=>r.fulfill({json:{host_kind:'sovereign',library:{...home,path:drive,system:false,available:false,free_bytes:null},copies:[],jobs:[],next_offset:null}}));
   await page.goto('/');
-  await page.getByRole('button',{name:'Library'}).first().click();
+  await page.getByRole('button',{name:'Library',exact:true}).click();
   await expect(page.getByRole('alert')).toContainText('isn’t connected');
   await expect(page.getByRole('alert')).toContainText(drive);
 });
@@ -55,8 +55,18 @@ test('shared copies and the pool left behind can still be moved',async({page})=>
   await common(page);
   await page.route('**/api/library*',r=>r.fulfill({json:{host_kind:'sovereign',library:{...home,path:drive,system:false,elsewhere_copies:0,elsewhere_other:2},copies:[],jobs:[],next_offset:null}}));
   await page.goto('/');
-  await page.getByRole('button',{name:'Library'}).first().click();
+  await page.getByRole('button',{name:'Settings',exact:true}).first().click();
   const card=page.getByRole('region',{name:'Where model copies are kept'});
   await expect(card.getByText('Shared copies and the pool Sovereign keeps for others',{exact:false})).toBeVisible();
   await expect(card.getByRole('button',{name:'Move them to this location'})).toBeVisible();
+});
+
+test('the Library page says where copies are kept and links to Settings',async({page})=>{
+  await common(page);
+  await page.route('**/api/library*',r=>r.fulfill({json:{host_kind:'sovereign',library:{...home,path:drive,system:false},copies:[],jobs:[],next_offset:null}}));
+  await page.goto('/');
+  await page.getByRole('button',{name:'Library',exact:true}).click();
+  await expect(page.getByText('Model copies are kept on',{exact:false})).toContainText(drive);
+  await page.getByRole('button',{name:'Change in Settings'}).click();
+  await expect(page.getByRole('heading',{name:'Settings',level:1})).toBeVisible();
 });

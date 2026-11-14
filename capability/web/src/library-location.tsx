@@ -45,3 +45,13 @@ export function LibraryLocation({library,busy,onChange}:{library:LibraryState|un
     </Sheet>,document.body)}
   </section>;
 }
+
+/** The Library page's one line about where copies are kept; changes happen in Settings. */
+export function LibraryLocationSummary({library,onSettings}:{library:LibraryState|undefined;onSettings:()=>void}) {
+  if(!library)return null;
+  const where=library.system?'this computer’s drive':library.path;
+  return <div className="sk-library-location-summary">
+    {!library.available&&<Callout tone="bad" role="alert">The drive that holds your Library isn’t connected: <span className="sk-wrap">{library.path}</span>. Connect it to save new models or use the copies kept there.</Callout>}
+    <p className="sk-hint">Model copies are kept on <span className="sk-wrap">{where}</span>{library.available&&library.free_bytes!=null&&` · ${bytes(library.free_bytes)} free`}. <button className="sk-btn sk-quiet" onClick={onSettings}>Change in Settings</button></p>
+  </div>;
+}
