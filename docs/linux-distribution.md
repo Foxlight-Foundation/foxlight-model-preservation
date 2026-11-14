@@ -273,13 +273,18 @@ Skulk, capability SDK, model runtime, GPU or hosted account. Sharing is opt-in.
 To remove the software, use `sudo apt remove foxlight-sovereign`. The Library,
 models, provenance and saved recovery files remain under your control.
 
-The current recipe is **0.1.0 revision 12**, paired with the authenticated public
-core 0.34.1 / Library 0.30.1 cohort, which adds model copies on any connected drive, NAS or folder (with verified
-moves of existing copies) and Pirate Face in Find (search, and saving models
-Hugging Face removed from its swarm, download-only, after an opt-in). Its 0.34.1 / 0.30.1 update keeps large Hugging Face downloads resuming while
-they make progress, stops keeping a second copy of each saved model, adds
-removing Activity entries and saved models, a Settings area and download
-progress with time left.
+The current recipe is **0.1.0 revision 13**, paired with the authenticated public
+core 0.35 / Library 0.31 cohort, which adds mirrors seeding matching Pirate Face torrents from their stored
+files (opt-in, after a full piece check), Activity showing each stage of a
+save as a ring with its percentage, and a fix for saves that froze when a
+library drive stopped answering. Its packages, signed apt indexes
+and qualification are published separately; until then the channel and guided
+setup remain revision 12.
+Revision 12 (core 0.34.1 / Library 0.30.1 kept large Hugging Face downloads resuming,
+stopped keeping a second copy of each saved model, and added removing
+Activity entries and saved models, a Settings area and download progress.
+Revision 11 (core 0.34 / Library 0.30) added model copies on any connected
+drive, NAS or folder and Pirate Face in Find.
 Revision 10 (core 0.33 / Library 0.29) added mirror holdings in Find.
 Revision 9 (core 0.32 / Library 0.28) added Hugging Face search in Find, savable
 listings without their own file list and an optional Hugging Face token.
