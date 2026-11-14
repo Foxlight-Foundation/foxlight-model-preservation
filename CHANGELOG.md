@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Model copies can be kept on any connected drive, NAS or folder (Library →
+  Where model copies are kept). New saves, downloads in progress, uploads,
+  exported kits, restores and published copies' stores use the chosen folder,
+  and free space is checked there. Existing copies keep working and can be
+  moved: each is read back from the new drive and its signatures checked before
+  the original is removed. An unplugged drive stops saving instead of falling
+  back to the system drive; a folder marked by another Sovereign is refused.
+
 - The I2P pilot launcher reports the RPC port it bound at start. A status
   written during shutdown could record Jetty's closed-connector value (-2),
   which failed status validation; this made the native pilot check flaky.

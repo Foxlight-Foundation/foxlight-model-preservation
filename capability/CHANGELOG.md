@@ -6,6 +6,11 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Library → **Where model copies are kept**: choose any connected drive, NAS or
+  folder (native folder picker on Mac and Linux), see free space there, move
+  existing copies with read-back verification, and get a clear message when the
+  drive is unplugged.
+
 - Guided Linux setup 0.1.8 and graphical setup 0.1.10 install revision 10
   (core 0.33 / Library 0.29), now served by the signed apt channel; package pins
   amd64 15e7ccf3… and arm64 949da3ea…, documented bootstrap hash fa79ef17….

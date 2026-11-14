@@ -631,7 +631,9 @@ class CommunityMirror:
         decisions: list[JsonValue] | None = None
         try:
             manifest = self.sharing.origin_manifest(
-                self.home / "copies" / copy.copy_id, copy.manifest_id, copy.trust
+                self.sharing.library.find("copies/" + copy.copy_id),
+                copy.manifest_id,
+                copy.trust,
             )
             members = _data_members(manifest)
             already_public = all(
@@ -772,7 +774,7 @@ class CommunityMirror:
         view: dict[str, JsonValue],
         control: OperationControl,
     ) -> None:
-        store = self.home / "copies" / copy.copy_id
+        store = self.sharing.library.find("copies/" + copy.copy_id)
         plan = self.sharing.plan(store, copy.manifest_id, copy.trust, view["decisions"])
         self.sharing.require_space(store, cast(int, plan["size_bytes"]))
         job_id = digest(("community:" + copy.copy_id).encode())

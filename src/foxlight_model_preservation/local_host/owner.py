@@ -78,6 +78,7 @@ from ..transfer import SourcesExhausted, TransferPolicy, fetch_object
 from .backups import Backups
 from .catalog import RegistryCatalog, with_licence
 from .community import CommunityMirror
+from .library import Library, move_tree
 from .presentation import (
     PURPOSE_WORDS,
     captured_card_metadata,
@@ -180,9 +181,10 @@ class LocalOwner:
             self._stack.enter_context(writer_lock(self._root))
             self._identity = self._fingerprint()
             self.catalog = catalog or RegistryCatalog(home / "registry")
+            self.library = Library(self.home)
             self.sources = SourceLibrary(self.home)
             self.backups = Backups(self.home)
-            self.sharing = Sharing(self.home)
+            self.sharing = Sharing(self.home, self.library)
             self.community = CommunityMirror(self.home, self.sharing)
             self._community_wake = threading.Event()
             self._community_control: OperationControl | None = None
@@ -191,6 +193,9 @@ class LocalOwner:
             self._gossip_control: OperationControl | None = None
             self._gossip_wake = threading.Event()
             self._withdraw_thread: threading.Thread | None = None
+            self._move_thread: threading.Thread | None = None
+            self._move_control: OperationControl | None = None
+            self._move: dict[str, JsonValue] | None = None
             self._withdraw_control: OperationControl | None = None
             self._stopping = threading.Event()
             self._lock = threading.RLock()
@@ -258,6 +263,211 @@ class LocalOwner:
             self._stack.close()
             raise
 
+    def _data(self) -> Path:
+        """The library folder new copies and their working data go to."""
+        return self.library.root()
+
+    def _uploads(self) -> Path:
+        return self._data() / "uploads"
+
+    def _work(self, job_id: str) -> Path:
+        # Resumed work stays where it started; new work uses the library folder.
+        return self.library.find("work/" + job_id)
+
+    def _copy_store(self, copy_id: str) -> Path:
+        """Where a saved copy is: the library folder first, then earlier ones."""
+        return self.library.find("copies/" + copy_id)
+
+    def _library_view(self) -> dict[str, JsonValue]:
+        view = self.library.view()
+        elsewhere: list[tuple[str, Path]] = []
+        if view["available"]:
+            with contextlib.suppress(OSError, ValueError):
+                elsewhere = self._elsewhere()
+        moved = {
+            relative.removeprefix("copies/")
+            for relative, _ in elsewhere
+            if relative.startswith("copies/")
+        }
+        return {
+            **view,
+            "elsewhere_copies": len(moved),
+            "elsewhere_bytes": sum(
+                copy.size_bytes
+                for copy in self._journal.copies
+                if copy.copy_id in moved
+            ),
+            "move": self._move,
+        }
+
+    def _elsewhere(self) -> list[tuple[str, Path]]:
+        """Library entries kept outside the current library folder, copies first."""
+        current = self.library.root()
+        found: list[tuple[str, Path]] = []
+        for copy in self._journal.copies:
+            store = self._copy_store(copy.copy_id)
+            if store.parent.parent != current and store.is_dir():
+                found.append(("copies/" + copy.copy_id, store))
+        for root in self.library.roots():
+            mirrors = root / "sharing/mirrors"
+            if root == current or not mirrors.is_dir():
+                continue
+            for name in sorted(os.listdir(mirrors)):
+                relative = "sharing/mirrors/" + name
+                if re.fullmatch(r"[0-9a-f]{64}", name) and (
+                    self.library.find(relative) == mirrors / name
+                ):
+                    found.append((relative, mirrors / name))
+        return found
+
+    def _library_control(
+        self, action: str, body: dict[str, JsonValue]
+    ) -> dict[str, JsonValue] | None:
+        if action == "library-review":
+            path = body.get("path")
+            if set(body) != {"path"} or not isinstance(path, str):
+                raise PreservationError("invalid_control")
+            # A NAS can block filesystem calls: never under the owner lock.
+            with self._backup_call():
+                return self.library.review(path)
+        if action == "library-setup":
+            if set(body) != {"review_id", "confirmed"} or body["confirmed"] is not True:
+                raise PreservationError("invalid_control")
+            with self._lock:
+                if self._move_thread is not None:
+                    raise PreservationError("library_moving")
+            with self._backup_call():
+                self.library.setup(str(body["review_id"]))
+            with self._lock:
+                return self._library_view()
+        if action == "library-use-home":
+            if body:
+                raise PreservationError("invalid_control")
+            with self._lock:
+                self._check()
+                if self._move_thread is not None:
+                    raise PreservationError("library_moving")
+                self.library.use_home()
+                return self._library_view()
+        if action == "library-move-stop":
+            if body:
+                raise PreservationError("invalid_control")
+            with self._lock:
+                if self._move_control is not None:
+                    self._move_control.cancel()
+                return self._library_view()
+        if action != "library-move":
+            return None
+        if body:
+            raise PreservationError("invalid_control")
+        with self._lock:
+            self._check()
+            if self._closing:
+                raise PreservationError("sovereign_owner_closing")
+            if self._move_thread is not None:
+                return self._library_view()
+            # Moving a copy that a save, export or sharing session is reading
+            # would break it: wait until nothing else is running.
+            if self._controls:
+                raise PreservationError("library_busy_try_again")
+            items = self._elsewhere()
+            if not items:
+                return self._library_view()
+            total = 0
+            for _relative, source in items:
+                for folder, _folders, files in os.walk(source):
+                    total += sum(
+                        os.lstat(Path(folder) / name).st_size for name in files
+                    )
+            control = OperationControl()
+            self._move_control = control
+            self._move = {
+                "state": "moving",
+                "items_done": 0,
+                "items_total": len(items),
+                "bytes_done": 0,
+                "bytes_total": total,
+                "error": None,
+            }
+            self._move_thread = threading.Thread(
+                target=self._move_library,
+                args=(items, control),
+                name="sovereign-library-move",
+                daemon=True,
+            )
+            self._move_thread.start()
+            return self._library_view()
+
+    def _move_library(
+        self, items: list[tuple[str, Path]], control: OperationControl
+    ) -> None:
+        """Copy, verify, switch, then remove each entry; stops cleanly any time."""
+        links: dict[str, Path] = {}
+        copies = {copy.copy_id: copy for copy in self._journal.copies}
+
+        def progress(size: int) -> None:
+            with self._lock:
+                if self._move is not None:
+                    self._move["bytes_done"] = (
+                        cast(int, self._move["bytes_done"]) + size
+                    )
+
+        state, error = "done", None
+        try:
+            for relative, source in items:
+                control.checkpoint()
+                current = self.library.root()
+                target = current / relative
+                with directory(target.parent, create=True):
+                    pass
+                staging = target.parent / (".moving-" + target.name)
+                try:
+                    move_tree(source, staging, links, control, progress)
+                    copy_id = relative.removeprefix("copies/")
+                    if relative.startswith("copies/") and copy_id in copies:
+                        copy = copies[copy_id]
+                        verify_archive(
+                            staging,
+                            copy.manifest_id,
+                            copy.trust,
+                            control=control.fork(),
+                        )
+                    with self._lock:
+                        os.rename(staging, target)
+                        with directory(target.parent) as parent:
+                            os.fsync(parent)
+                except BaseException:
+                    with contextlib.suppress(OSError):
+                        shutil.rmtree(staging)
+                    raise
+                # The new copy is found first from now on; the old one goes.
+                shutil.rmtree(source)
+                with self._lock:
+                    if self._move is not None:
+                        self._move["items_done"] = (
+                            cast(int, self._move["items_done"]) + 1
+                        )
+            settings = self.library.settings()
+            for location in settings.previous:
+                root = Path(location.path)
+                if not any(
+                    (root / folder).is_dir() and os.listdir(root / folder)
+                    for folder in ("copies", "sharing/mirrors")
+                ):
+                    self.library.forget_previous(location.path)
+        except OperationCancelled:
+            state = "stopped"
+        except (OSError, ValueError) as caught:
+            state, error = "failed", failure_code(caught)
+        finally:
+            with self._lock:
+                if self._move is not None:
+                    self._move["state"] = state
+                    self._move["error"] = error
+                self._move_thread = None
+                self._move_control = None
+                self._summaries.clear()
+
     def _fingerprint(self) -> tuple[int, int]:
         value = os.stat(self.home, follow_symlinks=False)
         return value.st_dev, value.st_ino
@@ -285,6 +495,9 @@ class LocalOwner:
             community = self._community_thread
             gossip = self._gossip_thread
             withdraw = self._withdraw_thread
+            mover = self._move_thread
+            if self._move_control is not None:
+                self._move_control.cancel()
             self._stopping.set()
             self._gossip_wake.set()
             if self._gossip_control is not None:
@@ -300,6 +513,8 @@ class LocalOwner:
             gossip.join()
         if withdraw is not None:
             withdraw.join()
+        if mover is not None:
+            mover.join()
         self._executor.shutdown(wait=True)
         self._sharing_executor.shutdown(wait=True)
         with self._idle:
@@ -343,10 +558,13 @@ class LocalOwner:
                         for name in history[start : start + 48 - len(selected)]
                     )
             uploads: list[JsonValue] = []
-            with directory(self.home / "uploads", create=True) as source:
-                for name in sorted(os.listdir(source)):
-                    if re.fullmatch(r"[0-9a-f]{32}\.json", name):
-                        uploads.append(self._upload(name[:-5]))
+            # A disconnected library drive hides pending uploads; it never
+            # stops the Library screen from reading.
+            if self.library.available():
+                with directory(self._uploads(), create=True) as source:
+                    for name in sorted(os.listdir(source)):
+                        if re.fullmatch(r"[0-9a-f]{32}\.json", name):
+                            uploads.append(self._upload(name[:-5]))
             jobs = metadata_page(
                 [
                     {
@@ -387,6 +605,7 @@ class LocalOwner:
             return {
                 "host_kind": "sovereign",
                 "hub_search": self.hub_search_enabled(),
+                "library": self._library_view(),
                 "hub_token": self._hub_token_user(),
                 "locations": [],
                 "models": [],
@@ -411,7 +630,7 @@ class LocalOwner:
             summary: dict[str, JsonValue]
             try:
                 summary, searchable = copy_metadata(
-                    self.home / "copies" / item.copy_id, item.manifest_id, item.trust
+                    self._copy_store(item.copy_id), item.manifest_id, item.trust
                 )
             except (ValueError, OSError):
                 summary = {"metadata_status": "unavailable"}
@@ -587,7 +806,7 @@ class LocalOwner:
             value = {
                 **value,
                 "required_free_bytes": selected_bytes * 4 + 32 * 1024**2,
-                "free_bytes": shutil.disk_usage(self.home).free,
+                "free_bytes": self.library.free_bytes(),
             }
         value = {**value, "expires_at": int(time.time()) + 600}
         from ..models import MAX_METADATA_BYTES
@@ -658,6 +877,9 @@ class LocalOwner:
                     self._gossip_control.cancel()
                 self._gossip_wake.set()
                 return {**result, **self.community.read(self._journal.copies)}
+        library_result = self._library_control(action, body)
+        if library_result is not None:
+            return library_result
         hub_result = self._hub_control(action, body)
         if hub_result is not None:
             return hub_result
@@ -731,7 +953,7 @@ class LocalOwner:
             if action == "sharing-review" and set(body) == {"copy_id"}:
                 copy = self._copy(str(body["copy_id"]))
                 return self.sharing.review(
-                    self.home / "copies" / copy.copy_id, copy.manifest_id, copy.trust
+                    self._copy_store(copy.copy_id), copy.manifest_id, copy.trust
                 )
             if action == "backup-forget" and set(body) == {"destination_id"}:
                 if any(
@@ -768,7 +990,7 @@ class LocalOwner:
                 ):
                     raise PreservationError("source_document_too_large")
                 with (
-                    directory(self.home / "uploads") as root,
+                    directory(self._uploads()) as root,
                     open_file(root, str(body["upload_id"])) as stream,
                 ):
                     document = stream.read(MAX_STATE_BYTES + 1)
@@ -838,7 +1060,7 @@ class LocalOwner:
                             "kind": "publish",
                             "copy_id": copy.copy_id,
                             **self.sharing.plan(
-                                self.home / "copies" / copy.copy_id,
+                                self._copy_store(copy.copy_id),
                                 copy.manifest_id,
                                 copy.trust,
                                 body["decisions"],
@@ -988,7 +1210,7 @@ class LocalOwner:
                     )
                 if kind == "kit_import" and set(body) == {"kind", "upload_id"}:
                     uploaded = self._upload(str(body["upload_id"]))
-                    info = inspect_kit(self.home / "uploads" / str(body["upload_id"]))
+                    info = inspect_kit(self._uploads() / str(body["upload_id"]))
                     if uploaded["offset"] != uploaded["size_bytes"]:
                         raise PreservationError("kit_upload_incomplete")
                     return self._plan(
@@ -1002,7 +1224,7 @@ class LocalOwner:
                             "manifest_id": info.manifest_id,
                             "envelope_sha256": digest(
                                 read_kit_envelope(
-                                    self.home / "uploads" / str(body["upload_id"])
+                                    self._uploads() / str(body["upload_id"])
                                 )
                             ),
                             "threshold": info.trust.threshold,
@@ -1063,7 +1285,7 @@ class LocalOwner:
                             or plan.get("upload_id") == identifier
                         ):
                             raise PreservationError("kit_upload_in_use")
-                with directory(self.home / "uploads") as root:
+                with directory(self._uploads()) as root:
                     names = [
                         name
                         for name in (identifier, identifier + ".json")
@@ -1077,7 +1299,7 @@ class LocalOwner:
                 size = body["size_bytes"]
                 if type(size) is not int or not 0 < size <= 2**50:
                     raise PreservationError("invalid_control")
-                uploads = self.home / "uploads"
+                uploads = self._uploads()
                 with directory(uploads, create=True) as root:
                     if (
                         sum(
@@ -1115,7 +1337,7 @@ class LocalOwner:
             raise PreservationError("invalid_upload")
         from ..storage import open_file
 
-        with directory(self.home / "uploads") as root:
+        with directory(self._uploads()) as root:
             meta = strict_json(read_metadata(root, identifier + ".json"))
             if not isinstance(meta, dict):
                 raise PreservationError("invalid_upload")
@@ -1147,7 +1369,7 @@ class LocalOwner:
             ):
                 raise PreservationError("kit_transfer_refused")
             with (
-                directory(self.home / "uploads") as root,
+                directory(self._uploads()) as root,
                 open_file(root, identifier, write=True) as stream,
             ):
                 stream.seek(offset)
@@ -1184,6 +1406,8 @@ class LocalOwner:
             raise PreservationError("plan_missing_or_expired")
         if len(self._controls) >= 4:
             raise PreservationError("sovereign_job_capacity_reached")
+        if self._move_thread is not None:
+            raise PreservationError("library_moving")
         if plan["kind"] == "share" and any(
             job.kind == "share" and job.job_id in self._controls
             for job in self._journal.jobs
@@ -1286,7 +1510,7 @@ class LocalOwner:
             else:
                 with self._lock:
                     copy = self._copy(str(plan["copy_id"]))
-                store = self.home / "copies" / copy.copy_id
+                store = self._copy_store(copy.copy_id)
                 verify_archive(
                     store, copy.manifest_id, copy.trust, control=control.fork()
                 )
@@ -1311,9 +1535,9 @@ class LocalOwner:
                         control.fork(),
                     )
                 elif job.kind == "kit_export":
-                    with directory(self.home / "kits", create=True):
+                    with directory(self._data() / "kits", create=True):
                         pass
-                    output = self.home / "kits" / (job.job_id + ".foxkit")
+                    output = self._data() / "kits" / (job.job_id + ".foxkit")
                     export_kit(
                         store,
                         copy.manifest_id,
@@ -1322,9 +1546,9 @@ class LocalOwner:
                         control=control.fork(),
                     )
                 else:
-                    with directory(self.home / "restored", create=True):
+                    with directory(self._data() / "restored", create=True):
                         pass
-                    output = self.home / "restored" / job.job_id
+                    output = self._data() / "restored" / job.job_id
                     restore_pmf(
                         store,
                         copy.manifest_id,
@@ -1390,10 +1614,7 @@ class LocalOwner:
         ):
             raise PreservationError("source_model_reference_changed")
         trust = TrustProfile.model_validate_json(identity_json(plan["trust"]))
-        if (
-            shutil.disk_usage(self.home).free
-            < cast(int, plan["size_bytes"]) * 4 + 32 * 1024**2
-        ):
+        if self.library.free_bytes() < cast(int, plan["size_bytes"]) * 4 + 32 * 1024**2:
             raise PreservationError("insufficient_space")
         # The approved hints are bound above; discovered mirrors are only ever
         # appended after them, under the same receive policy, and never change
@@ -1412,7 +1633,7 @@ class LocalOwner:
             # A public PMF is kept exactly as published, under the publisher
             # keys this user accepted. Its identity is shared by every mirror
             # holding it, so this copy can later help keep it available.
-            destination = self.home / "copies" / job.job_id
+            destination = self._data() / "copies" / job.job_id
             with directory(destination.parent, create=True):
                 pass
             manifest = self._fetch_with_mirrors(
@@ -1437,7 +1658,7 @@ class LocalOwner:
                 ),
             )
             return
-        original = self.home / "work" / job.job_id / "original"
+        original = self._work(job.job_id) / "original"
         self._fetch_with_mirrors(
             record.manifest_id,
             trust,
@@ -1449,7 +1670,7 @@ class LocalOwner:
             envelope,
         )
         owner_trust = self._capture_trust()
-        destination = self.home / "copies" / job.job_id
+        destination = self._data() / "copies" / job.job_id
         with directory(destination.parent, create=True):
             pass
         conversion = import_preservation(
@@ -1735,9 +1956,9 @@ class LocalOwner:
             if not plan["historical"]:
                 self.catalog.verify_current(proof, card.card_id)
         selected_bytes = cast(int, plan["size_bytes"])
-        if shutil.disk_usage(self.home).free < selected_bytes * 4 + 32 * 1024**2:
+        if self.library.free_bytes() < selected_bytes * 4 + 32 * 1024**2:
             raise PreservationError("insufficient_space")
-        work = self.home / "work" / job.job_id
+        work = self._work(job.job_id)
         with directory(work, create=True):
             pass
         sources: dict[str, Path] = {}
@@ -1777,7 +1998,7 @@ class LocalOwner:
         key = load_key(self.home / "capture-key.pem", None)
         legacy = work / "original"
         identity = pack(recipe, sources, legacy, (key,), control=control.fork())
-        destination = self.home / "copies" / job.job_id
+        destination = self._data() / "copies" / job.job_id
         with directory(destination.parent, create=True):
             pass
         conversion = import_preservation(
@@ -2421,11 +2642,11 @@ class LocalOwner:
     def _import(
         self, job: Job, plan: dict[str, JsonValue], control: OperationControl
     ) -> None:
-        destination = self.home / "copies" / job.job_id
+        destination = self._data() / "copies" / job.job_id
         with directory(destination.parent, create=True):
             pass
         trust = TrustProfile.model_validate_json(identity_json(plan["trust"]))
-        uploaded = self.home / "uploads" / str(plan["upload_id"])
+        uploaded = self._uploads() / str(plan["upload_id"])
         envelope = read_kit_envelope(uploaded)
         if digest(envelope) != plan["envelope_sha256"]:
             raise PreservationError("selected_kit_envelope_changed")
@@ -2433,7 +2654,7 @@ class LocalOwner:
         from ..pmf_models import PMFManifest
 
         if isinstance(inspection.manifest, Manifest):
-            work = self.home / "work" / job.job_id
+            work = self._work(job.job_id)
             with directory(work, create=True):
                 pass
             original = work / "original"
@@ -2491,7 +2712,7 @@ class LocalOwner:
             if job.kind != "kit_export" or job.state != "succeeded":
                 raise PreservationError("kit_not_ready")
             descriptor = os.open(
-                self.home / "kits" / (job_id + ".foxkit"),
+                self.library.find("kits/" + job_id + ".foxkit"),
                 os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
             )
             if not stat.S_ISREG(os.fstat(descriptor).st_mode):
@@ -2589,7 +2810,7 @@ class LocalOwner:
             job = self._job(job_id)
             if job.kind != "restore" or job.state != "succeeded":
                 raise PreservationError("restore_not_ready")
-            output = self.home / "restored" / job_id
+            output = self.library.find("restored/" + job_id)
             with directory(output):
                 pass
             return output
