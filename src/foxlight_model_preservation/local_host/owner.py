@@ -674,6 +674,9 @@ class LocalOwner:
 
     def read(self, offset: int = 0) -> dict[str, JsonValue]:
         """Read compact receipts; paths and complete trust history stay private."""
+        # Asked of the library drive before taking the owner lock: a drive
+        # that stops answering must never hold up saves or other screens.
+        library = self._library_view()
         with self._lock:
             self._check()
             if not 0 <= offset <= 2**31:
@@ -748,7 +751,7 @@ class LocalOwner:
             return {
                 "host_kind": "sovereign",
                 "hub_search": self.hub_search_enabled(),
-                "library": self._library_view(),
+                "library": library,
                 "pirate_face_search": self.pirate_face_enabled(),
                 "pirate_face_swarm": self.pirate_face_enabled("swarm"),
                 "hub_token": self._hub_token_user(),
@@ -2041,7 +2044,9 @@ class LocalOwner:
         ):
             raise PreservationError("source_model_reference_changed")
         trust = TrustProfile.model_validate_json(identity_json(plan["trust"]))
-        if self.library.free_bytes() < cast(int, plan["size_bytes"]) * 4 + 32 * 1024**2:
+        free = self.library.free_bytes()
+        # Unknown (the drive didn't answer in time): each write checks again.
+        if free is not None and free < cast(int, plan["size_bytes"]) * 4 + 32 * 1024**2:
             raise PreservationError("insufficient_space")
         # The approved hints are bound above; discovered mirrors are only ever
         # appended after them, under the same receive policy, and never change
@@ -2480,7 +2485,9 @@ class LocalOwner:
             if not plan["historical"]:
                 self.catalog.verify_current(proof, card.card_id)
         selected_bytes = cast(int, plan["size_bytes"])
-        if self.library.free_bytes() < selected_bytes * 4 + 32 * 1024**2:
+        free = self.library.free_bytes()
+        # Unknown (the drive didn't answer in time): each write checks again.
+        if free is not None and free < selected_bytes * 4 + 32 * 1024**2:
             raise PreservationError("insufficient_space")
         work = self._work(job.job_id)
         with directory(work, create=True):

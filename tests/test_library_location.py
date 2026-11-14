@@ -158,6 +158,11 @@ def test_owner_saves_to_the_chosen_drive_and_moves_older_copies(tmp_path, captur
         )
         job = finish(owner, submit(owner, plan))
         assert job["state"] == "succeeded"
+        # A save reads as succeeded just before its worker unregisters; a
+        # library move refuses (try again) until nothing is running.
+        deadline = time.monotonic() + 10
+        while owner._controls and time.monotonic() < deadline:
+            time.sleep(0.02)
         return job
 
     try:

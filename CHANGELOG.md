@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- A drive that stops answering can no longer freeze a save. Free-space probes
+  run on their own thread and give up after two seconds (reporting the space
+  as unknown, one probe per drive at a time), and the Library screen asks the
+  drive before taking the owner lock that a running save needs to report its
+  progress. Seen with an exFAT library on macOS 26, where a free-space request
+  to the FSKit exFAT driver never completed.
+
 - Mirrors can also seed Pirate Face torrents ("Also seed on Pirate Face" in
   Help keep models available; `mirror transports --pirate-face`). Off by
   default. Matching torrents are seeded straight from the stored files after a
