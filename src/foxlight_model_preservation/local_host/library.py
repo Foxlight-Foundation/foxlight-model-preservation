@@ -92,35 +92,42 @@ _probing: dict[str, threading.Thread] = {}
 _probed: dict[str, tuple[int | None, float]] = {}
 
 
-def free_space(path: Path, seconds: float = PROBE_SECONDS) -> int | None:
+def free_space(
+    path: Path, seconds: float = PROBE_SECONDS, *, wait: bool = False
+) -> int | None:
     """Free bytes at ``path``, or None when the drive doesn't answer in time.
 
-    The probe runs on its own thread, one per path at a time, and only the
-    call that starts it waits. While a probe is running (or stuck in the
-    operating system), later calls return at once: the last answer if it is
-    recent, else None.
+    The probe runs on its own thread, one per path at a time. The call that
+    starts it waits up to ``seconds``. While a probe is running (or stuck in
+    the operating system), a later call returns at once with the last answer
+    if it is recent, else None; with ``wait`` (a check that enforces space) it
+    waits for that probe's own answer instead, still bounded.
     """
     key = str(path)
     with _probe_lock:
-        if key in _probing:
+        probe = _probing.get(key)
+        if probe is not None and not wait:
             value, at = _probed.get(key, (None, 0.0))
             return value if time.monotonic() - at < PROBE_FRESH_SECONDS else None
+        if probe is None:
 
-        def run() -> None:
-            try:
-                value: int | None = shutil.disk_usage(path).free
-            except OSError:
-                value = None
-            with _probe_lock:
-                _probed[key] = (value, time.monotonic())
-                _probing.pop(key, None)
+            def run() -> None:
+                try:
+                    value: int | None = shutil.disk_usage(path).free
+                except OSError:
+                    value = None
+                with _probe_lock:
+                    _probed[key] = (value, time.monotonic())
+                    _probing.pop(key, None)
 
-        probe = threading.Thread(target=run, name="sovereign-drive-probe", daemon=True)
-        _probing[key] = probe
-        probe.start()
+            probe = threading.Thread(
+                target=run, name="sovereign-drive-probe", daemon=True
+            )
+            _probing[key] = probe
+            probe.start()
     probe.join(seconds)
     with _probe_lock:
-        if key in _probing:
+        if _probing.get(key) is probe:
             return None
         return _probed.get(key, (None, 0.0))[0]
 
@@ -218,8 +225,11 @@ class Library:
         return self.root()
 
     def free_bytes(self) -> int | None:
-        """Free space where the next copy will be written; None if unknown."""
-        return free_space(self.root())
+        """Free space where the next copy will be written; None if unknown.
+
+        Used to enforce space, so it waits for a probe already in flight.
+        """
+        return free_space(self.root(), wait=True)
 
     def view(self) -> dict[str, JsonValue]:
         """Local state for the Library screen; probes only already-known folders."""

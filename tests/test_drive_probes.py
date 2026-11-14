@@ -88,3 +88,34 @@ def test_a_probe_in_flight_reports_the_last_recent_answer(tmp_path: Path) -> Non
         assert library_module.free_space(tmp_path) is None
     finally:
         library_module._probing.pop(key, None)
+
+
+def test_a_space_check_waits_for_a_probe_already_in_flight(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A screen refresh may answer from its cache; enforcing space never does."""
+    monkeypatch.setattr(library_module, "_probing", {})
+    monkeypatch.setattr(library_module, "_probed", {})
+    entered, release = threading.Event(), threading.Event()
+
+    def slow(_path):
+        entered.set()
+        release.wait(10)
+        return shutil._ntuple_diskusage(1000, 999, 1)
+
+    monkeypatch.setattr(library_module.shutil, "disk_usage", slow)
+    background = threading.Thread(target=library_module.free_space, args=(tmp_path, 5))
+    background.start()
+    assert entered.wait(5)
+    # A refresh doesn't wait: nothing recent is known yet.
+    assert library_module.free_space(tmp_path) is None
+    answers: list[int | None] = []
+    check = threading.Thread(
+        target=lambda: answers.append(library_module.free_space(tmp_path, 5, wait=True))
+    )
+    check.start()
+    time.sleep(0.1)
+    release.set()
+    check.join(5)
+    background.join(5)
+    assert answers == [1]
