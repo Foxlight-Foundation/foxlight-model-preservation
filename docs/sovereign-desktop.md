@@ -1,8 +1,8 @@
 # Independent Sovereign Library
 
 For the everyday install/find/preserve/share/recover journey, start with
-[Getting started](getting-started.md). This page describes core 0.32 /
-Library 0.28, which Mac build 14 and Linux revision 9 carry. It includes guided
+[Getting started](getting-started.md). This page describes core 0.33 /
+Library 0.29, which Mac build 15 and Linux revision 10 carry. It includes guided
 entry choices, separate kit/public-mirror sharing, copyable recipient
 verification instructions, backup folders and **Help keep models available**
 with cloud storage, a public address, DHT/Nostr choices and receiving through
@@ -163,8 +163,8 @@ flow nor following/searching a source starts sharing, seeding or model execution
 
 ## Backup folders and public sharing
 
-These controls ship in core 0.32 / Library 0.28, Mac build 14 and Linux
-revision 9. **Help keep models available** first appeared in Library 0.23;
+These controls ship in core 0.33 / Library 0.29, Mac build 15 and Linux
+revision 10. **Help keep models available** first appeared in Library 0.23;
 cloud storage, the public address, the DHT/Nostr choices and the bundled DHT
 binding arrived in Library 0.24. Earlier native apps and Python archives do not
 acquire them automatically.
