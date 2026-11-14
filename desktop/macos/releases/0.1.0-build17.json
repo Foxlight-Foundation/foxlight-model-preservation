@@ -1,0 +1,39 @@
+{
+  "source_revision": "ca405e2a0fb080b1977b70b997092c8e08038a03",
+  "team": "ZP9J3449GF",
+  "certificate_sha1": "A148825F0E5B1F0F29C7A314129AB6D090EF9FF5",
+  "app_codedirectory_sha256": "ad41d2ada2b3abf2c79a8efdcecad7505e1387da8c8751eb22a5059d757032fc",
+  "inputs": {
+    "schema_version": "sovereign.macos-inputs.v1",
+    "version": "0.1.0",
+    "build_number": "17",
+    "architecture": "arm64",
+    "minimum_macos": "13.0",
+    "library": {
+      "url": "https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.30.1/foxlight-preservation-library-0.30.1-install.zip",
+      "sha256": "d142afdcca947024ea889cb04e2d1805defc58cf9bf360f96d72310624d1bab4",
+      "source_revision": "639c72918665e89191a29b8e25621a0ef775fa3a"
+    },
+    "python": {
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.13.13%2B20260408-aarch64-apple-darwin-install_only_stripped.tar.gz",
+      "sha256": "0a1956c23fcc2a800fc5ffe61632dbade3d8e1b4ab94aeb0cc47e028892cac97"
+    }
+  },
+  "artifacts": {
+    "Sovereign-0.1.0-macos-arm64.dmg": "436bf857ee2ef0c98e1ba8b4a1065df6174664b6881594557917961acaec51d9",
+    "Sovereign-0.1.0-macos-arm64.zip": "982dc9968fd1e4f0c61dd93b7eed69f5ae7c35b94e3086fedc7d7489ee191657"
+  },
+  "app_notarization": "6cc3c7c3-a0f9-49d0-8de1-007a763b5378",
+  "dmg_notarization": "af93c7ae-8e48-440f-a059-760050ed07c2",
+  "schema_version": "sovereign.macos-publication.v1",
+  "tag": "sovereign-macos-v0.1.0-build17",
+  "predicate_type": "https://foxlight.ai/attestations/macos-verification/v1",
+  "qualification_limits": [
+    "Apple silicon; exact accepted build 17 app qualified on macOS 26.7.3 through its own bundled runtime.",
+    "The bundled BitTorrent DHT binding (libtorrent 2.0.14, built for macOS 14.0) loads and the mirror reports DHT rendezvous available; on the declared macOS 13 minimum it is expected not to load, and DHT announcement and lookup on the public DHT were not exercised.",
+    "Help keep models available: a signed synthetic Apache-2.0 two-member kit imported, was eligible under the default licence list, served only after standing consent, stopped when the Library closed, resumed after restart and stayed off across restart once turned off; Nostr announcement, cloud bucket mirrors, receiving through discovered mirrors and reachability from other networks were not exercised on the installed app (they are covered by core and Library tests).",
+    "Real-model offline recovery, restart and upgrade retention were last qualified on Mac build 8 (core 0.26 / Library 0.22) with the same native shell; Linux revision 12 (core 0.34.1 / Library 0.30.1) passed real-model GUI recovery separately.",
+    "Declared minimum macOS 13 is not full OS-range or clean-host GUI qualification.",
+    "Public container verification separately checks bundled offline CLI recovery/tamper refusal; no real-model inference, broad hardware or public-network privacy qualification."
+  ]
+}
