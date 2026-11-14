@@ -1,5 +1,9 @@
 # PirateFace interoperability
 
+The Library's Find screen also searches Pirate Face and can save models from
+its swarm; see [Pirate Face as a source](sovereign-desktop.md#pirate-face-as-a-source).
+This page describes the command-line adapter.
+
 Sovereign can explicitly look up one exact repository in PirateFace and verify
 externally downloaded repository files into an unchanged signed preservation
 archive. The Python API and CLI require no Skulk, Hugging Face library, hosted

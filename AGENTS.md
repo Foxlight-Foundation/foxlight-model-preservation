@@ -12,6 +12,10 @@ accounts. Internal strategy, plans and operations belong in private foxlight-doc
   manifest ID; it may be saved when its origin is confirmed against Hugging
   Face, or after the owner explicitly acknowledges that it could not be. The
   acknowledgement is required by Core and recorded in the copy (Tom, 2026-11-13).
+  The same applies to a model Hugging Face no longer has, saved from the
+  Pirate Face swarm against the hashes Pirate Face recorded (foxlight-docs#714).
+- Pirate Face search, swarm downloads and rescue requests are separate explicit
+  choices; a swarm receive never uploads and nothing seeds after the save.
 - Keep consumers receive-only. Serving and public intake are explicit choices.
 - Publish complete generations only after all required bytes pass verification.
 - Public functions/classes require useful docstrings and precise types.

@@ -10,10 +10,11 @@ const count=(value:number)=>value>=1e6?`${(value/1e6).toFixed(1)}M`:value>=1e3?`
 const fileName=(path:string)=>path.split('/').at(-1)??path;
 
 /** Hugging Face as a Find source: opt-in search, then an exact file review. */
-export function HubFind({query,enabled,busy,kept={},explainError,onEnabled,onPlan}:{query:string;enabled:boolean;busy:boolean;kept?:Record<string,number>;explainError:(code:string)=>string;onEnabled:()=>Promise<void>;onPlan:(body:Record<string,unknown>)=>Promise<void>}) {
+export function HubFind({query,enabled,busy,kept={},seeds={},pirateFace=false,explainError,onEnabled,onPlan,onFound}:{query:string;enabled:boolean;busy:boolean;kept?:Record<string,number>;seeds?:Record<string,number>;pirateFace?:boolean;explainError:(code:string)=>string;onEnabled:()=>Promise<void>;onPlan:(body:Record<string,unknown>)=>Promise<void>;onFound?:(repositories:string[])=>void}) {
   const [results,setResults]=useState<HubResult[]|null>(null),[error,setError]=useState(''),[searching,setSearching]=useState(false),[open,setOpen]=useState<string|null>(null);
-  const searches=useRef(0);
+  const searches=useRef(0),found=useRef(onFound);found.current=onFound;
   const words=query.trim();
+  useEffect(()=>{found.current?.(results?.map(item=>item.repository)??[]);},[results]);
   useEffect(()=>{if(!enabled||!words){setResults(null);setError('');return;}const sequence=++searches.current;setSearching(true);const timer=setTimeout(()=>{void api<{results:HubResult[]}>('desktop-hub-search',{query:words}).then(value=>{if(sequence===searches.current){setResults(value.results);setError('');}}).catch(err=>{if(sequence===searches.current)setError(err instanceof Error?err.message:'hub_unavailable');}).finally(()=>{if(sequence===searches.current)setSearching(false);});},450);return()=>{clearTimeout(timer);searches.current++;};},[enabled,words]);
   if(!enabled)return <section className="sk-card sk-hub" aria-label="Hugging Face">
     <div className="sk-model-head"><Monogram text="HF"/><div className="sk-model-title"><h2>Also search Hugging Face?</h2><p className="sk-meta">Find any public model there, not only the listings saved on this device.</p></div></div>
@@ -26,17 +27,17 @@ export function HubFind({query,enabled,busy,kept={},explainError,onEnabled,onPla
     {error&&<Callout tone="bad" role="alert">{explainError(error)}</Callout>}
     {results?.length===0&&!searching&&<p className="sk-hint sk-pad">No public Hugging Face models match “{words}”.</p>}
     <div className="sk-cards">{results?.map(item=><article className="sk-card sk-result" key={item.repository} aria-label={item.repository}>
-      <div className="sk-model-head"><Monogram text={initials(item.name)}/><div className="sk-model-title"><h3>{item.name}</h3><p className="sk-meta">{item.owner}{item.task&&` · ${item.task.replaceAll('-',' ')}`} · {count(item.downloads)} downloads</p></div><span className="sk-tag">Hugging Face</span>{kept[item.repository]?<span className="sk-tag">Community mirrors keep {kept[item.repository]} {kept[item.repository]===1?'version':'versions'}</span>:null}</div>
+      <div className="sk-model-head"><Monogram text={initials(item.name)}/><div className="sk-model-title"><h3>{item.name}</h3><p className="sk-meta">{item.owner}{item.task&&` · ${item.task.replaceAll('-',' ')}`} · {count(item.downloads)} downloads</p></div><span className="sk-tag">Hugging Face</span>{kept[item.repository]?<span className="sk-tag">Community mirrors keep {kept[item.repository]} {kept[item.repository]===1?'version':'versions'}</span>:null}{seeds[item.repository]!=null?<span className="sk-tag">{seeds[item.repository]} {seeds[item.repository]===1?'seed':'seeds'} on Pirate Face</span>:null}</div>
       {item.gated&&<p className="sk-hint sk-warn">Hugging Face asks for an account and permission before downloading this model. If you’ve been given access, add your Hugging Face token under Source and privacy.</p>}
-      {open===item.repository?<HubFiles repository={item.repository} busy={busy} explainError={explainError} onClose={()=>setOpen(null)} onPlan={onPlan}/>:<div className="sk-actions"><button className="sk-btn sk-outline" disabled={busy} onClick={()=>setOpen(item.repository)}>Choose files</button></div>}
+      {open===item.repository?<HubFiles repository={item.repository} busy={busy} pirateFace={pirateFace} explainError={explainError} onClose={()=>setOpen(null)} onPlan={onPlan}/>:<div className="sk-actions"><button className="sk-btn sk-outline" disabled={busy} onClick={()=>setOpen(item.repository)}>Choose files</button></div>}
     </article>)}</div>
   </section>;
 }
 
-function HubFiles({repository,busy,explainError,onClose,onPlan}:{repository:string;busy:boolean;explainError:(code:string)=>string;onClose:()=>void;onPlan:(body:Record<string,unknown>)=>Promise<void>}) {
+export function HubFiles({repository,revision,busy,pirateFace=false,explainError,onClose,onPlan}:{repository:string;revision?:string|null;busy:boolean;pirateFace?:boolean;explainError:(code:string)=>string;onClose:()=>void;onPlan:(body:Record<string,unknown>)=>Promise<void>}) {
   const [review,setReview]=useState<HubReview|null>(null),[selected,setSelected]=useState<Set<string>>(new Set()),[variant,setVariant]=useState<string|null>(null),[error,setError]=useState(''),[loading,setLoading]=useState(true);
   const reads=useRef(0);
-  useEffect(()=>{const sequence=++reads.current;setLoading(true);void api<HubReview>('desktop-hub-review',{repository,...(review?{revision:review.revision}:{}),...(variant?{variant}:{})}).then(value=>{if(sequence!==reads.current)return;setReview(value);setSelected(new Set(value.default_files));setError('');}).catch(err=>{if(sequence===reads.current)setError(err instanceof Error?err.message:'hub_unavailable');}).finally(()=>{if(sequence===reads.current)setLoading(false);});return()=>{reads.current++;};
+  useEffect(()=>{const sequence=++reads.current;setLoading(true);void api<HubReview>('desktop-hub-review',{repository,...(review?{revision:review.revision}:revision?{revision}:{}),...(variant?{variant}:{})}).then(value=>{if(sequence!==reads.current)return;setReview(value);setSelected(new Set(value.default_files));setError('');}).catch(err=>{if(sequence===reads.current)setError(err instanceof Error?err.message:'hub_unavailable');}).finally(()=>{if(sequence===reads.current)setLoading(false);});return()=>{reads.current++;};
     // The pinned revision is reused once known; a variant change re-derives the default files.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[repository,variant]);
@@ -51,6 +52,7 @@ function HubFiles({repository,busy,explainError,onClose,onPlan}:{repository:stri
     <div className="sk-actions"><button className="sk-btn sk-solid" disabled={busy||loading||selected.size===0} onClick={()=>void onPlan({kind:'receive',origin:'hub',repository:review.repository,revision:review.revision,files:[...selected].sort()})}>Keep a copy · {bytes(total)}</button><button className="sk-btn sk-quiet" onClick={onClose}>Cancel</button></div>
     <Details summary="Verification details"><p>This copy comes straight from Hugging Face, not from a reviewed listing. Sovereign pins it to this exact version, checks every file against its fingerprint, and can fetch the same files from community mirrors if Hugging Face can’t provide them.</p><Mono value={review.revision} label="exact version"/></Details>
     {review.gated&&<Pill tone="bad">Access required on Hugging Face</Pill>}
+    {pirateFace&&<PirateFaceListing repository={repository} explainError={explainError}/>}
   </div>;
 }
 
@@ -63,4 +65,15 @@ export function HubToken({user,busy,explainError,onChange}:{user:string|null;bus
     <label className="sk-field" htmlFor="hub-token"><span>Hugging Face token</span><input id="hub-token" className="sk-input" type="password" autoComplete="off" spellCheck={false} placeholder="hf_…" maxLength={210} value={token} onChange={event=>setToken(event.target.value.trim())}/></label>
     <div className="sk-actions"><button className="sk-btn sk-outline" disabled={busy||working||!/^hf_[A-Za-z0-9]{20,200}$/.test(token)} onClick={()=>void run('desktop-hub-token-set',{token})}>{working?'Checking…':'Save token'}</button></div>
     {error&&<Callout tone="bad" role="alert">{explainError(error)}</Callout>}</div>;
+}
+
+interface PirateListing {listed:boolean;seeders?:number}
+
+/** Whether Pirate Face has a torrent of this model; asking it to add one is a click, never automatic. */
+function PirateFaceListing({repository,explainError}:{repository:string;explainError:(code:string)=>string}) {
+  const [listing,setListing]=useState<PirateListing|null>(null),[asked,setAsked]=useState(false),[working,setWorking]=useState(false),[error,setError]=useState('');
+  useEffect(()=>{let live=true;void api<PirateListing>('desktop-pirate-face-review',{repository}).then(value=>{if(live)setListing(value);}).catch(()=>undefined);return()=>{live=false;};},[repository]);
+  if(!listing)return null;
+  if(listing.listed)return <p className="sk-hint">Also on Pirate Face · {listing.seeders??0} {listing.seeders===1?'seed':'seeds'}. With swarm downloads on, peers there are a last-resort source.</p>;
+  return <div className="sk-hint"><p>Pirate Face doesn’t have a torrent of this model yet. Asking it to add one sends only the model’s name to pirateface.co.</p>{asked?<p role="status">Asked Pirate Face to add this model.</p>:<button className="sk-btn sk-quiet" disabled={working} onClick={()=>{setWorking(true);setError('');void api('desktop-pirate-face-rescue',{repository}).then(()=>setAsked(true)).catch(err=>setError(err instanceof Error?err.message:'pirate_face_unavailable')).finally(()=>setWorking(false));}}>Ask Pirate Face to rescue this</button>}{error&&<Callout tone="bad" role="alert">{explainError(error)}</Callout>}</div>;
 }

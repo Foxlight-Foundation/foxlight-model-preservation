@@ -11,6 +11,11 @@ tagged `library-v*`; versions without a tag are source previews installed from
   existing copies with read-back verification, and get a clear message when the
   drive is unplugged.
 
+- Find: **From Pirate Face** results and seed counts, saving rescued models from
+  the swarm, swarm-download and search choices under Source and privacy, and
+  **Ask Pirate Face to rescue this** on models it doesn't list.
+
+
 - Guided Linux setup 0.1.8 and graphical setup 0.1.10 install revision 10
   (core 0.33 / Library 0.29), now served by the signed apt channel; package pins
   amd64 15e7ccf3… and arm64 949da3ea…, documented bootstrap hash fa79ef17….
