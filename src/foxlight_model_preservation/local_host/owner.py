@@ -25,7 +25,7 @@ from urllib.parse import urlsplit
 
 from pydantic import Field, JsonValue
 
-from .. import hub
+from .. import hub, pirateface_find
 from ..archives import ArchiveManifest, verify_archive
 from ..cards import ArtifactFile, ModelCardEnvelope, identity_json
 from ..kits import export_kit, import_kit, inspect_kit, read_kit_envelope
@@ -75,6 +75,7 @@ from ..storage import (
     read_metadata,
     writer_lock,
 )
+from ..swarm import SwarmReceiver
 from ..transfer import SourcesExhausted, TransferPolicy, fetch_object
 from .backups import Backups
 from .catalog import RegistryCatalog, with_licence
@@ -688,6 +689,8 @@ class LocalOwner:
                 "host_kind": "sovereign",
                 "hub_search": self.hub_search_enabled(),
                 "library": self._library_view(),
+                "pirate_face_search": self.pirate_face_enabled(),
+                "pirate_face_swarm": self.pirate_face_enabled("swarm"),
                 "hub_token": self._hub_token_user(),
                 "locations": [],
                 "models": [],
@@ -1341,7 +1344,7 @@ class LocalOwner:
                 )
                 details = plan.get("details")
                 if (
-                    plan.get("origin") == "mirror"
+                    plan.get("origin") in {"mirror", "pirateface"}
                     and isinstance(details, dict)
                     and details.get("origin_check") != "matches"
                     and body.get("accept_unconfirmed_origin") is not True
@@ -1874,6 +1877,8 @@ class LocalOwner:
         *,
         deadline: float,
         preferred: tuple[str, ...] = (),
+        swarm: SwarmReceiver | None = None,
+        origin: bool = True,
     ) -> str:
         """Download one signed catalog file, falling back to mirrors by its hash.
 
@@ -1882,7 +1887,10 @@ class LocalOwner:
         file outright, the same bytes are fetched by SHA-256 from the starter
         (seed) mirrors and mirrors this owner already knows, over HTTPS to
         public addresses only, and accepted only if they match the signed card.
-        ``pack`` re-checks every file. Returns ``"origin"`` or the mirror used.
+        ``pack`` re-checks every file. When the person turned on swarm
+        downloads and the save has a Pirate Face torrent with this exact file,
+        the swarm is tried last. Returns ``"origin"``, the mirror used, or
+        ``"swarm"``.
         """
         # Resume buffers and mirror objects live in the job's staging area,
         # outside every member's files, keyed by the signed hash.
@@ -1890,9 +1898,8 @@ class LocalOwner:
             file.path.encode()
         )
         partial = staging / "partial" / (key + ".partial")
-        mirror_store = staging / "mirror"
         origin_error: BaseException | None = None
-        for _attempt in range(2):
+        for _attempt in range(2 if origin else 0):
             try:
                 download_file(
                     repository,
@@ -1916,13 +1923,52 @@ class LocalOwner:
                 origin_error = error
         if file.object_id is None or not file.object_id.startswith("sha256:"):
             raise PreservationError("origin_unavailable") from origin_error
+        try:
+            return self._save_from_mirrors(
+                file, destination, staging, control, deadline, preferred, origin_error
+            )
+        except OperationError:
+            raise
+        except (OSError, ValueError) as error:
+            if swarm is None or not swarm.has(file.path, file.size_bytes):
+                raise
+            control.phase("downloading")
+            try:
+                swarm.fetch(
+                    file.path,
+                    file.object_id.removeprefix("sha256:"),
+                    destination,
+                    control,
+                    deadline=deadline,
+                )
+            except OperationError:
+                raise
+            except (OSError, ValueError) as swarm_error:
+                raise PreservationError("origin_unavailable") from swarm_error
+            del error
+            return "swarm"
+
+    def _save_from_mirrors(
+        self,
+        file: ArtifactFile,
+        destination: Path,
+        staging: Path,
+        control: OperationControl,
+        deadline: float,
+        preferred: tuple[str, ...],
+        origin_error: BaseException | None,
+    ) -> str:
+        """Fetch one file by SHA-256 from community mirrors."""
+        key = (file.object_id or "").removeprefix("sha256:")
+        partial = staging / "partial" / (key + ".partial")
+        mirror_store = staging / "mirror"
         # The origin may have left a partial file; mirror bytes replace it.
         destination.unlink(missing_ok=True)
         partial.unlink(missing_ok=True)
         policy = TransferPolicy()
         seeds = load_seeds()[:4]
         mirrors = self.community.directory
-        sha256 = file.object_id.removeprefix("sha256:")
+        sha256 = key
         if seeds and time.monotonic() - self._seeds_learned_at > 3600:
             # Read the seeds' own cards and signed object coverage (at most
             # one hourly, bounded, never expanding past them) so mirrors that
@@ -1958,7 +2004,7 @@ class LocalOwner:
         identity = FileIdentity(
             path=file.path,
             size=file.size_bytes,
-            sha256=file.object_id.removeprefix("sha256:"),
+            sha256=key,
         )
         outcomes: dict[str, bool] = {}
         try:
@@ -1994,7 +2040,7 @@ class LocalOwner:
         holders = tuple(
             str(address) for address in cast(list[JsonValue], plan.get("holders") or [])
         )
-        if plan.get("origin") == "mirror":
+        if plan.get("origin") in {"mirror", "pirateface"}:
             # The plan holds the exact recipe and files reviewed; the job
             # verifies every byte against them.
             recipe = Recipe.model_validate_json(identity_json(plan["recipe"]))
@@ -2050,31 +2096,40 @@ class LocalOwner:
         supplied: dict[str, int] = {}
         deadline = time.monotonic() + 86400
         control.phase("downloading")
-        for member in recipe.members:
-            selected = work / member.member_id
-            with directory(selected, create=True):
-                pass
-            sources[member.member_id] = selected
-            for file in member.files:
-                control.checkpoint()
-                if file.path == NOTICE_PATH:
-                    (selected / file.path).write_bytes(NOTICE)
-                    continue
-                # The trusted descriptor, not a response header, bounds every object.
-                original = selected_files[
-                    (member.origin_repository, member.origin_revision, file.path)
-                ]
-                source = self._save_file(
-                    member.origin_repository,
-                    member.origin_revision,
-                    original,
-                    selected / file.path,
-                    work / ".staging",
-                    control,
-                    deadline=deadline,
-                    preferred=holders,
-                )
-                supplied[source] = supplied.get(source, 0) + 1
+        swarm = self._swarm_receiver(plan, work)
+        try:
+            for member in recipe.members:
+                selected = work / member.member_id
+                with directory(selected, create=True):
+                    pass
+                sources[member.member_id] = selected
+                for file in member.files:
+                    control.checkpoint()
+                    if file.path == NOTICE_PATH:
+                        (selected / file.path).write_bytes(NOTICE)
+                        continue
+                    # The trusted descriptor, not a response header, bounds
+                    # every object.
+                    original = selected_files[
+                        (member.origin_repository, member.origin_revision, file.path)
+                    ]
+                    source = self._save_file(
+                        member.origin_repository,
+                        member.origin_revision,
+                        original,
+                        selected / file.path,
+                        work / ".staging",
+                        control,
+                        deadline=deadline,
+                        preferred=holders,
+                        swarm=swarm,
+                        # Hugging Face no longer has a rescued model.
+                        origin=plan.get("origin") != "pirateface",
+                    )
+                    supplied[source] = supplied.get(source, 0) + 1
+        finally:
+            if swarm is not None:
+                swarm.close()
         with directory(self.home / "job-sources", create=True) as root:
             atomic_bytes(
                 root, job.job_id + ".json", identity_json(cast(JsonValue, supplied))
@@ -2115,9 +2170,229 @@ class LocalOwner:
             return False
         return isinstance(value, dict) and value.get("enabled") is True
 
+    def pirate_face_enabled(self, choice: str = "search") -> bool:
+        """Whether the person chose Pirate Face search, or swarm downloads.
+
+        Search sends search words to pirateface.co. Swarm downloads show this
+        computer's address to peers in a public swarm. Each is a separate,
+        one-time choice.
+        """
+        try:
+            value = strict_json(read_metadata(self._root, f"pirate-face-{choice}.json"))
+        except (OSError, PreservationError):
+            return False
+        return isinstance(value, dict) and value.get("enabled") is True
+
+    def _pirate_face_control(
+        self, action: str, body: dict[str, JsonValue]
+    ) -> dict[str, JsonValue] | None:
+        if action == "pirate-face-consent":
+            if set(body) != {"enabled"} or type(body["enabled"]) is not bool:
+                raise PreservationError("invalid_control")
+            with self._lock:
+                self._check()
+                atomic_bytes(
+                    self._root,
+                    "pirate-face-search.json",
+                    identity_json({"enabled": body["enabled"]}),
+                )
+            return {"pirate_face_search": body["enabled"]}
+        if action == "pirate-face-search":
+            query = body.get("query")
+            if set(body) != {"query"} or not isinstance(query, str) or len(query) > 200:
+                raise PreservationError("invalid_control")
+            if not self.pirate_face_enabled():
+                raise PreservationError("pirate_face_search_not_enabled")
+            self._open_check()
+            return {
+                "source": "pirateface",
+                "results": [
+                    item.view()  # pyright: ignore[reportReturnType]
+                    for item in pirateface_find.search(query)
+                ],
+            }
+        if action == "pirate-face-swarm":
+            if set(body) != {"enabled"} or type(body["enabled"]) is not bool:
+                raise PreservationError("invalid_control")
+            with self._lock:
+                self._check()
+                atomic_bytes(
+                    self._root,
+                    "pirate-face-swarm.json",
+                    identity_json({"enabled": body["enabled"]}),
+                )
+            return {"pirate_face_swarm": body["enabled"]}
+        if action == "pirate-face-review":
+            repository, variant = body.get("repository"), body.get("variant")
+            if (
+                set(body) - {"variant"} != {"repository"}
+                or not isinstance(repository, str)
+                or (variant is not None and not isinstance(variant, str))
+            ):
+                raise PreservationError("invalid_control")
+            if not self.pirate_face_enabled():
+                raise PreservationError("pirate_face_search_not_enabled")
+            self._open_check()
+            entry = pirateface_find.lookup(hub.repository_id(repository))
+            if entry is None:
+                return {"listed": False, "repository": repository}
+            swarm = pirateface_find.torrent(entry)
+            view: dict[str, JsonValue] = {
+                "listed": True,
+                **cast(dict[str, JsonValue], entry.view()),
+                "revision": entry.revision or swarm.revision,
+            }
+            if entry.on_hub:
+                return view
+            pinned = self._rescued_snapshot(entry, swarm)
+            return {
+                **view,
+                **cast(dict[str, JsonValue], pinned.view()),
+                "default_files": cast(
+                    JsonValue, pinned.default_selection(variant or None)
+                ),
+            }
+        if action == "pirate-face-rescue":
+            # Sent only when the person clicks "Ask Pirate Face to rescue this".
+            repository = body.get("repository")
+            if set(body) != {"repository"} or not isinstance(repository, str):
+                raise PreservationError("invalid_control")
+            self._open_check()
+            pirateface_find.request_rescue(repository)
+            return {"requested": True}
+        return None
+
+    @staticmethod
+    def _rescued_snapshot(
+        entry: pirateface_find.SwarmEntry, swarm: pirateface_find.SwarmTorrent
+    ) -> hub.HubSnapshot:
+        """A rescued model's files: those in its torrent with a recorded SHA-256."""
+        revision = entry.revision or swarm.revision
+        if revision is None:
+            raise PreservationError("pirate_face_revision_unknown")
+        hashes = dict(entry.hashes)
+        files = tuple(
+            hub.HubFile(
+                path=item.path,
+                size_bytes=item.size_bytes,
+                sha256=hashes[item.path],
+                blob_id=None,
+            )
+            for item in swarm.files
+            if item.path in hashes
+        )
+        if not files:
+            raise PreservationError("pirate_face_hashes_missing")
+        return hub.HubSnapshot(
+            repository=entry.repository,
+            revision=revision,
+            files=files,
+            licence=None,
+            gated=False,
+            task=None,
+            library=None,
+        )
+
+    def _pirate_plan(self, repository: str, files: list[str]) -> dict[str, JsonValue]:
+        """Save a model Hugging Face no longer has, from the Pirate Face swarm."""
+        if not self.pirate_face_enabled("swarm"):
+            raise PreservationError("pirate_face_swarm_not_enabled")
+        entry = pirateface_find.lookup(hub.repository_id(repository))
+        if entry is None:
+            raise PreservationError("pirate_face_not_listed")
+        if entry.on_hub:
+            raise PreservationError("pirate_face_use_hub")
+        swarm = pirateface_find.torrent(entry)
+        pinned = self._rescued_snapshot(entry, swarm)
+        selected = sorted(set(files))
+        exact: dict[str, tuple[int, str]] = {}
+        for path in selected:
+            item = pinned.file(path)
+            exact[path] = (item.size_bytes, cast(str, item.sha256))
+        decision = (
+            f"Kept from the Pirate Face swarm (torrent {entry.infohash}). "
+            f"Hugging Face no longer has {entry.repository}; files were checked "
+            "against the SHA-256s Pirate Face recorded from Hugging Face. "
+            "Kept only after the owner acknowledged that its origin could not be "
+            "confirmed. Explicit private preservation; no redistribution grant."
+        )
+        recipe, selected_files = hub_recipe(
+            pinned.repository, pinned.revision, exact, decision=decision
+        )
+        size = sum(size for size, _ in exact.values())
+        return self._plan(
+            {
+                "kind": "receive",
+                "origin": "pirateface",
+                "name": recipe.name,
+                "repository": pinned.repository,
+                "revision": pinned.revision,
+                "recipe": recipe.model_dump(mode="json"),
+                "files": [
+                    [key[0], key[1], key[2], value.size_bytes, value.object_id]
+                    for key, value in sorted(selected_files.items())
+                ],
+                "swarm": {"infohash": entry.infohash},
+                "details": {
+                    "license": None,
+                    "origin_check": "unconfirmed",
+                    "seeders": entry.seeders,
+                    "file_list": "pirateface",
+                },
+                "terms": terms_review(
+                    member_terms(
+                        recipe.members,
+                        fallback="",
+                        fallback_origin=(pinned.repository, pinned.revision),
+                    )
+                ),
+                "historical": False,
+                "file_count": len(exact),
+                "projector_included": any("mmproj" in path.lower() for path in exact),
+                "members": [pinned.repository],
+                "size_bytes": size,
+                "source": "the Pirate Face swarm (public BitTorrent peers)",
+            }
+        )
+
+    def _swarm_receiver(
+        self, plan: dict[str, JsonValue], work: Path
+    ) -> SwarmReceiver | None:
+        """The swarm as a source for this save, when chosen and available."""
+        recorded = plan.get("swarm")
+        if not isinstance(recorded, dict) or not self.pirate_face_enabled("swarm"):
+            return None
+        infohash = recorded.get("infohash")
+        if not isinstance(infohash, str):
+            return None
+        repository = str(plan.get("repository") or "")
+        entry = pirateface_find.SwarmEntry(
+            repository=repository,
+            revision=None,
+            on_hub=plan.get("origin") != "pirateface",
+            seeders=0,
+            leechers=0,
+            infohash=infohash,
+            torrent_path=f"/api/torrents/{infohash}.torrent",
+            hashes=(),
+        )
+        try:
+            swarm = pirateface_find.torrent(entry)
+        except (OSError, ValueError):
+            if plan.get("origin") == "pirateface":
+                raise
+            return None  # Optional for Hub saves: Hugging Face and mirrors remain.
+        revision = plan.get("revision")
+        if swarm.revision is not None and swarm.revision != revision:
+            return None  # Another version's files; never mixed into this save.
+        return SwarmReceiver(swarm, work / ".swarm")
+
     def _hub_control(
         self, action: str, body: dict[str, JsonValue]
     ) -> dict[str, JsonValue] | None:
+        swarm = self._pirate_face_control(action, body)
+        if swarm is not None:
+            return swarm
         if action == "hub-consent":
             if set(body) != {"enabled"} or type(body["enabled"]) is not bool:
                 raise PreservationError("invalid_control")
@@ -2232,6 +2507,20 @@ class LocalOwner:
                 raise PreservationError("invalid_control")
             self._open_check()
             return self._held_plan(manifest)
+        if body.get("kind") == "receive" and body.get("origin") == "pirateface":
+            if set(body) != {"kind", "origin", "repository", "files"}:
+                raise PreservationError("invalid_control")
+            repository, files = body["repository"], body["files"]
+            if (
+                not isinstance(repository, str)
+                or not isinstance(files, list)
+                or not files
+                or len(files) > hub.MAX_FILES
+                or not all(isinstance(item, str) for item in files)
+            ):
+                raise PreservationError("invalid_control")
+            self._open_check()
+            return self._pirate_plan(repository, cast(list[str], files))
         if body.get("kind") == "receive" and body.get("origin") == "hub":
             if set(body) != {"kind", "origin", "repository", "revision", "files"}:
                 raise PreservationError("invalid_control")
@@ -2493,10 +2782,19 @@ class LocalOwner:
             task=pinned.task,
         )
         size = sum(size for size, _ in exact.values())
+        swarm: JsonValue = None
+        if self.pirate_face_enabled("swarm"):
+            # The person chose swarm downloads: a listed torrent of this model
+            # becomes a last-resort source, checked file by file like any other.
+            with contextlib.suppress(OSError, ValueError):
+                entry = pirateface_find.lookup(pinned.repository)
+                if entry is not None:
+                    swarm = {"infohash": entry.infohash}
         return self._plan(
             {
                 "kind": "receive",
                 "origin": "hub",
+                "swarm": swarm,
                 "name": listing["name"] if listing else recipe.name,
                 "repository": pinned.repository,
                 "revision": pinned.revision,

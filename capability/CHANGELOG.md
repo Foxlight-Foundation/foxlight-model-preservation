@@ -11,6 +11,10 @@ tagged `library-v*`; versions without a tag are source previews installed from
   existing copies with read-back verification, and get a clear message when the
   drive is unplugged.
 
+- Find: **From Pirate Face** results and seed counts, saving rescued models from
+  the swarm, swarm-download and search choices under Source and privacy, and
+  **Ask Pirate Face to rescue this** on models it doesn't list.
+
 - Install docs point at the public 0.33 cohort: core 0.33.0, Library 0.29.0,
   Mac build 15, Linux revision 10 (guided setup 0.1.8, graphical setup 0.1.10)
   and `sovereign-mirror:0.33.0`.

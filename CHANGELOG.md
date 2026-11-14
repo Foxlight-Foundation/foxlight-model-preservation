@@ -11,6 +11,18 @@
   back to the system drive; a folder marked by another Sovereign is refused.
   The pool **Help keep models available** keeps for others lives there too.
 
+- Find searches Pirate Face (opt-in: search words go to pirateface.co). A model
+  on both Hugging Face and Pirate Face shows once with its seed count. Models
+  Hugging Face has removed ("Rescued") can be kept from the Pirate Face swarm
+  after turning on swarm downloads (peers can see this computer's address):
+  only files Pirate Face recorded a Hugging Face SHA-256 for are offered, each
+  is checked before it's kept, the save needs the unconfirmed-origin
+  acknowledgement, and the copy records it. With swarm downloads on, a Hub save
+  also uses a listed torrent as its last source. Swarm receives are
+  download-only (no upload slots) and nothing seeds afterwards. A model Pirate
+  Face doesn't list can be offered for rescue with a button; nothing is sent
+  otherwise.
+
 - Install docs point at the public 0.33 cohort: core 0.33.0, Library 0.29.0,
   Mac build 15, Linux revision 10 (guided setup 0.1.8, graphical setup 0.1.10)
   and `sovereign-mirror:0.33.0`.

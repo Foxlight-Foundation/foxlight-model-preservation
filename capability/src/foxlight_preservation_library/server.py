@@ -80,6 +80,11 @@ CONTROL_TIMEOUTS: Final[dict[str, float]] = {
     "desktop-held-refresh": 90,
     "desktop-held-search": 30,
     "desktop-hub-review": 30,
+    # Pirate Face search and review make bounded requests to pirateface.co;
+    # a review also fetches the model's torrent file.
+    "desktop-pirate-face-search": 30,
+    "desktop-pirate-face-review": 60,
+    "desktop-pirate-face-rescue": 30,
     # Checking a token with Hugging Face, then keychain writes (30 s each).
     "desktop-hub-token-set": 120,
     "desktop-hub-token-remove": 60,
@@ -709,6 +714,11 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                         "api/desktop-held-refresh",
                         "api/desktop-held-search",
                         "api/desktop-hub-review",
+                        "api/desktop-pirate-face-consent",
+                        "api/desktop-pirate-face-swarm",
+                        "api/desktop-pirate-face-search",
+                        "api/desktop-pirate-face-review",
+                        "api/desktop-pirate-face-rescue",
                         "api/desktop-hub-token-set",
                         "api/desktop-hub-token-remove",
                         "api/desktop-copy-search",

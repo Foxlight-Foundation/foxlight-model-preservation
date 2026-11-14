@@ -558,6 +558,34 @@ whoever signed it. Its claimed origin is checked against Hugging Face and the
 result (matches, differs, unconfirmed) is recorded in the copy, which is
 repacked under the owner's key. A list grants no trust.
 
+### Pirate Face as a source
+
+Pirate Face (pirateface.co) lists community torrents of Hugging Face models and
+hosts no files. Searching it is a one-time choice in Find, because search words
+go to pirateface.co. Sovereign uses only the interfaces Pirate Face documents or
+its own client uses: the plain-text search `/s/<words>`, one model's entry
+`/api/torrents?repo=`, that entry's `.torrent` file and `/api/rescue`. A torrent
+file is accepted only when its v1 infohash is the one the entry names; its
+paths must be safe, and a Pirate Face web-seed URL names the exact commit.
+
+A model still on Hugging Face is reviewed and saved as a Hub model at the
+commit its torrent names. A model Hugging Face no longer has ("Rescued") can be
+kept from the swarm: only files Pirate Face recorded a Hugging Face SHA-256 for
+are offered, each file is checked against it, and the save needs the same
+acknowledgement as an unconfirmed mirror copy, which the copy records.
+
+Swarm downloads are a separate one-time choice, because peers in a public swarm
+can see this computer's address. A swarm receive is download-only: the session
+never unchokes a peer, so nothing is uploaded, and it ends with the save. With
+swarm downloads on, a Hub save also uses a listed torrent of the same commit as
+its last source, after Hugging Face and community mirrors. **Ask Pirate Face to
+rescue this** appears on a reviewed model Pirate Face doesn't list and sends
+only the model's name, only when clicked. Seed counts are Pirate Face's own
+observations and never rank or hide anything.
+
+The command-line `model-preserve pirateface` adapter ([PirateFace
+interoperability](pirateface.md)) is separate and unchanged.
+
 ### Built-in registry source
 
 The bundled [registry root](../src/foxlight_model_preservation/resources/foxlight_registry_root.json)

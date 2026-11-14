@@ -497,6 +497,7 @@ def hub_recipe(
     *,
     licence: str | None = None,
     task: str | None = None,
+    decision: str | None = None,
 ) -> tuple[Recipe, dict[tuple[str, str, str], ArtifactFile]]:
     """Build a save recipe for selected Hub files at one pinned commit.
 
@@ -539,7 +540,8 @@ def hub_recipe(
             audience="private",
             license_id=licence or "see-original-card",
             terms_reference=f"https://huggingface.co/{repository}/tree/{revision}",
-            decision="Explicit private preservation; no redistribution grant.",
+            decision=decision
+            or "Explicit private preservation; no redistribution grant.",
             notice_paths=(NOTICE_PATH,),
         ),
         files=(
