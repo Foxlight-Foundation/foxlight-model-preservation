@@ -244,6 +244,9 @@ class LocalOwner:
             self._controls: dict[str, OperationControl] = {}
             self._progress: dict[str, Progress] = {}
             self._totals: dict[str, int | None] = {}
+            # Per running save: bytes of finished files, and the resume buffer
+            # of the file in progress (its size is what is kept so far).
+            self._kept: dict[str, tuple[int, Path | None]] = {}
             self._summaries: dict[str, dict[str, JsonValue]] = {}
             self._search_metadata: dict[str, str] = {}
             self._closed = False
@@ -694,6 +697,7 @@ class LocalOwner:
                         if item.job_id in self._progress
                         else 0,
                         "bytes_total": self._job_total(item),
+                        "bytes_done": self._job_done(item),
                         "temporary_sharing_files": item.kind == "publish"
                         and item.job_id not in self._controls
                         and self.sharing.work_exists(item.job_id),
@@ -810,6 +814,15 @@ class LocalOwner:
                 ),
                 reverse=True,
             )
+
+    def _job_done(self, job: Job) -> int | None:
+        """Bytes of a running save that are actually kept: finished files plus
+        the current file's buffer (a restart shrinks it; mirror bytes count
+        when their file finishes)."""
+        if job.state not in {"queued", "running"} or job.job_id not in self._kept:
+            return None
+        finished, partial = self._kept[job.job_id]
+        return finished + (_size(partial) if partial is not None else 0)
 
     def _job_total(self, job: Job) -> int | None:
         """The reviewed size of a running save, for "X of Y" progress."""
@@ -2084,6 +2097,7 @@ class LocalOwner:
         preferred: tuple[str, ...] = (),
         swarm: SwarmReceiver | None = None,
         origin: bool = True,
+        job_id: str | None = None,
     ) -> str:
         """Download one signed catalog file, falling back to mirrors by its hash.
 
@@ -2111,6 +2125,11 @@ class LocalOwner:
                 if shared is not None and origin:
                     # Kept from an earlier save of this file: already done.
                     control.advance(reused=_size(shared))
+            if job_id is not None:
+                # Progress reads what this file's buffer actually holds, so a
+                # restarted or discarded download never counts twice.
+                finished = self._kept.get(job_id, (0, None))[0]
+                self._kept[job_id] = (finished, partial)
             origin_error: BaseException | None = None
             stalls = 0
             while origin and stalls < ORIGIN_STALLS:
@@ -2373,8 +2392,11 @@ class LocalOwner:
                         swarm=swarm,
                         # Hugging Face no longer has a rescued model.
                         origin=plan.get("origin") != "pirateface",
+                        job_id=job.job_id,
                     )
                     supplied[source] = supplied.get(source, 0) + 1
+                    finished = self._kept.get(job.job_id, (0, None))[0]
+                    self._kept[job.job_id] = (finished + original.size_bytes, None)
         finally:
             if swarm is not None:
                 swarm.close()

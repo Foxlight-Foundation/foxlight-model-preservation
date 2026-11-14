@@ -50,3 +50,13 @@ test('a running save shows how much is left',async({page})=>{
   await expect(tile.getByText(/of 27\.9 GB · 20%/)).toBeVisible();
   await expect(tile.getByRole('progressbar',{name:'Download progress'})).toBeVisible();
 });
+
+
+test('progress counts what is kept, not every byte ever received',async({page})=>{
+  // 25 GB received in total, but a restart discarded most: 6 GB is kept.
+  const job={...working,bytes_received:25_000_000_000,bytes_reused:0,bytes_done:6_000_000_000,bytes_total:30_000_000_000};
+  await common(page,{copies:[],jobs:[job]});
+  await page.goto('/');
+  await page.getByRole('button',{name:'Activity',exact:true}).click();
+  await expect(page.locator('.sk-job',{hasText:'big-model'}).getByText(/of 27\.9 GB · 20%/)).toBeVisible();
+});
