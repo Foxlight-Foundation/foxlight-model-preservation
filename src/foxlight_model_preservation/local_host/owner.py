@@ -8,6 +8,7 @@ closing the application requests a cooperative stop and retains its journal.
 from __future__ import annotations
 
 import contextlib
+import fcntl
 import http.client
 import os
 import re
@@ -163,6 +164,25 @@ class Journal(Record):
     schema_version: Literal["sovereign.local-owner.v2"] = "sovereign.local-owner.v2"
     copies: tuple[Copy, ...] = Field(default=(), max_length=256)
     jobs: tuple[Job, ...] = Field(default=(), max_length=256)
+
+
+# Consecutive origin attempts that add no bytes before mirrors are tried.
+ORIGIN_STALLS = 4
+
+
+def _size(path: Path) -> int:
+    try:
+        return os.stat(path).st_size
+    except OSError:
+        return 0
+
+
+def _pause(control: OperationControl, deadline: float, seconds: float) -> None:
+    """Wait before a retry, still honouring cancellation and the deadline."""
+    end = min(time.monotonic() + seconds, deadline)
+    while time.monotonic() < end:
+        control.checkpoint()
+        time.sleep(min(0.5, max(0.0, end - time.monotonic())))
 
 
 class LocalOwner:
@@ -2011,35 +2031,48 @@ class LocalOwner:
         the swarm is tried last. Returns ``"origin"``, the mirror used, or
         ``"swarm"``.
         """
-        # Resume buffers and mirror objects live in the job's staging area,
-        # outside every member's files, keyed by the signed hash.
+        # A file with a signed hash resumes from a buffer kept in the library
+        # folder under that hash, so saving again after a failure continues
+        # where it stopped. Other files resume within this job only.
         key = (file.object_id or "").removeprefix("sha256:") or digest(
             file.path.encode()
         )
-        partial = staging / "partial" / (key + ".partial")
-        origin_error: BaseException | None = None
-        for _attempt in range(2 if origin else 0):
-            try:
-                download_file(
-                    repository,
-                    revision,
-                    file,
-                    destination,
-                    control,
-                    deadline=deadline,
-                    partial=partial,
-                    token=self._hub_token(),
-                )
-                return "origin"
-            except OperationError:
-                raise
-            except OriginHTTPError as error:
-                origin_error = error
-                if error.status_code < 500:
-                    # Missing, refused or rate limited: mirrors, not a retry.
-                    break
-            except (OSError, ValueError, http.client.HTTPException) as error:
-                origin_error = error
+        with contextlib.ExitStack() as held:
+            partial = staging / "partial" / (key + ".partial")
+            if file.object_id is not None and file.object_id.startswith("sha256:"):
+                shared = self._shared_partial(key, held, destination)
+                partial = shared or partial
+            origin_error: BaseException | None = None
+            stalls = 0
+            while origin and stalls < ORIGIN_STALLS:
+                before = _size(partial)
+                try:
+                    download_file(
+                        repository,
+                        revision,
+                        file,
+                        destination,
+                        control,
+                        deadline=deadline,
+                        partial=partial,
+                        token=self._hub_token(),
+                    )
+                    return "origin"
+                except OperationError:
+                    raise
+                except OriginHTTPError as error:
+                    origin_error = error
+                    if error.status_code < 500 and error.status_code not in {408, 429}:
+                        # Missing or refused: mirrors, not a retry.
+                        break
+                except (OSError, ValueError, http.client.HTTPException) as error:
+                    origin_error = error
+                # Large files over home connections drop now and then: keep
+                # resuming while each attempt gets further, and give up only
+                # after several attempts in a row add nothing.
+                stalls = 0 if _size(partial) > before else stalls + 1
+                if stalls < ORIGIN_STALLS:
+                    _pause(control, deadline, min(60.0, 5.0 * 2**stalls))
         if file.object_id is None or not file.object_id.startswith("sha256:"):
             raise PreservationError("origin_unavailable") from origin_error
         try:
@@ -2067,6 +2100,31 @@ class LocalOwner:
             del error
             return "swarm"
 
+    def _shared_partial(
+        self, key: str, held: contextlib.ExitStack, destination: Path
+    ) -> Path | None:
+        """The library-wide resume buffer for one hash, if no other save has it.
+
+        Only when it sits on the same filesystem as the file's destination: a
+        finished buffer is renamed into place, which can't cross drives (for
+        example after the Library moved to another drive mid-save).
+        """
+        try:
+            folder = self._data() / "partials"
+            with directory(folder, create=True):
+                pass
+            existing = destination.parent
+            while not existing.exists() and existing != existing.parent:
+                existing = existing.parent
+            if os.stat(folder).st_dev != os.stat(existing).st_dev:
+                return None
+            lock = held.enter_context(open(folder / (key + ".lock"), "a+b"))
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except (BlockingIOError, OSError, PreservationError):
+            return None  # Another save is downloading it: resume within this job.
+        held.callback(fcntl.flock, lock.fileno(), fcntl.LOCK_UN)
+        return folder / (key + ".partial")
+
     def _save_from_mirrors(
         self,
         file: ArtifactFile,
@@ -2079,11 +2137,11 @@ class LocalOwner:
     ) -> str:
         """Fetch one file by SHA-256 from community mirrors."""
         key = (file.object_id or "").removeprefix("sha256:")
-        partial = staging / "partial" / (key + ".partial")
         mirror_store = staging / "mirror"
-        # The origin may have left a partial file; mirror bytes replace it.
+        # The origin may have left a partial file in place; mirror bytes
+        # replace it. A resumable origin buffer is kept until a mirror succeeds.
         destination.unlink(missing_ok=True)
-        partial.unlink(missing_ok=True)
+        (staging / "partial" / (key + ".partial")).unlink(missing_ok=True)
         policy = TransferPolicy()
         seeds = load_seeds()[:4]
         mirrors = self.community.directory
@@ -2149,6 +2207,8 @@ class LocalOwner:
             self.community.directory.record_many(outcomes, seeds=seeds)
         destination.parent.mkdir(parents=True, exist_ok=True)
         os.replace(mirror_store / object_path(identity.sha256), destination)
+        with contextlib.suppress(OSError, PreservationError):
+            (self._data() / "partials" / (key + ".partial")).unlink(missing_ok=True)
         control.phase("downloading")
         return used
 

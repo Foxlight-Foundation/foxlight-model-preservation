@@ -466,12 +466,12 @@ def download_file(
                     output.write(chunk)
                 output.flush()
                 os.fsync(output.fileno())
-            if (
-                count != file.size_bytes
-                or file.object_id != "sha256:" + sha.hexdigest()
-            ):
-                if count >= file.size_bytes:
-                    partial.unlink(missing_ok=True)
+            if count < file.size_bytes:
+                # The host closed the connection early (Hugging Face's CDN
+                # does after a few minutes): the kept prefix resumes.
+                raise PreservationError("model download interrupted")
+            if file.object_id != "sha256:" + sha.hexdigest():
+                partial.unlink(missing_ok=True)
                 raise PreservationError("model bytes differ from signed file identity")
             with (
                 directory(partial.parent) as staging,
