@@ -6,6 +6,15 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+## 0.31.0
+
+- Activity shows a save as stages (Download, Check & sign, Store, Final
+  check), each a ring with its percentage inside, a tick when done and the
+  step number while waiting; the running stage is named with its percentage
+  and time left, and a stage without a known total spins while its amount
+  counts up. A save no longer sits at 100% with no sign of what it is doing.
+  Requires core 0.35.0.
+
 - A save to a library drive that stops answering (for example an exFAT drive
   on macOS 26) no longer freezes; free space shows as unknown until the drive
   answers again.
