@@ -496,3 +496,21 @@ def test_a_new_library_inside_an_existing_one_is_refused(tmp_path):
             OperationControl(),
             lambda _: None,
         )
+
+
+def test_an_unplugged_pool_is_unavailable_not_empty(tmp_path):
+    from foxlight_model_preservation.local_host.community import CommunityMirror
+    from foxlight_model_preservation.local_host.sharing import Sharing
+
+    home, drive = tmp_path / "home", tmp_path / "drive"
+    home.mkdir(mode=0o700)
+    drive.mkdir()
+    library = Library(home)
+    choose(library, drive / "Library")
+    community = CommunityMirror(home, Sharing(home, library))
+    assert community.pool_available()
+    os.rename(drive, tmp_path / "unplugged")
+    # The bucket round must not read "no pool" as "nothing shared".
+    assert not community.pool_available()
+    os.rename(tmp_path / "unplugged", drive)
+    assert community.pool_available()

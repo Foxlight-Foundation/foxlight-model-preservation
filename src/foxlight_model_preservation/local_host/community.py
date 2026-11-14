@@ -686,6 +686,15 @@ class CommunityMirror:
 
     # Mirror ------------------------------------------------------------------
 
+    def pool_available(self) -> bool:
+        """False while the pool's library drive is unplugged (not merely empty)."""
+        if self.library.available():
+            return True
+        return any(
+            (root / "sharing/community/mirror").is_dir()
+            for root in self.library.roots()
+        )
+
     def _mirror(self) -> Path:
         try:
             return self.library.find("sharing/community/mirror")
@@ -746,13 +755,16 @@ class CommunityMirror:
         ledger = self.ledger()
         added = 0
         wanted: set[str] = set()
+        # A pool created while an earlier library drive was unplugged lacks the
+        # selections recorded for the old one: those copies join it again.
+        present = set(ledger.read().models)
         for copy in copies:
             control.checkpoint()
             view = self.candidate(copy)
             if view["status"] not in {"sharing", "eligible", "failed"}:
                 continue
             identity = self.joined().copies.get(copy.copy_id)
-            if identity is None:
+            if identity is None or identity not in present:
                 try:
                     self._join(ledger, copy, view, control)
                 except OperationError:
@@ -1180,6 +1192,10 @@ class CommunityMirror:
                 load_credentials(state.target.key_name),
                 self.bucket_policy,
             )
+            if not self.pool_available():
+                # The pool's drive is unplugged: nothing was withdrawn, so
+                # leave the bucket exactly as it is until it is back.
+                return state
             try:
                 ledger = MirrorLedger(self._mirror())
                 models = ledger.read().models
