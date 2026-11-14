@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Large Hugging Face downloads no longer fail after two dropped connections:
+  a file keeps resuming while each attempt makes progress, and gives up (to
+  mirrors) only after several attempts in a row add nothing, with growing
+  pauses between them; timeouts and rate limits (408/429) are retried too. The
+  resume buffer lives in the library folder under the file's SHA-256, so
+  saving again after a failure continues where it stopped instead of starting
+  over (a 30 GB file failed twice at about 10 GB).
+
 - Install docs point at the public 0.34 cohort: core 0.34.0, Library 0.30.0,
   Mac build 16, Linux revision 11 (guided setup 0.1.9, graphical setup 0.1.11)
   and `sovereign-mirror:0.34.0`.

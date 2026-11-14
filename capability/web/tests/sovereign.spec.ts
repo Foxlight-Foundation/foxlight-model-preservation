@@ -204,7 +204,7 @@ test('a save that neither Hugging Face nor any mirror could supply says so plain
  await page.route('**/api/library*',route=>route.fulfill({json:{...empty,jobs:[job]}}));
  await page.route('**/api/desktop-search',route=>route.fulfill({json:{catalog_id:id,results:[model],total:1,next_offset:null}}));
  await page.goto('/');await page.getByRole('button',{name:'Activity',exact:true}).click();
- await expect(page.getByText('no community mirror had them either',{exact:false})).toBeVisible();
+ await expect(page.getByText('saving again continues where it stopped',{exact:false})).toBeVisible();
 });
 
 test('a finished save says where its files came from',async({page})=>{

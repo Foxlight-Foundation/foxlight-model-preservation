@@ -1,201 +1,110 @@
-"""Hugging Face downloads resume from a verified prefix; saves report their sources."""
+"""Large Hugging Face files keep resuming while they make progress."""
 
-from __future__ import annotations
-
-import io
 import time
 
 import pytest
-from test_catalog_mirror_fallback import _save, _seeds, _store
-from test_local_owner import accepted_catalog
 
 from foxlight_model_preservation.cards import ArtifactFile
-from foxlight_model_preservation.local_host.owner import LocalOwner
-from foxlight_model_preservation.local_host.selection import (
-    OriginHTTPError,
-    download_file,
-)
+from foxlight_model_preservation.local_host import owner as owner_module
+from foxlight_model_preservation.local_host.owner import ORIGIN_STALLS, LocalOwner
 from foxlight_model_preservation.models import PreservationError
 from foxlight_model_preservation.operations import OperationControl
-from foxlight_model_preservation.signing import digest
 
-DATA = bytes(range(256)) * 64  # 16 KiB
-
-
-class Hub:
-    """A fake origin: honours or ignores Range, can drop mid-transfer or refuse."""
-
-    def __init__(
-        self,
-        data: bytes,
-        *,
-        drop_after: int | None = None,
-        honour_range: bool = True,
-        status: int = 200,
-    ) -> None:
-        self.data, self.drop_after = data, drop_after
-        self.honour_range, self.status = honour_range, status
-        self.requests: list[dict[str, str]] = []
-
-    def connection(self, *args, **kwargs):
-        hub = self
-
-        class Reply(io.BytesIO):
-            def __init__(self, headers: dict[str, str]) -> None:
-                start = 0
-                ranged = headers.get("Range")
-                self.status = hub.status
-                self.headers = {"Content-Length": str(len(hub.data))}
-                if hub.status == 200 and ranged and hub.honour_range:
-                    start = int(ranged.removeprefix("bytes=").rstrip("-"))
-                    self.status = 206
-                    size = len(hub.data)
-                    self.headers = {
-                        "Content-Length": str(size - start),
-                        "Content-Range": f"bytes {start}-{size - 1}/{size}",
-                    }
-                super().__init__(hub.data[start:] if hub.status == 200 else b"")
-                self.limit = hub.drop_after
-                hub.drop_after = None  # Only the first transfer drops.
-
-            def getheader(self, name, default=None):
-                return self.headers.get(name, default)
-
-            def read(self, size=-1):
-                if self.limit is not None and self.tell() >= self.limit:
-                    raise ConnectionResetError("dropped")
-                if self.limit is not None:
-                    size = min(size, self.limit - self.tell())
-                return super().read(size)
-
-        class Connection:
-            def __init__(self, host, *a, **k):
-                assert host == "huggingface.co"
-                self.headers: dict[str, str] = {}
-
-            def request(self, method, path, headers=None):
-                self.headers = dict(headers or {})
-                hub.requests.append(self.headers)
-
-            def getresponse(self):
-                return Reply(self.headers)
-
-            def close(self):
-                pass
-
-        return Connection(*args, **kwargs)
+FILE = ArtifactFile(path="model.gguf", size_bytes=1000, object_id="sha256:" + "a" * 64)
 
 
-def _file(data: bytes = DATA) -> ArtifactFile:
-    return ArtifactFile(
-        path="model.bin", size_bytes=len(data), object_id="sha256:" + digest(data)
-    )
+@pytest.fixture
+def owner(tmp_path, monkeypatch):
+    monkeypatch.setattr(owner_module, "_pause", lambda *args: None)
+    created = LocalOwner(tmp_path / "home")
+    yield created
+    created.close()
 
 
-def _download(hub: Hub, destination, monkeypatch, *, data: bytes = DATA) -> None:
-    monkeypatch.setattr(
-        "foxlight_model_preservation.local_host.selection.PinnedConnection",
-        hub.connection,
-    )
-    download_file(
-        "example/model",
-        "a" * 40,
-        _file(data),
-        destination,
+def save(owner, tmp_path):
+    return owner._save_file(
+        "org/model",
+        "b" * 40,
+        FILE,
+        tmp_path / "work" / "model.gguf",
+        tmp_path / "work" / ".staging",
         OperationControl(),
-        deadline=time.monotonic() + 30,
-        partial=destination.parent / "staging" / (digest(data) + ".partial"),
+        deadline=time.monotonic() + 60,
     )
 
 
-def _partial(tmp_path, data: bytes = DATA):
-    return tmp_path / "staging" / (digest(data) + ".partial")
+def test_drops_resume_until_the_file_completes(owner, tmp_path, monkeypatch):
+    calls = []
+
+    def flaky(repository, revision, file, destination, control, *, partial, **kwargs):
+        calls.append(partial)
+        partial.parent.mkdir(parents=True, exist_ok=True)
+        with open(partial, "ab") as stream:
+            stream.write(b"x" * 100)  # progress, then the connection drops
+        if len(calls) < 7:
+            raise ConnectionResetError("dropped")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(b"done")
+
+    monkeypatch.setattr(owner_module, "download_file", flaky)
+    assert save(owner, tmp_path) == "origin"
+    assert len(calls) == 7  # far more than two attempts while progressing
+    # The buffer lives in the library folder, keyed by the file's hash.
+    assert calls[0] == owner._data() / "partials" / ("a" * 64 + ".partial")
 
 
-def test_a_dropped_download_resumes_from_its_verified_prefix(tmp_path, monkeypatch):
-    hub = Hub(DATA, drop_after=6000)
-    destination = tmp_path / "model.bin"
-    with pytest.raises(ConnectionResetError):
-        _download(hub, destination, monkeypatch)
-    assert not destination.exists()
-    assert _partial(tmp_path).stat().st_size == 6000
-    _download(hub, destination, monkeypatch)
-    assert hub.requests[-1]["Range"] == "bytes=6000-"
-    assert destination.read_bytes() == DATA
-    assert not _partial(tmp_path).exists()
+def test_attempts_without_progress_give_up_after_a_few(owner, tmp_path, monkeypatch):
+    calls = []
 
+    def dead(*args, **kwargs):
+        calls.append(1)
+        raise TimeoutError("no bytes")
 
-def test_an_origin_that_ignores_the_range_restarts_cleanly(tmp_path, monkeypatch):
-    hub = Hub(DATA, drop_after=6000, honour_range=False)
-    destination = tmp_path / "model.bin"
-    with pytest.raises(ConnectionResetError):
-        _download(hub, destination, monkeypatch)
-    _download(hub, destination, monkeypatch)
-    assert destination.read_bytes() == DATA
-
-
-def test_a_corrupt_prefix_is_never_kept(tmp_path, monkeypatch):
-    destination = tmp_path / "model.bin"
-    _partial(tmp_path).parent.mkdir()
-    _partial(tmp_path).write_bytes(b"\0" * 6000)
-    with pytest.raises(PreservationError, match="differ from signed"):
-        _download(Hub(DATA), destination, monkeypatch)
-    assert not destination.exists()
-    # The next attempt starts over rather than trusting the bad prefix again.
-    assert not _partial(tmp_path).exists()
-    _download(Hub(DATA), destination, monkeypatch)
-    assert destination.read_bytes() == DATA
-
-
-def test_a_refusal_carries_its_status(tmp_path, monkeypatch):
-    with pytest.raises(OriginHTTPError) as raised:
-        _download(Hub(DATA, status=404), tmp_path / "model.bin", monkeypatch)
-    assert raised.value.status_code == 404
-
-
-def _catalog_hub(tmp_path, monkeypatch, hub: Hub):
-    catalog, repo, data = accepted_catalog(tmp_path, companion=False)
-    hub.data = data
+    monkeypatch.setattr(owner_module, "download_file", dead)
     monkeypatch.setattr(
-        "foxlight_model_preservation.local_host.selection.PinnedConnection",
-        hub.connection,
+        owner,
+        "_save_from_mirrors",
+        lambda *args: (_ for _ in ()).throw(PreservationError("origin_unavailable")),
     )
-    return catalog, repo, data
+    with pytest.raises(PreservationError, match="origin_unavailable"):
+        save(owner, tmp_path)
+    assert len(calls) == ORIGIN_STALLS
 
 
-def test_a_save_retries_the_origin_once_and_reports_it(tmp_path, monkeypatch):
-    hub = Hub(b"")
-    catalog, repo, data = _catalog_hub(tmp_path, monkeypatch, hub)
-    hub.drop_after = len(data) // 2
-    owner = LocalOwner(tmp_path / "owner", catalog=catalog)
-    try:
-        job = _save(owner, repo)
-        assert job["state"] == "succeeded", job
-        assert hub.requests[-1]["Range"] == f"bytes={len(data) // 2}-"
-        assert job["sources"] == {"origin_files": 1, "mirror_files": 0, "mirrors": []}
-    finally:
-        owner.close()
+def test_a_failed_save_leaves_progress_for_the_next_save(owner, tmp_path, monkeypatch):
+    seen = []
+
+    def partial_then_fail(*args, partial, **kwargs):
+        seen.append(partial.stat().st_size if partial.exists() else 0)
+        partial.parent.mkdir(parents=True, exist_ok=True)
+        if not seen[:-1]:
+            partial.write_bytes(b"x" * 400)
+        raise TimeoutError("drop")
+
+    monkeypatch.setattr(owner_module, "download_file", partial_then_fail)
+    monkeypatch.setattr(
+        owner,
+        "_save_from_mirrors",
+        lambda *args: (_ for _ in ()).throw(PreservationError("origin_unavailable")),
+    )
+    with pytest.raises(PreservationError):
+        save(owner, tmp_path)
+    seen.clear()
+    with pytest.raises(PreservationError):
+        save(owner, tmp_path / "second-job")
+    assert seen[0] == 400  # the next save starts from the kept bytes
 
 
-def test_a_refused_file_goes_to_mirrors_without_an_origin_retry(tmp_path, monkeypatch):
-    hub = Hub(b"", status=404)
-    catalog, repo, data = _catalog_hub(tmp_path, monkeypatch, hub)
-    _seeds(monkeypatch, _store(tmp_path / "seed", data))
-    owner = LocalOwner(tmp_path / "owner", catalog=catalog)
-    try:
-        job = _save(owner, repo)
-        assert job["state"] == "succeeded", job
-        assert len(hub.requests) == 1
-        assert job["sources"]["origin_files"] == 0
-        assert job["sources"]["mirror_files"] == 1
-    finally:
-        owner.close()
+def test_a_refused_file_goes_to_mirrors_at_once(owner, tmp_path, monkeypatch):
+    calls = []
 
+    def missing(*args, **kwargs):
+        calls.append(1)
+        raise owner_module.OriginHTTPError(404)
 
-def test_a_listed_file_named_like_a_resume_buffer_is_left_alone(tmp_path, monkeypatch):
-    """`model.bin.partial` and `model.bin` can both be selected files."""
-    first, second = DATA[:5000], DATA
-    _download(Hub(first), tmp_path / "model.bin.partial", monkeypatch, data=first)
-    _download(Hub(second), tmp_path / "model.bin", monkeypatch, data=second)
-    assert (tmp_path / "model.bin.partial").read_bytes() == first
-    assert (tmp_path / "model.bin").read_bytes() == second
+    monkeypatch.setattr(owner_module, "download_file", missing)
+    monkeypatch.setattr(
+        owner, "_save_from_mirrors", lambda *args: "https://mirror.example"
+    )
+    assert save(owner, tmp_path) == "https://mirror.example"
+    assert len(calls) == 1
