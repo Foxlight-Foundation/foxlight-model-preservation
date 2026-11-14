@@ -247,6 +247,8 @@ class LocalOwner:
             # Per running save: bytes of finished files, and the resume buffer
             # of the file in progress (its size is what is kept so far).
             self._kept: dict[str, tuple[int, Path | None]] = {}
+            # Which step of finishing a downloaded save is running: (n, of, name).
+            self._finishing: dict[str, tuple[int, int, str]] = {}
             self._summaries: dict[str, dict[str, JsonValue]] = {}
             self._search_metadata: dict[str, str] = {}
             self._closed = False
@@ -696,6 +698,22 @@ class LocalOwner:
                         "bytes_reused": self._progress[item.job_id].bytes_reused
                         if item.job_id in self._progress
                         else 0,
+                        # Work after the download (checking, storing) reports
+                        # these per pass, so the screen never sits at 100%.
+                        "bytes_hashed": self._progress[item.job_id].bytes_hashed
+                        if item.job_id in self._progress
+                        else 0,
+                        "bytes_copied": self._progress[item.job_id].bytes_copied
+                        if item.job_id in self._progress
+                        else 0,
+                        "finishing": {
+                            "step": self._finishing[item.job_id][0],
+                            "steps": self._finishing[item.job_id][1],
+                            "name": self._finishing[item.job_id][2],
+                        }
+                        if item.job_id in self._finishing
+                        and item.state in {"queued", "running"}
+                        else None,
                         "bytes_total": self._job_total(item),
                         "bytes_done": self._job_done(item),
                         "temporary_sharing_files": item.kind == "publish"
@@ -1780,6 +1798,7 @@ class LocalOwner:
         with self._lock:
             self._controls.pop(job.job_id, None)
             self._progress.pop(job.job_id, None)
+            self._finishing.pop(job.job_id, None)
             self._update(job, **changes)
 
     def _run(
@@ -1979,6 +1998,7 @@ class LocalOwner:
         destination = self._data() / "copies" / job.job_id
         with directory(destination.parent, create=True):
             pass
+        self._finishing[job.job_id] = (1, 2, "store")
         conversion = import_preservation(
             original,
             record.manifest_id,
@@ -1988,6 +2008,7 @@ class LocalOwner:
             source_key_candidates=candidates,
             control=control.fork(),
         )
+        self._finishing[job.job_id] = (2, 2, "check")
         manifest = verify_archive(
             destination, conversion.output_identity, owner_trust, control=control.fork()
         )
@@ -2407,14 +2428,17 @@ class LocalOwner:
         trust = self._capture_trust()
         key = load_key(self.home / "capture-key.pem", None)
         legacy = work / "original"
+        self._finishing[job.job_id] = (1, 3, "sign")
         identity = pack(recipe, sources, legacy, (key,), control=control.fork())
         destination = self._data() / "copies" / job.job_id
         with directory(destination.parent, create=True):
             pass
+        self._finishing[job.job_id] = (2, 3, "store")
         conversion = import_preservation(
             legacy, identity, trust, destination, (key,), control=control.fork()
         )
         manifest_id = conversion.output_identity
+        self._finishing[job.job_id] = (3, 3, "check")
         manifest = verify_archive(
             destination, manifest_id, trust, control=control.fork()
         )

@@ -8,7 +8,7 @@ const WINDOW=60_000;
  *  `kept` is what is actually on disk (finished files plus the current file's
  *  buffer), so a restarted download never overshoots; transfer counters are
  *  only a fallback for older hosts. */
-export function DownloadProgress({received,reused=0,kept,total}:{received:number;reused?:number;kept?:number|null;total?:number|null}) {
+export function DownloadProgress({received,reused=0,kept,total,label='Download progress',noun}:{received:number;reused?:number;kept?:number|null;total?:number|null;label?:string;noun?:string}) {
   const done=kept??received+reused;
   const latest=useRef(done);latest.current=done;
   const samples=useRef<{at:number;done:number}[]>([]);
@@ -37,7 +37,7 @@ export function DownloadProgress({received,reused=0,kept,total}:{received:number
   const percent=Math.floor(shown/total*100);
   const left=rate?minutes((total-shown)/rate):null;
   return <div className="sk-download-progress">
-    <progress max={total} value={shown} aria-label="Download progress"/>
-    <p className="sk-meta">{bytes(shown)} of {bytes(total)} · {percent}%{left&&` · ${left}`}{rate&&` · ${bytes(rate)}/s`}</p>
+    <progress max={total} value={shown} aria-label={label}/>
+    <p className="sk-meta">{bytes(shown)} of {bytes(total)}{noun&&` ${noun}`} · {percent}%{left&&` · ${left}`}{rate&&` · ${bytes(rate)}/s`}</p>
   </div>;
 }
