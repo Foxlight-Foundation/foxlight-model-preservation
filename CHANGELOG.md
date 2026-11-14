@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Running saves report their reviewed total and the bytes kept from an earlier
+  attempt, so the Library can show how much is left.
+
 - Library: one **Settings** area gathers storage (where model copies are kept,
   backup folders), search sources and privacy (Hugging Face search and token,
   Pirate Face search, swarm downloads), a link to sharing settings and the
