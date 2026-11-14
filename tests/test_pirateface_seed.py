@@ -270,3 +270,61 @@ def test_a_check_never_vouches_for_a_torrent_that_replaced_it(
     assert current.infohash == "e" * 40
     assert not current.verified and current.error is None
     assert seeded(ledger.read(), [capture.identity]) == []
+
+
+def test_a_lookup_keeps_a_check_recorded_while_it_ran(
+    tmp_path, capture, monkeypatch
+) -> None:
+    from foxlight_model_preservation.pirateface_seed import record_seed
+
+    ledger, _ = mirror(tmp_path, capture)
+    cycle(ledger)
+    configure(ledger, pirate_face=True)
+    files = _weights(capture)
+    hashes = {name: _sha(data) for name, data in files.items()}
+    swarm = _swarm(*((name, len(data)) for name, data in files.items()))
+    _listing(monkeypatch, swarm, hashes)
+    first = refresh(ledger, capture.identity, "test/weights")
+
+    def lookup(repository, **_kwargs):
+        # A session finishes its check while this lookup is in flight.
+        record_seed(
+            ledger,
+            capture.identity,
+            checked=(first.infohash, first.objects),
+            verified=True,
+            sessions=1,
+        )
+        return _entry(swarm, hashes)
+
+    monkeypatch.setattr("foxlight_model_preservation.pirateface_seed.lookup", lookup)
+    record = refresh(ledger, capture.identity, "test/weights")
+    assert record.verified and record.sessions == 1
+    assert ledger.read().pirate_face[capture.identity] == record
+
+
+def test_lookups_are_charged_to_the_download_allowance(
+    tmp_path, capture, monkeypatch
+) -> None:
+    ledger, _ = mirror(tmp_path, capture)
+    cycle(ledger)
+    configure(ledger, pirate_face=True)
+    files = _weights(capture)
+    swarm = _swarm(*((name, len(data)) for name, data in files.items()))
+    _listing(monkeypatch, swarm, {})
+    # The listing was charged; the torrent file's bound no longer fits.
+    record = refresh(ledger, capture.identity, "test/weights", reserve=lambda _n: False)
+    assert record.lookup_error == "pirate_face_download_limit"
+    assert record.infohash is None
+    # With the day's allowance spent, the mirror looks nothing up.
+    ledger.update(
+        lambda state: state.model_copy(update={"pirate_face": {}, "ingress_daily": 1})
+    )
+    calls = _listing(monkeypatch, swarm, {})
+    manager = NativeMirrors(MirrorLedger(ledger.path), lambda _state: True)
+    try:
+        manager.tick()
+        time.sleep(0.2)
+    finally:
+        manager.close()
+    assert calls == [] and ledger.read().pirate_face == {}

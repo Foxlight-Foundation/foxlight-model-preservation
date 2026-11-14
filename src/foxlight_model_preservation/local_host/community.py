@@ -154,6 +154,11 @@ __all__ = [
 ]
 
 
+# Daily download allowance for Pirate Face lookups (listings and torrent
+# files are charged at their size bounds, 4 and 16 MiB).
+PIRATE_FACE_INGRESS = 1024**3
+
+
 class CommunityPolicy(Record):
     """The owner's one standing choice; changing it never deletes retained bytes.
 
@@ -917,6 +922,9 @@ class CommunityMirror:
         if current == wanted or (native is None and not wanted):
             return False
         configure_native(ledger, pirate_face=wanted, max_active=4)
+        # The pool otherwise downloads nothing; lookups need a small allowance.
+        ingress = PIRATE_FACE_INGRESS if wanted else 1
+        ledger.update(lambda state: state.model_copy(update={"ingress_daily": ingress}))
         return True
 
     def pirate_face_status(self, state: MirrorState) -> dict[str, JsonValue]:

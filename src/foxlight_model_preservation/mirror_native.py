@@ -553,6 +553,12 @@ class NativeMirrors:
             if repository is None:
                 continue
             self._lookup_at = time.monotonic()
+            # Lookups download (a listing, then maybe a torrent file): both
+            # are charged to the daily download allowance, or wait for it.
+            from .pirateface_find import MAX_ENTRY_BYTES
+
+            if not self.ledger.reserve(MAX_ENTRY_BYTES, ingress=True):
+                return
             self._lookup = threading.Thread(
                 target=self._refresh,
                 args=(manifest, repository),
@@ -566,7 +572,13 @@ class NativeMirrors:
         from .pirateface_seed import refresh
 
         try:
-            refresh(self.ledger, manifest, repository, source=self.pirate_face_source)
+            refresh(
+                self.ledger,
+                manifest,
+                repository,
+                source=self.pirate_face_source,
+                reserve=lambda count: self.ledger.reserve(count, ingress=True),
+            )
         except (ValueError, OSError) as failure:
             self.failures.append(failure)
 

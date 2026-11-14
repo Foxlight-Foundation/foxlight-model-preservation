@@ -285,11 +285,14 @@ def refresh(
     *,
     source: str | None = None,
     policy: TransferPolicy | None = None,
+    reserve: Callable[[int], bool] | None = None,
 ) -> PirateFaceSeed:
     """Ask Pirate Face for one held copy's torrent and record what matches.
 
     Nothing is seeded here. A failed lookup or a delisting keeps whatever was
-    already verified; a different listed torrent replaces it.
+    already verified; a different listed torrent replaces it. ``reserve``
+    charges the torrent file's bound to the mirror's download allowance
+    before it is fetched (the caller charged the listing's).
     """
     now = int(time.time())
     previous = ledger.read().pirate_face.get(manifest)
@@ -307,6 +310,8 @@ def refresh(
                 else PirateFaceSeed(repository=repository, checked_at=now)
             )
         else:
+            if reserve is not None and not reserve(MAX_TORRENT_BYTES):
+                raise PreservationError("pirate_face_download_limit")
             swarm = torrent(entry, source=source, policy=policy)
             document = held_manifest(ledger.path / "store", manifest)
             if document is None:
@@ -343,15 +348,37 @@ def refresh(
             previous or PirateFaceSeed(repository=repository, checked_at=now)
         ).model_copy(update={"checked_at": now, "lookup_error": str(error)[:400]})
 
+    stored = record
+
     def apply(state: MirrorState) -> MirrorState:
+        nonlocal stored
         if manifest not in state.models:
             return state
+        current = state.pirate_face.get(manifest)
+        stored = record
+        if (
+            current is not None
+            and current.repository == record.repository
+            and (current.infohash, current.objects) == (record.infohash, record.objects)
+        ):
+            # The same torrent: keep what a session recorded meanwhile (its
+            # check, a refusal, its counts); only the lookup itself is new.
+            stored = current.model_copy(
+                update={
+                    "checked_at": record.checked_at,
+                    "listed": record.listed,
+                    "lookup_error": record.lookup_error,
+                    "error": current.error
+                    if current.error == "pirate_face_copy_differs"
+                    else record.error,
+                }
+            )
         return state.model_copy(
-            update={"pirate_face": {**state.pirate_face, manifest: record}}
+            update={"pirate_face": {**state.pirate_face, manifest: stored}}
         )
 
     ledger.update(apply)
-    return record
+    return stored
 
 
 def seedable(state: MirrorState, manifest: str) -> bool:
