@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Pin Sovereign Mac build 18 and Linux revision 13 to the authenticated
+  Library 0.31.0 installation archive (sha256 e31793dc…, source 37423b8a; its
+  desktop lock carries core 0.35.0 and libtorrent 2.0.14). Native signing,
+  notarization, apt publication and qualification remain separate gates.
+
 ## 0.35.0
 
 - Running saves report each stage (download, then checking and signing,
