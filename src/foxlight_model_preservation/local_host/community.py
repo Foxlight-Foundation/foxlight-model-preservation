@@ -624,6 +624,25 @@ class CommunityMirror:
             )
         )
 
+    def forget(self, copy_id: str) -> None:
+        """Drop a removed copy from the sharing choices and its joined record.
+
+        Its public identity stops being served at the next sync unless another
+        saved copy still provides it; the pool itself is never edited here.
+        """
+        self.choose(copy_id, chosen=False, withheld=False)
+        joined = self.joined()
+        if copy_id in joined.copies:
+            remaining = {
+                key: value for key, value in joined.copies.items() if key != copy_id
+            }
+            with directory(self.path, create=True) as root:
+                atomic_bytes(
+                    root,
+                    "joined.json",
+                    encode_record(joined.model_copy(update={"copies": remaining})),
+                )
+
     # Eligibility -------------------------------------------------------------
 
     def candidate(self, copy: Holding) -> dict[str, JsonValue]:

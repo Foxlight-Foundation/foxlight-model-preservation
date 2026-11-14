@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Finished Activity entries can be removed (one at a time, or every finished
+  entry at once); running work is never touched, saved copies, restored
+  folders and backups are kept, and an exported kit file or a failed save's
+  working files go with their entry. Removed requests still can't be replayed.
+  A saved copy can be removed from the Library after an explicit
+  confirmation, unless a running job uses it; it stops being shared unless
+  another copy provides the same model.
+
 - Install docs point at the public 0.34 cohort: core 0.34.0, Library 0.30.0,
   Mac build 16, Linux revision 11 (guided setup 0.1.9, graphical setup 0.1.11)
   and `sovereign-mirror:0.34.0`.

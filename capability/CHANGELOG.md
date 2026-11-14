@@ -6,6 +6,10 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Activity: **Remove from Activity** on finished entries and **Clear finished**
+  (confirmed with a second click). Library: **Remove from Library** with a
+  confirmation that explains what is kept.
+
 - Install docs point at the public 0.34 cohort: core 0.34.0, Library 0.30.0,
   Mac build 16, Linux revision 11 (guided setup 0.1.9, graphical setup 0.1.11)
   and `sovereign-mirror:0.34.0`.
