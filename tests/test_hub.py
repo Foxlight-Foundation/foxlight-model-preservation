@@ -513,7 +513,15 @@ def test_a_hub_save_names_each_finishing_step_after_the_download(
 
         def call(*args, **kwargs):
             running = [job for job in owner.read()["jobs"] if job["state"] == "running"]
-            seen.append(running[0]["finishing"] if running else None)
+            stages = running[0]["stages"] if running else None
+            seen.append(
+                [(stage["name"], stage["state"]) for stage in stages]
+                if stages
+                else None
+            )
+            active = [stage for stage in stages or [] if stage["state"] == "active"]
+            # Each stage's own work starts at zero, against a known total.
+            assert active and active[0]["done"] == 0 and active[0]["total"] > 0
             return original(*args, **kwargs)
 
         monkeypatch.setattr(owner_module, name, call)
@@ -545,11 +553,15 @@ def test_a_hub_save_names_each_finishing_step_after_the_download(
             ),
         )
         assert job["state"] == "succeeded", job
-        assert job["finishing"] is None
+        assert job["stages"] is None
     finally:
         owner.close()
-    assert seen == [
-        {"step": 1, "steps": 3, "name": "sign"},
-        {"step": 2, "steps": 3, "name": "store"},
-        {"step": 3, "steps": 3, "name": "check"},
-    ]
+    order = ("download", "sign", "store", "check")
+
+    def at(active: int) -> list[tuple[str, str]]:
+        return [
+            (name, "done" if i < active else "active" if i == active else "waiting")
+            for i, name in enumerate(order)
+        ]
+
+    assert seen == [at(1), at(2), at(3)]
