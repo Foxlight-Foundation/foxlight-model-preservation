@@ -214,6 +214,13 @@ class Library:
         chosen = parent / chosen.name
         if chosen == self.home or self.home in chosen.parents:
             raise PreservationError("library_folder_inside_sovereign")
+        settings = self.settings()
+        for location in (settings.current, *settings.previous):
+            known = Path(location.path) if location is not None else None
+            # Inside an existing library (e.g. within a saved copy), a move
+            # would copy into itself.
+            if known is not None and known != chosen and known in chosen.parents:
+                raise PreservationError("library_folder_inside_sovereign")
         owner = self.owner_id()
         reattach = False
         try:
@@ -365,6 +372,10 @@ def move_tree(
     """
     if not shutil.rmtree.avoids_symlink_attacks:
         raise PreservationError("safe_temporary_cleanup_unavailable")
+    real_source = source.resolve()
+    real_staging = staging.parent.resolve() / staging.name
+    if real_staging == real_source or real_source in real_staging.parents:
+        raise PreservationError("library_folder_inside_sovereign")
     if os.path.lexists(staging):
         shutil.rmtree(staging)
     os.mkdir(staging, mode=0o700)

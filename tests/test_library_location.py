@@ -476,3 +476,23 @@ def test_an_unreadable_source_folder_stops_the_move(tmp_path, monkeypatch):
     monkeypatch.setattr(os, "scandir", flaky)
     with pytest.raises(OSError):
         move_tree(source, tmp_path / "moved", {}, OperationControl(), lambda _: None)
+
+
+def test_a_new_library_inside_an_existing_one_is_refused(tmp_path):
+    home = tmp_path / "home"
+    home.mkdir(mode=0o700)
+    library = Library(home)
+    drive = tmp_path / "drive" / "Library"
+    drive.parent.mkdir()
+    choose(library, drive)
+    (drive / "copies/abc").mkdir(parents=True)
+    with pytest.raises(PreservationError, match="library_folder_inside_sovereign"):
+        library.review(str(drive / "copies/abc/New Library"))
+    with pytest.raises(PreservationError, match="library_folder_inside_sovereign"):
+        move_tree(
+            drive / "copies",
+            drive / "copies/abc/.moving-x",
+            {},
+            OperationControl(),
+            lambda _: None,
+        )
