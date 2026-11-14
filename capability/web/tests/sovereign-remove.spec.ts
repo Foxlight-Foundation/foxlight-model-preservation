@@ -60,3 +60,35 @@ test('progress counts what is kept, not every byte ever received',async({page})=
   await page.getByRole('button',{name:'Activity',exact:true}).click();
   await expect(page.locator('.sk-job',{hasText:'big-model'}).getByText(/of 27\.9 GB · 20%/)).toBeVisible();
 });
+
+test('after the download a save names each finishing step, with its own progress',async({page},info)=>{
+  // The case that looked stuck: downloaded, then hashing every file for the signed copy.
+  const base={...working,bytes_received:0,bytes_done:30_000_000_000,bytes_total:30_000_000_000,bytes_copied:0};
+  const state={copies:[] as unknown[],jobs:[{...base,stage:'inventory',bytes_hashed:12_000_000_000,finishing:{step:1,steps:3,name:'sign'}}] as unknown[]};
+  await common(page,state);
+  await page.goto('/');
+  await page.getByRole('button',{name:'Activity',exact:true}).click();
+  const tile=page.locator('.sk-job',{hasText:'big-model'});
+  await expect(tile.getByText('Step 1 of 3: Checking and signing the downloaded files…')).toBeVisible();
+  await expect(tile.getByText('Finding the files included in this copy…')).toHaveCount(0);
+  await expect(tile.getByText(/You can leave this running\./)).toBeVisible();
+  await expect(tile.getByRole('progressbar',{name:'Download progress'})).toHaveCount(0);
+  await expect(tile.getByRole('progressbar',{name:'Checking progress'})).toBeVisible();
+  await expect(tile.getByText(/11\.2 GB of 27\.9 GB checked · 40%/)).toBeVisible();
+  await page.screenshot({path:info.outputPath('save-finishing.png')});
+  state.jobs=[{...base,stage:'copying',bytes_hashed:0,bytes_copied:3_000_000_000,finishing:{step:2,steps:3,name:'store'}}];
+  await expect(tile.getByText('Step 2 of 3: Storing the copy in your Library…')).toBeVisible({timeout:10_000});
+  await expect(tile.getByRole('progressbar',{name:'Writing progress'})).toBeVisible();
+  await expect(tile.getByText(/of 27\.9 GB written/)).toBeVisible();
+  state.jobs=[{...base,stage:'complete',bytes_hashed:0,finishing:{step:3,steps:3,name:'check'}}];
+  await expect(tile.getByText('Step 3 of 3: Checking the stored copy…')).toBeVisible({timeout:10_000});
+});
+
+test('an older host without finishing steps still never shows a frozen download bar',async({page})=>{
+  await common(page,{copies:[],jobs:[{...working,stage:'checking',bytes_done:30_000_000_000,bytes_total:30_000_000_000,bytes_hashed:6_000_000_000}]});
+  await page.goto('/');
+  await page.getByRole('button',{name:'Activity',exact:true}).click();
+  const tile=page.locator('.sk-job',{hasText:'big-model'});
+  await expect(tile.getByText('Checking the files and signatures…')).toBeVisible();
+  await expect(tile.getByRole('progressbar',{name:'Checking progress'})).toBeVisible();
+});

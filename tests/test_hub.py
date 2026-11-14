@@ -499,3 +499,57 @@ def test_a_legacy_listing_saves_the_projector_it_names(
         assert sorted(plan["files"]) == ["m-Q4_K_M.gguf", "mmproj-F32.gguf"]
     finally:
         owner.close()
+
+
+def test_a_hub_save_names_each_finishing_step_after_the_download(
+    tmp_path: Path, fake_hub: FakeHub, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _serve_origin(monkeypatch, fake_hub)
+    owner = LocalOwner(tmp_path / "owner")
+    seen: list[object] = []
+
+    def watched(name: str):
+        original = getattr(owner_module, name)
+
+        def call(*args, **kwargs):
+            running = [job for job in owner.read()["jobs"] if job["state"] == "running"]
+            seen.append(running[0]["finishing"] if running else None)
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(owner_module, name, call)
+
+    for name in ("pack", "import_preservation", "verify_archive"):
+        watched(name)
+    try:
+        owner.control("hub-consent", {"enabled": True})
+        review = owner.control("hub-review", {"repository": REPO})
+        plan = owner.control(
+            "plan",
+            {
+                "kind": "receive",
+                "origin": "hub",
+                "repository": REPO,
+                "revision": review["revision"],
+                "files": review["default_files"],
+            },
+        )
+        job = _finish(
+            owner,
+            owner.control(
+                "start",
+                {
+                    "plan_id": plan["plan_id"],
+                    "operation_id": str(uuid.uuid4()),
+                    "confirmed": True,
+                },
+            ),
+        )
+        assert job["state"] == "succeeded", job
+        assert job["finishing"] is None
+    finally:
+        owner.close()
+    assert seen == [
+        {"step": 1, "steps": 3, "name": "sign"},
+        {"step": 2, "steps": 3, "name": "store"},
+        {"step": 3, "steps": 3, "name": "check"},
+    ]
