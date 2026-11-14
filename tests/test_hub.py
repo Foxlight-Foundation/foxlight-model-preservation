@@ -565,3 +565,30 @@ def test_a_hub_save_names_each_finishing_step_after_the_download(
         ]
 
     assert seen == [at(1), at(2), at(3)]
+
+
+def test_a_download_without_kept_bytes_counts_what_arrived(tmp_path: Path) -> None:
+    from foxlight_model_preservation.local_host.owner import Job
+    from foxlight_model_preservation.operations import OperationControl
+
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        job = Job(
+            job_id="a" * 64,
+            operation_id="op",
+            plan_id="b" * 64,
+            kind="source_receive",
+            state="running",
+            created_at=0.0,
+            name="catalog model",
+        )
+        owner._progress[job.job_id] = OperationControl().progress.model_copy(
+            update={"bytes_received": 5_000, "bytes_reused": 1_000}
+        )
+        stages = owner._stages_view(job)
+        assert isinstance(stages, list)
+        assert [stage["name"] for stage in stages] == ["download", "store", "check"]
+        assert stages[0]["state"] == "active" and stages[0]["done"] == 6_000
+        assert all(stage["state"] == "waiting" for stage in stages[1:])
+    finally:
+        owner.close()
