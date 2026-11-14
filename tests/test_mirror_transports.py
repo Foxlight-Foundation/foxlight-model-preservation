@@ -245,3 +245,21 @@ def test_cli_http_transport_requires_one_deliberate_choice(tmp_path):
     receipt = json.loads(result.stdout)
     assert not receipt["http_enabled"] and not receipt["network_started"]
     assert receipt["restart_grant_invalidated"] and not ledger.running()
+
+
+def test_pirate_face_seeding_alone_is_a_serving_transport(
+    tmp_path, capture, monkeypatch
+):
+    monkeypatch.setattr(
+        "foxlight_model_preservation.mirror_native.torrent_engine", lambda: None
+    )
+    ledger = local_mirror(tmp_path)
+    retain_local(ledger, capture.store, capture.identity, local_grant(capture))
+    configure_http(ledger, enabled=False)
+    configure(ledger, pirate_face=True)
+    stopped = OperationControl()
+    stopped.cancel()
+    try:
+        run_mirror(ledger, public=True, seconds=1, control=stopped)
+    except PreservationError as error:
+        assert "at least one" not in str(error)

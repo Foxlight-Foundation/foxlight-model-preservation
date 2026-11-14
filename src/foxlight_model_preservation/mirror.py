@@ -46,6 +46,7 @@ from .mirror_state import (
 )
 from .models import PreservationError
 from .operations import OperationCancelled, OperationControl, failure_code
+from .pirateface_seed import TORRENTS_PATH
 from .seed import SeedHandler, SeedServer
 from .signing import (
     canonical_bytes,
@@ -1298,6 +1299,7 @@ class MirrorServer(SeedServer):
             "/" + PEERS_PATH: ledger.path / "peers.json",
             "/" + OBJECTS_PATH: ledger.path / "objects.json",
             "/" + HOLDINGS_PATH: ledger.path / "holdings.json",
+            "/" + TORRENTS_PATH: ledger.path / "torrents.json",
         }
         self.allowed = {}
         self.owners: dict[str, set[str]] = {}
@@ -1473,7 +1475,11 @@ def run_mirror(
         state = ledger.read()
         if not state.http_enabled and not (
             state.native_policy
-            and (state.native_policy.ipfs_binary or state.native_policy.torrent)
+            and (
+                state.native_policy.ipfs_binary
+                or state.native_policy.torrent
+                or state.native_policy.pirate_face
+            )
         ):
             raise PreservationError("select at least one mirror serving transport")
         if state.sources and not reached(

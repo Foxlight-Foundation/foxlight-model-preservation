@@ -18,6 +18,7 @@ StateVersion = Literal[
     "foxlight.mirror-state.v4",
     "foxlight.mirror-state.v5",
     "foxlight.mirror-state.v6",
+    "foxlight.mirror-state.v7",
 ]
 _VERSIONS: tuple[StateVersion, ...] = get_args(StateVersion)
 
@@ -67,6 +68,30 @@ class NativePolicy(Record):
     session_seconds: int = Field(default=3600, ge=1, le=86400)
     session_bytes: int = Field(default=64 * 1024**2, ge=1, le=2**53 - 1)
     upload_rate: int = Field(default=1024**2, ge=1024, le=100 * 1024**2)
+    # Also seed the matching Pirate Face torrent of each held copy (v7).
+    pirate_face: bool = False
+
+
+class PirateFaceSeed(Record):
+    """What one held copy's Pirate Face lookup found; claims until pieces check.
+
+    ``objects`` maps every file of the listed torrent onto a held object (by
+    the SHA-256 Pirate Face recorded, or the same path and size). ``verified``
+    is set only after libtorrent checked every piece against those bytes. A
+    failed lookup or a delisting keeps a verified torrent seeding.
+    """
+
+    repository: str = Field(min_length=3, max_length=200)
+    checked_at: int = Field(ge=0)
+    listed: bool = False
+    infohash: str | None = Field(default=None, pattern=r"^[0-9a-f]{40}$")
+    objects: tuple[Digest, ...] = Field(default=(), max_length=100_000)
+    verified: bool = False
+    lookup_error: str | None = Field(default=None, max_length=400)
+    error: str | None = Field(default=None, max_length=400)
+    last_started: int | None = None
+    last_stopped: int | None = None
+    sessions: int = Field(default=0, ge=0)
 
 
 class NativeModel(Record):
@@ -294,6 +319,10 @@ class MirrorState(Record):
     native_models: dict[Digest, NativeModel] = Field(
         default_factory=dict, max_length=1000
     )
+    # Pirate Face lookups and seeding, by held model (v7).
+    pirate_face: dict[Digest, PirateFaceSeed] = Field(
+        default_factory=dict, max_length=1000
+    )
     announce: AnnouncePolicy | None = None
     intake: IntakePolicy | None = None
     follow_withdrawals: bool = Field(
@@ -336,6 +365,12 @@ class MirrorState(Record):
             raise PreservationError(
                 "uncapped uploads or a standing intake policy require state v6"
             )
+        if needs_v7(self) and not reached(
+            self.schema_version, "foxlight.mirror-state.v7"
+        ):
+            raise PreservationError("Pirate Face seeding requires state v7")
+        if self.pirate_face and self.native_policy is None:
+            raise PreservationError("Pirate Face seeding requires its native policy")
         return self
 
 
@@ -348,18 +383,34 @@ def needs_v6(state: MirrorState) -> bool:
     )
 
 
+def needs_v7(state: MirrorState) -> bool:
+    """Whether a state uses Pirate Face seeding, which only v7 can express."""
+    return bool(
+        state.pirate_face
+        or (state.native_policy is not None and state.native_policy.pirate_face)
+    )
+
+
 def withheld(state: MirrorState, identity: str) -> bool:
     """Whether the standing intake policy keeps this exact identity back."""
     return state.intake is not None and identity in state.intake.withheld
 
 
 def upgrade_profile(state: MirrorState) -> MirrorState:
-    """Raise the profile to v6 when needed, so older readers refuse the file.
+    """Raise the profile to v6 or v7 when needed, so older readers refuse it.
 
-    Older releases accept only v1 to v5 and reject unknown fields, so they
-    refuse a v6 ledger outright instead of misreading "no cap" or ignoring a
-    standing intake policy.
+    Older releases accept only the versions they know and reject unknown
+    fields, so they refuse a newer ledger outright instead of misreading "no
+    cap", ignoring a standing intake policy or seeding without the choice.
     """
+    if needs_v7(state):
+        return state.model_copy(
+            update={
+                "schema_version": at_least(
+                    state.schema_version, "foxlight.mirror-state.v7"
+                )
+            }
+        )
     if needs_v6(state):
         return state.model_copy(
             update={

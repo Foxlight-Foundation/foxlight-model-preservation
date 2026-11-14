@@ -67,6 +67,10 @@ def encode_state(state: MirrorState) -> bytes:
     if state.native_policy is None and not state.native_models:
         value.pop("native_policy")
         value.pop("native_models")
+    elif state.native_policy is not None and not state.native_policy.pirate_face:
+        value["native_policy"].pop("pirate_face")
+    if not state.pirate_face:
+        value.pop("pirate_face")
     from .signing import canonical_bytes
 
     return canonical_bytes(value)
@@ -526,6 +530,8 @@ def policy_id(state: MirrorState) -> str:
                     "last_cycle": None,
                     "last_error": None,
                     "native_models": {},
+                    # Pirate Face lookups and checks are receipts, not policy.
+                    "pirate_face": {},
                 }
             )
         )

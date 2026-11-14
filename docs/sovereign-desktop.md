@@ -598,6 +598,35 @@ rescue this** appears on a reviewed model Pirate Face doesn't list and sends
 only the model's name, only when clicked. Seed counts are Pirate Face's own
 observations and never rank or hide anything.
 
+### Mirrors seeding on Pirate Face
+
+**Help keep models available** has a separate, off-by-default choice: **Also
+seed on Pirate Face**. With it on, the mirror looks up each shared model's
+origin repository on Pirate Face (one lookup at a time, at most one every 30
+seconds; daily for a listed model, weekly otherwise, hourly after a failure).
+When every file of the listed torrent is held, by the SHA-256 Pirate Face
+recorded for it, or else the one held file at the same path and size, the
+torrent's files are mapped onto the mirror's stored objects: no second copy is
+written. libtorrent checks every piece against those bytes before the first
+upload; a copy whose pieces differ is never seeded and is not checked again
+until Pirate Face lists a different torrent. The torrent stays in upload mode,
+so nothing is downloaded and stored files are only read.
+
+Seeding uses the mirror's existing session slots, serving hours, upload rate
+and daily/monthly limits. If Pirate Face's site is unreachable, or stops
+listing the model, a torrent that already passed its check keeps seeding.
+Turning the choice on or off restarts serving briefly. Peers in the public
+swarm see this computer's address.
+
+Mirrors list the torrents they seed, after the check, at
+`/.well-known/sovereign/torrents.json` (`sovereign.mirror-torrents.v1`,
+signed by the mirror card's key: manifest, v1 infohash, source). It is separate
+from holdings, which earlier releases read with strict fields. The standalone
+mirror chooses this with `model-preserve mirror transports --pirate-face`;
+using it raises the mirror ledger to v7, which earlier releases refuse. Ledgers
+without it encode exactly as before, and lookup results never change the
+restart identity.
+
 The command-line `model-preserve pirateface` adapter ([PirateFace
 interoperability](pirateface.md)) is separate and unchanged.
 

@@ -16,6 +16,9 @@ accounts. Internal strategy, plans and operations belong in private foxlight-doc
   Pirate Face swarm against the hashes Pirate Face recorded (foxlight-docs#714).
 - Pirate Face search, swarm downloads and rescue requests are separate explicit
   choices; a swarm receive never uploads and nothing seeds after the save.
+- A mirror seeds Pirate Face torrents only under its own explicit, off-by-default
+  choice, from stored objects after a full piece check, in upload mode, within
+  the mirror's existing limits. Lookup receipts never change restart identity.
 - Keep consumers receive-only. Serving and public intake are explicit choices.
 - Publish complete generations only after all required bytes pass verification.
 - Public functions/classes require useful docstrings and precise types.

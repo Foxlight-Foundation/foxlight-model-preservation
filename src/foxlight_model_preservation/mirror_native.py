@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import os
 import secrets
@@ -40,6 +41,12 @@ from .signing import digest, encode_record
 from .storage import atomic_bytes, directory, manifest_path, read_metadata
 from .torrent import TorrentSeeder, TorrentSeedPolicy, export_torrent
 from .torrent_binding import torrent_engine
+
+# Pirate Face lookups run one at a time, at most one every this many seconds.
+LOOKUP_SPACING = 30.0
+LOOKUP_JOIN_SECONDS = 70.0
+# A lookup that has not finished by then has no further effect.
+LOOKUP_DEADLINE_SECONDS = 120.0
 
 _custody_lock = threading.RLock()
 _publication_lock = threading.Lock()
@@ -103,8 +110,12 @@ def configure(
     session_seconds: int = 3600,
     session_bytes: int = 64 * 1024**2,
     upload_rate: int = 1024**2,
+    pirate_face: bool = False,
 ) -> MirrorState:
     """Enroll native public transports offline; invalidate standing restart consent.
+
+    ``pirate_face`` also seeds each held copy's matching Pirate Face torrent
+    from the stored objects, after looking it up on Pirate Face.
 
     The operator supplies an authenticated Kubo executable and its expected hash.
     No software is downloaded, daemon started, source trusted or model deleted.
@@ -121,6 +132,7 @@ def configure(
         session_seconds=session_seconds,
         session_bytes=session_bytes,
         upload_rate=upload_rate,
+        pirate_face=pirate_face,
     )
     if ipfs_binary:
         ipfs_binary = str(Path(ipfs_binary).resolve(strict=True))
@@ -131,7 +143,7 @@ def configure(
         raise PreservationError(
             "IPFS options require an explicitly selected executable"
         )
-    if torrent:
+    if torrent or pirate_face:
         torrent_engine()
     contacts = tuple(bootstrap_address(x, allow_private_peers) for x in bootstrap)
     with ledger.service_lock(), ledger.child("scratch") as scratch:
@@ -469,10 +481,19 @@ class NativeMirrors:
         authorized: Callable[[MirrorState], bool],
         *,
         peer_runner: PeerSessionRunner | None = None,
+        pirate_face_source: str | None = None,
+        pirate_face_settings: dict[str, str | int | bool] | None = None,
     ):
         self.ledger = ledger
         self.authorized = authorized
         self.peer_runner = peer_runner
+        # Tests point lookups at a local Pirate Face and keep peers on loopback.
+        self.pirate_face_source = pirate_face_source
+        self.pirate_face_settings = pirate_face_settings
+        self._lookup: threading.Thread | None = None
+        self._closed = threading.Event()
+        self._lookup_at = float("-inf")
+        self._origins: dict[str, str | None] = {}
         self.sessions: dict[tuple[str, str], _Session] = {}
         self.failures: list[Exception] = []
         self._usage_at = float("-inf")
@@ -495,6 +516,90 @@ class NativeMirrors:
             and not (native and native.error)
         )
 
+    def _permitted(self, state: MirrorState, key: tuple[str, str]) -> bool:
+        manifest, kind = key
+        if not self._allowed(state, manifest):
+            return False
+        if kind != "pirateface":
+            return True
+        from .pirateface_seed import seedable
+
+        return seedable(state, manifest)
+
+    def _look_up(self, state: MirrorState) -> None:
+        """Start one paced Pirate Face lookup for a held copy that is due."""
+        if self._lookup is not None:
+            if self._lookup.is_alive():
+                return
+            self._lookup.join()
+            self._lookup = None
+        if time.monotonic() - self._lookup_at < LOOKUP_SPACING:
+            return
+        from .pirateface_seed import due, origin
+
+        now = int(time.time())
+        records = state.pirate_face
+        for manifest in sorted(
+            state.models,
+            key=lambda item: (
+                records[item].checked_at if item in records else 0,
+                item,
+            ),
+        ):
+            if not self._allowed(state, manifest) or not due(
+                records.get(manifest), now
+            ):
+                continue
+            if manifest not in self._origins:
+                self._origins[manifest] = origin(self.ledger, manifest)
+            repository = self._origins[manifest]
+            if repository is None:
+                continue
+            self._lookup_at = time.monotonic()
+            # Lookups download (a listing, then maybe a torrent file): both
+            # are charged to the daily download allowance, or wait for it.
+            from .pirateface_find import MAX_ENTRY_BYTES
+
+            if not self.ledger.reserve(
+                MAX_ENTRY_BYTES,
+                ingress=True,
+                authorized=lambda _state: not self._closed.is_set(),
+            ):
+                return
+            self._lookup = threading.Thread(
+                target=self._refresh,
+                args=(manifest, repository),
+                name="mirror-pirate-face-lookup",
+                daemon=True,
+            )
+            self._lookup.start()
+            return
+
+    def _refresh(self, manifest: str, repository: str) -> None:
+        from .pirateface_seed import refresh
+
+        started = time.monotonic()
+
+        def stopped() -> bool:
+            return (
+                self._closed.is_set()
+                or time.monotonic() - started > LOOKUP_DEADLINE_SECONDS
+            )
+
+        try:
+            refresh(
+                self.ledger,
+                manifest,
+                repository,
+                source=self.pirate_face_source,
+                reserve=lambda count: self.ledger.reserve(
+                    count, ingress=True, authorized=lambda _state: not stopped()
+                ),
+                stopped=stopped,
+            )
+        except (ValueError, OSError) as failure:
+            self.failures.append(failure)
+
     def tick(self) -> None:
         """Stop revoked sessions, then reserve finite native work before effects."""
         if self.failures:
@@ -510,16 +615,25 @@ class NativeMirrors:
             self._usage_at = time.monotonic()
         at_capacity = self._at_capacity
         for key, session in list(self.sessions.items()):
-            if at_capacity or not self._allowed(state, key[0]):
+            if at_capacity or not self._permitted(state, key):
                 session.control.cancel()
             if not session.thread.is_alive():
                 session.thread.join()
                 del self.sessions[key]
         if at_capacity:
             return
+        if policy.pirate_face:
+            self._look_up(state)
 
         def priority(pair: tuple[str, str]) -> tuple[int, int, str]:
             manifest, kind = pair
+            if kind == "pirateface":
+                seeded = state.pirate_face.get(manifest)
+                return (
+                    seeded.sessions if seeded else 0,
+                    (seeded.last_stopped or 0) if seeded else 0,
+                    digest((state.salt + manifest + kind).encode()),
+                )
             record = state.native_models.get(manifest)
             return (
                 record.session_counts.get("ipfs" if kind == "ipfs" else "torrent", 0)
@@ -535,11 +649,12 @@ class NativeMirrors:
             for kind, enabled in (
                 ("ipfs", bool(policy.ipfs_binary)),
                 ("torrent", policy.torrent),
+                ("pirateface", policy.pirate_face),
             )
             if enabled
         ]
         for manifest, kind in sorted(candidates, key=priority):
-            if not self._allowed(state, manifest):
+            if not self._permitted(state, (manifest, kind)):
                 continue
             key = manifest, kind
             if key in self.sessions or len(self.sessions) >= policy.max_active:
@@ -548,8 +663,8 @@ class NativeMirrors:
             # whole allowance is spent before startup, never refunded/reset.
             if not self.ledger.reserve(
                 policy.session_bytes,
-                authorized=lambda current, identity=manifest: self._allowed(
-                    current, identity
+                authorized=lambda current, pair=(manifest, kind): self._permitted(
+                    current, pair
                 ),
             ):
                 continue
@@ -566,6 +681,28 @@ class NativeMirrors:
     def _run(
         self, manifest: str, kind: str, policy: NativePolicy, control: OperationControl
     ) -> None:
+        if kind == "pirateface":
+            from .pirateface_seed import seed
+
+            try:
+                # Seeds from the stored objects: no export, no cache, no copy.
+                seed(
+                    self.ledger,
+                    manifest,
+                    policy,
+                    control,
+                    settings=self.pirate_face_settings,
+                )
+            except OperationCancelled:
+                pass
+            except PreservationError:
+                pass  # Recorded on the copy's Pirate Face entry.
+            except (ValueError, OSError) as error:
+                with contextlib.suppress(ValueError, OSError, PreservationError):
+                    from .pirateface_seed import record_seed
+
+                    record_seed(self.ledger, manifest, error=str(error)[:400])
+            return
         try:
             # Serialize first custody creation before either adapter uses it.
             _prepare(self.ledger, manifest, control)
@@ -610,6 +747,12 @@ class NativeMirrors:
         for session in self.sessions.values():
             session.thread.join()
         self.sessions.clear()
+        # A lookup still waiting on a slow response may outlive this join;
+        # once closed it charges, writes and records nothing.
+        self._closed.set()
+        if self._lookup is not None:
+            self._lookup.join(timeout=LOOKUP_JOIN_SECONDS)
+            self._lookup = None
 
 
 def export_reference(ledger: MirrorLedger, manifest: str, kind: str) -> bytes:

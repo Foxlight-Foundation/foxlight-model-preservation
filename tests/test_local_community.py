@@ -1040,3 +1040,78 @@ def test_a_consent_given_before_the_disclosure_announces_nothing_until_reviewed(
         assert state["announce_review_required"] is True
     finally:
         owner.close()
+
+
+def test_seeding_on_pirate_face_restarts_serving_with_the_new_choice(
+    tmp_path: Path, capture: Capture, monkeypatch
+) -> None:
+    # No libtorrent or Pirate Face here: lookups are recorded, never sent.
+    monkeypatch.setattr(
+        "foxlight_model_preservation.local_host.community.rendezvous_available",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "foxlight_model_preservation.mirror_native.torrent_engine", lambda: None
+    )
+    lookups: list[str] = []
+    monkeypatch.setattr(
+        "foxlight_model_preservation.pirateface_seed.lookup",
+        lambda repository, **_kwargs: lookups.append(repository),
+    )
+    port = free_port()
+    home = tmp_path / "owner"
+    owner = LocalOwner(home)
+    try:
+        saved(owner, tmp_path, capture)
+        # Offered at first setup, before any mirror exists.
+        first = owner.control("community-read", {})["pirate_face"]
+        assert first["available"] is True and first["on"] is False
+        assert not (home / "sharing/community/mirror").exists()
+        view = enable(owner, port)
+        assert view["policy"]["seed_pirate_face"] is False
+        identity = wait_for(
+            lambda: next(
+                (
+                    row["public_manifest_id"]
+                    for row in owner.control("community-read", {})["copies"]
+                    if row["status"] == "sharing"
+                ),
+                None,
+            )
+        )
+        wait_for(lambda: served(port, identity) == 200)
+        ledger = MirrorLedger(home / "sharing/community/mirror")
+        assert ledger.read().native_policy is None
+        view = owner.control("community-configure", {"seed_pirate_face": True})
+        assert view["policy"]["seed_pirate_face"] is True
+        wait_for(
+            lambda: (
+                (policy := ledger.read().native_policy) is not None
+                and policy.pirate_face
+            )
+        )
+        # Serving resumes under the same standing consent, and the shared
+        # model is looked up on Pirate Face (where it isn't listed).
+        wait_for(lambda: served(port, identity) == 200)
+        assert ledger.read().restart is not None
+        wait_for(lambda: "test/weights" in lookups)
+        status = wait_for(
+            lambda: (
+                (value := owner.control("community-read", {})["pirate_face"])["checked"]
+                and value
+            )
+        )
+        assert status == {
+            "available": True,
+            "on": True,
+            "checked": 1,
+            "listed": 0,
+            "matched": 0,
+            "seeding": 0,
+            "differs": 0,
+        }
+        owner.control("community-configure", {"seed_pirate_face": False})
+        wait_for(lambda: not ledger.read().native_policy.pirate_face)
+        wait_for(lambda: served(port, identity) == 200)
+    finally:
+        owner.close()

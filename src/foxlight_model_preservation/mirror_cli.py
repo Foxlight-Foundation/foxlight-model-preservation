@@ -345,6 +345,12 @@ def register_mirror_commands(
             command.add_argument("--ipfs", dest="ipfs_binary")
             command.add_argument("--ipfs-sha256")
             command.add_argument("--torrent", action="store_true")
+            command.add_argument(
+                "--pirate-face",
+                action="store_true",
+                help="also seed each held copy's matching Pirate Face torrent "
+                "from the stored files (looked up on pirateface.co)",
+            )
             command.add_argument("--bootstrap", action="append", default=[])
             command.add_argument("--allow-private-peers", action="store_true")
             command.add_argument("--max-active", type=int, default=2)
@@ -1229,6 +1235,7 @@ def run_mirror_command(
             session_seconds=arguments.session_seconds,
             session_bytes=arguments.session_bytes,
             upload_rate=arguments.upload_rate,
+            pirate_face=arguments.pirate_face,
         )
         return {
             "configured": True,
