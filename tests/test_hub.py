@@ -499,3 +499,96 @@ def test_a_legacy_listing_saves_the_projector_it_names(
         assert sorted(plan["files"]) == ["m-Q4_K_M.gguf", "mmproj-F32.gguf"]
     finally:
         owner.close()
+
+
+def test_a_hub_save_names_each_finishing_step_after_the_download(
+    tmp_path: Path, fake_hub: FakeHub, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _serve_origin(monkeypatch, fake_hub)
+    owner = LocalOwner(tmp_path / "owner")
+    seen: list[object] = []
+
+    def watched(name: str):
+        original = getattr(owner_module, name)
+
+        def call(*args, **kwargs):
+            running = [job for job in owner.read()["jobs"] if job["state"] == "running"]
+            stages = running[0]["stages"] if running else None
+            seen.append(
+                [(stage["name"], stage["state"]) for stage in stages]
+                if stages
+                else None
+            )
+            active = [stage for stage in stages or [] if stage["state"] == "active"]
+            # Each stage's own work starts at zero, against a known total.
+            assert active and active[0]["done"] == 0 and active[0]["total"] > 0
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(owner_module, name, call)
+
+    for name in ("pack", "import_preservation", "verify_archive"):
+        watched(name)
+    try:
+        owner.control("hub-consent", {"enabled": True})
+        review = owner.control("hub-review", {"repository": REPO})
+        plan = owner.control(
+            "plan",
+            {
+                "kind": "receive",
+                "origin": "hub",
+                "repository": REPO,
+                "revision": review["revision"],
+                "files": review["default_files"],
+            },
+        )
+        job = _finish(
+            owner,
+            owner.control(
+                "start",
+                {
+                    "plan_id": plan["plan_id"],
+                    "operation_id": str(uuid.uuid4()),
+                    "confirmed": True,
+                },
+            ),
+        )
+        assert job["state"] == "succeeded", job
+        assert job["stages"] is None
+    finally:
+        owner.close()
+    order = ("download", "sign", "store", "check")
+
+    def at(active: int) -> list[tuple[str, str]]:
+        return [
+            (name, "done" if i < active else "active" if i == active else "waiting")
+            for i, name in enumerate(order)
+        ]
+
+    assert seen == [at(1), at(2), at(3)]
+
+
+def test_a_download_without_kept_bytes_counts_what_arrived(tmp_path: Path) -> None:
+    from foxlight_model_preservation.local_host.owner import Job
+    from foxlight_model_preservation.operations import OperationControl
+
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        job = Job(
+            job_id="a" * 64,
+            operation_id="op",
+            plan_id="b" * 64,
+            kind="source_receive",
+            state="running",
+            created_at=0.0,
+            name="catalog model",
+        )
+        owner._progress[job.job_id] = OperationControl().progress.model_copy(
+            update={"bytes_received": 5_000, "bytes_reused": 1_000}
+        )
+        stages = owner._stages_view(job)
+        assert isinstance(stages, list)
+        assert [stage["name"] for stage in stages] == ["download", "store", "check"]
+        assert stages[0]["state"] == "active" and stages[0]["done"] == 6_000
+        assert all(stage["state"] == "waiting" for stage in stages[1:])
+    finally:
+        owner.close()
