@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.34.1
+
 - Running saves report their reviewed total and the bytes kept from an earlier
   attempt, so the Library can show how much is left.
 

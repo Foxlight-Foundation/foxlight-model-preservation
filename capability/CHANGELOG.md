@@ -6,8 +6,11 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+## 0.30.1
+
 - Activity shows a running save's progress as "X of Y · N% · about M min left",
   with the recent download rate; a resumed download starts from what was kept.
+  Requires core 0.34.1.
 
 - **Settings** area: Storage (Library location, backup folders), Search sources
   and privacy (each with an on/off), Sharing link and Appearance. The Backups tab

@@ -16,7 +16,7 @@
 #
 # Usage:
 #   sudo ./install-system-service.sh \
-#     --archive foxlight-model-preservation-0.34.0-install.zip \
+#     --archive foxlight-model-preservation-0.34.1-install.zip \
 #     --bundle release.sigstore.json \
 #     --collection collection.json --instance example \
 #     -- --public-url https://mirror.example.org --disk-bytes 500G
