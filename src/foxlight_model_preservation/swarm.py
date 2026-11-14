@@ -59,13 +59,14 @@ class SwarmReceiver:
         self._peers = peers
         self._session: Any = None
         self._handle: Any = None
-        self._index = {item.path: index for index, item in enumerate(swarm.files)}
+        # Native indices count padding files too; never the filtered position.
+        self._files = {item.path: item for item in swarm.files}
         self._wanted: set[int] = set()
 
     def has(self, path: str, size: int) -> bool:
         """Whether this torrent holds the file at that path and size."""
-        index = self._index.get(path)
-        return index is not None and self.swarm.files[index].size_bytes == size
+        item = self._files.get(path)
+        return item is not None and item.size_bytes == size
 
     def _start(self) -> None:
         engine = torrent_engine()
@@ -108,10 +109,10 @@ class SwarmReceiver:
         deadline: float,
     ) -> None:
         """Download one file and move it to ``destination`` once its hash matches."""
-        index = self._index.get(path)
-        if index is None:
+        item = self._files.get(path)
+        if item is None:
             raise PreservationError("swarm_file_unknown")
-        size = self.swarm.files[index].size_bytes
+        index, size = item.index, item.size_bytes
         if self._handle is None:
             self._start()
         handle: Any = self._handle

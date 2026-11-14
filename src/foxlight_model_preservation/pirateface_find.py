@@ -316,6 +316,9 @@ class TorrentFile:
 
     path: str
     size_bytes: int
+    # Position in the torrent's own file table, padding files included; this
+    # is the index libtorrent uses for priorities and progress.
+    index: int
 
 
 @dataclass(frozen=True)
@@ -357,7 +360,9 @@ def parse_torrent(data: bytes, infohash: str, repository: str) -> SwarmTorrent:
     if not isinstance(listed, list) or not listed:
         raise PreservationError("pirate_face_torrent_invalid")
     files: list[TorrentFile] = []
-    for item in cast(list[object], listed)[: MAX_TORRENT_FILES + 1]:
+    for position, item in enumerate(
+        cast(list[object], listed)[: MAX_TORRENT_FILES + 1]
+    ):
         if not isinstance(item, dict):
             raise PreservationError("pirate_face_torrent_invalid")
         record = cast(dict[bytes, object], item)
@@ -376,7 +381,7 @@ def parse_torrent(data: bytes, infohash: str, repository: str) -> SwarmTorrent:
             or any(ord(char) < 32 for char in path)
         ):
             raise PreservationError("pirate_face_torrent_invalid")
-        files.append(TorrentFile(path, length))
+        files.append(TorrentFile(path, length, position))
     if len(files) > MAX_TORRENT_FILES or len({item.path for item in files}) != len(
         files
     ):

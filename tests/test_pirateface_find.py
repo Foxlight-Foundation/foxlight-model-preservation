@@ -203,3 +203,23 @@ def test_rescue_sends_only_the_repository(service):
     assert state["requests"] == [
         ("POST", "/api/rescue", json.dumps({"repoId": "gone-org/model"}).encode())
     ]
+
+
+def test_padding_files_keep_every_files_native_index():
+    info = {
+        "files": [
+            {"length": 10, "path": ["config.json"]},
+            {"attr": "p", "length": 16374, "path": [".pad", "16374"]},
+            {"length": 1000, "path": ["model.safetensors"]},
+        ],
+        "name": "Qwen__Qwen-Test",
+        "piece length": 16384,
+        "pieces": b"\0" * 40,
+    }
+    data = bencode({"info": info})
+    infohash = hashlib.sha1(bencode(info), usedforsecurity=False).hexdigest()
+    swarm = parse_torrent(data, infohash, "Qwen/Qwen-Test")
+    assert [(item.path, item.index) for item in swarm.files] == [
+        ("config.json", 0),
+        ("model.safetensors", 2),
+    ]
