@@ -2,7 +2,7 @@
 # GitHub-hosted Apple CloudKit HTTP/3 workaround, scoped to this command/job.
 # https://github.com/actions/runner-images/issues/14924
 set -euo pipefail
-if [[ "${GITHUB_ACTIONS:-}" != true || "${GITHUB_REF:-}" != refs/tags/sovereign-macos-publisher-v0.1.0-build15 || "${GITHUB_REPOSITORY:-}" != Foxlight-Foundation/foxlight-model-preservation || "${RUNNER_ENVIRONMENT:-}" != github-hosted || "$(uname -s)" != Darwin || $# -eq 0 ]]; then
+if [[ "${GITHUB_ACTIONS:-}" != true || "${GITHUB_REF:-}" != refs/tags/sovereign-macos-publisher-v0.1.0-build16 || "${GITHUB_REPOSITORY:-}" != Foxlight-Foundation/foxlight-model-preservation || "${RUNNER_ENVIRONMENT:-}" != github-hosted || "$(uname -s)" != Darwin || $# -eq 0 ]]; then
     echo "Apple HTTPS routing requires an authorized hosted Mac verification command." >&2
     exit 2
 fi
