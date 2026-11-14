@@ -587,8 +587,62 @@ def test_a_download_without_kept_bytes_counts_what_arrived(tmp_path: Path) -> No
         )
         stages = owner._stages_view(job)
         assert isinstance(stages, list)
-        assert [stage["name"] for stage in stages] == ["download", "store", "check"]
+        assert [stage["name"] for stage in stages] == [
+            "download",
+            "verify",
+            "store",
+            "check",
+        ]
         assert stages[0]["state"] == "active" and stages[0]["done"] == 6_000
         assert all(stage["state"] == "waiting" for stage in stages[1:])
+    finally:
+        owner.close()
+
+
+def test_a_catalog_save_shows_its_download_check_as_a_stage(tmp_path: Path) -> None:
+    from foxlight_model_preservation.local_host.owner import PMF_SOURCE_STAGES, Job
+    from foxlight_model_preservation.operations import OperationControl
+
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        job = Job(
+            job_id="c" * 64,
+            operation_id="op",
+            plan_id="d" * 64,
+            kind="source_receive",
+            state="running",
+            created_at=0.0,
+            name="catalog model",
+        )
+        owner._totals[job.job_id] = 1_000
+        base = OperationControl().progress
+
+        def report(stage: str, hashed: int) -> None:
+            with owner._lock:
+                previous = owner._progress.get(job.job_id)
+                snapshot = base.model_copy(
+                    update={"stage": stage, "bytes_hashed": hashed}
+                )
+                owner._progress[job.job_id] = snapshot
+                owner._follow_fetch(job.job_id, previous, snapshot)
+
+        def states() -> list[tuple[str, str, int]]:
+            stages = owner._stages_view(job)
+            assert isinstance(stages, list)
+            return [(s["name"], s["state"], s["done"]) for s in stages]
+
+        report("downloading", 600)
+        assert states()[0][:2] == ("download", "active")
+        # The fetch checks what it downloaded: counted from where it began.
+        report("checking", 600)
+        report("checking", 850)
+        assert states()[:2] == [("download", "done", 1_000), ("verify", "active", 250)]
+        # A retry goes back to downloading.
+        report("downloading", 900)
+        assert states()[1][1] == "waiting"
+        # A copy already in PMF has nothing to store again.
+        owner._stage_names[job.job_id] = PMF_SOURCE_STAGES
+        report("checking", 950)
+        assert [name for name, _, _ in states()] == ["download", "verify"]
     finally:
         owner.close()

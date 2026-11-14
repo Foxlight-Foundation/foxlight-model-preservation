@@ -1,12 +1,13 @@
 import {bytes} from './client';
 import {minutes,useRate} from './download-progress';
 
-export type StageName='download'|'sign'|'store'|'check';
+export type StageName='download'|'verify'|'sign'|'store'|'check';
 export interface SaveStage {name:StageName;state:'done'|'active'|'waiting';done:number;total:number|null}
 
-const names:Record<StageName,string>={download:'Download',sign:'Check & sign',store:'Store',check:'Final check'};
+const names:Record<StageName,string>={download:'Download',verify:'Check download',sign:'Check & sign',store:'Store',check:'Final check'};
 const doing:Record<StageName,string>={
  download:'Downloading the files from their source',
+ verify:'Checking every downloaded file against its published hash',
  sign:'Checking every file against its recorded hash and signing the copy',
  store:'Storing the signed copy in your Library',
  check:'Checking the stored copy once more before it’s kept',

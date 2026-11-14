@@ -171,12 +171,15 @@ ORIGIN_STALLS = 4
 # Bytes each finishing step reads or writes, in model sizes: checking and
 # signing hashes the files, copies them (hashing as it goes) and checks them
 # again; storing hashes, copies and hashes; the last check reads once.
-FINISHING_WORK = {"sign": 5, "store": 3, "check": 1}
+FINISHING_WORK = {"verify": 1, "sign": 5, "store": 3, "check": 1}
 # The stages a save shows in Activity, in order.
 SAVE_STAGES = {
     "receive": ("download", "sign", "store", "check"),
-    "source_receive": ("download", "store", "check"),
+    # A catalog source's download ends by checking every object it fetched.
+    "source_receive": ("download", "verify", "store", "check"),
 }
+# A copy already in PMF is kept exactly as fetched: nothing to store again.
+PMF_SOURCE_STAGES = ("download", "verify")
 
 
 def _size(path: Path) -> int:
@@ -258,6 +261,10 @@ class LocalOwner:
             self._kept: dict[str, tuple[int, Path | None]] = {}
             # The finishing stage a downloaded save is in, after its download.
             self._finishing: dict[str, str] = {}
+            # A save's own stage list when it differs from its kind's, and
+            # the hashed count at which a fetch's own check began.
+            self._stage_names: dict[str, tuple[str, ...]] = {}
+            self._stage_base: dict[str, int] = {}
             self._summaries: dict[str, dict[str, JsonValue]] = {}
             self._search_metadata: dict[str, str] = {}
             self._closed = False
@@ -837,6 +844,21 @@ class LocalOwner:
         finished, partial = self._kept[job.job_id]
         return finished + (_size(partial) if partial is not None else 0)
 
+    def _follow_fetch(
+        self, job_id: str, previous: Progress | None, snapshot: Progress
+    ) -> None:
+        """A fetch checks every object after downloading: show that as its own
+        stage, counted from where it began; a retry goes back to downloading.
+        Called under the owner lock."""
+        current = self._finishing.get(job_id)
+        if current is None and snapshot.stage == "checking":
+            if previous is not None and previous.stage in {"downloading", "mirroring"}:
+                self._finishing[job_id] = "verify"
+                self._stage_base[job_id] = snapshot.bytes_hashed
+        elif current == "verify" and snapshot.stage in {"downloading", "mirroring"}:
+            del self._finishing[job_id]
+            self._stage_base.pop(job_id, None)
+
     def _begin_stage(self, job: Job, name: str) -> None:
         """Mark a save's next finishing stage; its own counters start at zero."""
         with self._lock:
@@ -854,7 +876,7 @@ class LocalOwner:
         stage reads the whole model more than once (hashing, then copying and
         hashing again), so its work is a multiple of the model's size.
         """
-        names = SAVE_STAGES.get(job.kind)
+        names = self._stage_names.get(job.job_id) or SAVE_STAGES.get(job.kind)
         if names is None or job.state not in {"queued", "running"}:
             return None
         size = self._job_total(job)
@@ -887,6 +909,13 @@ class LocalOwner:
                     else progress.bytes_received + progress.bytes_reused
                     if progress is not None
                     else 0,
+                )
+            elif name == "verify":
+                state = "active"
+                done = (
+                    max(0, progress.bytes_hashed - self._stage_base.get(job.job_id, 0))
+                    if progress is not None
+                    else 0
                 )
             else:
                 state = "active"
@@ -1833,7 +1862,10 @@ class LocalOwner:
 
         def observe(snapshot: Progress) -> None:
             with self._lock:
+                previous = self._progress.get(job.job_id)
                 self._progress[job.job_id] = snapshot
+                if job.kind == "source_receive":
+                    self._follow_fetch(job.job_id, previous, snapshot)
 
         control = OperationControl(observe)
         self._progress[job.job_id] = control.progress
@@ -1865,6 +1897,8 @@ class LocalOwner:
             self._controls.pop(job.job_id, None)
             self._progress.pop(job.job_id, None)
             self._finishing.pop(job.job_id, None)
+            self._stage_names.pop(job.job_id, None)
+            self._stage_base.pop(job.job_id, None)
             self._update(job, **changes)
 
     def _run(
@@ -2024,6 +2058,8 @@ class LocalOwner:
             # A public PMF is kept exactly as published, under the publisher
             # keys this user accepted. Its identity is shared by every mirror
             # holding it, so this copy can later help keep it available.
+            with self._lock:
+                self._stage_names[job.job_id] = PMF_SOURCE_STAGES
             destination = self._data() / "copies" / job.job_id
             with directory(destination.parent, create=True):
                 pass
@@ -2065,6 +2101,7 @@ class LocalOwner:
         with directory(destination.parent, create=True):
             pass
         self._begin_stage(job, "store")
+        self._stage_base.pop(job.job_id, None)
         conversion = import_preservation(
             original,
             record.manifest_id,
