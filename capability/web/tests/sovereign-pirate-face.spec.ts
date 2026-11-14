@@ -77,3 +77,14 @@ test('a model Pirate Face lacks can be offered for rescue, only on request',asyn
   await expect(card.getByText('Asked Pirate Face to add this model.')).toBeVisible();
   expect(rescues).toEqual([{repository:'Qwen/Qwen-Test'}]);
 });
+
+test('Pirate Face search works on its own, without Hugging Face search',async({page})=>{
+  const searches:string[]=[];
+  await common(page,{pf:true,swarm:false});
+  await page.route('**/api/library*',r=>r.fulfill({json:{host_kind:'sovereign',hub_search:false,pirate_face_search:true,pirate_face_swarm:false,copies:[],jobs:[],next_offset:null}}));
+  await page.route('**/api/desktop-pirate-face-search',r=>{searches.push(r.request().postDataJSON().query);return r.fulfill({json:{source:'pirateface',results:[rescued]}});});
+  await page.goto('/');
+  await page.getByPlaceholder('Search Pirate Face by model name').fill('rare');
+  await expect.poll(()=>searches[0]).toBe('rare');
+  await expect(page.getByRole('article',{name:'gone-org/rare-model'})).toBeVisible();
+});
