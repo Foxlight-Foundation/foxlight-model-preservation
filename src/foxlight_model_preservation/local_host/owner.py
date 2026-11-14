@@ -1921,7 +1921,7 @@ class LocalOwner:
         with contextlib.ExitStack() as held:
             partial = staging / "partial" / (key + ".partial")
             if file.object_id is not None and file.object_id.startswith("sha256:"):
-                shared = self._shared_partial(key, held)
+                shared = self._shared_partial(key, held, destination)
                 partial = shared or partial
             origin_error: BaseException | None = None
             stalls = 0
@@ -1981,12 +1981,24 @@ class LocalOwner:
             del error
             return "swarm"
 
-    def _shared_partial(self, key: str, held: contextlib.ExitStack) -> Path | None:
-        """The library-wide resume buffer for one hash, if no other save has it."""
+    def _shared_partial(
+        self, key: str, held: contextlib.ExitStack, destination: Path
+    ) -> Path | None:
+        """The library-wide resume buffer for one hash, if no other save has it.
+
+        Only when it sits on the same filesystem as the file's destination: a
+        finished buffer is renamed into place, which can't cross drives (for
+        example after the Library moved to another drive mid-save).
+        """
         try:
             folder = self._data() / "partials"
             with directory(folder, create=True):
                 pass
+            existing = destination.parent
+            while not existing.exists() and existing != existing.parent:
+                existing = existing.parent
+            if os.stat(folder).st_dev != os.stat(existing).st_dev:
+                return None
             lock = held.enter_context(open(folder / (key + ".lock"), "a+b"))
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except (BlockingIOError, OSError, PreservationError):

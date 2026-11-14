@@ -108,3 +108,25 @@ def test_a_refused_file_goes_to_mirrors_at_once(owner, tmp_path, monkeypatch):
     )
     assert save(owner, tmp_path) == "https://mirror.example"
     assert len(calls) == 1
+
+
+def test_a_buffer_on_another_drive_is_not_shared(owner, tmp_path, monkeypatch):
+    seen = []
+
+    def once(repository, revision, file, destination, control, *, partial, **kwargs):
+        seen.append(partial)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(b"done")
+
+    monkeypatch.setattr(owner_module, "download_file", once)
+    real = owner_module.os.stat
+
+    def other_drive(path, *args, **kwargs):
+        value = real(path, *args, **kwargs)
+        if str(path).endswith("partials"):
+            return type("Stat", (), {"st_dev": value.st_dev + 1})()
+        return value
+
+    monkeypatch.setattr(owner_module.os, "stat", other_drive)
+    assert save(owner, tmp_path) == "origin"
+    assert "partials" not in str(seen[0])  # job-local: same drive as the file
