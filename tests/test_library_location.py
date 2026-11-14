@@ -447,3 +447,16 @@ def test_pool_is_copied_only_after_serving_has_drained(tmp_path, monkeypatch):
         release.set()
         owner._community_thread = None
         owner.close()
+
+
+def test_home_is_searched_first_once_it_is_current_again(tmp_path):
+    home = tmp_path / "home"
+    home.mkdir(mode=0o700)
+    library = Library(home)
+    drive = tmp_path / "drive"
+    choose(library, drive)
+    (drive / "copies/same").mkdir(parents=True)
+    library.use_home()
+    (home / "copies/same").mkdir(parents=True)
+    assert library.roots()[0] == home
+    assert library.find("copies/same") == home / "copies/same"

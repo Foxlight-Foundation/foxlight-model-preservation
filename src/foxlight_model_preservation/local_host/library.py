@@ -143,7 +143,9 @@ class Library:
     def roots(self) -> list[Path]:
         """Every connected library folder, current first, then earlier ones."""
         settings = self.settings()
-        found: list[Path] = []
+        # The current library folder is always searched first, including the
+        # home when it is current again, so a moved entry wins over its source.
+        found: list[Path] = [] if settings.current is not None else [self.home]
         for location in (settings.current, *settings.previous):
             if location is not None and self._available(location):
                 found.append(Path(location.path))
