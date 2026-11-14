@@ -374,3 +374,28 @@ def test_mirror_stores_stay_home_on_drives_without_owner_only_permissions(
     )
     assert library.root() == tmp_path / "exfat"
     assert library.private_root() == home
+
+
+def test_too_many_earlier_folders_is_refused_not_forgotten(tmp_path):
+    home = tmp_path / "home"
+    home.mkdir(mode=0o700)
+    library = Library(home)
+    for index in range(9):
+        choose(library, tmp_path / f"drive{index}")
+    assert len(library.settings().previous) == 8
+    with pytest.raises(PreservationError, match="library_location_limit"):
+        choose(library, tmp_path / "drive9")
+    assert library.root() == tmp_path / "drive8"  # unchanged
+    assert str(tmp_path / "drive0") in library.view()["previous"]
+
+
+def test_publication_scratch_check_survives_an_unplugged_drive(tmp_path):
+    from foxlight_model_preservation.local_host.sharing import Sharing
+
+    home, drive = tmp_path / "home", tmp_path / "drive"
+    home.mkdir(mode=0o700)
+    drive.mkdir()
+    library = Library(home)
+    choose(library, drive / "Library")
+    os.rename(drive, tmp_path / "unplugged")
+    assert Sharing(home, library).work_exists("a" * 64) is False

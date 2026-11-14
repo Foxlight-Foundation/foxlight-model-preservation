@@ -317,9 +317,11 @@ class Library:
             for item in (settings.current, *settings.previous)
             if item is not None and (location is None or item.path != location.path)
         ]
-        self._write(
-            LibrarySettings(current=location, previous=tuple(previous[:MAX_PREVIOUS]))
-        )
+        if len(previous) > MAX_PREVIOUS:
+            # Never stop looking in a folder that may still hold copies: move
+            # them first, which forgets folders left empty.
+            raise PreservationError("library_location_limit")
+        self._write(LibrarySettings(current=location, previous=tuple(previous)))
 
     def forget_previous(self, path: str) -> None:
         """Drop an earlier folder once nothing Sovereign needs is left in it."""

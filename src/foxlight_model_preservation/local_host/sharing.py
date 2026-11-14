@@ -561,7 +561,11 @@ class Sharing:
         if re.fullmatch(r"[0-9a-f]{64}", identifier) is None:
             raise PreservationError("invalid_control")
         try:
-            with directory(self._work_root(identifier)) as root:
+            folder = self._work_root(identifier)
+        except PreservationError:
+            return False  # Its library drive is unplugged: nothing to inspect.
+        try:
+            with directory(folder) as root:
                 value = os.stat(identifier, dir_fd=root, follow_symlinks=False)
                 return stat.S_ISDIR(value.st_mode)
         except FileNotFoundError:

@@ -159,6 +159,7 @@ class DesktopClient(CoreClient):
                 "library_folder_belongs_to_another",
                 "library_folder_changed",
                 "library_moving",
+                "library_location_limit",
                 "library_busy_try_again",
                 "library_move_unsupported_file",
                 "library_move_verification_failed",
