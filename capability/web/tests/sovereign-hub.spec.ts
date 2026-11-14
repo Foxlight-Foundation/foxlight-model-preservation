@@ -49,7 +49,7 @@ test('a Hugging Face token is entered privately, shown only as the account, and 
   await page.route('**/api/desktop-hub-token-remove',r=>{user=null;return r.fulfill({json:{hub_token:null}});});
   const token='hf_'+'A1b2C3d4'.repeat(4);
   await page.goto('/');
-  await page.getByText('Source and privacy').click();
+  await page.getByRole('button',{name:'Settings',exact:true}).first().click();
   const field=page.getByLabel('Hugging Face token');
   await expect(field).toHaveAttribute('type','password');
   await expect(page.getByRole('button',{name:'Save token'})).toBeDisabled();

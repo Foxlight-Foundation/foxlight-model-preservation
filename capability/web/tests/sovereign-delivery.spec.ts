@@ -37,7 +37,7 @@ test('a backup folder needs review and remembering it writes no model',async({pa
  await page.route('**/api/desktop-backup-review',r=>{expect(r.request().postDataJSON().path).toBe('/Volumes/Other/Sovereign Backups');return r.fulfill({json:{review_id:id,label:'My backup drive',path:'/Volumes/Other/Sovereign Backups',creates_folder:true,same_filesystem:false,free_bytes:10**10,expires_at:9999999999}});});
  await page.route('**/api/desktop-backup-setup',r=>{setups++;return r.fulfill({json:{}});});
  await page.route('**/api/desktop-start',r=>{starts++;return r.fulfill({json:{}});});
- await page.goto('/');await page.getByRole('button',{name:'Backups',exact:true}).click();await page.getByRole('button',{name:'Add backup folder',exact:true}).click();
+ await page.goto('/');await page.getByRole('button',{name:'Settings',exact:true}).first().click();await page.getByRole('button',{name:'Add backup folder',exact:true}).click();
  await page.getByRole('button',{name:'Choose folder',exact:true}).click();await expect(page.getByLabel('Folder path',{exact:true})).toHaveValue('/Volumes/Other/Sovereign Backups');
  await page.getByRole('button',{name:'Review folder',exact:true}).click();
  const remember=page.getByRole('button',{name:'Remember this folder',exact:true});await expect(remember).toBeDisabled();expect(setups).toBe(0);expect(starts).toBe(0);
@@ -142,7 +142,7 @@ test('backup destinations on later pages remain selectable and forgettable',asyn
  const other='b'.repeat(64);let forgotten=false;
  await page.route('**/api/desktop-backup-read',r=>{const {offset}=r.request().postDataJSON();return r.fulfill({json:offset===1?{destinations:forgotten?[]:[{destination_id:other,label:'Other drive',path:'/Volumes/Other',same_filesystem:false}],next_offset:null}:{destinations:[{destination_id:id,label:'First drive',path:'/Volumes/First',same_filesystem:false}],next_offset:1}});});
  await page.route('**/api/desktop-backup-forget',r=>{expect(r.request().postDataJSON()).toEqual({destination_id:other});forgotten=true;return r.fulfill({json:{forgotten:true}});});
- await page.goto('/');await page.getByRole('button',{name:'Backups',exact:true}).click();
+ await page.goto('/');await page.getByRole('button',{name:'Settings',exact:true}).first().click();
  const otherCard=page.getByRole('article').filter({has:page.getByRole('heading',{name:'Other drive',exact:true})});
  await otherCard.getByText('Folder & controls',{exact:true}).click();await otherCard.getByRole('button',{name:'Forget folder · keep all files',exact:true}).click();
  await expect(page.getByRole('heading',{name:'Other drive',exact:true})).toHaveCount(0);
