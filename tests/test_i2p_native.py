@@ -219,9 +219,9 @@ def test_actual_i2p_dht_and_snark_transfer_recovers_pmf_without_source_or_regist
                 kit_source=source,
                 allow_i2p=True,
                 allow_sharing=True,
-                # Outlasts the seed's join (150 s) plus the receive (300 s);
+                # Outlasts the seed's join (150 s) plus the receive (600 s);
                 # the test cancels it as soon as it is done.
-                seconds=600,
+                seconds=900,
                 control=control,
             )
         except OperationCancelled:
@@ -246,7 +246,8 @@ def test_actual_i2p_dht_and_snark_transfer_recovers_pmf_without_source_or_regist
         # "Connected" means the seed built its own lease set, not that the
         # receiver's fresh lease set is findable yet: in the private network the
         # seed's first DHT reply has taken ~130 s to route back (CI artifacts), so
-        # a 150 s receive window was exhausted just before the transfer began.
+        # a 150 s receive window was exhausted just before the transfer began,
+        # and 300 s still ran out on slow runners (#182).
         result = transfer_i2p(
             routed,
             receive,
@@ -255,7 +256,7 @@ def test_actual_i2p_dht_and_snark_transfer_recovers_pmf_without_source_or_regist
             destination=target,
             allow_i2p=True,
             allow_sharing=True,
-            seconds=300,
+            seconds=600,
         )
         assert result["stopped"] and not result["privacy_qualified"]
         assert not result["retained_inputs_deleted"]
