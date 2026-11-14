@@ -26,6 +26,13 @@ from .torrent_binding import torrent_engine
 
 # A swarm that delivers nothing for this long is given up for this file.
 STALL_SECONDS = 180
+# Receive only. No peer is ever unchoked, and the fast extension's
+# "allowed fast" pieces (which a choked peer may still request) are off, so
+# nothing is uploaded to the swarm.
+RECEIVE_ONLY: dict[str, str | int | bool] = {
+    "unchoke_slots_limit": 0,
+    "allowed_fast_set_size": 0,
+}
 # libtorrent can report a piece before its bytes reach the file; the check is
 # retried briefly after flushing before a mismatch counts.
 FLUSH_RETRIES = 10
@@ -75,18 +82,34 @@ class SwarmReceiver:
             raise PreservationError("pirate_face_torrent_differs")
         os.makedirs(self.staging, mode=0o700, exist_ok=True)
         session = cast(Any, engine).session(
-            self._settings
-            or {
+            {
+                **(self._settings or {}),
+                **RECEIVE_ONLY,
+            }
+            if self._settings is not None
+            else {
                 "listen_interfaces": "0.0.0.0:0,[::]:0",
                 "enable_dht": True,
                 "enable_lsd": False,
                 "enable_upnp": False,
                 "enable_natpmp": False,
-                # Download only: no peer is ever unchoked, so nothing uploads.
-                "unchoke_slots_limit": 0,
                 "alert_mask": 0,
+                **RECEIVE_ONLY,
             }
         )
+        # libtorrent always unchokes local-network peers ("local" peer class
+        # ignores unchoke slots by default); no class may do so here.
+        for name in (
+            "global_peer_class_id",
+            "tcp_peer_class_id",
+            "local_peer_class_id",
+        ):
+            identifier = getattr(session, name)
+            peer_class = dict(session.get_peer_class(identifier))
+            if peer_class.get("ignore_unchoke_slots"):
+                session.set_peer_class(
+                    identifier, {**peer_class, "ignore_unchoke_slots": False}
+                )
         flags = cast(Any, engine).torrent_flags
         handle = session.add_torrent(
             {

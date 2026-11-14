@@ -115,3 +115,53 @@ def test_a_swarm_with_no_peers_stalls_out(tmp_path):
             )
     finally:
         receiver.close()
+
+
+def test_another_downloader_gets_nothing_from_a_receiver(tmp_path):
+    """Receive-only: no unchoke and no allowed-fast pieces for other peers."""
+    root, contents, swarm = repository(tmp_path)
+    engine = torrent_engine()
+    seeder = engine.session(SETTINGS)
+    seed = seeder.add_torrent(
+        {
+            "ti": engine.torrent_info(engine.bdecode(swarm.data)),
+            "save_path": str(root.parent),
+            "flags": 0,
+        }
+    )
+    deadline = time.monotonic() + 20
+    while not seed.status().is_seeding and time.monotonic() < deadline:
+        time.sleep(0.05)
+    receiver = SwarmReceiver(
+        swarm,
+        tmp_path / "staging",
+        settings=SETTINGS,
+        peers=(("127.0.0.1", seeder.listen_port()),),
+        stall_seconds=20,
+    )
+    leech = engine.session(SETTINGS)
+    try:
+        receiver.fetch(
+            "model.safetensors",
+            hashlib.sha256(contents["model.safetensors"]).hexdigest(),
+            tmp_path / "work" / "model.safetensors",
+            OperationControl(),
+            deadline=time.monotonic() + 30,
+        )
+        # The seeder leaves: only the receiver holds pieces now.
+        seeder.remove_torrent(seed)
+        wanting = leech.add_torrent(
+            {
+                "ti": engine.torrent_info(engine.bdecode(swarm.data)),
+                "save_path": str(tmp_path / "leech"),
+                "flags": 0,
+            }
+        )
+        wanting.connect_peer(("127.0.0.1", receiver._session.listen_port()))
+        time.sleep(6)
+        assert receiver._handle.status().total_payload_upload == 0
+        assert wanting.status().total_payload_download == 0
+    finally:
+        receiver.close()
+        leech.pause()
+        seeder.pause()
