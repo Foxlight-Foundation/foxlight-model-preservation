@@ -169,3 +169,26 @@ def test_removing_a_failed_save_releases_its_partial_store(tmp_path):
         assert not partial.parent.exists()
     finally:
         owner.close()
+
+
+def test_a_copy_on_an_unplugged_drive_stays_listed(tmp_path, kit):
+    import os
+
+    owner = LocalOwner(tmp_path / "home")
+    try:
+        saved = import_copy(owner, kit)
+        drive = tmp_path / "drive"
+        drive.mkdir()
+        review = owner.control("library-review", {"path": str(drive / "Library")})
+        owner.control(
+            "library-setup", {"review_id": review["review_id"], "confirmed": True}
+        )
+        # Pretend the copy lives on an earlier drive that is now unplugged.
+        os.rename(owner.home / "copies" / saved["copy_id"], tmp_path / "unplugged-copy")
+        with pytest.raises(PreservationError, match="library_storage_unavailable"):
+            owner.control(
+                "copy-remove", {"copy_id": saved["copy_id"], "confirmed": True}
+            )
+        assert owner.read()["copies"][0]["copy_id"] == saved["copy_id"]
+    finally:
+        owner.close()
