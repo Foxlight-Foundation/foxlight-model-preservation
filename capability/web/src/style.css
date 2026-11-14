@@ -687,3 +687,22 @@ main[inert] .sk-scrim {opacity:0;}
 @media (prefers-reduced-motion: reduce) {.sk-spinner {animation:none;}}
 .sk-check {display:flex;align-items:center;gap:8px;color:var(--text-2);font-size:14px;}
 .sk-check input {width:16px;height:16px;accent-color:var(--foxlight);}
+
+/* Save stages: one ring per stage, the number inside, the active one lit. */
+.sk-stages {margin:12px 0 4px;}
+.sk-stages ol {list-style:none;margin:0;padding:0;display:flex;gap:6px;flex-wrap:wrap;}
+.sk-stages li {display:flex;flex-direction:column;align-items:center;gap:6px;min-width:72px;flex:1 1 0;color:var(--text-4);font-size:var(--type-fine);text-align:center;}
+.sk-stages li[data-state="active"] {color:var(--text-1);font-weight:600;}
+.sk-stages li[data-state="done"] {color:var(--text-2);}
+.sk-ring {position:relative;display:block;width:48px;height:48px;}
+.sk-ring svg {width:48px;height:48px;display:block;}
+.sk-ring circle {fill:none;stroke-width:4;}
+.sk-ring-track {stroke:var(--fill-press);}
+.sk-ring-fill {stroke:var(--foxlight);stroke-linecap:round;transition:stroke-dashoffset var(--slow) var(--ease);}
+li[data-state="done"] .sk-ring-fill {stroke:var(--healthy);}
+li[data-state="waiting"] .sk-ring-fill {stroke:transparent;}
+.sk-ring[data-spinning] svg {animation:sk-ring-spin 1.2s linear infinite;}
+@keyframes sk-ring-spin {to {transform:rotate(360deg);}}
+@media (prefers-reduced-motion: reduce) {.sk-ring[data-spinning] svg {animation:none;}}
+.sk-ring-mid {position:absolute;inset:0;display:grid;place-items:center;font-size:12px;font-variant-numeric:tabular-nums;}
+.sk-ring-mid svg {width:18px;height:18px;fill:none;stroke:var(--healthy);stroke-width:3;stroke-linecap:round;stroke-linejoin:round;}
