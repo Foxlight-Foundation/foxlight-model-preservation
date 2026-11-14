@@ -399,3 +399,51 @@ def test_publication_scratch_check_survives_an_unplugged_drive(tmp_path):
     choose(library, drive / "Library")
     os.rename(drive, tmp_path / "unplugged")
     assert Sharing(home, library).work_exists("a" * 64) is False
+
+
+def test_pool_is_copied_only_after_serving_has_drained(tmp_path, monkeypatch):
+    import threading
+
+    from foxlight_model_preservation.local_host import owner as owner_module
+
+    owner = LocalOwner(tmp_path / "home")
+    events: list[str] = []
+    release = threading.Event()
+
+    def serving() -> None:
+        # Stands in for a community worker still draining its HTTP handlers.
+        release.wait(5)
+        time.sleep(0.3)
+        events.append("drained")
+        owner._community_parked.set()
+        release.wait(5)
+
+    worker = threading.Thread(target=serving, daemon=True)
+    try:
+        pool = owner.home / "sharing/community/mirror"
+        (pool / "store").mkdir(parents=True)
+        (pool / "state").write_bytes(b"ledger")
+        original = owner_module.move_tree
+
+        def recording(*args, **kwargs):
+            events.append("copy")
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(owner_module, "move_tree", recording)
+        owner._community_thread = worker
+        worker.start()
+        drive = tmp_path / "drive"
+        drive.mkdir()
+        review = owner.control("library-review", {"path": str(drive / "Library")})
+        owner.control(
+            "library-setup", {"review_id": review["review_id"], "confirmed": True}
+        )
+        owner.control("library-move", {})
+        release.set()
+        assert wait_moved(owner)["move"]["state"] == "done"
+        assert events == ["drained", "copy"]
+        assert owner._community_hold is False
+    finally:
+        release.set()
+        owner._community_thread = None
+        owner.close()

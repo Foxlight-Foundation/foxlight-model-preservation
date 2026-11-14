@@ -199,6 +199,9 @@ class LocalOwner:
             self._move: dict[str, JsonValue] | None = None
             # Set while the community pool itself is being moved.
             self._community_hold = False
+            # Set by each worker once it has fully stopped touching the pool.
+            self._community_parked = threading.Event()
+            self._gossip_parked = threading.Event()
             self._withdraw_control: OperationControl | None = None
             self._stopping = threading.Event()
             self._lock = threading.RLock()
@@ -440,11 +443,38 @@ class LocalOwner:
                 staging = target.parent / (".moving-" + target.name)
                 pool = relative == "sharing/community/mirror"
                 if pool:
-                    # Serving reads the pool: stop it until the pool has moved.
+                    # Serving and announcing write the pool's ledger and
+                    # holdings: stop both, and wait until they have drained,
+                    # before copying it.
                     with self._lock:
                         self._community_hold = True
+                        self._community_parked.clear()
+                        self._gossip_parked.clear()
                         if self._community_control is not None:
                             self._community_control.cancel()
+                        if self._gossip_control is not None:
+                            self._gossip_control.cancel()
+                        workers = (
+                            (self._community_thread, self._community_parked),
+                            (self._gossip_thread, self._gossip_parked),
+                        )
+                    self._community_wake.set()
+                    self._gossip_wake.set()
+                    try:
+                        for thread, parked in workers:
+                            end = time.monotonic() + 120
+                            while thread is not None and thread.is_alive():
+                                control.checkpoint()
+                                if parked.wait(0.5):
+                                    break
+                                if time.monotonic() > end:
+                                    raise PreservationError("library_busy_try_again")
+                    except BaseException:
+                        with self._lock:
+                            self._community_hold = False
+                        self._community_wake.set()
+                        self._gossip_wake.set()
+                        raise
                 try:
                     move_tree(source, staging, links, control, progress)
                     copy_id = relative.removeprefix("copies/")
@@ -2544,6 +2574,17 @@ class LocalOwner:
                 with self._lock:
                     if self._stopping.is_set():
                         return
+                    held = self._community_hold
+                if held:
+                    # Announcing writes the pool's holdings; wait for its move.
+                    self._gossip_parked.set()
+                    self._gossip_wake.wait(5)
+                    self._gossip_wake.clear()
+                    continue
+                self._gossip_parked.clear()
+                with self._lock:
+                    if self._stopping.is_set():
+                        return
                     # Retained so shutdown can cancel a round in progress.
                     self._gossip_control = control
                 try:
@@ -2649,10 +2690,14 @@ class LocalOwner:
             with self._lock:
                 held = self._community_hold and not self._closing
             if held:
-                # The pool is moving to the library folder; resume after.
+                # The pool is moving to the library folder. Serving has
+                # returned (it drained before this loop came round), so the
+                # move may copy the ledger; resume after.
+                self._community_parked.set()
                 self._community_wake.wait(5)
                 self._community_wake.clear()
                 continue
+            self._community_parked.clear()
             with self._lock:
                 self._community_wake.clear()
                 stop = self._closing or not self.community.consented()
