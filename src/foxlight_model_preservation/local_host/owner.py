@@ -925,6 +925,15 @@ class LocalOwner:
             if isinstance(plan, dict) and plan.get("copy_id") == copy.copy_id:
                 raise PreservationError("copy_busy_try_again")
         store = self._copy_store(copy.copy_id)
+        if not store.is_dir() or store.is_symlink():
+            # Its drive is unplugged (or the store is gone): keep the entry so
+            # removal can finish once the drive is back.
+            raise PreservationError("library_storage_unavailable")
+        if not shutil.rmtree.avoids_symlink_attacks:
+            raise PreservationError("safe_temporary_cleanup_unavailable")
+        # Files first: if deleting fails part way, the entry stays and
+        # removing it again finishes the job.
+        shutil.rmtree(store)
         self._journal = self._journal.model_copy(
             update={
                 "copies": tuple(
@@ -938,8 +947,6 @@ class LocalOwner:
         self.community.forget(copy.copy_id)
         self._summaries.pop(copy.copy_id, None)
         self._search_metadata.pop(copy.copy_id, None)
-        if store.is_dir() and shutil.rmtree.avoids_symlink_attacks:
-            shutil.rmtree(store)
         self._discard_work([copy.copy_id])
         if self.community.consented():
             self._community_refresh()
