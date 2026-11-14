@@ -50,7 +50,7 @@ def make_torrent(files, *, url_list=None) -> tuple[bytes, str]:
     top = {"announce": "udp://tracker.pirateface.co:6969/announce", "info": info}
     if url_list:
         top["url-list"] = url_list
-    return bencode(top), hashlib.sha1(bencode(info)).hexdigest()
+    return bencode(top), hashlib.sha1(bencode(info), usedforsecurity=False).hexdigest()
 
 
 TORRENT, INFOHASH = make_torrent(

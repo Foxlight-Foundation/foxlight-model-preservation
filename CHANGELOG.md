@@ -23,7 +23,6 @@
   Face doesn't list can be offered for rescue with a button; nothing is sent
   otherwise.
 
-
 - The I2P pilot launcher reports the RPC port it bound at start. A status
   written during shutdown could record Jetty's closed-connector value (-2),
   which failed status validation; this made the native pilot check flaky.
@@ -627,7 +626,6 @@
   prior metadata. Signed card/archive/kit formats and trust roles are unchanged.
 - Add a narrowly scoped native Mac backup-folder picker and Linux picker
   dependency; preserve correct `.foxhandoff` filenames in native save dialogs.
-
 
 - Preserve complete signed selections with vision/audio/video metadata, named
   projectors, video companions and same-repository draft/active MTP files.
