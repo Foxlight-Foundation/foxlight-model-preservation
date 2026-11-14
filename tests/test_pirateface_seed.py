@@ -328,3 +328,43 @@ def test_lookups_are_charged_to_the_download_allowance(
     finally:
         manager.close()
     assert calls == [] and ledger.read().pirate_face == {}
+
+
+def test_a_lookup_that_outlives_its_controller_records_nothing(
+    tmp_path, capture, monkeypatch
+) -> None:
+    import threading
+
+    ledger, _ = mirror(tmp_path, capture)
+    cycle(ledger)
+    configure(ledger, pirate_face=True)
+    files = _weights(capture)
+    hashes = {name: _sha(data) for name, data in files.items()}
+    swarm = _swarm(*((name, len(data)) for name, data in files.items()))
+    started, release = threading.Event(), threading.Event()
+
+    def slow(repository, **_kwargs):
+        started.set()
+        release.wait(10)  # A response still streaming when the mirror stops.
+        return _entry(swarm, hashes)
+
+    monkeypatch.setattr("foxlight_model_preservation.pirateface_seed.lookup", slow)
+    monkeypatch.setattr(
+        "foxlight_model_preservation.pirateface_seed.torrent",
+        lambda _entry, **_kwargs: swarm,
+    )
+    monkeypatch.setattr(
+        "foxlight_model_preservation.mirror_native.LOOKUP_JOIN_SECONDS", 0.1
+    )
+    manager = NativeMirrors(MirrorLedger(ledger.path), lambda _state: True)
+    manager.tick()
+    assert started.wait(10)
+    lookup = manager._lookup
+    used = ledger.read().ingress_used
+    manager.close()
+    release.set()
+    lookup.join(10)
+    assert not lookup.is_alive()
+    state = ledger.read()
+    assert state.pirate_face == {} and state.ingress_used == used
+    assert not (ledger.path / TORRENTS_DIRECTORY).exists()

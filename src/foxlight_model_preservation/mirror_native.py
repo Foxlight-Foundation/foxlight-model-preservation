@@ -45,6 +45,8 @@ from .torrent_binding import torrent_engine
 # Pirate Face lookups run one at a time, at most one every this many seconds.
 LOOKUP_SPACING = 30.0
 LOOKUP_JOIN_SECONDS = 70.0
+# A lookup that has not finished by then has no further effect.
+LOOKUP_DEADLINE_SECONDS = 120.0
 
 _custody_lock = threading.RLock()
 _publication_lock = threading.Lock()
@@ -489,6 +491,7 @@ class NativeMirrors:
         self.pirate_face_source = pirate_face_source
         self.pirate_face_settings = pirate_face_settings
         self._lookup: threading.Thread | None = None
+        self._closed = threading.Event()
         self._lookup_at = float("-inf")
         self._origins: dict[str, str | None] = {}
         self.sessions: dict[tuple[str, str], _Session] = {}
@@ -557,7 +560,11 @@ class NativeMirrors:
             # are charged to the daily download allowance, or wait for it.
             from .pirateface_find import MAX_ENTRY_BYTES
 
-            if not self.ledger.reserve(MAX_ENTRY_BYTES, ingress=True):
+            if not self.ledger.reserve(
+                MAX_ENTRY_BYTES,
+                ingress=True,
+                authorized=lambda _state: not self._closed.is_set(),
+            ):
                 return
             self._lookup = threading.Thread(
                 target=self._refresh,
@@ -571,13 +578,24 @@ class NativeMirrors:
     def _refresh(self, manifest: str, repository: str) -> None:
         from .pirateface_seed import refresh
 
+        started = time.monotonic()
+
+        def stopped() -> bool:
+            return (
+                self._closed.is_set()
+                or time.monotonic() - started > LOOKUP_DEADLINE_SECONDS
+            )
+
         try:
             refresh(
                 self.ledger,
                 manifest,
                 repository,
                 source=self.pirate_face_source,
-                reserve=lambda count: self.ledger.reserve(count, ingress=True),
+                reserve=lambda count: self.ledger.reserve(
+                    count, ingress=True, authorized=lambda _state: not stopped()
+                ),
+                stopped=stopped,
             )
         except (ValueError, OSError) as failure:
             self.failures.append(failure)
@@ -729,8 +747,10 @@ class NativeMirrors:
         for session in self.sessions.values():
             session.thread.join()
         self.sessions.clear()
+        # A lookup still waiting on a slow response may outlive this join;
+        # once closed it charges, writes and records nothing.
+        self._closed.set()
         if self._lookup is not None:
-            # A lookup is one bounded request; it records and ends on its own.
             self._lookup.join(timeout=LOOKUP_JOIN_SECONDS)
             self._lookup = None
 

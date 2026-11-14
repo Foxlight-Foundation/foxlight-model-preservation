@@ -286,13 +286,16 @@ def refresh(
     source: str | None = None,
     policy: TransferPolicy | None = None,
     reserve: Callable[[int], bool] | None = None,
+    stopped: Callable[[], bool] = lambda: False,
 ) -> PirateFaceSeed:
     """Ask Pirate Face for one held copy's torrent and record what matches.
 
     Nothing is seeded here. A failed lookup or a delisting keeps whatever was
     already verified; a different listed torrent replaces it. ``reserve``
     charges the torrent file's bound to the mirror's download allowance
-    before it is fetched (the caller charged the listing's).
+    before it is fetched (the caller charged the listing's). Once ``stopped``
+    is true (the controller closed, or the lookup ran past its deadline) a
+    slow response is dropped: nothing more is charged, written or recorded.
     """
     now = int(time.time())
     previous = ledger.read().pirate_face.get(manifest)
@@ -310,6 +313,8 @@ def refresh(
                 else PirateFaceSeed(repository=repository, checked_at=now)
             )
         else:
+            if stopped():
+                raise PreservationError("pirate_face_lookup_stopped")
             if reserve is not None and not reserve(MAX_TORRENT_BYTES):
                 raise PreservationError("pirate_face_download_limit")
             swarm = torrent(entry, source=source, policy=policy)
@@ -317,7 +322,7 @@ def refresh(
             if document is None:
                 raise PreservationError("pirate_face_copy_unreadable")
             objects = match(swarm, dict(entry.hashes), held_files(document)) or ()
-            if objects:
+            if objects and not stopped():
                 with directory(ledger.path / TORRENTS_DIRECTORY, create=True) as root:
                     atomic_bytes(root, swarm.infohash + ".torrent", swarm.data)
             same = (
@@ -352,7 +357,9 @@ def refresh(
 
     def apply(state: MirrorState) -> MirrorState:
         nonlocal stored
-        if manifest not in state.models:
+        # Checked inside the ledger update, so a lookup that outlived its
+        # controller never records anything.
+        if manifest not in state.models or stopped():
             return state
         current = state.pirate_face.get(manifest)
         stored = record
