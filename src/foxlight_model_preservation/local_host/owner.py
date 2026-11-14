@@ -168,6 +168,15 @@ class Journal(Record):
 
 # Consecutive origin attempts that add no bytes before mirrors are tried.
 ORIGIN_STALLS = 4
+# Bytes each finishing step reads or writes, in model sizes: checking and
+# signing hashes the files, copies them (hashing as it goes) and checks them
+# again; storing hashes, copies and hashes; the last check reads once.
+FINISHING_WORK = {"sign": 5, "store": 3, "check": 1}
+# The stages a save shows in Activity, in order.
+SAVE_STAGES = {
+    "receive": ("download", "sign", "store", "check"),
+    "source_receive": ("download", "store", "check"),
+}
 
 
 def _size(path: Path) -> int:
@@ -247,8 +256,8 @@ class LocalOwner:
             # Per running save: bytes of finished files, and the resume buffer
             # of the file in progress (its size is what is kept so far).
             self._kept: dict[str, tuple[int, Path | None]] = {}
-            # Which step of finishing a downloaded save is running: (n, of, name).
-            self._finishing: dict[str, tuple[int, int, str]] = {}
+            # The finishing stage a downloaded save is in, after its download.
+            self._finishing: dict[str, str] = {}
             self._summaries: dict[str, dict[str, JsonValue]] = {}
             self._search_metadata: dict[str, str] = {}
             self._closed = False
@@ -698,22 +707,8 @@ class LocalOwner:
                         "bytes_reused": self._progress[item.job_id].bytes_reused
                         if item.job_id in self._progress
                         else 0,
-                        # Work after the download (checking, storing) reports
-                        # these per pass, so the screen never sits at 100%.
-                        "bytes_hashed": self._progress[item.job_id].bytes_hashed
-                        if item.job_id in self._progress
-                        else 0,
-                        "bytes_copied": self._progress[item.job_id].bytes_copied
-                        if item.job_id in self._progress
-                        else 0,
-                        "finishing": {
-                            "step": self._finishing[item.job_id][0],
-                            "steps": self._finishing[item.job_id][1],
-                            "name": self._finishing[item.job_id][2],
-                        }
-                        if item.job_id in self._finishing
-                        and item.state in {"queued", "running"}
-                        else None,
+                        # Each stage of a save, so Activity shows where it is.
+                        "stages": self._stages_view(item),
                         "bytes_total": self._job_total(item),
                         "bytes_done": self._job_done(item),
                         "temporary_sharing_files": item.kind == "publish"
@@ -841,6 +836,60 @@ class LocalOwner:
             return None
         finished, partial = self._kept[job.job_id]
         return finished + (_size(partial) if partial is not None else 0)
+
+    def _begin_stage(self, job: Job, name: str) -> None:
+        """Mark a save's next finishing stage; its own counters start at zero."""
+        with self._lock:
+            self._finishing[job.job_id] = name
+            progress = self._progress.get(job.job_id)
+            if progress is not None:
+                self._progress[job.job_id] = progress.model_copy(
+                    update={"bytes_hashed": 0, "bytes_copied": 0, "bytes_reused": 0}
+                )
+
+    def _stages_view(self, job: Job) -> JsonValue:
+        """Each stage of a running save: done, active or waiting, with progress.
+
+        The download counts kept bytes against the reviewed size. Each later
+        stage reads the whole model more than once (hashing, then copying and
+        hashing again), so its work is a multiple of the model's size.
+        """
+        names = SAVE_STAGES.get(job.kind)
+        if names is None or job.state not in {"queued", "running"}:
+            return None
+        size = self._job_total(job)
+        current = (
+            -1
+            if job.state == "queued"
+            else names.index(self._finishing[job.job_id])
+            if self._finishing.get(job.job_id) in names
+            else 0
+        )
+        progress = self._progress.get(job.job_id)
+        stages: list[JsonValue] = []
+        for index, name in enumerate(names):
+            total = (
+                size
+                if name == "download"
+                else (size * FINISHING_WORK[name] if size else None)
+            )
+            if index < current:
+                state, done = "done", total or 0
+            elif index > current or current < 0:
+                state, done = "waiting", 0
+            elif name == "download":
+                state, done = "active", self._job_done(job) or 0
+            else:
+                state = "active"
+                done = (
+                    progress.bytes_hashed
+                    + progress.bytes_copied
+                    + progress.bytes_reused
+                    if progress is not None
+                    else 0
+                )
+            stages.append({"name": name, "state": state, "done": done, "total": total})
+        return stages
 
     def _job_total(self, job: Job) -> int | None:
         """The reviewed size of a running save, for "X of Y" progress."""
@@ -1998,7 +2047,7 @@ class LocalOwner:
         destination = self._data() / "copies" / job.job_id
         with directory(destination.parent, create=True):
             pass
-        self._finishing[job.job_id] = (1, 2, "store")
+        self._begin_stage(job, "store")
         conversion = import_preservation(
             original,
             record.manifest_id,
@@ -2008,7 +2057,7 @@ class LocalOwner:
             source_key_candidates=candidates,
             control=control.fork(),
         )
-        self._finishing[job.job_id] = (2, 2, "check")
+        self._begin_stage(job, "check")
         manifest = verify_archive(
             destination, conversion.output_identity, owner_trust, control=control.fork()
         )
@@ -2428,17 +2477,17 @@ class LocalOwner:
         trust = self._capture_trust()
         key = load_key(self.home / "capture-key.pem", None)
         legacy = work / "original"
-        self._finishing[job.job_id] = (1, 3, "sign")
+        self._begin_stage(job, "sign")
         identity = pack(recipe, sources, legacy, (key,), control=control.fork())
         destination = self._data() / "copies" / job.job_id
         with directory(destination.parent, create=True):
             pass
-        self._finishing[job.job_id] = (2, 3, "store")
+        self._begin_stage(job, "store")
         conversion = import_preservation(
             legacy, identity, trust, destination, (key,), control=control.fork()
         )
         manifest_id = conversion.output_identity
-        self._finishing[job.job_id] = (3, 3, "check")
+        self._begin_stage(job, "check")
         manifest = verify_archive(
             destination, manifest_id, trust, control=control.fork()
         )
