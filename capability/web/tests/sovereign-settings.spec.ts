@@ -27,3 +27,17 @@ test('settings gather search sources, privacy, storage and appearance',async({pa
   await page.getByRole('button',{name:'Open sharing settings'}).click();
   await expect(page.getByRole('button',{name:'Sharing',exact:true}).first()).toHaveAttribute('aria-current','page');
 });
+
+
+test('a setting that fails to save says so',async({page})=>{
+  await page.route('**/api/library*',r=>r.fulfill({json:{host_kind:'sovereign',hub_search:false,copies:[],jobs:[],next_offset:null}}));
+  await page.route('**/api/desktop-search',r=>r.fulfill({json:{catalog_id:null,results:[],total:0,next_offset:null}}));
+  await page.route('**/api/desktop-source-read',r=>r.fulfill({json:{sources:[]}}));
+  await page.route('**/api/desktop-backup-read',r=>r.fulfill({json:{destinations:[],next_offset:null}}));
+  await page.route('**/api/desktop-hub-consent',r=>r.fulfill({status:503,json:{error:'host_unavailable'}}));
+  await page.goto('/');
+  await page.getByRole('button',{name:'Settings',exact:true}).first().click();
+  const hub=page.getByRole('article',{name:'Search Hugging Face'});
+  await hub.getByRole('button',{name:'Search Hugging Face too'}).click();
+  await expect(hub.getByRole('alert')).toContainText('wasn’t saved');
+});
