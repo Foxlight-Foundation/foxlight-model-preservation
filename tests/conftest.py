@@ -107,3 +107,11 @@ def capture(tmp_path: Path) -> Capture:
     store = tmp_path / "store"
     identity = pack(recipe, sources, store, (key,))
     return Capture(recipe, sources, key, trust, store, identity)
+
+
+@pytest.fixture(autouse=True)
+def no_origin_retry_pauses(monkeypatch):
+    """Retry pauses between Hugging Face attempts are real seconds; tests skip them."""
+    from foxlight_model_preservation.local_host import owner
+
+    monkeypatch.setattr(owner, "_pause", lambda *args: None)
