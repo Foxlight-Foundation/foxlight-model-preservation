@@ -878,7 +878,16 @@ class LocalOwner:
             elif index > current or current < 0:
                 state, done = "waiting", 0
             elif name == "download":
-                state, done = "active", self._job_done(job) or 0
+                # Saves that don't track kept bytes count what has arrived.
+                kept = self._job_done(job)
+                state, done = (
+                    "active",
+                    kept
+                    if kept is not None
+                    else progress.bytes_received + progress.bytes_reused
+                    if progress is not None
+                    else 0,
+                )
             else:
                 state = "active"
                 done = (
