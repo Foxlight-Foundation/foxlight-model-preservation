@@ -196,6 +196,8 @@ class LocalOwner:
             self._move_thread: threading.Thread | None = None
             self._move_control: OperationControl | None = None
             self._move: dict[str, JsonValue] | None = None
+            # Set while the community pool itself is being moved.
+            self._community_hold = False
             self._withdraw_control: OperationControl | None = None
             self._stopping = threading.Event()
             self._lock = threading.RLock()
@@ -318,6 +320,10 @@ class LocalOwner:
                     self.library.find(relative) == mirrors / name
                 ):
                     found.append((relative, mirrors / name))
+        # The community pool goes last: its objects link to the moved copies.
+        pool = self.library.find("sharing/community/mirror")
+        if pool.parent.parent.parent != current and pool.is_dir():
+            found.append(("sharing/community/mirror", pool))
         return found
 
     def _library_control(
@@ -421,6 +427,13 @@ class LocalOwner:
                 with directory(target.parent, create=True):
                     pass
                 staging = target.parent / (".moving-" + target.name)
+                pool = relative == "sharing/community/mirror"
+                if pool:
+                    # Serving reads the pool: stop it until the pool has moved.
+                    with self._lock:
+                        self._community_hold = True
+                        if self._community_control is not None:
+                            self._community_control.cancel()
                 try:
                     move_tree(source, staging, links, control, progress)
                     copy_id = relative.removeprefix("copies/")
@@ -440,6 +453,11 @@ class LocalOwner:
                     with contextlib.suppress(OSError):
                         shutil.rmtree(staging)
                     raise
+                finally:
+                    if pool:
+                        with self._lock:
+                            self._community_hold = False
+                        self._community_wake.set()
                 # The new copy is found first from now on; the old one goes.
                 shutil.rmtree(source)
                 with self._lock:
@@ -2593,6 +2611,13 @@ class LocalOwner:
         while True:
             control = OperationControl()
             copies: tuple[Copy, ...] = ()
+            with self._lock:
+                held = self._community_hold and not self._closing
+            if held:
+                # The pool is moving to the library folder; resume after.
+                self._community_wake.wait(5)
+                self._community_wake.clear()
+                continue
             with self._lock:
                 self._community_wake.clear()
                 stop = self._closing or not self.community.consented()

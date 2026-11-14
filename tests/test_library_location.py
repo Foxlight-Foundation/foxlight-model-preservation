@@ -226,3 +226,40 @@ def test_unplugged_library_drive_refuses_saving_but_still_reads(tmp_path, captur
             owner.control("upload-create", {"size_bytes": 10})
     finally:
         owner.close()
+
+
+def test_community_pool_is_created_on_the_library_drive_and_moves_there(tmp_path):
+    from foxlight_model_preservation.local_host.community import CommunityMirror
+    from foxlight_model_preservation.local_host.sharing import Sharing
+
+    owner = LocalOwner(tmp_path / "home")
+    try:
+        # An existing pool (served objects and its ledger) on the system drive.
+        pool = owner.home / "sharing/community/mirror"
+        data = b"shared weights" * 100
+        (pool / "store/objects/sha256").mkdir(parents=True)
+        (pool / "store/objects/sha256" / digest(data)).write_bytes(data)
+        (pool / "state.json").write_bytes(b"{}")
+        drive = tmp_path / "drive"
+        drive.mkdir()
+        review = owner.control("library-review", {"path": str(drive / "Library")})
+        owner.control(
+            "library-setup", {"review_id": review["review_id"], "confirmed": True}
+        )
+        owner.control("library-move", {})
+        library = wait_moved(owner)
+        assert library["move"]["state"] == "done", library
+        moved = drive / "Library/sharing/community/mirror"
+        assert (moved / "store/objects/sha256" / digest(data)).read_bytes() == data
+        assert not pool.exists()
+        # The key and settings stay in the home.
+        assert (owner.home / "sharing/community").is_dir()
+    finally:
+        owner.close()
+    # A first pool goes straight to the library folder.
+    home = tmp_path / "fresh"
+    home.mkdir(mode=0o700)
+    library = Library(home)
+    choose(library, tmp_path / "drive2")
+    community = CommunityMirror(home, Sharing(home, library))
+    assert community.ledger().path == tmp_path / "drive2/sharing/community/mirror"

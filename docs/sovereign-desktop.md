@@ -191,8 +191,8 @@ Drive formats and shares that can't hold owner-only permissions (for example
 exFAT, or some network shares) are accepted, and the Library says that other
 people who can use that drive can read the copies; every file is checked
 against its fingerprint before it is shared or exported. Copies kept by **Help
-keep models available** for other people still use this computer's drive in
-this release.
+keep models available** for other people live in the Library folder too; moving
+them pauses serving only while that pool itself is copied and checked.
 
 ## Backup folders and public sharing
 

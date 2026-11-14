@@ -9,6 +9,7 @@
   moved: each is read back from the new drive and its signatures checked before
   the original is removed. An unplugged drive stops saving instead of falling
   back to the system drive; a folder marked by another Sovereign is refused.
+  The pool **Help keep models available** keeps for others lives there too.
 
 - The I2P pilot launcher reports the RPC port it bound at start. A status
   written during shutdown could record Jetty's closed-connector value (-2),
