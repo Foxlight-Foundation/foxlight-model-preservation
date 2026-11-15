@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Pin Sovereign Mac build 19 and Linux revision 14 to the authenticated
+  Library 0.32.0 installation archive (sha256 d81df1c6…, source 80f8e72f; its
+  desktop lock carries core 0.36.0 and libtorrent 2.0.14). Native signing,
+  notarization, apt publication and qualification remain separate gates.
+
 ## 0.36.0
 
 - Fallback downloads keep the one-copy promise. Pirate Face swarm downloads
