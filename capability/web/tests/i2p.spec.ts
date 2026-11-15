@@ -33,7 +33,7 @@ test('Guided follows I2P explicitly and saved source refresh stays I2P after rel
  await page.route('**/api/discovery-start',route=>{starts.push(route.request().postDataJSON());return route.fulfill({json:{...metadata,kind:'refresh',state:'queued'}});});
  await find(page);await page.getByRole('button',{name:'Choose a source file',exact:true}).click();
  await page.getByLabel('Source file',{exact:true}).setInputFiles({name:'archive.foxsource',mimeType:'application/json',buffer:Buffer.from('{}')});
- await expect(page.getByRole('combobox',{name:'Source connection',exact:true})).toHaveValue('i2p');
+ await expect(page.getByRole('combobox',{name:'Source connection',exact:true})).toHaveText('I2P only');
  await page.getByLabel('I trust the supplier').check();await expect(page.getByRole('button',{name:'Trust source and get listings'})).toBeDisabled();
  await page.getByLabel('I2P proxy port',{exact:true}).fill('4445');await page.getByLabel('Allow I2P connections through this proxy').check();
  expect(follows).toHaveLength(0);expect(starts).toHaveLength(0);await page.getByRole('button',{name:'Trust source and get listings'}).click();

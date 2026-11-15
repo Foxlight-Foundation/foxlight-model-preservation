@@ -727,9 +727,7 @@ li[data-state="waiting"] .sk-ring-fill {stroke:transparent;}
 .sk-switch input:focus-visible {box-shadow:var(--ring-focus);outline:none;}
 .sk-switch input:disabled {opacity:.5;cursor:default;}
 
-/* Select boxes: our own chevron, inset from the edge like the text is. */
-select.sk-input,
-.sk-model-toolbar .sk-purpose select.sk-input {appearance:none;-webkit-appearance:none;padding-right:42px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a97b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center;background-size:16px 16px;}
+
 
 /* A card's title row, then its text: a small, consistent gap. */
 .sk-card > .sk-model-head + * {margin-top:10px;}
@@ -740,3 +738,18 @@ select.sk-input,
 .sk-main > section > * + .sk-subsection {margin-top:40px;}
 /* Paging controls stay clear of whatever follows them. */
 .sk-pager {margin-bottom:24px;}
+
+/* Our own dropdown: an input-styled button and a list on the app's surface. */
+.sk-select {position:relative;min-width:0;}
+.sk-select-button {display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left;cursor:pointer;padding-right:14px;}
+.sk-select-button:disabled {cursor:default;opacity:.6;}
+.sk-select-value {flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.sk-select-button > svg {flex:none;color:var(--text-4);transition:transform var(--fast) var(--ease);}
+.sk-select-button[aria-expanded="true"] > svg {transform:rotate(180deg);}
+.sk-select-list {position:absolute;z-index:40;top:calc(100% + 6px);left:0;right:0;min-width:200px;max-height:320px;overflow:auto;margin:0;padding:6px;list-style:none;border-radius:var(--radius-field);border:1px solid var(--line-card);background:var(--glass-strong);box-shadow:var(--shadow-pop);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);}
+.sk-select-option {display:flex;align-items:center;gap:8px;padding:9px 10px;border-radius:var(--radius-control);color:var(--text-2);font-size:14px;cursor:pointer;}
+.sk-select-option[data-active] {background:var(--fill-hover);color:var(--text-1);}
+.sk-select-option[aria-selected="true"] {color:var(--text-1);font-weight:600;}
+.sk-select-option[aria-disabled] {opacity:.45;cursor:default;}
+.sk-select-tick {display:inline-flex;width:16px;flex:none;color:var(--foxlight);}
+.sk-model-toolbar .sk-purpose .sk-select-button {min-height:56px;border-radius:var(--radius-field);background:var(--glass);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border-color:var(--line-card);font-size:15px;}

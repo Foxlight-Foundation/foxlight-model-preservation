@@ -1,4 +1,5 @@
 import {Details,Help,Row} from './ui';
+import {Select} from './select';
 
 /** Descriptions are captured claims, independent of integrity and runtime trust. */
 export interface ModelDetails {
@@ -66,7 +67,7 @@ export function matchesModel(name:string,details:ModelDetails|undefined,query:st
   return query.toLocaleLowerCase().split(/\s+/).every(term=>text.includes(term));
 }
 export function PurposeFilter({id,value,onChange}:{id:string;value:string;onChange:(value:string)=>void}) {
-  return <label className="sk-field sk-purpose" htmlFor={id}><span id={`${id}-label`}>What would you like to do?</span><select id={id} aria-labelledby={`${id}-label`} className="sk-input" value={value} onChange={event=>onChange(event.target.value)}><option value="">All model types</option>{Object.entries(purposes).map(([key,item])=><option key={key} value={key}>{item.label}</option>)}</select></label>;
+  return <div className="sk-field sk-purpose"><span id={`${id}-label`}>What would you like to do?</span><Select id={id} label="What would you like to do?" value={value} onChange={onChange} options={[{value:'',label:'All model types'},...Object.entries(purposes).map(([key,item])=>({value:key,label:item.label}))]}/></div>;
 }
 /** Human-readable model context, with technical attributes kept available. */
 export function ModelInformation({details,tasks=[],format,quantization,installed=false}:{details?:ModelDetails;tasks?:string[];format?:string;quantization?:string;installed?:boolean}) {

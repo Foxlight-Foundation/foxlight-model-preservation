@@ -31,7 +31,7 @@ test('Hugging Face search waits for consent, then plans the exact reviewed files
   expect(searches).toEqual(['tiny']);
   await page.getByRole('button',{name:'Choose files'}).click();
   await expect(page.getByText('Licence: apache-2.0')).toBeVisible();
-  await page.getByRole('combobox',{name:/^Version/}).selectOption('tiny-Q8_0.gguf');
+  await page.getByRole('combobox',{name:'Version'}).click();await page.getByRole('option',{name:/^tiny-Q8_0/}).click();
   await page.getByText(/Files · 2 of 3 selected/).click();
   await expect(page.getByRole('checkbox',{name:'tiny-Q8_0.gguf'})).toBeChecked();
   await expect(page.getByRole('checkbox',{name:'tiny-Q4_K_M.gguf'})).not.toBeChecked();

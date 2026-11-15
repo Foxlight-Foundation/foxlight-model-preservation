@@ -30,7 +30,7 @@ test('saved models explain their use, details, search and the two recovery actio
  await expect(page.getByRole('heading',{name:copies[0].name,exact:true})).toBeVisible();
  await expect(page.getByRole('heading',{name:copies[1].name,exact:true})).toHaveCount(0);
  await page.getByLabel('Search your saved models',{exact:true}).fill('');
- await page.getByLabel('What would you like to do?',{exact:true}).selectOption('images');
+ await page.getByRole('combobox',{name:'What would you like to do?'}).click();await page.getByRole('option',{name:'Images & editing'}).click();
  await expect(page.getByRole('heading',{name:copies[1].name,exact:true})).toBeVisible();
  await expect(page.getByRole('heading',{name:copies[0].name,exact:true})).toHaveCount(0);
  await page.getByLabel('Search your saved models',{exact:true}).fill('no such model');
@@ -65,7 +65,7 @@ test('technical identity is explained, exact, and help works with focus, Escape 
 test('Find uses ordinary purposes without treating file size or a signature as device suitability',async({page})=>{
  await page.goto('/');await page.getByRole('button',{name:'Find',exact:true}).click();
  await expect(page.getByText(writing.description,{exact:true})).toBeVisible();
- await page.getByLabel('What would you like to do?',{exact:true}).selectOption('images');
+ await page.getByRole('combobox',{name:'What would you like to do?'}).click();await page.getByRole('option',{name:'Images & editing'}).click();
  await expect(page.getByRole('heading',{name:copies[1].name,exact:true})).toBeVisible();
  await expect(page.getByRole('heading',{name:copies[0].name,exact:true})).toHaveCount(0);
  await page.getByRole('button',{name:'About download size',exact:true}).focus();
@@ -175,4 +175,21 @@ test('hover help stays readable while the pointer crosses to its explanation',as
  // Outlast the intentional crossing delay while hovering the explanation itself.
  await page.waitForTimeout(300);await expect(tip).toBeVisible();
  await page.mouse.move(0,0);await expect(tip).toHaveCount(0);
+});
+
+test('the app’s own dropdown works from the keyboard and closes when you click away',async({page})=>{
+ await page.goto('/');
+ await expect(page.getByRole('heading',{name:'Your Library',exact:true})).toBeVisible();
+ const box=page.getByRole('combobox',{name:'What would you like to do?'});
+ await expect(box).toHaveText('All model types');
+ await box.focus();await page.keyboard.press('ArrowDown');
+ await expect(page.getByRole('listbox')).toBeVisible();
+ await expect(page.getByRole('option',{name:'All model types'})).toHaveAttribute('aria-selected','true');
+ await page.keyboard.press('ArrowDown');await page.keyboard.press('Enter');
+ await expect(page.getByRole('listbox')).toHaveCount(0);
+ await expect(box).not.toHaveText('All model types');await expect(box).toBeFocused();
+ await box.click();await expect(page.getByRole('listbox')).toBeVisible();
+ await page.keyboard.press('Escape');await expect(page.getByRole('listbox')).toHaveCount(0);
+ await box.click();await expect(page.getByRole('listbox')).toBeVisible();
+ await page.mouse.click(5,5);await expect(page.getByRole('listbox')).toHaveCount(0);
 });
