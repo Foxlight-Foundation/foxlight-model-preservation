@@ -6,6 +6,11 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Choose folder works on macOS from the browser too: Sovereign opens the
+  system's own folder dialog (as it already did on Linux). Where no system
+  dialog exists, the button steps aside and the folder path is typed, with no
+  error to dismiss.
+
 - Find's first-launch screen is just its three choices: no search and no
   network contact. Search lives in Browse: one search bar, with Hugging Face and
   Pirate Face as on/off switches beside it (each says where search words go)

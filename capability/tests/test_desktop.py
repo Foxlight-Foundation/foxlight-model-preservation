@@ -389,3 +389,49 @@ async def test_bucket_contents_is_an_allowed_control(tmp_path):
     finally:
         await asyncio.to_thread(server.close)
         await client.close()
+
+
+async def test_macos_folder_choice_comes_from_the_system_dialog(tmp_path, monkeypatch):
+    import sys
+
+    import foxlight_preservation_library.desktop as desktop
+
+    client = DesktopClient(tmp_path / "owner")
+    original = asyncio.create_subprocess_exec
+    commands: list[tuple[str, ...]] = []
+    answers = iter([("/Volumes/Models/\n", 0), ("", 1)])
+
+    async def spawn(*args, **kwargs):
+        commands.append(args)
+        printed, code = next(answers)
+        return await original(
+            sys.executable,
+            "-c",
+            f"import sys; sys.stdout.write({printed!r}); sys.exit({code})",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+
+    monkeypatch.setattr(desktop.sys, "platform", "darwin")
+    osascript = tmp_path / "osascript"
+    osascript.write_text("")
+    monkeypatch.setattr(desktop, "OSASCRIPT", osascript)
+    monkeypatch.setattr(desktop.asyncio, "create_subprocess_exec", spawn)
+    try:
+        chosen = await client.request("POST", "desktop-library-folder-choose", {})
+        assert chosen == {"path": "/Volumes/Models/Sovereign Library"}
+        # Cancelling the dialog chooses nothing.
+        assert await client.request("POST", "desktop-library-folder-choose", {}) == {
+            "path": None
+        }
+    finally:
+        await client.close()
+    assert commands[0][0] == str(osascript)
+    assert "choose folder with prompt" in commands[0][-1]
+
+
+def test_without_a_system_dialog_the_path_is_typed(monkeypatch):
+    import foxlight_preservation_library.desktop as desktop
+
+    monkeypatch.setattr(desktop.sys, "platform", "win32")
+    assert desktop._folder_picker("Choose") is None
