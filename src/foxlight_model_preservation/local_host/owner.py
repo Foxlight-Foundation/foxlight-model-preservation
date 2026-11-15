@@ -2852,6 +2852,19 @@ class LocalOwner:
         self, plan: dict[str, JsonValue], work: Path
     ) -> SwarmReceiver | None:
         """The swarm as a source for this save, when chosen and available."""
+        file_swarms = plan.get("file_swarms")
+        if isinstance(file_swarms, dict) and self.pirate_face_enabled("swarm"):
+            # Sovereign's own per-file swarms, from signed mirror listings.
+            from ..sovereign_torrents import FileSwarmReceiver
+
+            files: dict[str, tuple[str, str, int]] = {}
+            for row in cast(list[list[JsonValue]], plan.get("files") or []):
+                sha256 = str(row[4]).removeprefix("sha256:")
+                infohash = file_swarms.get(sha256)
+                if isinstance(infohash, str):
+                    files[str(row[2])] = (sha256, infohash, cast(int, row[3]))
+            if files:
+                return cast(SwarmReceiver, FileSwarmReceiver(files, work / ".files"))
         recorded = plan.get("swarm")
         if not isinstance(recorded, dict) or not self.pirate_face_enabled("swarm"):
             return None
@@ -3184,20 +3197,26 @@ class LocalOwner:
         # Hugging Face and the mirrors, used only with swarm downloads on;
         # every file is still checked against this copy's signed fingerprints.
         swarm: dict[str, JsonValue] = {}
-        if repository and revision:
-            listed = [
-                item
-                for item in self.community.directory.torrents(
-                    manifest_id, policy=self._held_policy
-                )
-                if item["source"] == "pirateface"
-            ]
-            if listed:
-                swarm = {
-                    "repository": repository,
-                    "revision": revision,
-                    "swarm": {"infohash": listed[0]["infohash"]},
-                }
+        torrents = self.community.directory.torrents(
+            manifest_id, policy=self._held_policy
+        )
+        listed = [item for item in torrents if item["source"] == "pirateface"]
+        if repository and revision and listed:
+            swarm = {
+                "repository": repository,
+                "revision": revision,
+                "swarm": {"infohash": listed[0]["infohash"]},
+            }
+        # Sovereign's own per-file swarms: one per file of this copy.
+        wanted = {
+            (file.object_id or "").removeprefix("sha256:") for file in selected.values()
+        }
+        files: dict[str, JsonValue] = {}
+        for item in torrents:
+            if item["source"] == "sovereign" and item.get("object") in wanted:
+                files.setdefault(item["object"], item["infohash"])
+        if files:
+            swarm["file_swarms"] = files
         return self._plan(
             {
                 "kind": "receive",

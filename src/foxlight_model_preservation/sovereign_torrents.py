@@ -55,6 +55,10 @@ RESERVE_BYTES = 64 * 1024**2
 # held to the remaining credit per second, so between two checks it can never
 # send more than a fraction of what is left.
 WATCH_SECONDS = 0.2
+# Without totals, uploads are charged once this much is owed, or a few seconds
+# after the last charge, so an idle or quiet mirror isn't rewriting its ledger.
+CHARGE_BYTES = 8 * 1024**2
+CHARGE_SECONDS = 5.0
 
 MIN_PIECE = 256 * 1024
 MAX_PIECE = 16 * 1024**2
@@ -376,6 +380,7 @@ class FileSharing:
         self._charged = 0
         # The accounting day and month the outstanding credit belongs to.
         self._period: tuple[str, str] | None = None
+        self._charged_at = float("-inf")
         self._router = False
         self._build: threading.Thread | None = None
         self._control = OperationControl()
@@ -447,18 +452,29 @@ class FileSharing:
         Serving hours and a paused mirror pause sharing too.
         """
         uploaded = sharer.uploaded()
+        state = self.ledger.read()
+        if not _serving(state, now):
+            # Paused, left, or outside serving hours: nothing goes out, and
+            # nothing is written to find that out.
+            self._pause(sharer, True)
+            return
         period = _period(now)
         if period != self._period:
             # Credit reserved in an earlier day or month was charged there; it
             # never carries over on top of the new period's allowance.
             self._charged = min(self._charged, uploaded)
             self._period = period
-        left = _allowance_left(self.ledger.read(), now)
+        left = _allowance_left(state, now)
         if left is None:
             owed = max(0, uploaded - self._charged)
-            ok = self.ledger.reserve(owed, now=now)
-            if ok:
-                self._charged += owed
+            ok = True
+            if owed >= CHARGE_BYTES or (
+                owed > 0 and time.monotonic() - self._charged_at >= CHARGE_SECONDS
+            ):
+                ok = self.ledger.reserve(owed, now=now)
+                if ok:
+                    self._charged += owed
+                    self._charged_at = time.monotonic()
             self._pause(sharer, not ok)
             sharer.set_upload_rate(0)
             return
@@ -519,6 +535,20 @@ class FileSharing:
         self.stop()
 
 
+def _serving(state: MirrorState, now: int | None = None) -> bool:
+    """Whether the mirror may upload now, read without writing anything."""
+    from .mirror_state import serving_hour
+
+    instant = int(time.time()) if now is None else now
+    moment = datetime.fromtimestamp(instant, UTC)
+    return bool(
+        not state.paused
+        and not state.left
+        and instant >= state.clock_floor
+        and serving_hour(state, moment.hour)
+    )
+
+
 def _period(now: int | None = None) -> tuple[str, str]:
     """The ledger's accounting day and month for ``now`` (UTC)."""
     moment = datetime.fromtimestamp(int(time.time()) if now is None else now, UTC)
@@ -544,3 +574,156 @@ def _allowance_left(state: MirrorState, now: int | None = None) -> int | None:
         if limit is not None
     ]
     return max(0, min(limits))
+
+
+class FileSwarmReceiver:
+    """Receive files through their Sovereign torrents; download only.
+
+    Each file is fetched as a magnet from the infohash a signed listing named.
+    Its metadata comes from peers and must be exactly what the rules give that
+    file (named by its SHA-256, its size, its piece size, hybrid v1 + v2)
+    before anything downloads; the file is then written straight to its
+    destination and its SHA-256 checked, as for every save. Nothing is shared
+    back: receiving never starts sharing.
+    """
+
+    def __init__(
+        self,
+        files: dict[str, tuple[str, str, int]],
+        staging: Path,
+        *,
+        stall_seconds: float = 180,
+        settings: dict[str, str | int | bool] | None = None,
+        peers: tuple[tuple[str, int], ...] = (),
+    ) -> None:
+        self._files = files  # path -> (SHA-256, infohash, size)
+        self.staging = staging
+        self.stall_seconds = stall_seconds
+        self._settings = settings
+        self._peers = peers
+        self._session: Any = None
+
+    def has(self, path: str, size: int) -> bool:
+        """Whether a listed torrent carries this file at this size."""
+        known = self._files.get(path)
+        return known is not None and known[2] == size
+
+    def _start(self) -> Any:
+        from .swarm import RECEIVE_ONLY
+
+        engine = cast(Any, torrent_engine())
+        self.staging.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self._session = engine.session(
+            {
+                "listen_interfaces": "0.0.0.0:0,[::]:0",
+                "enable_dht": True,
+                "enable_lsd": False,
+                "enable_upnp": False,
+                "enable_natpmp": False,
+                "alert_mask": 0,
+                **(self._settings or {}),
+                **RECEIVE_ONLY,
+            }
+        )
+        return engine
+
+    def fetch(
+        self,
+        path: str,
+        sha256: str,
+        destination: Path,
+        control: OperationControl,
+        *,
+        deadline: float,
+    ) -> None:
+        """Download one file to ``destination`` and check its SHA-256."""
+        import hashlib
+
+        known = self._files.get(path)
+        if known is None or known[0] != sha256:
+            raise PreservationError("swarm_file_unknown")
+        _sha, infohash, size = known
+        engine = cast(Any, torrent_engine())
+        if self._session is None:
+            engine = self._start()
+        session = cast(Any, self._session)
+        params = engine.parse_magnet_uri("magnet:?xt=urn:btih:" + infohash)
+        params.save_path = str(self.staging)
+        handle = session.add_torrent(params)
+        try:
+            for peer in self._peers:
+                handle.connect_peer(peer)
+            self._wait(lambda: handle.status().has_metadata, control, deadline)
+            info = handle.torrent_file()
+            files = info.files()
+            hashes = info.info_hashes()
+            if (
+                files.num_files() != 1
+                or files.file_size(0) != size
+                or info.name() != torrent_name(sha256)
+                or info.piece_length() != piece_length(size)
+                or not hashes.has_v2()
+            ):
+                raise PreservationError("swarm_file_mismatch")
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.unlink(missing_ok=True)
+            handle.rename_file(0, str(destination))
+            self._wait(
+                lambda: handle.torrent_file().files().file_path(0) == str(destination),
+                control,
+                deadline,
+            )
+            done = 0
+
+            def progressed() -> bool:
+                nonlocal done
+                now = int(handle.file_progress()[0])
+                if now > done:
+                    control.advance(received=now - done)
+                    done = now
+                return now >= size
+
+            self._wait(progressed, control, deadline, moving=lambda: done)
+            handle.flush_cache()
+            for _attempt in range(10):
+                if destination.is_file():
+                    digest = hashlib.sha256()
+                    with destination.open("rb") as stream:
+                        while chunk := stream.read(1024 * 1024):
+                            control.checkpoint()
+                            digest.update(chunk)
+                    if digest.hexdigest() == sha256:
+                        return
+                time.sleep(0.5)
+            destination.unlink(missing_ok=True)
+            raise PreservationError("swarm_file_mismatch")
+        finally:
+            session.remove_torrent(handle)
+
+    def _wait(
+        self,
+        ready: Callable[[], bool],
+        control: OperationControl,
+        deadline: float,
+        *,
+        moving: Callable[[], int] | None = None,
+    ) -> None:
+        """Wait for ``ready``; give up past the deadline or when nothing moves."""
+        last, moved_at = -1, time.monotonic()
+        while not ready():
+            control.checkpoint()
+            now = time.monotonic()
+            if now > deadline:
+                raise PreservationError("swarm_deadline_exceeded")
+            current = moving() if moving is not None else -1
+            if current != last:
+                last, moved_at = current, now
+            if now - moved_at > self.stall_seconds:
+                raise PreservationError("swarm_unavailable")
+            time.sleep(0.1)
+
+    def close(self) -> None:
+        """End the session; nothing keeps running after the save."""
+        if self._session is not None:
+            self._session.pause()
+            self._session = None

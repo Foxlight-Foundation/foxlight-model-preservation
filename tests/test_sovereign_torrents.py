@@ -382,3 +382,95 @@ def test_a_mirror_may_serve_only_through_file_torrents(tmp_path: Path, capture) 
         run_mirror(ledger, control=control)
     # It gets past the start-up check (then stops because it was cancelled).
     assert "serving transport" not in str(caught.value)
+
+
+def test_a_file_is_received_by_magnet_and_checked(tmp_path: Path) -> None:
+    from foxlight_model_preservation.sovereign_torrents import FileSwarmReceiver
+
+    data = os.urandom(1_500_000)
+    stored, sha256 = _stored(tmp_path / "objects", data)
+    built = build_torrent(stored, sha256, tmp_path / "scratch")
+    sharer = FileSharer(tmp_path / "sharer", open_router=False, settings=LAB)
+    try:
+        sharer.share(built, stored)
+        receiver = FileSwarmReceiver(
+            {"weights/model.gguf": (sha256, built.infohash, len(data))},
+            tmp_path / "staging",
+            settings=LAB,
+            peers=(("127.0.0.1", sharer.port()),),
+            stall_seconds=20,
+        )
+        try:
+            assert receiver.has("weights/model.gguf", len(data))
+            assert not receiver.has("weights/model.gguf", len(data) + 1)
+            target = tmp_path / "work" / "model.gguf"
+            receiver.fetch(
+                "weights/model.gguf",
+                sha256,
+                target,
+                OperationControl(),
+                deadline=time.monotonic() + 30,
+            )
+            assert target.read_bytes() == data
+            # A file the listing doesn't name is never fetched.
+            with pytest.raises(PreservationError, match="swarm_file_unknown"):
+                receiver.fetch(
+                    "weights/model.gguf",
+                    "0" * 64,
+                    tmp_path / "work" / "other",
+                    OperationControl(),
+                    deadline=time.monotonic() + 5,
+                )
+        finally:
+            receiver.close()
+    finally:
+        sharer.close()
+
+
+def test_a_torrent_that_breaks_the_rules_is_refused_before_any_data(
+    tmp_path: Path,
+) -> None:
+    """A listing pointing at some other torrent can't make a receiver download it."""
+    from foxlight_model_preservation.sovereign_torrents import FileSwarmReceiver
+
+    data = os.urandom(800_000)
+    stored, sha256 = _stored(tmp_path / "objects", data)
+    other = os.urandom(800_000)
+    elsewhere, other_sha = _stored(tmp_path / "other", other)
+    wrong = build_torrent(elsewhere, other_sha, tmp_path / "scratch")
+    sharer = FileSharer(tmp_path / "sharer", open_router=False, settings=LAB)
+    try:
+        sharer.share(wrong, elsewhere)
+        receiver = FileSwarmReceiver(
+            {"model.bin": (sha256, wrong.infohash, len(data))},
+            tmp_path / "staging",
+            settings=LAB,
+            peers=(("127.0.0.1", sharer.port()),),
+            stall_seconds=20,
+        )
+        try:
+            target = tmp_path / "work" / "model.bin"
+            with pytest.raises(PreservationError, match="swarm_file_mismatch"):
+                receiver.fetch(
+                    "model.bin",
+                    sha256,
+                    target,
+                    OperationControl(),
+                    deadline=time.monotonic() + 30,
+                )
+            assert not target.exists()
+        finally:
+            receiver.close()
+    finally:
+        sharer.close()
+
+
+def test_an_idle_mirror_never_rewrites_its_ledger(tmp_path: Path, capture) -> None:
+    ledger, sharing = _limited(tmp_path, capture, None, None)
+    session = _Session()
+    record = ledger.path / "mirror.json"
+    before = record.stat().st_mtime_ns, record.read_bytes()
+    for _ in range(20):
+        sharing.spend(session)  # type: ignore[arg-type]
+    assert (record.stat().st_mtime_ns, record.read_bytes()) == before
+    assert not session.paused
