@@ -13,11 +13,13 @@ rebuilding or signing them. Developer ID signing, Apple notarization and an
 installed-app journey remain separate checks. A locally passing Gatekeeper
 check does not establish clean-host acceptance, model compatibility or anonymity.
 
-The build18 recipe pairs the authenticated public core 0.35 / Library 0.31 cohort,
-which adds mirrors seeding matching Pirate Face torrents from their stored
-files (opt-in, after a full piece check), Activity showing each stage of a
-save as a ring with its percentage, and a fix for saves that froze when a
-library drive stopped answering. Build 17 paired core 0.34.1 / Library 0.30.1, which kept large Hugging Face downloads resuming,
+The build19 recipe pairs the authenticated public core 0.36 / Library 0.32 cohort,
+which saves a model with one copy of disk space instead of three (downloads
+move into place, and mirror and swarm fallbacks keep to it) and carries a UX
+pass: the app's own dropdowns, switches and spinners, and spacing fixes. Build 18 paired core 0.35 / Library 0.31, which added mirrors seeding matching Pirate Face torrents
+from their stored files, Activity showing each stage of a save as a ring with
+its percentage, and a fix for saves that froze when a library drive stopped
+answering. Build 17 paired core 0.34.1 / Library 0.30.1, which kept large Hugging Face downloads resuming,
 stopped keeping a second copy of each saved model, and added removing
 Activity entries and saved models, a Settings area and download progress. Build 16 paired core
 0.34 / Library 0.30, which added model copies on any connected drive, NAS or
