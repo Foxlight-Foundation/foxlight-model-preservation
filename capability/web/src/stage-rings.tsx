@@ -35,16 +35,17 @@ const percentOf=(stage:SaveStage)=>stage.state==='done'?100:stage.state==='waiti
 
 /** The running stage in words and numbers; keyed by stage, so its rate and
  *  time left start again with each stage. */
-function Active({stage,index,count}:{stage:SaveStage;index:number;count:number}){
+function Active({stage,index,count,resuming}:{stage:SaveStage;index:number;count:number;resuming:boolean}){
  const rate=useRate(stage.done);
  const percent=percentOf(stage);
  const left=stage.total&&rate?minutes(Math.max(0,stage.total-stage.done)/rate):null;
  const amount=stage.name==='download'
-  ?(stage.total?`${bytes(Math.min(stage.done,stage.total))} of ${bytes(stage.total)}`:`${bytes(stage.done)} received`)
+  ?(stage.total?`${bytes(Math.min(stage.done,stage.total))} of ${bytes(stage.total)}${resuming?' checked':''}`:`${bytes(stage.done)} ${resuming?'checked':'received'}`)
   :(stage.total?null:`${bytes(stage.done)} processed`);
  const speed=stage.name==='download'&&rate?`${bytes(rate)}/s`:null;
  return <>
-  <p className="sk-stage" role="status">Step {index+1} of {count}: {doing[stage.name]}…</p>
+  <p className="sk-stage" role="status">Step {index+1} of {count}: {resuming?'Checking the part downloaded earlier':doing[stage.name]}…</p>
+  {resuming&&<p className="sk-meta">A save that was interrupted picks up where it stopped. First it reads back what was already downloaded, to confirm every byte, then downloads only the rest.</p>}
   <p className="sk-meta">{[percent!==null&&`${percent}%`,amount,left,speed].filter(Boolean).join(' · ')||'Starting…'}</p>
   {stage.name!=='download'&&<p className="sk-meta">Before the copy is kept, every file is checked against its recorded hash, signed and stored in your Library. Files are moved into place, not copied, so no second copy is made, and each step reads the model once. You can leave this running.</p>}
  </>;
@@ -52,14 +53,16 @@ function Active({stage,index,count}:{stage:SaveStage;index:number;count:number})
 
 /** Every stage of a save, each with its own ring and percentage, the active
  *  one explained: "Step 2 of 4 … 40% · about 6 min left". */
-export function StageRings({stages}:{stages:SaveStage[]}){
+export function StageRings({stages,phase}:{stages:SaveStage[];phase?:string|null}){
  const index=stages.findIndex(stage=>stage.state==='active');
  return <div className="sk-stages">
   <ol aria-label="Progress by stage">{stages.map((stage,i)=>{const value=percentOf(stage);return <li key={stage.name} data-state={stage.state} aria-current={stage.state==='active'?'step':undefined}>
    <span role="progressbar" aria-label={names[stage.name]} aria-valuemin={0} aria-valuemax={100} aria-valuenow={value??undefined} aria-valuetext={stage.state==='done'?'Done':stage.state==='waiting'?'Waiting':value!==null?`${value}%`:'In progress'}><Ring stage={stage} index={i} percent={value}/></span>
    <span className="sk-stage-name">{names[stage.name]}</span>
   </li>;})}</ol>
-  {index>=0?<Active key={stages[index].name} stage={stages[index]} index={index} count={stages.length}/>
+  {index>=0?(()=>{const resuming=stages[index].name==='download'&&phase==='resuming';
+   // Keyed by what it is doing too, so the rate starts again after the re-check.
+   return <Active key={stages[index].name+(resuming?':resuming':'')} stage={stages[index]} index={index} count={stages.length} resuming={resuming}/>;})()
    :<p className="sk-stage" role="status">Waiting for earlier work to finish…</p>}
  </div>;
 }

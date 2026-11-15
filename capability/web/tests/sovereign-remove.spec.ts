@@ -77,6 +77,13 @@ test('a save shows every stage as a ring with its percentage, and which one is r
   await expect(ring('Final check')).toContainText('4');
   await expect(tile.getByText('Step 1 of 4: Downloading the files from their source…')).toBeVisible();
   await expect(tile.getByText(/^20% · 5\.6 GB of 27\.9 GB/)).toBeVisible();
+  // A resumed save first reads back what it already downloaded: said plainly, with its own count.
+  state.jobs=[{...working,stage:'resuming',stages:stages(0,3_000_000_000,size)}];
+  await expect(tile.getByText('Step 1 of 4: Checking the part downloaded earlier…')).toBeVisible({timeout:10_000});
+  await expect(tile.getByText(/2\.8 GB of 27\.9 GB checked/)).toBeVisible();
+  await expect(tile.getByText(/reads back what was already downloaded/)).toBeVisible();
+  state.jobs=[{...working,stages:stages(0,6_000_000_000,size)}];
+  await expect(tile.getByText('Step 1 of 4: Downloading the files from their source…')).toBeVisible({timeout:10_000});
   // The case that looked stuck: downloaded, then checking every file.
   state.jobs=[{...working,stages:stages(1,2*size,5*size)}];
   await expect(tile.getByText('Step 2 of 4: Checking every file against its recorded hash and signing the copy…')).toBeVisible({timeout:10_000});
