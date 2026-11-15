@@ -6,6 +6,10 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Help keep models available also shares your shared models over BitTorrent,
+  one file at a time, so people can download them even when this computer
+  can't be reached directly. The panel says how many files it shares that way.
+
 - Install docs point at the public 0.36 cohort: core 0.36.0, Library 0.32.0,
   Mac build 19, Linux revision 14 (guided setup 0.1.12, graphical setup 0.1.14)
   and `sovereign-mirror:0.36.0`.

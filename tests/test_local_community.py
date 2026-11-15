@@ -1081,7 +1081,10 @@ def test_seeding_on_pirate_face_restarts_serving_with_the_new_choice(
         )
         wait_for(lambda: served(port, identity) == 200)
         ledger = MirrorLedger(home / "sharing/community/mirror")
-        assert ledger.read().native_policy is None
+        # Sharing shares files as Sovereign's own torrents; Pirate Face waits
+        # for its own choice.
+        native = ledger.read().native_policy
+        assert native is not None and native.file_torrents and not native.pirate_face
         view = owner.control("community-configure", {"seed_pirate_face": True})
         assert view["policy"]["seed_pirate_face"] is True
         wait_for(

@@ -11,7 +11,7 @@ interface Policy {enabled:boolean;share:'eligible'|'chosen';licenses:string[];ch
 interface PirateFaceStatus {available:boolean;on:boolean;checked:number;listed:number;matched:number;seeding:number;differs:number}
 interface Reachability {status:'public_address'|'private_network'|'offline';local_address:string|null;port:number;mirror_url:string|null}
 type Reason='awaiting_review'|'address_invalid'|'turned_off'|'not_sharing'|'dht_unavailable'|'nothing_shared'|'no_reachable_address'|'address_not_plain_http'|'no_relays';
-export interface Community {policy:Policy;consented:boolean;default_licenses:string[];licence_families?:LicenceDefinition;copies:CommunityCopy[];sharing_count:number;running:boolean;http_port:number|null;reachability:Reachability;last_error:string|null;bucket:BucketSummary|null;bucket_providers:BucketProvider[];uploaded_today_bytes?:number;uploaded_this_month_bytes?:number;dht_available?:boolean;dht_announcing?:boolean;nostr_publishing?:boolean;announce_reasons?:{dht:Reason[];nostr:Reason[]};announce_review_required?:boolean;address_invalid?:boolean;pirate_face?:PirateFaceStatus}
+export interface Community {torrent_files?:number;policy:Policy;consented:boolean;default_licenses:string[];licence_families?:LicenceDefinition;copies:CommunityCopy[];sharing_count:number;running:boolean;http_port:number|null;reachability:Reachability;last_error:string|null;bucket:BucketSummary|null;bucket_providers:BucketProvider[];uploaded_today_bytes?:number;uploaded_this_month_bytes?:number;dht_available?:boolean;dht_announcing?:boolean;nostr_publishing?:boolean;announce_reasons?:{dht:Reason[];nostr:Reason[]};announce_review_required?:boolean;address_invalid?:boolean;pirate_face?:PirateFaceStatus}
 type CheckOutcome='too_slow'|'this_mirror'|'other_mirror'|'no_card'|'not_a_mirror'|'http_error'|'private_address'|'unreachable';
 interface AddressCheck {address:string;outcome:CheckOutcome;http_status:number|null}
 
@@ -88,6 +88,7 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
  const pirateStep=(n:number)=>pf&&<Step n={n} title="Pirate Face">
    <Announce checked={pirate&&pf.available} disabled={!pf.available} onChange={setPirate} title="Also seed on Pirate Face">Looks up each shared model on Pirate Face (pirateface.co). Where its torrent holds exactly the files this computer shares, this computer seeds it too, straight from those files: no second copy. Every piece is checked against them first, and nothing is ever downloaded. Peers in the public BitTorrent swarm see this computer’s address, and your upload limits apply.{!pf.available&&' This copy of Sovereign doesn’t include the BitTorrent component, so this can’t be turned on.'}</Announce>
   </Step>;
+ const torrentRow=(state.torrent_files??0)>0&&<Row k="BitTorrent">{state.torrent_files===1?'Sharing 1 file':`Sharing ${state.torrent_files} files`}, so people can download even when this computer can’t be reached directly</Row>;
  const pirateRow=pf&&policy.seed_pirate_face&&<Row k="Pirate Face">{!pf.available?'Can’t seed: this copy of Sovereign doesn’t include the BitTorrent component':pf.checked===0?'Looking up your shared models…':`Seeding ${pf.seeding} of ${pf.matched} matching ${pf.matched===1?'torrent':'torrents'} · ${pf.listed} of ${pf.checked} looked-up ${pf.checked===1?'model':'models'} listed`}{pf.differs>0&&` · ${pf.differs} listed with different files, not seeded`}</Row>;
  const findable=<ul className="sk-community-announce" aria-label="How people find this mirror">
   <li>{state.dht_announcing?'Announced on the BitTorrent DHT. Anyone can look up this computer’s address there as a Sovereign mirror.':`Not announced on the BitTorrent DHT: ${why(reasons.dht,dhtWhy)}.`}</li>
@@ -126,6 +127,7 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
    {state.announce_reasons&&findable}
    <Row k="Shares">{policy.share==='eligible'?'Every backup whose licence is on your list':'Only the backups you choose'}</Row>
    <Row k="Licences">{describeLicences(policy.licenses,state.licence_families)}</Row>
+   {torrentRow}
    {pirateRow}
    <Row k="Uploaded today">{bytes(state.uploaded_today_bytes??0)}{policy.daily_upload_bytes===null?' · no limit':<> of {bytes(policy.daily_upload_bytes)}</>}</Row>
    <Row k="Uploaded this month">{bytes(state.uploaded_this_month_bytes??0)}{policy.monthly_upload_bytes===null?' · no limit':<> of {bytes(policy.monthly_upload_bytes)}</>}</Row>
@@ -164,6 +166,7 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
    {pirateStep(4)}
    <Step n={pf?5:4} title="What others can see">
     <p>Anyone who connects can download the shared models and will see this computer’s network address. Direct sharing isn’t anonymous or encrypted.</p>
+    <p>Shared models are also shared over BitTorrent, one file at a time, so people can download them even when this computer can’t be reached directly. People downloading through BitTorrent see this computer’s network address too.</p>
     <UploadLimits daily={limits[0]} monthly={limits[1]} onChange={(daily,monthly)=>setLimits([daily,monthly])}/>
     <Row k="Port">{policy.port}</Row>
     <p>Sharing keeps running after you restart this computer, for one year, then asks again. Turn it off at any time.</p>

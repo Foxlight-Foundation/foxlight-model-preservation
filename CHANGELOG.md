@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Sovereign's own torrents, one per stored file: the same file gives the same
+  torrent on every computer (name = its SHA-256 plus extension, piece size from
+  its size alone, BitTorrent hybrid v1 + v2), so everyone holding it joins one
+  swarm whatever else they saved. Mirrors build them by reading each stored file
+  in place once, share them from the stored files in one upload-only session
+  (no rate limit; egress reserved from the existing daily/monthly allowance,
+  pausing when it is reached), and list them in their signed `torrents.json`
+  (`"source": "sovereign"`, with the file's SHA-256). Desktop sharing turns this
+  on with its consent; the mirror state moves to v8 so older apps refuse it.
+
 - Find reads the torrents community mirrors list (their signed `torrents.json`,
   kept only when the mirror's own card key signed it). A copy a mirror keeps
   and also shares as a torrent gets that swarm as one more source, after

@@ -115,3 +115,29 @@ def no_origin_retry_pauses(monkeypatch):
     from foxlight_model_preservation.local_host import owner
 
     monkeypatch.setattr(owner, "_pause", lambda *args: None)
+
+
+@pytest.fixture(autouse=True)
+def _file_sharing_stays_local(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Per-file sharing sessions in tests never join the public DHT or a router."""
+    from foxlight_model_preservation import sovereign_torrents
+
+    real = sovereign_torrents.FileSharer
+    local: dict[str, str | int | bool] = {
+        "listen_interfaces": "127.0.0.1:0",
+        "enable_dht": False,
+        "enable_lsd": False,
+        "enable_upnp": False,
+        "enable_natpmp": False,
+    }
+
+    class LocalSharer(real):  # type: ignore[misc, valid-type]
+        def __init__(self, home, *, open_router, upload_rate=0, settings=None):  # type: ignore[no-untyped-def]
+            super().__init__(
+                home,
+                open_router=False,
+                upload_rate=upload_rate,
+                settings={**(settings or {}), **local},
+            )
+
+    monkeypatch.setattr(sovereign_torrents, "FileSharer", LocalSharer)

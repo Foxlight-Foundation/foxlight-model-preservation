@@ -165,3 +165,67 @@ def test_a_shared_file_reaches_a_downloader_and_is_never_written(
     finally:
         sharer.close()
         downloader.pause()
+
+
+def test_a_mirror_shares_and_lists_every_file_of_a_held_copy(
+    tmp_path: Path, capture
+) -> None:
+    from test_mirror import cycle, mirror
+
+    from foxlight_model_preservation.mirror_native import NativeMirrors, configure
+    from foxlight_model_preservation.mirror_state import MirrorLedger
+    from foxlight_model_preservation.sovereign_torrents import held_files, listed
+    from foxlight_model_preservation.storage import object_path
+
+    ledger, _ = mirror(tmp_path, capture)
+    cycle(ledger)
+    configure(ledger, file_torrents=True)
+    assert ledger.read().schema_version == "foxlight.mirror-state.v8"
+    files = held_files(ledger.path / "store", capture.identity)
+    assert files
+    manager = NativeMirrors(
+        MirrorLedger(ledger.path), lambda _state: True, file_settings=LAB
+    )
+    engine = torrent_engine()
+    downloader = engine.session(LAB)
+    try:
+        end = time.monotonic() + 60
+        while time.monotonic() < end:
+            manager.tick()
+            if manager.files and manager.files.status()["files"] == len(
+                {sha for sha, _size, _path in files}
+            ):
+                break
+            time.sleep(0.2)
+        assert manager.files is not None
+        assert manager.files.status()["files"] == len({sha for sha, _s, _p in files})
+        entries = listed(ledger, {capture.identity})
+        assert {entry.object for entry in entries} == {sha for sha, _s, _p in files}
+        assert all(entry.source == "sovereign" for entry in entries)
+        # A peer fetches one file through its torrent and gets the stored bytes.
+        sha256, size, path = max(files, key=lambda item: item[1])
+        torrent = manager.files.cache.get(sha256, size, path)
+        assert torrent is not None
+        fetched = tmp_path / "fetched"
+        handle = downloader.add_torrent(
+            {
+                "ti": engine.torrent_info(engine.bdecode(torrent.data)),
+                "save_path": str(fetched),
+            }
+        )
+        assert manager.files.sharer is not None
+        handle.connect_peer(("127.0.0.1", manager.files.sharer.port()))
+        end = time.monotonic() + 30
+        while not handle.status().is_seeding and time.monotonic() < end:
+            time.sleep(0.1)
+        stored = (ledger.path / "store" / object_path(sha256)).read_bytes()
+        assert (fetched / torrent.name).read_bytes() == stored
+        # Turning it off stops sharing and listing; built torrents are kept.
+        configure(ledger, file_torrents=False)
+        manager.tick()
+        assert manager.files.status()["files"] == 0
+        assert listed(ledger, {capture.identity}) == []
+        assert manager.files.cache.get(sha256, size, path) is not None
+    finally:
+        manager.close()
+        downloader.pause()

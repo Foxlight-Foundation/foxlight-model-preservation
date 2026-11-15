@@ -533,3 +533,12 @@ test('a core without BitTorrent shows Pirate Face seeding but cannot turn it on'
  await expect(page.getByRole('checkbox',{name:/Also seed on Pirate Face/})).toBeDisabled();
  await expect(page.getByText('so this can’t be turned on',{exact:false})).toBeVisible();
 });
+
+test('sharing explains BitTorrent and says how many files it shares that way',async({page})=>{
+ await page.route('**/api/desktop-community-read',r=>r.fulfill({json:{...view(true),torrent_files:3}}));
+ await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();
+ const panel=page.getByRole('region',{name:'Help keep models available'});
+ await expect(panel.getByText('Sharing 3 files, so people can download even when this computer can’t be reached directly',{exact:true})).toBeVisible();
+ await panel.getByRole('button',{name:'Change what’s shared',exact:true}).click();
+ await expect(page.getByText('Shared models are also shared over BitTorrent, one file at a time',{exact:false})).toBeVisible();
+});

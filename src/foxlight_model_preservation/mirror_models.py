@@ -19,6 +19,7 @@ StateVersion = Literal[
     "foxlight.mirror-state.v5",
     "foxlight.mirror-state.v6",
     "foxlight.mirror-state.v7",
+    "foxlight.mirror-state.v8",
 ]
 _VERSIONS: tuple[StateVersion, ...] = get_args(StateVersion)
 
@@ -374,6 +375,12 @@ class MirrorState(Record):
             self.schema_version, "foxlight.mirror-state.v7"
         ):
             raise PreservationError("Pirate Face seeding requires state v7")
+        if needs_v8(self) and not reached(
+            self.schema_version, "foxlight.mirror-state.v8"
+        ):
+            raise PreservationError(
+                "per-file sharing or router forwarding requires state v8"
+            )
         if self.pirate_face and self.native_policy is None:
             raise PreservationError("Pirate Face seeding requires its native policy")
         return self
@@ -396,18 +403,32 @@ def needs_v7(state: MirrorState) -> bool:
     )
 
 
+def needs_v8(state: MirrorState) -> bool:
+    """Whether a state shares per-file torrents or forwards a router port."""
+    native = state.native_policy
+    return native is not None and (native.file_torrents or native.map_ports)
+
+
 def withheld(state: MirrorState, identity: str) -> bool:
     """Whether the standing intake policy keeps this exact identity back."""
     return state.intake is not None and identity in state.intake.withheld
 
 
 def upgrade_profile(state: MirrorState) -> MirrorState:
-    """Raise the profile to v6 or v7 when needed, so older readers refuse it.
+    """Raise the profile to v6, v7 or v8 when needed, so older readers refuse it.
 
     Older releases accept only the versions they know and reject unknown
     fields, so they refuse a newer ledger outright instead of misreading "no
     cap", ignoring a standing intake policy or seeding without the choice.
     """
+    if needs_v8(state):
+        return state.model_copy(
+            update={
+                "schema_version": at_least(
+                    state.schema_version, "foxlight.mirror-state.v8"
+                )
+            }
+        )
     if needs_v7(state):
         return state.model_copy(
             update={
