@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Downloading to a drive formatted exFAT (common for external drives) no
+  longer makes the app flash "Sovereign on this computer isn't responding".
+  Progress read the download's size on every refresh, and on exFAT under macOS
+  that waits for the download's own writes, a second or two each time, until
+  the window gave up. Progress now uses the size last read in the background.
+
 - Sharing from home: while sharing is on, the app asks the home router to
   forward the mirror's port (UPnP / NAT-PMP, through libtorrent's own port
   mapping), as the sharing consent now says. **Ask my router to open port …**

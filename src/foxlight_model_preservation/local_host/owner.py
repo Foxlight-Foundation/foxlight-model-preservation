@@ -200,6 +200,48 @@ def _size(path: Path) -> int:
         return 0
 
 
+class _BufferSizes:
+    """Sizes of download buffers, read off the path that answers the window.
+
+    On some drives (exFAT on macOS) asking a file's size waits for a write in
+    progress, often a second or two each time, so progress views never ask
+    themselves: they take the size last read, and one background read per file
+    fetches the next. A file seen for the first time is waited on briefly.
+    """
+
+    FIRST_READ_SECONDS = 0.25
+    MAX_FILES = 256
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._known: dict[Path, int] = {}
+        self._reading: dict[Path, threading.Event] = {}
+
+    def size(self, path: Path) -> int:
+        with self._lock:
+            known = self._known.get(path)
+            done = self._reading.get(path)
+            if done is None:
+                done = self._reading[path] = threading.Event()
+                threading.Thread(
+                    target=self._read, args=(path, done), daemon=True
+                ).start()
+        if known is None:
+            done.wait(self.FIRST_READ_SECONDS)
+            with self._lock:
+                known = self._known.get(path)
+        return known or 0
+
+    def _read(self, path: Path, done: threading.Event) -> None:
+        size = _size(path)
+        with self._lock:
+            if len(self._known) >= self.MAX_FILES and path not in self._known:
+                self._known.clear()
+            self._known[path] = size
+            del self._reading[path]
+        done.set()
+
+
 def _pause(control: OperationControl, deadline: float, seconds: float) -> None:
     """Wait before a retry, still honouring cancellation and the deadline."""
     end = min(time.monotonic() + seconds, deadline)
@@ -270,6 +312,7 @@ class LocalOwner:
             # Per running save: bytes of finished files, and the resume buffer
             # of the file in progress (its size is what is kept so far).
             self._kept: dict[str, tuple[int, Path | None]] = {}
+            self._buffer_sizes = _BufferSizes()
             # The finishing stage a downloaded save is in, after its download.
             self._finishing: dict[str, str] = {}
             # A save's own stage list when it differs from its kind's, and
@@ -857,7 +900,11 @@ class LocalOwner:
         if job.state not in {"queued", "running"} or job.job_id not in self._kept:
             return None
         finished, partial = self._kept[job.job_id]
-        return finished + (_size(partial) if partial is not None else 0)
+        if partial is None:
+            return finished
+        # Never read on this path: on some drives it waits for the download's
+        # own writes, and the window gives up on answers that take too long.
+        return finished + self._buffer_sizes.size(partial)
 
     def _follow_fetch(
         self, job_id: str, previous: Progress | None, snapshot: Progress
