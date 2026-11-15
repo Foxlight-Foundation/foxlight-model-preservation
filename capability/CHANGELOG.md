@@ -9,6 +9,10 @@ tagged `library-v*`; versions without a tag are source previews installed from
 - Help keep models available also shares your shared models over BitTorrent,
   one file at a time, so people can download them even when this computer
   can't be reached directly. The panel says how many files it shares that way.
+- Help keep models available asks your router to open the sharing port, so
+  people outside your network can download from this computer. It's in the
+  consent, with a switch to turn it off, and the status says whether the router
+  agreed.
 
 - Install docs point at the public 0.36 cohort: core 0.36.0, Library 0.32.0,
   Mac build 19, Linux revision 14 (guided setup 0.1.12, graphical setup 0.1.14)

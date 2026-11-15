@@ -11,6 +11,18 @@
   pausing when it is reached), and list them in their signed `torrents.json`
   (`"source": "sovereign"`, with the file's SHA-256). Desktop sharing turns this
   on with its consent; the mirror state moves to v8 so older apps refuse it.
+- Sharing from home: while sharing is on, the app asks the home router to
+  forward the mirror's port (UPnP / NAT-PMP, through libtorrent's own port
+  mapping), as the sharing consent now says. **Ask my router to open port …**
+  turns it off. When the router agrees, the mirror publishes the router's
+  outside address and forwarded port, and announces that port on the DHT; a
+  refusal, or a provider-shared address (carrier-grade NAT), is said plainly
+  and nothing is published. An owner who turned DHT announcements off doesn't
+  join the DHT for this. Someone already sharing before this change was told
+  the router is never changed, so nothing is forwarded until they choose it in
+  the sharing settings. Only a TCP mapping of exactly the mirror's port counts
+  (libtorrent's own listener mappings are never published). Tests never touch
+  a real router.
 
 - Find reads the torrents community mirrors list (their signed `torrents.json`,
   kept only when the mirror's own card key signed it). A copy a mirror keeps

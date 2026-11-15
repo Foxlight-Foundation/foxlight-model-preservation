@@ -77,14 +77,17 @@ test('one switch shares every eligible backup after a single standing consent',a
  // Upload limits are off unless the owner turns them on.
  await expect(page.getByRole('switch',{name:/^Limit uploads/})).not.toBeChecked();
  await expect(page.getByText('No upload limit. Uploads are counted',{exact:false})).toBeVisible();
- await page.getByRole('checkbox',{name:'Keep sharing these models from this computer until I turn it off, and announce it publicly on the BitTorrent DHT and 2 Nostr relays.'}).check();
+ // Asking the router to open the port is part of sharing, on unless turned off.
+ await expect(page.getByRole('switch',{name:'Ask my router to open port 8743'})).toBeChecked();
+ await expect(page.getByText('(UPnP / NAT-PMP)',{exact:false})).toBeVisible();
+ await page.getByRole('checkbox',{name:'Keep sharing these models from this computer until I turn it off, and announce it publicly on the BitTorrent DHT and 2 Nostr relays, and ask my router to open port 8743.'}).check();
  await sent(page,start,'desktop-community-configure');
  const copyleft=familyIds('copyleft');
  const chosen=new Set([...defaults.filter(item=>!copyleft.includes(item)&&item!=='llama4'),'grok2-community']);
- expect(configured).toEqual({enabled:true,consent:true,share:'eligible',licenses:order.filter(item=>chosen.has(item)),public_url:null,announce_dht:true,publish_nostr:true,announce_disclosure:1});
+ expect(configured).toEqual({enabled:true,consent:true,share:'eligible',licenses:order.filter(item=>chosen.has(item)),open_router_port:true,public_url:null,announce_dht:true,publish_nostr:true,announce_disclosure:1});
  await expect(page.locator('#sovereign-main')).not.toHaveAttribute('inert','');
  await expect(panel.getByText('Sharing 1 model',{exact:true})).toBeVisible();
- // Reachability is stated plainly; the router is never changed.
+ // Reachability is stated plainly.
  await expect(panel.getByText('behind a router',{exact:false})).toBeVisible();
  await expect(panel.getByText('http://192.168.1.20:8743',{exact:true})).toBeVisible();
  await sent(page,panel.getByRole('button',{name:'Turn off',exact:true}),'desktop-community-configure');
@@ -511,7 +514,7 @@ test('seeding on Pirate Face is off until chosen, disclosed, and reported plainl
  await expect(page.getByText('straight from those files: no second copy',{exact:false})).toBeVisible();
  await expect(page.getByText('Peers in the public BitTorrent swarm see this computer’s address',{exact:false})).toBeVisible();
  await seed.check();
- await page.getByRole('checkbox',{name:/, and seed matching Pirate Face torrents\.$/}).check();
+ await page.getByRole('checkbox',{name:/, and seed matching Pirate Face torrents, and ask my router to open port 8743\.$/}).check();
  await seed.scrollIntoViewIfNeeded();
  await page.screenshot({path:info.outputPath('community-sheet-pirate-face.png')});
  await sent(page,page.getByRole('button',{name:'Start sharing',exact:true}),'desktop-community-configure');
@@ -541,4 +544,44 @@ test('sharing explains BitTorrent and says how many files it shares that way',as
  await expect(panel.getByText('Sharing 3 files, so people can download even when this computer can’t be reached directly',{exact:true})).toBeVisible();
  await panel.getByRole('button',{name:'Change what’s shared',exact:true}).click();
  await expect(page.getByText('Shared models are also shared over BitTorrent, one file at a time',{exact:false})).toBeVisible();
+});
+
+test('someone sharing from before the router choice is asked, not forwarded',async({page})=>{
+ let configured:Record<string,unknown>|null=null;
+ const legacy=()=>{const value=view(true);return {...value,policy:{...value.policy,open_router_port:null}};};
+ await page.route('**/api/desktop-community-read',r=>r.fulfill({json:legacy()}));
+ await page.route('**/api/desktop-community-configure',r=>{configured=r.request().postDataJSON();return r.fulfill({json:legacy()});});
+ await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();
+ const panel=page.getByRole('region',{name:'Help keep models available'});
+ await expect(panel.getByText('Sovereign can ask your router to open port 8743 so people outside can download',{exact:false})).toBeVisible();
+ await panel.getByRole('button',{name:'Change what’s shared',exact:true}).click();
+ await expect(page.getByRole('switch',{name:'Ask my router to open port 8743'})).toBeChecked();
+ await page.getByRole('checkbox',{name:/, and ask my router to open port 8743\.$/}).check();
+ await sent(page,page.getByRole('button',{name:'Save changes',exact:true}),'desktop-community-configure');
+ // Saving records the choice that was never made before.
+ expect(configured).toMatchObject({open_router_port:true});
+});
+
+test('the router choice can be turned off, and what the router did is said plainly',async({page})=>{
+ let configured:Record<string,unknown>|null=null,reachability:Record<string,unknown>={...reach,router:{asked:true,external_port:null,error:null}};
+ await page.route('**/api/desktop-community-read',r=>r.fulfill({json:view(true,{reachability})}));
+ await page.route('**/api/desktop-community-configure',r=>{configured=r.request().postDataJSON();return r.fulfill({json:view(true,{reachability})});});
+ await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();
+ const panel=page.getByRole('region',{name:'Help keep models available'});
+ await expect(panel.getByText('Asking your router to open port 8743…',{exact:false})).toBeVisible();
+ reachability={...reach,status:'router_opened',mirror_url:'http://93.184.216.34:41000',router:{asked:true,external_port:41000,error:null}};
+ await expect(panel.getByText('Your router opened port 41000 for this computer.',{exact:false})).toBeVisible({timeout:10_000});
+ await expect(panel.getByText('http://93.184.216.34:41000',{exact:true})).toBeVisible();
+ reachability={...reach,status:'carrier_nat',mirror_url:null,router:{asked:true,external_port:41000,error:null}};
+ await expect(panel.getByText('your internet provider shares one public address',{exact:false})).toBeVisible({timeout:10_000});
+ reachability={...reach,router:{asked:true,external_port:null,error:'no router answered'}};
+ await expect(panel.getByText('Your router didn’t agree to open port 8743 (no router answered).',{exact:false})).toBeVisible({timeout:10_000});
+ // Turning it off is sent only as a change, and the consent no longer mentions it.
+ await panel.getByRole('button',{name:'Change what’s shared',exact:true}).click();
+ const ask=page.getByRole('switch',{name:'Ask my router to open port 8743'});
+ await ask.uncheck();
+ await expect(page.getByRole('checkbox',{name:/ask my router/})).toHaveCount(0);
+ await page.getByRole('checkbox',{name:/^Keep sharing these models/}).check();
+ await sent(page,page.getByRole('button',{name:'Save changes',exact:true}),'desktop-community-configure');
+ expect(configured).toMatchObject({open_router_port:false});
 });

@@ -160,3 +160,24 @@ def _file_receiving_stays_local(monkeypatch: pytest.MonkeyPatch) -> None:
             super().__init__(files, staging, settings=settings, **kwargs)
 
     monkeypatch.setattr(sovereign_torrents, "FileSwarmReceiver", LocalReceiver)
+
+
+@pytest.fixture(autouse=True)
+def _never_open_a_real_router(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests never ask a real home router to forward a port.
+
+    The rendezvous keeps the requested port (so code that compares it behaves
+    as in use), but its session never turns UPnP / NAT-PMP on.
+    """
+    from foxlight_model_preservation import mirror_rendezvous
+    from foxlight_model_preservation.local_host import community
+
+    real = mirror_rendezvous.Rendezvous
+
+    class NoRouter(real):  # type: ignore[misc, valid-type]
+        def __init__(self, **kwargs: object) -> None:
+            wanted = kwargs.pop("open_port", None)
+            super().__init__(**kwargs)  # type: ignore[arg-type]
+            self.open_port = wanted  # type: ignore[assignment]
+
+    monkeypatch.setattr(community, "Rendezvous", NoRouter)

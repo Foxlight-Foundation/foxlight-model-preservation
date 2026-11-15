@@ -7,9 +7,9 @@ import {Announce,LicenceFamilies,LicenceList,ShareChoice,UploadLimits,describeLi
 
 type Status='sharing'|'eligible'|'failed'|'withheld'|'not_chosen'|'license_not_selected'|'no_license'|'unsupported';
 interface CommunityCopy {copy_id:string;name:string;size_bytes:number;status:Status;licenses:string[];public_manifest_id:string|null;error_code?:string|null}
-interface Policy {enabled:boolean;share:'eligible'|'chosen';licenses:string[];chosen:string[];withheld:string[];daily_upload_bytes:number|null;monthly_upload_bytes:number|null;port:number;consent_expires:number|null;public_url?:string|null;announce_dht?:boolean;publish_nostr?:boolean;nostr_relays?:string[];seed_pirate_face?:boolean}
+interface Policy {enabled:boolean;share:'eligible'|'chosen';licenses:string[];chosen:string[];withheld:string[];daily_upload_bytes:number|null;monthly_upload_bytes:number|null;port:number;consent_expires:number|null;public_url?:string|null;announce_dht?:boolean;publish_nostr?:boolean;nostr_relays?:string[];seed_pirate_face?:boolean;open_router_port?:boolean|null}
 interface PirateFaceStatus {available:boolean;on:boolean;checked:number;listed:number;matched:number;seeding:number;differs:number}
-interface Reachability {status:'public_address'|'private_network'|'offline';local_address:string|null;port:number;mirror_url:string|null}
+interface Reachability {status:'public_address'|'router_opened'|'carrier_nat'|'private_network'|'offline';local_address:string|null;port:number;mirror_url:string|null;router?:{asked:boolean;external_port:number|null;error:string|null}}
 type Reason='awaiting_review'|'address_invalid'|'turned_off'|'not_sharing'|'dht_unavailable'|'nothing_shared'|'no_reachable_address'|'address_not_plain_http'|'no_relays';
 export interface Community {torrent_files?:number;policy:Policy;consented:boolean;default_licenses:string[];licence_families?:LicenceDefinition;copies:CommunityCopy[];sharing_count:number;running:boolean;http_port:number|null;reachability:Reachability;last_error:string|null;bucket:BucketSummary|null;bucket_providers:BucketProvider[];uploaded_today_bytes?:number;uploaded_this_month_bytes?:number;dht_available?:boolean;dht_announcing?:boolean;nostr_publishing?:boolean;announce_reasons?:{dht:Reason[];nostr:Reason[]};announce_review_required?:boolean;address_invalid?:boolean;pirate_face?:PirateFaceStatus}
 type CheckOutcome='too_slow'|'this_mirror'|'other_mirror'|'no_card'|'not_a_mirror'|'http_error'|'private_address'|'unreachable';
@@ -51,7 +51,7 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
  const [setup,setSetup]=useState<false|'all'|'announce'>(false),[agreed,setAgreed]=useState(false),[share,setShare]=useState<'eligible'|'chosen'>('eligible');
  const [licenses,setLicenses]=useState<string[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const [limits,setLimits]=useState<[number|null,number|null]>([null,null]);
- const [address,setAddress]=useState(''),[dht,setDht]=useState(true),[nostr,setNostr]=useState(true),[pirate,setPirate]=useState(false);
+ const [address,setAddress]=useState(''),[dht,setDht]=useState(true),[nostr,setNostr]=useState(true),[pirate,setPirate]=useState(false),[router,setRouter]=useState(true);
  const [checking,setChecking]=useState(false),[check,setCheck]=useState<AddressCheck|null>(null);
  const live=useRef(true);
  useEffect(()=>{live.current=true;return()=>{live.current=false;};},[]);
@@ -63,7 +63,7 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
  const refresh=useCallback(async()=>{try{const value=await api<Community>('desktop-community-read',{});if(live.current){loaded.current=true;setState(value);setUnavailable(false);}}catch{if(live.current&&!loaded.current)setUnavailable(true);}},[]);
  useEffect(()=>{void refresh();const timer=setInterval(()=>void refresh(),5000);return()=>clearInterval(timer);},[refresh,version]);
  async function act(action:string,body:Record<string,unknown>){setBusy(true);setError('');try{const value=await api<Community>(action,body);if(live.current)setState(value);return true;}catch(err){if(live.current)setError(err instanceof Error?err.message:'host_unavailable');return false;}finally{if(live.current)setBusy(false);}}
- function open(mode:'all'|'announce'='all'){if(!state)return;setLicenses(state.policy.licenses);setShare(state.policy.share);setLimits([state.policy.daily_upload_bytes,state.policy.monthly_upload_bytes]);setAddress(state.policy.public_url??'');setDht(state.policy.announce_dht??true);setNostr(state.policy.publish_nostr??true);setPirate(state.policy.seed_pirate_face??false);setAgreed(false);setError('');setSetup(mode);}
+ function open(mode:'all'|'announce'='all'){if(!state)return;setLicenses(state.policy.licenses);setShare(state.policy.share);setLimits([state.policy.daily_upload_bytes,state.policy.monthly_upload_bytes]);setAddress(state.policy.public_url??'');setDht(state.policy.announce_dht??true);setNostr(state.policy.publish_nostr??true);setPirate(state.policy.seed_pirate_face??false);setRouter(state.policy.open_router_port??true);setAgreed(false);setError('');setSetup(mode);}
  // What people find is chosen with its disclosure on screen; sending the
  // disclosure version records that the owner saw it (with the consent, or later).
  const findChoices=()=>({public_url:address.trim()||null,announce_dht:dht,publish_nostr:nostr,announce_disclosure:1});
@@ -71,7 +71,10 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
  const limitsChanged=()=>!state||limits[0]!==state.policy.daily_upload_bytes||limits[1]!==state.policy.monthly_upload_bytes;
  // Sent only when changed: turning it on or off restarts serving briefly.
  const pirateChanged=()=>!!state&&pirate!==(state.policy.seed_pirate_face??false);
- const choices=()=>({share,licenses,...(limitsChanged()?{daily_upload_bytes:limits[0],monthly_upload_bytes:limits[1]}:{}),...(pirateChanged()?{seed_pirate_face:pirate}:{}),...findChoices()});
+ // Sent whenever it differs from what's recorded, including never chosen yet:
+ // forwarding happens only after an explicit choice.
+ const routerChanged=()=>!!state&&router!==state.policy.open_router_port;
+ const choices=()=>({share,licenses,...(limitsChanged()?{daily_upload_bytes:limits[0],monthly_upload_bytes:limits[1]}:{}),...(pirateChanged()?{seed_pirate_face:pirate}:{}),...(routerChanged()&&!address.trim()?{open_router_port:router}:{}),...findChoices()});
  async function turnOn(){if(await act('desktop-community-configure',{enabled:true,consent:true,...choices()}))setSetup(false);}
  async function checkAddress(){setChecking(true);setCheck(null);setError('');try{const value=await api<AddressCheck>('desktop-community-check-address',{});if(live.current)setCheck(value);}catch(err){if(live.current)setError(err instanceof Error?err.message:'host_unavailable');}finally{if(live.current)setChecking(false);}}
  if(unavailable||!state)return null;
@@ -102,12 +105,18 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
    <Announce checked={dht} onChange={setDht} title="Announce on the BitTorrent DHT">Publishes this computer’s public IP address and mirror port on the public BitTorrent DHT as a Sovereign mirror, so people with no other contacts can find it. Anyone can look it up, and it isn’t anonymous. It only happens while this computer is reachable from outside.{state.dht_available===false&&' This copy of Sovereign doesn’t include the BitTorrent component, so nothing is announced there for now.'}</Announce>
    <Announce checked={nostr} onChange={setNostr} title="Publish to Nostr relays">Publishes this mirror’s signed card, with this computer’s address (and your cloud storage address, if any), to {relays.length} public Nostr {relays.length===1?'relay':'relays'}{relays.length>0&&<> ({relays.map(item=>item.replace(/^wss:\/\//,'')).join(', ')})</>}. Anyone can read it, and it isn’t anonymous.</Announce>
   </Step>;
- const reach=reachability.status==='public_address'
+ const asked=reachability.router?.asked??false;
+ const routerNote=policy.public_url?'':asked?(reachability.router?.error?` Your router didn’t agree to open port ${reachability.port} (${reachability.router.error}).`:` Asking your router to open port ${reachability.port}…`):policy.open_router_port===false?' You chose not to let Sovereign ask your router to open a port.':` Sovereign can ask your router to open port ${reachability.port} so people outside can download: choose it in Change what’s shared.`;
+ const reach=reachability.status==='router_opened'
+  ?<Callout tone="ok">Your router opened port {reachability.router?.external_port} for this computer. People anywhere can download from <code>{reachability.mirror_url}</code>.</Callout>
+  :reachability.status==='carrier_nat'
+  ?<Callout tone="warn">Your router opened a port, but your internet provider shares one public address among many customers, so people outside still can’t reach this computer directly. People on your network can, and cloud storage below lets people anywhere download.</Callout>
+  :reachability.status==='public_address'
   ?<Callout tone="ok">This computer has a public address. People can download from <code>{reachability.mirror_url}</code> if your firewall allows connections on port {reachability.port}.</Callout>
   :reachability.status==='private_network'&&policy.public_url
-  ?<Callout tone="info">This computer is behind a router. People outside your network can reach it only through the public address below, if your router or proxy forwards it here. People on your network can use <code>{reachability.mirror_url}</code>. Sovereign never changes your router settings.</Callout>
+  ?<Callout tone="info">This computer is behind a router. People outside your network can reach it only through the public address below, if your router or proxy forwards it here. People on your network can use <code>{reachability.mirror_url}</code>.</Callout>
   :reachability.status==='private_network'
-  ?<Callout tone="warn">This computer is behind a router, so people outside your network can’t reach it directly yet. People on your network can use <code>{reachability.mirror_url}</code>. Sovereign never changes your router settings. Cloud storage below lets people anywhere download.</Callout>
+  ?<Callout tone="warn">This computer is behind a router, so people outside your network can’t reach it directly yet.{routerNote} People on your network can use <code>{reachability.mirror_url}</code>. Cloud storage below lets people anywhere download.</Callout>
   :<Callout tone="warn">This computer isn’t connected to a network right now. Sharing resumes when it is.</Callout>;
  return <section className="sk-card sk-community" aria-label="Help keep models available">
   <div className="sk-page-head"><div><h2>Help keep models available</h2><p>Let this computer serve verified copies of your backups to anyone who needs them. Every copy is checked byte for byte by whoever downloads it, so nobody has to trust this computer.</p></div>
@@ -140,7 +149,7 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
     </li>;})}</ul>
     <p>Keeping a backup back, or turning sharing off, only stops serving it. Nothing is deleted.</p>
    </Details>
-   <CloudStorage state={state} sharing behindRouter={reachability.status!=='public_address'} onState={value=>{if(live.current)setState(value);}}/>
+   <CloudStorage state={state} sharing behindRouter={!['public_address','router_opened'].includes(reachability.status)} onState={value=>{if(live.current)setState(value);}}/>
    <div className="sk-actions"><button className="sk-btn sk-outline" disabled={busy} onClick={()=>open()}>Change what’s shared</button><button className="sk-btn sk-outline" disabled={busy} onClick={()=>void act('desktop-community-configure',{enabled:false})}>Turn off</button></div>
   </>:<>
    <p>{eligible>0?`${eligible} ${eligible===1?'backup':'backups'} can be shared under the licences you’ve chosen.`:'Your backups join as soon as one has a licence you’ve chosen to share.'} Sharing uses almost no extra disk space: the mirror reuses your backup’s files.</p>
@@ -169,9 +178,11 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
     <p>Shared models are also shared over BitTorrent, one file at a time, so people can download them even when this computer can’t be reached directly. People downloading through BitTorrent see this computer’s network address too.</p>
     <UploadLimits daily={limits[0]} monthly={limits[1]} onChange={(daily,monthly)=>setLimits([daily,monthly])}/>
     <Row k="Port">{policy.port}</Row>
+    {!address.trim()&&<><label className="sk-switch"><input type="checkbox" role="switch" aria-checked={router} checked={router} onChange={event=>setRouter(event.target.checked)}/><span>Ask my router to open port {policy.port}</span></label>
+    <p className="sk-hint">So people outside your network can download, Sovereign asks your router to forward this port to this computer (UPnP / NAT-PMP) while sharing is on. Your router may not allow it, and nothing else on your network changes. Turn this off to leave your router exactly as it is.</p></>}
     <p>Sharing keeps running after you restart this computer, for one year, then asks again. Turn it off at any time.</p>
    </Step>
-   <Consent checked={agreed} onChange={setAgreed}>Keep sharing these models from this computer until I turn it off{announced.length?`, and announce it publicly on ${listed(announced)}`:', without announcing it publicly'}{pirate&&pf?.available?', and seed matching Pirate Face torrents':''}.</Consent>
+   <Consent checked={agreed} onChange={setAgreed}>Keep sharing these models from this computer until I turn it off{announced.length?`, and announce it publicly on ${listed(announced)}`:', without announcing it publicly'}{pirate&&pf?.available?', and seed matching Pirate Face torrents':''}{router&&!address.trim()?`, and ask my router to open port ${policy.port}`:''}.</Consent>
   </Sheet>,document.body)}
  </section>;
 }
