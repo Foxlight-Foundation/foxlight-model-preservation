@@ -535,7 +535,15 @@ class FileSharing:
             self._watch.join(timeout=5)
             self._watch = None
         if self.sharer is not None:
-            self.sharer.close()
+            sharer = self.sharer
+            sharer.close()  # nothing more goes out
+            # Bytes already sent but not yet charged (uncapped sharing charges
+            # in batches) are recorded, even when serving was just revoked.
+            owed = sharer.uploaded() - self._charged
+            if owed > 0:
+                with contextlib.suppress(PreservationError, OSError, ValueError):
+                    self.ledger.record_sent(owed)
+            self._charged = 0
             self.sharer = None
 
     def close(self) -> None:

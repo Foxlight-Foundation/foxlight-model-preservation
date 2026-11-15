@@ -546,6 +546,22 @@ test('sharing explains BitTorrent and says how many files it shares that way',as
  await expect(page.getByText('Shared models are also shared over BitTorrent, one file at a time',{exact:false})).toBeVisible();
 });
 
+test('someone sharing from before BitTorrent is asked before files go out that way',async({page})=>{
+ let configured:Record<string,unknown>|null=null;
+ const earlier=()=>{const value=view(true);return {...value,policy:{...value.policy,bittorrent_consent:false}};};
+ await page.route('**/api/desktop-community-read',r=>r.fulfill({json:earlier()}));
+ await page.route('**/api/desktop-community-configure',r=>{configured=r.request().postDataJSON();return r.fulfill({json:view(true,{policy:{...policy,enabled:true,consent_expires:2000000000,bittorrent_consent:true}})});});
+ await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();
+ const panel=page.getByRole('region',{name:'Help keep models available'});
+ await expect(panel.getByText('It stays off until you agree.',{exact:false})).toBeVisible();
+ await panel.getByRole('button',{name:'Review sharing over BitTorrent',exact:true}).click();
+ await expect(page.getByText('Shared models are also shared over BitTorrent, one file at a time',{exact:false})).toBeVisible();
+ await page.getByRole('checkbox',{name:/^Keep sharing these models/}).check();
+ await sent(page,page.getByRole('button',{name:'Save changes',exact:true}),'desktop-community-configure');
+ // Agreeing again is the consent that now covers BitTorrent.
+ expect(configured).toMatchObject({enabled:true,consent:true});
+});
+
 test('someone sharing from before the router choice is asked, not forwarded',async({page})=>{
  let configured:Record<string,unknown>|null=null;
  const legacy=()=>{const value=view(true);return {...value,policy:{...value.policy,open_router_port:null}};};

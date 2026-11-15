@@ -11,6 +11,9 @@
   pausing when it is reached), and list them in their signed `torrents.json`
   (`"source": "sovereign"`, with the file's SHA-256). Desktop sharing turns this
   on with its consent; the mirror state moves to v8 so older apps refuse it.
+  Someone who agreed to sharing before the consent mentioned BitTorrent isn't
+  shared that way until they agree to it (the panel asks). Stopping sharing
+  counts every byte already sent toward the day's and month's totals.
 - Sharing from home: while sharing is on, the app asks the home router to
   forward the mirror's port (UPnP / NAT-PMP, through libtorrent's own port
   mapping), as the sharing consent now says. **Ask my router to open port …**

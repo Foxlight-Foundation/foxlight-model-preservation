@@ -7,7 +7,7 @@ import {Announce,LicenceFamilies,LicenceList,ShareChoice,UploadLimits,describeLi
 
 type Status='sharing'|'eligible'|'failed'|'withheld'|'not_chosen'|'license_not_selected'|'no_license'|'unsupported';
 interface CommunityCopy {copy_id:string;name:string;size_bytes:number;status:Status;licenses:string[];public_manifest_id:string|null;error_code?:string|null}
-interface Policy {enabled:boolean;share:'eligible'|'chosen';licenses:string[];chosen:string[];withheld:string[];daily_upload_bytes:number|null;monthly_upload_bytes:number|null;port:number;consent_expires:number|null;public_url?:string|null;announce_dht?:boolean;publish_nostr?:boolean;nostr_relays?:string[];seed_pirate_face?:boolean;open_router_port?:boolean|null}
+interface Policy {enabled:boolean;share:'eligible'|'chosen';licenses:string[];chosen:string[];withheld:string[];daily_upload_bytes:number|null;monthly_upload_bytes:number|null;port:number;consent_expires:number|null;public_url?:string|null;announce_dht?:boolean;publish_nostr?:boolean;nostr_relays?:string[];seed_pirate_face?:boolean;open_router_port?:boolean|null;bittorrent_consent?:boolean}
 interface PirateFaceStatus {available:boolean;on:boolean;checked:number;listed:number;matched:number;seeding:number;differs:number}
 interface Reachability {status:'public_address'|'router_opened'|'carrier_nat'|'private_network'|'offline';local_address:string|null;port:number;mirror_url:string|null;router?:{asked:boolean;external_port:number|null;error:string|null}}
 type Reason='awaiting_review'|'address_invalid'|'turned_off'|'not_sharing'|'dht_unavailable'|'nothing_shared'|'no_reachable_address'|'address_not_plain_http'|'no_relays';
@@ -125,6 +125,7 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
   {on?<>
    {reach}
    {state.announce_review_required&&<Callout tone="warn">Sharing continues as before, but this computer isn’t announced on the BitTorrent DHT or Nostr relays until you choose. An earlier version turned both on without saying what they reveal.<div className="sk-actions"><button className="sk-btn sk-solid" disabled={busy} onClick={()=>open('announce')}>Choose how people find this computer</button></div></Callout>}
+   {policy.bittorrent_consent===false&&state.dht_available!==false&&<Callout tone="info">Sovereign can also share your shared models over BitTorrent, one file at a time, so people can download them even when this computer can’t be reached directly. People downloading that way see this computer’s network address. It stays off until you agree.<div className="sk-actions"><button className="sk-btn sk-solid" disabled={busy} onClick={()=>open()}>Review sharing over BitTorrent</button></div></Callout>}
    {state.last_error&&state.last_error!=='community_nothing_to_share'&&<Callout tone="bad">{communityError(state.last_error)}</Callout>}
    {state.last_error==='community_nothing_to_share'&&<Callout>{communityError(state.last_error)}</Callout>}
    {policy.public_url&&<>
@@ -162,7 +163,7 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
    <p>Sharing stays on exactly as it is. Choose whether this computer also announces itself publicly. Nothing is announced until you save.</p>
    {announceStep(1)}
   </Sheet>,document.body)}
-  {setup==='all'&&createPortal(<Sheet kicker="Help keep models available" title="Share your backups with everyone" back="Close sharing setup" onClose={()=>setSetup(false)} footer={<button className="sk-btn sk-solid" disabled={busy||!agreed||licenses.length===0||badAddress||(limitsChanged()&&!limitsValid(...limits))} onClick={()=>void (on?act('desktop-community-configure',choices()).then(ok=>ok&&setSetup(false)):turnOn())}>{busy?'Saving…':on?'Save changes':'Start sharing'}</button>}>
+  {setup==='all'&&createPortal(<Sheet kicker="Help keep models available" title="Share your backups with everyone" back="Close sharing setup" onClose={()=>setSetup(false)} footer={<button className="sk-btn sk-solid" disabled={busy||!agreed||licenses.length===0||badAddress||(limitsChanged()&&!limitsValid(...limits))} onClick={()=>void (on&&state.policy.bittorrent_consent!==false?act('desktop-community-configure',choices()).then(ok=>ok&&setSetup(false)):turnOn())}>{busy?'Saving…':on?'Save changes':'Start sharing'}</button>}>
    {alert}
    <Step n={1} title="What to share">
     <ShareChoice value={share} onChange={setShare} name="community-share" every={['Every backup whose licence allows it','New backups join on their own. You can keep any one back.']} chosen={['Only the backups I choose','Pick them from the list after you start.']}/>

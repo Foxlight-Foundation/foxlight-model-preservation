@@ -197,6 +197,10 @@ class CommunityPolicy(Record):
     # chosen: a sharer from before this choice existed was told the router is
     # never changed, so nothing is forwarded until they choose it.
     open_router_port: bool | None = None
+    # The owner agreed to the consent that says shared models also go out over
+    # BitTorrent, one file at a time. Someone who agreed before it said so
+    # isn't shared that way until they agree to it.
+    bittorrent_consent: bool = False
 
     @field_validator("public_url")
     @classmethod
@@ -593,8 +597,11 @@ class CommunityMirror:
             if body.get("consent") is not True:
                 raise PreservationError("community_consent_required")
             changes["consent_expires"] = int(time.time()) + CONSENT_SECONDS
+            # The consent agreed to now includes sharing over BitTorrent.
+            changes["bittorrent_consent"] = True
         elif body.get("enabled") is False:
             changes["consent_expires"] = None
+            changes["bittorrent_consent"] = False
         elif "consent" in body:
             raise PreservationError("invalid_control")
         try:
@@ -933,7 +940,10 @@ class CommunityMirror:
             bool(native and native.pirate_face),
             bool(native and native.file_torrents),
         )
-        wanted = (bool(policy.seed_pirate_face and consented), consented)
+        wanted = (
+            bool(policy.seed_pirate_face and consented),
+            consented and policy.bittorrent_consent,
+        )
         if current == wanted or (native is None and not any(wanted)):
             return False
         configure_native(

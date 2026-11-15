@@ -246,6 +246,9 @@ class _Session:
     def resume(self) -> None:
         self.paused = False
 
+    def close(self) -> None:
+        self.closed = True
+
 
 def _limited(tmp_path: Path, capture, daily: int | None, monthly: int | None):
     from test_mirror import cycle, mirror
@@ -272,6 +275,27 @@ def test_without_upload_totals_sharing_is_never_slowed_and_is_counted(
     sharing.spend(session)  # type: ignore[arg-type]
     assert session.rate == 0 and not session.paused
     assert ledger.read().egress_day_used == before + 5_000_000
+
+
+def test_stopping_counts_every_byte_already_sent_even_once_serving_is_off(
+    tmp_path: Path, capture
+) -> None:
+    ledger, sharing = _limited(tmp_path, capture, None, None)
+    session = _Session()
+    before = ledger.read().egress_day_used
+    session.sent = 1_000_000
+    sharing.spend(session)  # type: ignore[arg-type]
+    # Small amounts are charged in batches, so this much is still owed...
+    session.sent += 100
+    sharing.spend(session)  # type: ignore[arg-type]
+    assert ledger.read().egress_day_used == before + 1_000_000
+    # ...and stopping, even after serving was paused, still counts it.
+    ledger.update(lambda state: state.model_copy(update={"paused": True}))
+    sharing.sharer = session  # type: ignore[assignment]
+    sharing.stop()
+    assert session.closed and sharing.sharer is None
+    assert ledger.read().egress_day_used == before + 1_000_100
+    assert ledger.read().egress_month_used >= 1_000_100
 
 
 def test_a_small_upload_total_still_shares_and_stops_exactly_at_it(
