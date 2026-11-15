@@ -193,6 +193,8 @@ class FileSharer:
         home.mkdir(parents=True, exist_ok=True, mode=0o700)
         self._lock = threading.RLock()
         self._handles: dict[str, Any] = {}
+        # Payload bytes uploaded by files no longer shared in this session.
+        self._earlier = 0
         self.session = engine.session(
             {
                 "listen_interfaces": "0.0.0.0:0,[::]:0",
@@ -233,6 +235,7 @@ class FileSharer:
         with self._lock:
             handle = self._handles.pop(sha256, None)
             if handle is not None:
+                self._earlier += int(handle.status().total_payload_upload)
                 self.session.remove_torrent(handle)
 
     def shared(self) -> frozenset[str]:
@@ -241,10 +244,10 @@ class FileSharer:
             return frozenset(self._handles)
 
     def uploaded(self) -> int:
-        """Bytes uploaded by every shared file since this session began."""
+        """Model bytes uploaded since this session began (for upload totals)."""
         with self._lock:
-            return sum(
-                int(handle.status().all_time_upload)
+            return self._earlier + sum(
+                int(handle.status().total_payload_upload)
                 for handle in self._handles.values()
             )
 
