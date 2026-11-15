@@ -320,24 +320,59 @@ class OriginHTTPError(PreservationError):
         super().__init__("model source unavailable")
 
 
-def _partial_prefix(partial: Path, size: int, update: Callable[[bytes], None]) -> int:
+def _partial_prefix(
+    partial: Path,
+    size: int,
+    update: Callable[[bytes], None],
+    control: OperationControl | None = None,
+) -> int:
     """Feed the bytes an earlier attempt kept to ``update``; return their count.
 
-    A resume therefore still hashes the whole file. A complete or overlong
-    prefix is discarded and 0 is returned; the caller then starts a fresh hash.
+    A resume therefore still hashes the whole file. Re-reading a large kept
+    prefix takes minutes on a slow drive, so it is reported as its own
+    "resuming" stage, counted as it goes, and Stop is honoured. A complete
+    prefix is returned as is (the caller checks its hash); an overlong one is
+    discarded and 0 is returned, so the caller starts a fresh hash.
     """
     count = 0
+    entered = False
     try:
         with partial.open("rb") as stream:
+            if control is not None:
+                control.phase("resuming")
+                entered = True
             while chunk := stream.read(1024 * 1024):
+                if control is not None:
+                    control.checkpoint()
+                    control.advance(hashed=len(chunk))
                 count += len(chunk)
                 update(chunk)
     except FileNotFoundError:
         return 0
-    if count >= size:
+    finally:
+        if control is not None and entered:
+            control.phase("downloading")
+    if count > size:
         partial.unlink()
         return 0
     return count
+
+
+def _place(partial: Path, destination: Path) -> None:
+    """Rename a complete, matching download into place and sync its folder."""
+    from ..storage import directory
+
+    with (
+        directory(partial.parent) as staging,
+        directory(destination.parent) as parent,
+    ):
+        os.replace(
+            partial.name,
+            destination.name,
+            src_dir_fd=staging,
+            dst_dir_fd=parent,
+        )
+        os.fsync(parent)
 
 
 def download_file(
@@ -382,7 +417,15 @@ def download_file(
     ):
         pass
     sha = hashlib.sha256()
-    offset = _partial_prefix(partial, file.size_bytes, sha.update)
+    offset = _partial_prefix(partial, file.size_bytes, sha.update, control)
+    if offset == file.size_bytes and partial.exists():
+        # An earlier attempt finished this file but stopped before moving it:
+        # keep it when its bytes match, with no network at all.
+        if file.object_id == "sha256:" + sha.hexdigest():
+            _place(partial, destination)
+            return
+        partial.unlink(missing_ok=True)
+        offset = 0
     if not offset:
         sha = hashlib.sha256()
     for _hop in range(6):
@@ -473,17 +516,7 @@ def download_file(
             if file.object_id != "sha256:" + sha.hexdigest():
                 partial.unlink(missing_ok=True)
                 raise PreservationError("model bytes differ from signed file identity")
-            with (
-                directory(partial.parent) as staging,
-                directory(destination.parent) as parent,
-            ):
-                os.replace(
-                    partial.name,
-                    destination.name,
-                    src_dir_fd=staging,
-                    dst_dir_fd=parent,
-                )
-                os.fsync(parent)
+            _place(partial, destination)
             return
         finally:
             connection.close()

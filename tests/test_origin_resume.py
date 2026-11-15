@@ -199,3 +199,98 @@ def test_a_listed_file_named_like_a_resume_buffer_is_left_alone(tmp_path, monkey
     _download(Hub(second), tmp_path / "model.bin", monkeypatch, data=second)
     assert (tmp_path / "model.bin.partial").read_bytes() == first
     assert (tmp_path / "model.bin").read_bytes() == second
+
+
+def _observed(tmp_path, monkeypatch, hub: Hub, *, cancel_after: int | None = None):
+    """Download with a control that records (stage, hashed) and can stop midway."""
+    seen: list[tuple[str, int]] = []
+    control: OperationControl
+
+    def observe(snapshot) -> None:
+        seen.append((snapshot.stage, snapshot.bytes_hashed))
+        if cancel_after is not None and snapshot.bytes_hashed >= cancel_after:
+            control.cancel()
+
+    control = OperationControl(observe, interval_seconds=0)
+    monkeypatch.setattr(
+        "foxlight_model_preservation.local_host.selection.PinnedConnection",
+        hub.connection,
+    )
+    download_file(
+        "example/model",
+        "a" * 40,
+        _file(),
+        tmp_path / "model.bin",
+        control,
+        deadline=time.monotonic() + 30,
+        partial=_partial(tmp_path),
+    )
+    return seen
+
+
+DATA_BIG = bytes(range(256)) * 16384  # 4 MiB: re-read in several chunks
+
+
+def test_a_complete_kept_download_is_placed_with_no_network(tmp_path, monkeypatch):
+    _partial(tmp_path).parent.mkdir()
+    _partial(tmp_path).write_bytes(DATA)
+    hub = Hub(DATA)
+    _download(hub, tmp_path / "model.bin", monkeypatch)
+    assert hub.requests == []  # nothing fetched again
+    assert (tmp_path / "model.bin").read_bytes() == DATA
+    assert not _partial(tmp_path).exists()
+
+
+def test_a_complete_kept_download_that_differs_is_fetched_again(tmp_path, monkeypatch):
+    _partial(tmp_path).parent.mkdir()
+    _partial(tmp_path).write_bytes(b"\0" * len(DATA))
+    hub = Hub(DATA)
+    _download(hub, tmp_path / "model.bin", monkeypatch)
+    assert len(hub.requests) == 1 and "Range" not in hub.requests[0]
+    assert (tmp_path / "model.bin").read_bytes() == DATA
+
+
+def test_re_reading_a_kept_download_is_shown_as_resuming(tmp_path, monkeypatch):
+    _partial(tmp_path).parent.mkdir()
+    _partial(tmp_path).write_bytes(DATA[:6000])
+    seen = _observed(tmp_path, monkeypatch, Hub(DATA))
+    stages = [stage for stage, _ in seen]
+    first = stages.index("resuming")
+    back = stages.index("downloading", first)
+    # Every kept byte is counted while resuming, then the rest downloads.
+    assert seen[back - 1] == ("resuming", 6000)
+    assert seen[-1][0] == "downloading"
+    assert (tmp_path / "model.bin").read_bytes() == DATA
+
+
+def test_stop_interrupts_the_re_read_of_a_large_kept_download(tmp_path, monkeypatch):
+    global DATA
+    original, DATA = DATA, DATA_BIG
+    try:
+        _partial(tmp_path).parent.mkdir()
+        _partial(tmp_path).write_bytes(DATA[: 3 * 1024 * 1024])
+        hub = Hub(DATA)
+        with pytest.raises(PreservationError):
+            _observed(tmp_path, monkeypatch, hub, cancel_after=1024 * 1024)
+        assert hub.requests == []  # stopped before any network
+        # The kept bytes stay for the next attempt.
+        assert _partial(tmp_path).stat().st_size == 3 * 1024 * 1024
+    finally:
+        DATA = original
+
+
+def test_an_empty_file_with_no_buffer_is_downloaded(tmp_path, monkeypatch):
+    hub = Hub(b"")
+    _download(hub, tmp_path / "model.bin", monkeypatch, data=b"")
+    assert (tmp_path / "model.bin").read_bytes() == b""
+    assert len(hub.requests) == 1
+
+
+def test_an_empty_kept_buffer_goes_back_to_downloading(tmp_path, monkeypatch):
+    _partial(tmp_path).parent.mkdir()
+    _partial(tmp_path).write_bytes(b"")
+    seen = _observed(tmp_path, monkeypatch, Hub(DATA))
+    stages = [stage for stage, _ in seen]
+    assert "resuming" in stages
+    assert stages[-1] == "downloading"
+    assert (tmp_path / "model.bin").read_bytes() == DATA
