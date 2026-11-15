@@ -706,3 +706,11 @@ li[data-state="waiting"] .sk-ring-fill {stroke:transparent;}
 @media (prefers-reduced-motion: reduce) {.sk-ring[data-spinning] svg {animation:none;}}
 .sk-ring-mid {position:absolute;inset:0;display:grid;place-items:center;font-size:12px;font-variant-numeric:tabular-nums;}
 .sk-ring-mid svg {width:18px;height:18px;fill:none;stroke:var(--healthy);stroke-width:3;stroke-linecap:round;stroke-linejoin:round;}
+
+/* Vertical rhythm: cards, notes and groups stacked directly in a page section
+   are spaced evenly; a larger margin an element sets itself still wins. */
+.sk-main > section > * + * {margin-top:16px;}
+/* A button inside a sentence (for example "… are in Settings.") reads as a link. */
+.sk-hint > .sk-btn {display:inline-flex;gap:4px;min-height:0;padding:0 2px;margin:0;border:0;background:none;color:var(--link);font:inherit;vertical-align:baseline;text-decoration:underline;text-underline-offset:2px;}
+.sk-hint > .sk-btn:hover {background:none;color:var(--text-1);}
+.sk-hint > .sk-btn svg {align-self:center;}

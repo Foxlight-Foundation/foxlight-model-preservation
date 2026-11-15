@@ -6,6 +6,10 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Cards, notes and groups stacked on a page are evenly spaced instead of
+  touching (for example the Hugging Face and Pirate Face offers in Find), and a
+  button inside a sentence, such as "… are in Settings.", reads as a link.
+
 - Saving a model needs about a third of the disk space it used to and finishes
   much sooner: downloaded files are moved into your Library instead of copied,
   and each step checks the model once. The free space a save asks for is the
