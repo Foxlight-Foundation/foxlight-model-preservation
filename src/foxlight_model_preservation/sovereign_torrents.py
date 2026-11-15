@@ -7,7 +7,8 @@ everyone who holds the file joins one swarm for it, whatever else they saved.
 
 The rules (they decide the infohash, so changing them splits every swarm):
 
-- the torrent's name is the file's SHA-256 (hex) plus its lowercase extension;
+- the torrent's name is the file's SHA-256 (hex), nothing else, so the same
+  bytes give the same torrent whatever the file was called;
 - the piece size depends only on the file's size (:func:`piece_length`);
 - BitTorrent hybrid v1 + v2 (BEP 52), one file, no padding;
 - nothing else enters the info dictionary. Trackers, web seeds, a creator or a
@@ -21,14 +22,17 @@ written. Sharing is upload-only: stored files are never written.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import secrets
 import shutil
 import tempfile
 import threading
+import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -44,15 +48,19 @@ if TYPE_CHECKING:
 
 # Where a mirror keeps its built torrents and its sharing session's scratch.
 FILES_DIRECTORY = "scratch/native/files"
-# Upload allowance reserved ahead of the bytes actually sent, like other egress.
-RESERVE_BYTES = 256 * 1024**2
+# With upload totals set, allowance is reserved in steps of at most this, and
+# only from what is left; without totals, uploads are charged as they happen.
+RESERVE_BYTES = 64 * 1024**2
+# How often the upload watchdog checks. With totals set, the session's rate is
+# held to the remaining credit per second, so between two checks it can never
+# send more than a fraction of what is left.
+WATCH_SECONDS = 0.2
 
 MIN_PIECE = 256 * 1024
 MAX_PIECE = 16 * 1024**2
 # Pieces per file the size rule aims for: few enough to keep metadata small.
 TARGET_PIECES = 2048
 _SHA256 = re.compile(r"[0-9a-f]{64}")
-_SUFFIX = re.compile(r"\.[a-z0-9]{1,12}")
 
 
 def piece_length(size: int) -> int:
@@ -66,12 +74,12 @@ def piece_length(size: int) -> int:
     return length
 
 
-def torrent_name(sha256: str, path: str) -> str:
-    """The torrent's name: the file's SHA-256 plus its lowercase extension."""
+def torrent_name(sha256: str) -> str:
+    """The torrent's name: the file's SHA-256, so identical bytes always give
+    the same torrent (an extension would split ``LICENSE`` from ``LICENSE.txt``)."""
     if not _SHA256.fullmatch(sha256):
         raise PreservationError("a file torrent needs the file's SHA-256")
-    suffix = Path(path).suffix.lower()
-    return sha256 + (suffix if _SUFFIX.fullmatch(suffix) else "")
+    return sha256
 
 
 @dataclass(frozen=True)
@@ -95,11 +103,11 @@ def _parse(data: bytes) -> tuple[Any, str, str]:
     return info, str(hashes.v1), str(hashes.v2)
 
 
-def read_torrent(data: bytes, sha256: str, size: int, path: str) -> FileTorrent:
+def read_torrent(data: bytes, sha256: str, size: int) -> FileTorrent:
     """Check that ``data`` is exactly the torrent these rules give this file."""
     info, v1, v2 = _parse(data)
     files = info.files()
-    name = torrent_name(sha256, path)
+    name = torrent_name(sha256)
     if (
         files.num_files() != 1
         or files.file_size(0) != size
@@ -113,7 +121,6 @@ def read_torrent(data: bytes, sha256: str, size: int, path: str) -> FileTorrent:
 def build_torrent(
     source: Path,
     sha256: str,
-    path: str,
     scratch: Path | None = None,
     *,
     control: OperationControl | None = None,
@@ -128,7 +135,7 @@ def build_torrent(
     """
     active = control or OperationControl()
     size = os.stat(source).st_size
-    name = torrent_name(sha256, path)
+    name = torrent_name(sha256)
     length = piece_length(size)
     engine = cast(Any, torrent_engine())
     files = engine.file_storage()
@@ -159,7 +166,7 @@ def build_torrent(
         data = bytes(engine.bencode(creator.generate()))
     finally:
         shutil.rmtree(folder, ignore_errors=True)
-    return read_torrent(data, sha256, size, path)
+    return read_torrent(data, sha256, size)
 
 
 class TorrentCache:
@@ -168,11 +175,11 @@ class TorrentCache:
     def __init__(self, path: Path) -> None:
         self.path = path
 
-    def get(self, sha256: str, size: int, path: str) -> FileTorrent | None:
+    def get(self, sha256: str, size: int) -> FileTorrent | None:
         """The kept torrent for this file, if one was built and still matches."""
         try:
             data = (self.path / (sha256 + ".torrent")).read_bytes()
-            return read_torrent(data, sha256, size, path)
+            return read_torrent(data, sha256, size)
         except (FileNotFoundError, PreservationError, RuntimeError, ValueError):
             return None
 
@@ -268,6 +275,11 @@ class FileSharer:
                 for handle in self._handles.values()
             )
 
+    def set_upload_rate(self, rate: int) -> None:
+        """Bytes per second; 0 means no limit."""
+        with self._lock:
+            self.session.apply_settings({"upload_rate_limit": max(0, rate)})
+
     def pause(self) -> None:
         """Stop uploading until resumed (an upload total was reached)."""
         with self._lock:
@@ -323,7 +335,7 @@ def listed(ledger: MirrorLedger, held: Iterable[str]) -> list[SeededTorrent]:
     entries: list[SeededTorrent] = []
     for manifest in sorted(held):
         files = held_files(store, manifest)
-        built = [cache.get(sha256, size, path) for sha256, size, path in files]
+        built = [cache.get(sha256, size) for sha256, size, _path in files]
         if files and all(built):
             entries.extend(
                 SeededTorrent(
@@ -361,10 +373,12 @@ class FileSharing:
         self.sharer: FileSharer | None = None
         self.paused = False
         self.failed: dict[str, str] = {}
-        self._reserved = 0
+        self._charged = 0
         self._router = False
         self._build: threading.Thread | None = None
         self._control = OperationControl()
+        self._watch: threading.Thread | None = None
+        self._watching = threading.Event()
 
     def tick(self, state: MirrorState, allowed: Callable[[str], bool]) -> None:
         """Bring sharing in line with the policy and the copies it may serve."""
@@ -373,11 +387,11 @@ class FileSharing:
             self.stop()
             return
         store = self.ledger.path / "store"
-        wanted: dict[str, tuple[int, str]] = {}
+        wanted: dict[str, int] = {}
         for manifest in sorted(state.models):
             if allowed(manifest):
-                for sha256, size, path in held_files(store, manifest):
-                    wanted.setdefault(sha256, (size, path))
+                for sha256, size, _path in held_files(store, manifest):
+                    wanted.setdefault(sha256, size)
         if self.sharer is not None and self._router != policy.map_ports:
             self.stop()  # the router choice changed: start a fresh session
         if self.sharer is None:
@@ -387,46 +401,83 @@ class FileSharing:
                 settings=self.settings,
             )
             self._router = policy.map_ports
-            self._reserved = 0
+            self._charged = 0
             self.paused = False
+            self._watching.set()
+            self._watch = threading.Thread(target=self._watchdog, daemon=True)
+            self._watch.start()
         sharer = self.sharer
-        self._spend(sharer)
         for sha256 in sharer.shared() - wanted.keys():
             sharer.stop(sha256)
-        missing: list[tuple[str, int, str]] = []
-        for sha256, (size, path) in wanted.items():
+        missing: list[str] = []
+        for sha256, size in wanted.items():
             if sha256 in sharer.shared() or sha256 in self.failed:
                 continue
-            torrent = self.cache.get(sha256, size, path)
+            torrent = self.cache.get(sha256, size)
             if torrent is not None:
                 sharer.share(torrent, store / object_path(sha256))
             else:
-                missing.append((sha256, size, path))
+                missing.append(sha256)
         if missing and (self._build is None or not self._build.is_alive()):
-            sha256, _size, path = missing[0]
+            sha256 = missing[0]
             self._build = threading.Thread(
                 target=self._make,
-                args=(store / object_path(sha256), sha256, path),
+                args=(store / object_path(sha256), sha256),
                 daemon=True,
             )
             self._build.start()
 
-    def _spend(self, sharer: FileSharer) -> None:
-        """Reserve upload ahead of what is sent; pause when none is left."""
-        if sharer.uploaded() + RESERVE_BYTES // 2 < self._reserved:
-            return
-        if self.ledger.reserve(RESERVE_BYTES):
-            self._reserved += RESERVE_BYTES
-            if self.paused:
-                sharer.resume()
-                self.paused = False
-        elif not self.paused:
-            sharer.pause()
-            self.paused = True
+    def _watchdog(self) -> None:
+        while self._watching.is_set():
+            sharer = self.sharer
+            if sharer is not None:
+                with contextlib.suppress(PreservationError, OSError, RuntimeError):
+                    self.spend(sharer)
+            time.sleep(WATCH_SECONDS)
 
-    def _make(self, stored: Path, sha256: str, path: str) -> None:
+    def spend(self, sharer: FileSharer, now: int | None = None) -> None:
+        """Charge uploads to the mirror's allowance, within its limits.
+
+        Without upload totals, what was sent is charged as it happens and the
+        rate is never limited. With totals, allowance is reserved from what is
+        left, in small steps, and the session's rate is held to the credit
+        remaining per second, so a check never lets it overrun the total.
+        Serving hours and a paused mirror pause sharing too.
+        """
+        uploaded = sharer.uploaded()
+        left = _allowance_left(self.ledger.read(), now)
+        if left is None:
+            owed = max(0, uploaded - self._charged)
+            ok = self.ledger.reserve(owed, now=now)
+            if ok:
+                self._charged += owed
+            self._pause(sharer, not ok)
+            sharer.set_upload_rate(0)
+            return
+        credit = self._charged - uploaded
+        if credit < RESERVE_BYTES // 4 and left > 0:
+            step = min(RESERVE_BYTES, left)
+            if self.ledger.reserve(step, now=now):
+                self._charged += step
+                credit += step
+        if credit <= 0:
+            self._pause(sharer, True)
+            return
+        self._pause(sharer, False)
+        # At most the remaining credit per second: never more than a fraction
+        # of it between two checks.
+        sharer.set_upload_rate(max(1024, credit))
+
+    def _pause(self, sharer: FileSharer, paused: bool) -> None:
+        if paused and not self.paused:
+            sharer.pause()
+        elif not paused and self.paused:
+            sharer.resume()
+        self.paused = paused
+
+    def _make(self, stored: Path, sha256: str) -> None:
         try:
-            self.cache.put(build_torrent(stored, sha256, path, control=self._control))
+            self.cache.put(build_torrent(stored, sha256, control=self._control))
         except OperationCancelled:
             pass
         except (PreservationError, OSError, RuntimeError, ValueError) as error:
@@ -444,6 +495,10 @@ class FileSharing:
 
     def stop(self) -> None:
         """Stop sharing (the stored files and built torrents are kept)."""
+        self._watching.clear()
+        if self._watch is not None:
+            self._watch.join(timeout=5)
+            self._watch = None
         if self.sharer is not None:
             self.sharer.close()
             self.sharer = None
@@ -454,3 +509,24 @@ class FileSharing:
         if self._build is not None:
             self._build.join(timeout=30)
         self.stop()
+
+
+def _allowance_left(state: MirrorState, now: int | None = None) -> int | None:
+    """Upload bytes the mirror may still send today and this month; None if
+    no total is set. Mirrors the ledger's own day and month rollover."""
+    if state.egress_daily is None and state.egress_monthly is None:
+        return None
+    instant = int(time.time()) if now is None else now
+    moment = datetime.fromtimestamp(instant, UTC)
+    day, month = moment.strftime("%Y-%m-%d"), moment.strftime("%Y-%m")
+    used_day = state.egress_day_used if day == state.day else 0
+    used_month = state.egress_month_used if month == state.month else 0
+    limits = [
+        limit - used
+        for limit, used in (
+            (state.egress_daily, used_day),
+            (state.egress_monthly, used_month),
+        )
+        if limit is not None
+    ]
+    return max(0, min(limits))

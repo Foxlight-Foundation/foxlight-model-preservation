@@ -3,7 +3,7 @@
 ## Unreleased
 
 - Sovereign's own torrents, one per stored file: the same file gives the same
-  torrent on every computer (name = its SHA-256 plus extension, piece size from
+  torrent on every computer (name = its SHA-256 alone, piece size from
   its size alone, BitTorrent hybrid v1 + v2), so everyone holding it joins one
   swarm whatever else they saved. Mirrors build them by reading each stored file
   in place once, share them from the stored files in one upload-only session

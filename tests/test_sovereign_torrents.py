@@ -50,13 +50,12 @@ def test_the_piece_size_and_name_depend_only_on_the_file() -> None:
     assert piece_length(MIN_PIECE * 2048) == MIN_PIECE
     assert piece_length(MIN_PIECE * 2048 + 1) == MIN_PIECE * 2
     assert piece_length(10**13) == MAX_PIECE
+    # The name is the content's hash alone: LICENSE and LICENSE.txt with the
+    # same bytes are one torrent, one swarm.
     sha = "a" * 64
-    assert torrent_name(sha, "Model-Q4_K_M.GGUF") == sha + ".gguf"
-    assert torrent_name(sha, "weights") == sha
-    # An extension that isn't a plain one is left out rather than trusted.
-    assert torrent_name(sha, "notes.tar gz") == sha
+    assert torrent_name(sha) == sha
     with pytest.raises(PreservationError):
-        torrent_name("not-a-hash", "model.gguf")
+        torrent_name("not-a-hash")
 
 
 def test_two_computers_build_the_same_torrent_for_the_same_file(
@@ -65,11 +64,11 @@ def test_two_computers_build_the_same_torrent_for_the_same_file(
     data = os.urandom(3 * 1024 * 1024 + 7)
     first, sha256 = _stored(tmp_path / "one" / "objects", data)
     second, _ = _stored(tmp_path / "two" / "objects", data)
-    built = build_torrent(first, sha256, "dir/model.gguf", tmp_path / "scratch-one")
+    built = build_torrent(first, sha256, tmp_path / "scratch-one")
     time.sleep(1.1)  # a creation time, if one leaked in, would differ
-    again = build_torrent(second, sha256, "other/model.gguf", tmp_path / "scratch-two")
+    again = build_torrent(second, sha256, tmp_path / "scratch-two")
     assert (built.infohash, built.infohash_v2) == (again.infohash, again.infohash_v2)
-    assert built.name == sha256 + ".gguf" and built.size == len(data)
+    assert built.name == sha256 and built.size == len(data)
     # The scratch links are gone; the stored files are untouched.
     assert not any((tmp_path / "scratch-one").iterdir())
     assert first.read_bytes() == data
@@ -78,12 +77,12 @@ def test_two_computers_build_the_same_torrent_for_the_same_file(
 def test_a_torrent_is_accepted_only_for_its_own_file(tmp_path: Path) -> None:
     data = os.urandom(600_000)
     stored, sha256 = _stored(tmp_path / "objects", data)
-    built = build_torrent(stored, sha256, "model.bin", tmp_path / "scratch")
-    assert read_torrent(built.data, sha256, len(data), "model.bin") == built
+    built = build_torrent(stored, sha256, tmp_path / "scratch")
+    assert read_torrent(built.data, sha256, len(data)) == built
     with pytest.raises(PreservationError):
-        read_torrent(built.data, sha256, len(data) + 1, "model.bin")
+        read_torrent(built.data, sha256, len(data) + 1)
     with pytest.raises(PreservationError):
-        read_torrent(built.data, "b" * 64, len(data), "model.bin")
+        read_torrent(built.data, "b" * 64, len(data))
     # A v1-only torrent of the same file is refused: v2 roots are required.
     engine = torrent_engine()
     files = engine.file_storage()
@@ -95,9 +94,7 @@ def test_a_torrent_is_accepted_only_for_its_own_file(tmp_path: Path) -> None:
     (tmp_path / "v1" / built.name).write_bytes(data)
     engine.set_piece_hashes(creator, str(tmp_path / "v1"), lambda _piece: None)
     with pytest.raises(PreservationError, match="hybrid"):
-        read_torrent(
-            bytes(engine.bencode(creator.generate())), sha256, len(data), "model.bin"
-        )
+        read_torrent(bytes(engine.bencode(creator.generate())), sha256, len(data))
 
 
 def test_building_stops_when_cancelled(tmp_path: Path) -> None:
@@ -106,22 +103,20 @@ def test_building_stops_when_cancelled(tmp_path: Path) -> None:
     control = OperationControl()
     control.cancel()
     with pytest.raises(PreservationError):
-        build_torrent(
-            stored, sha256, "model.bin", tmp_path / "scratch", control=control
-        )
+        build_torrent(stored, sha256, tmp_path / "scratch", control=control)
     assert not any((tmp_path / "scratch").iterdir())
 
 
 def test_the_cache_keeps_only_a_matching_torrent(tmp_path: Path) -> None:
     data = os.urandom(300_000)
     stored, sha256 = _stored(tmp_path / "objects", data)
-    built = build_torrent(stored, sha256, "model.bin", tmp_path / "scratch")
+    built = build_torrent(stored, sha256, tmp_path / "scratch")
     cache = TorrentCache(tmp_path / "torrents")
-    assert cache.get(sha256, len(data), "model.bin") is None
+    assert cache.get(sha256, len(data)) is None
     cache.put(built)
-    assert cache.get(sha256, len(data), "model.bin") == built
+    assert cache.get(sha256, len(data)) == built
     (tmp_path / "torrents" / (sha256 + ".torrent")).write_bytes(b"d4:junki0ee")
-    assert cache.get(sha256, len(data), "model.bin") is None
+    assert cache.get(sha256, len(data)) is None
 
 
 def test_a_shared_file_reaches_a_downloader_and_is_never_written(
@@ -129,7 +124,7 @@ def test_a_shared_file_reaches_a_downloader_and_is_never_written(
 ) -> None:
     data = os.urandom(2 * 1024 * 1024 + 123)
     stored, sha256 = _stored(tmp_path / "objects", data)
-    built = build_torrent(stored, sha256, "model.gguf", tmp_path / "scratch")
+    built = build_torrent(stored, sha256, tmp_path / "scratch")
     before = os.stat(stored).st_mtime_ns
     sharer = FileSharer(tmp_path / "sharer", open_router=False, settings=LAB)
     engine = torrent_engine()
@@ -204,7 +199,7 @@ def test_a_mirror_shares_and_lists_every_file_of_a_held_copy(
         assert all(entry.source == "sovereign" for entry in entries)
         # A peer fetches one file through its torrent and gets the stored bytes.
         sha256, size, path = max(files, key=lambda item: item[1])
-        torrent = manager.files.cache.get(sha256, size, path)
+        torrent = manager.files.cache.get(sha256, size)
         assert torrent is not None
         fetched = tmp_path / "fetched"
         handle = downloader.add_torrent(
@@ -225,7 +220,76 @@ def test_a_mirror_shares_and_lists_every_file_of_a_held_copy(
         manager.tick()
         assert manager.files.status()["files"] == 0
         assert listed(ledger, {capture.identity}) == []
-        assert manager.files.cache.get(sha256, size, path) is not None
+        assert manager.files.cache.get(sha256, size) is not None
     finally:
         manager.close()
         downloader.pause()
+
+
+class _Session:
+    """Stands in for a sharing session whose uploads the test controls."""
+
+    def __init__(self) -> None:
+        self.sent = 0
+        self.rate: int | None = None
+        self.paused = False
+
+    def uploaded(self) -> int:
+        return self.sent
+
+    def set_upload_rate(self, rate: int) -> None:
+        self.rate = rate
+
+    def pause(self) -> None:
+        self.paused = True
+
+    def resume(self) -> None:
+        self.paused = False
+
+
+def _limited(tmp_path: Path, capture, daily: int | None, monthly: int | None):
+    from test_mirror import cycle, mirror
+
+    from foxlight_model_preservation.sovereign_torrents import FileSharing
+
+    ledger, _ = mirror(tmp_path, capture)
+    cycle(ledger)
+    ledger.update(
+        lambda state: state.model_copy(
+            update={"egress_daily": daily, "egress_monthly": monthly}
+        )
+    )
+    return ledger, FileSharing(ledger)
+
+
+def test_without_upload_totals_sharing_is_never_slowed_and_is_counted(
+    tmp_path: Path, capture
+) -> None:
+    ledger, sharing = _limited(tmp_path, capture, None, None)
+    session = _Session()
+    before = ledger.read().egress_day_used
+    session.sent = 5_000_000
+    sharing.spend(session)  # type: ignore[arg-type]
+    assert session.rate == 0 and not session.paused
+    assert ledger.read().egress_day_used == before + 5_000_000
+
+
+def test_a_small_upload_total_still_shares_and_stops_exactly_at_it(
+    tmp_path: Path, capture
+) -> None:
+    from foxlight_model_preservation.sovereign_torrents import RESERVE_BYTES
+
+    # A total far smaller than one reservation step still lets sharing start.
+    total = 3 * 1024 * 1024
+    ledger, sharing = _limited(tmp_path, capture, total, None)
+    used = ledger.read().egress_day_used
+    session = _Session()
+    sharing.spend(session)  # type: ignore[arg-type]
+    assert not session.paused
+    assert ledger.read().egress_day_used == used + min(total - used, RESERVE_BYTES)
+    # The rate is held to what is left per second: it can't overrun between checks.
+    assert session.rate is not None and 0 < session.rate <= total
+    session.sent = total - used  # everything allowed has gone out
+    sharing.spend(session)  # type: ignore[arg-type]
+    assert session.paused
+    assert ledger.read().egress_day_used <= total
