@@ -105,7 +105,9 @@ def test_reachable_app_mirror_announces_itself_on_the_dht(
     monkeypatch.setattr(
         module,
         "Rendezvous",
-        lambda: Rendezvous(interface="127.0.0.1", bootstrap=boot, lab=True),
+        lambda **kwargs: Rendezvous(
+            interface="127.0.0.1", bootstrap=boot, lab=True, dht=kwargs.get("dht", True)
+        ),
     )
     client = Rendezvous(interface="127.0.0.1", bootstrap=boot, lab=True)
     port = free_port()
@@ -187,7 +189,9 @@ def test_opting_out_leaves_the_dht_immediately(
     monkeypatch.setattr(
         module,
         "Rendezvous",
-        lambda: Rendezvous(interface="127.0.0.1", bootstrap=boot, lab=True),
+        lambda **kwargs: Rendezvous(
+            interface="127.0.0.1", bootstrap=boot, lab=True, dht=kwargs.get("dht", True)
+        ),
     )
     port = free_port()
     owner = LocalOwner(tmp_path / "owner")
@@ -217,3 +221,241 @@ def test_opting_out_leaves_the_dht_immediately(
     finally:
         owner.close()
         router.close()
+
+
+def test_the_router_answer_is_remembered_for_the_mirror_port_only() -> None:
+    """What libtorrent reports from UPnP / NAT-PMP, without a real router."""
+    node = Rendezvous(interface="127.0.0.1", bootstrap=(), lab=True, dht=False)
+    try:
+        assert node.router() == {
+            "external_port": None,
+            "external_address": None,
+            "error": None,
+        }
+        node.open_port = 18080  # what the mirror asked to have forwarded
+
+        def alert(name: str, **fields: object) -> object:
+            return type(name, (), {"message": lambda self: "no router", **fields})()
+
+        node._note(alert("portmap_error_alert"))
+        assert node.router()["error"] == "no router"
+        # The DHT's own UDP mapping isn't the mirror's port, nor is
+        # libtorrent's TCP listener, nor the mirror's port moved elsewhere.
+        node._note(alert("portmap_alert", map_protocol=2, external_port=18080))
+        node._note(alert("portmap_alert", map_protocol=1, external_port=6881))
+        node._note(alert("portmap_alert", map_protocol=1, external_port=41000))
+        assert node.router()["external_port"] is None
+        node._note(alert("portmap_alert", map_protocol=1, external_port=18080))
+        node._note(alert("external_ip_alert", external_address="93.184.216.34"))
+        assert node.router() == {
+            "external_port": 18080,
+            "external_address": "93.184.216.34",
+            "error": None,
+        }
+        # A later failure doesn't undo a forward that worked.
+        node._note(alert("portmap_error_alert"))
+        assert node.router()["error"] is None
+    finally:
+        node.close()
+
+
+class _Router:
+    """Stands in for the rendezvous session: no DHT, no real router."""
+
+    made: list[dict[str, object]] = []
+    answer: dict[str, object] = {}
+    announced: list[int] = []
+
+    def __init__(self, **kwargs: object) -> None:
+        self.open_port = kwargs.get("open_port")
+        self.dht = kwargs.get("dht", True)
+        _Router.made.append(kwargs)
+
+    def router(self) -> dict[str, object]:
+        empty = {"external_port": None, "external_address": None, "error": None}
+        if not self.open_port:
+            return empty
+        return {**empty, "external_port": self.open_port, **_Router.answer}
+
+    def announce(self, port: int, *args: object, **kwargs: object) -> bool:
+        _Router.announced.append(port)
+        return True
+
+    def lookup(self, *args: object, **kwargs: object) -> tuple[str, ...]:
+        return ()
+
+    def close(self) -> None: ...
+
+
+def _sharing_behind_a_router(
+    tmp_path: Path, capture: Capture, monkeypatch: pytest.MonkeyPatch, **choice: object
+):
+    from test_local_backups import saved
+    from test_local_community import free_port, wait_for
+
+    from foxlight_model_preservation.local_host import community as module
+    from foxlight_model_preservation.local_host.community import DEFAULT_LICENSES
+    from foxlight_model_preservation.local_host.owner import LocalOwner
+
+    class Private:
+        """The route to the internet leaves from a home network address."""
+
+        def __init__(self, *args: object) -> None: ...
+
+        def __enter__(self) -> Private:
+            return self
+
+        def __exit__(self, *args: object) -> None: ...
+
+        def connect(self, *args: object) -> None: ...
+
+        def getsockname(self) -> tuple[str, int]:
+            return ("192.168.1.20", 0)
+
+    # Only the community module's route check sees the home network address.
+    monkeypatch.setattr(
+        module,
+        "socket",
+        type("Sockets", (), {"socket": Private, "AF_INET": 2, "SOCK_DGRAM": 2}),
+    )
+    monkeypatch.setattr(module, "Rendezvous", _Router)
+    monkeypatch.setattr(module, "rendezvous_available", lambda: True)
+    _Router.made.clear()
+    _Router.announced.clear()
+    owner = LocalOwner(tmp_path / "owner")
+    saved(owner, tmp_path, capture)
+    port = free_port()
+    owner.control(
+        "community-configure",
+        {
+            "enabled": True,
+            "consent": True,
+            "port": port,
+            "licenses": [*DEFAULT_LICENSES, "test-only"],
+            "publish_nostr": False,
+            "announce_disclosure": 1,
+            "open_router_port": True,
+            **choice,
+        },
+    )
+    wait_for(lambda: owner.control("community-read", {})["sharing_count"] == 1)
+    return owner, port
+
+
+def test_a_forwarded_port_makes_a_home_mirror_reachable(
+    tmp_path: Path, capture: Capture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from foxlight_model_preservation.operations import OperationControl
+
+    _Router.answer = {"external_address": "93.184.216.34"}
+    owner, port = _sharing_behind_a_router(tmp_path, capture, monkeypatch)
+    try:
+        _Router.announced.clear()
+        owner.community.gossip(OperationControl())
+        # Sharing asks the router to forward exactly the mirror's port, and the
+        # same round announces it once the router agrees.
+        assert any(made.get("open_port") == port for made in _Router.made)
+        assert _Router.announced == [port]
+        reach = owner.community.reachability()
+        assert reach["status"] == "router_opened"
+        assert reach["mirror_url"] == f"http://93.184.216.34:{port}"
+        assert owner.community.addresses() == (f"http://93.184.216.34:{port}",)
+        # The DHT announces the port people actually reach: the forwarded one.
+        assert owner.community.dht_port() == port
+        # Turning forwarding off: the same round no longer announces that port.
+        owner.control("community-configure", {"open_router_port": False})
+        _Router.announced.clear()
+        owner.community.gossip(OperationControl())
+        assert _Router.announced == []
+        assert owner.community.reachability()["status"] == "private_network"
+    finally:
+        owner.close()
+
+
+def test_a_provider_shared_address_is_said_plainly_and_never_published(
+    tmp_path: Path, capture: Capture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from foxlight_model_preservation.operations import OperationControl
+
+    # Carrier-grade NAT: the router forwarded, but its own outside address is
+    # one the internet provider shares among customers.
+    _Router.answer = {"external_address": "100.64.3.4"}
+    owner, _port = _sharing_behind_a_router(tmp_path, capture, monkeypatch)
+    try:
+        owner.community.gossip(OperationControl())
+        assert owner.community.reachability()["status"] == "carrier_nat"
+        assert owner.community.addresses() == ()
+        assert owner.community.dht_port() is None
+    finally:
+        owner.close()
+
+
+def test_turning_router_forwarding_off_never_asks_the_router(
+    tmp_path: Path, capture: Capture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from foxlight_model_preservation.operations import OperationControl
+
+    _Router.answer = {"external_address": "93.184.216.34"}
+    owner, _port = _sharing_behind_a_router(
+        tmp_path, capture, monkeypatch, open_router_port=False
+    )
+    try:
+        owner.community.gossip(OperationControl())
+        assert all(made.get("open_port") is None for made in _Router.made)
+        reach = owner.community.reachability()
+        assert reach["status"] == "private_network"
+        assert reach["router"]["asked"] is False
+        assert owner.community.addresses() == ()
+    finally:
+        owner.close()
+
+
+def test_a_sharer_from_before_the_router_choice_is_never_forwarded(
+    tmp_path: Path, capture: Capture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Someone already sharing was told the router is never changed: until they
+    choose it, upgrading must not forward anything."""
+    from foxlight_model_preservation.operations import OperationControl
+
+    _Router.answer = {"external_address": "93.184.216.34"}
+    owner, _port = _sharing_behind_a_router(
+        tmp_path, capture, monkeypatch, open_router_port=None
+    )
+    try:
+        assert owner.community.policy().open_router_port is None
+        owner.community.gossip(OperationControl())
+        assert all(made.get("open_port") is None for made in _Router.made)
+        assert owner.community.reachability()["status"] == "private_network"
+        # Choosing it later is what turns it on.
+        owner.control("community-configure", {"open_router_port": True})
+        owner.community.gossip(OperationControl())
+        assert owner.community.reachability()["status"] == "router_opened"
+    finally:
+        owner.close()
+
+
+def test_reading_the_router_answer_never_waits_for_a_lookup() -> None:
+    import threading
+
+    node = Rendezvous(interface="127.0.0.1", bootstrap=(), lab=True, dht=False)
+    try:
+        node.open_port = 18080
+        node.external_port = 18080
+        held = threading.Event()
+        release = threading.Event()
+
+        def lookup() -> None:  # stands in for a long DHT lookup holding the lock
+            with node._lock:
+                held.set()
+                release.wait(10)
+
+        worker = threading.Thread(target=lookup)
+        worker.start()
+        held.wait(5)
+        started = time.monotonic()
+        assert node.router()["external_port"] == 18080  # the last known answer
+        assert time.monotonic() - started < 1
+        release.set()
+        worker.join(5)
+    finally:
+        node.close()

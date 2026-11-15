@@ -52,8 +52,11 @@ Announcing is part of the explicit mirror role. It needs the optional
 `bittorrent` extra (libtorrent 2.0), and the app's mirror does it only when it
 is reachable and `announce_dht` is on (the default). Joining the DHT shows this
 computer's address to DHT nodes and relays a little DHT traffic for others.
-Local service discovery, UPnP and NAT-PMP stay off. An IPFS DHT rendezvous can
-follow the same pattern later.
+Local service discovery stays off. The app's mirror also asks the home router
+to forward its HTTP port (UPnP / NAT-PMP) while sharing, unless the owner turns
+that off; it then announces the forwarded port. Mirrors run from the command
+line never configure a router. An IPFS DHT rendezvous can follow the same
+pattern later.
 
 ## Nostr relays
 
