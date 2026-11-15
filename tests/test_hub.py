@@ -525,11 +525,15 @@ def test_a_hub_save_names_each_finishing_step_after_the_download(
             active = [stage for stage in stages or [] if stage["state"] == "active"]
             # Each stage's own work starts at zero, against a known total.
             assert active and active[0]["done"] == 0 and active[0]["total"] > 0
-            return original(*args, **kwargs)
+            result = original(*args, **kwargs)
+            done = kwargs["control"].progress
+            work[name] = (done.bytes_hashed, done.bytes_copied)
+            return result
 
         monkeypatch.setattr(owner_module, name, call)
 
-    for name in ("pack", "import_preservation", "verify_archive"):
+    work: dict[str, tuple[int, int]] = {}
+    for name in ("pack", "import_preservation"):
         watched(name)
     try:
         owner.control("hub-consent", {"enabled": True})
@@ -559,7 +563,7 @@ def test_a_hub_save_names_each_finishing_step_after_the_download(
         assert job["stages"] is None
     finally:
         owner.close()
-    order = ("download", "sign", "store", "check")
+    order = ("download", "sign", "store")
 
     def at(active: int) -> list[tuple[str, str]]:
         return [
@@ -567,7 +571,12 @@ def test_a_hub_save_names_each_finishing_step_after_the_download(
             for i, name in enumerate(order)
         ]
 
-    assert seen == [at(1), at(2), at(3)]
+    assert seen == [at(1), at(2)]
+    # Moves, not copies: each step reads the model once and writes nothing.
+    size = plan["size_bytes"]
+    for name, (hashed, copied) in work.items():
+        assert copied == 0, (name, copied)
+        assert size <= hashed < size + 64 * 1024, (name, hashed, size)
 
 
 def test_a_download_without_kept_bytes_counts_what_arrived(tmp_path: Path) -> None:
@@ -590,12 +599,7 @@ def test_a_download_without_kept_bytes_counts_what_arrived(tmp_path: Path) -> No
         )
         stages = owner._stages_view(job)
         assert isinstance(stages, list)
-        assert [stage["name"] for stage in stages] == [
-            "download",
-            "verify",
-            "store",
-            "check",
-        ]
+        assert [stage["name"] for stage in stages] == ["download", "verify", "store"]
         assert stages[0]["state"] == "active" and stages[0]["done"] == 6_000
         assert all(stage["state"] == "waiting" for stage in stages[1:])
     finally:

@@ -27,7 +27,7 @@ from urllib.parse import urlsplit
 from pydantic import Field, JsonValue
 
 from .. import hub, pirateface_find
-from ..archives import ArchiveManifest, verify_archive
+from ..archives import ArchiveManifest, published_archive_manifest, verify_archive
 from ..cards import ArtifactFile, ModelCardEnvelope, identity_json
 from ..kits import export_kit, import_kit, inspect_kit, read_kit_envelope
 from ..ledger import TransferBudget
@@ -171,12 +171,23 @@ ORIGIN_STALLS = 4
 # Bytes each finishing step reads or writes, in model sizes: checking and
 # signing hashes the files, copies them (hashing as it goes) and checks them
 # again; storing hashes, copies and hashes; the last check reads once.
-FINISHING_WORK = {"verify": 1, "sign": 5, "store": 3, "check": 1}
+FINISHING_WORK = {"verify": 1, "sign": 1, "store": 1}
+
+
+def working_space(size: int) -> int:
+    """Free space a save needs: the model once, plus headroom.
+
+    Downloads are moved, not copied, into the saved copy on the same drive, so
+    no second copy is made; a little headroom covers metadata and documents.
+    """
+    return size + size // 20 + 64 * 1024**2
+
+
 # The stages a save shows in Activity, in order.
 SAVE_STAGES = {
-    "receive": ("download", "sign", "store", "check"),
+    "receive": ("download", "sign", "store"),
     # A catalog source's download ends by checking every object it fetched.
-    "source_receive": ("download", "verify", "store", "check"),
+    "source_receive": ("download", "verify", "store"),
 }
 # A copy already in PMF is kept exactly as fetched: nothing to store again.
 PMF_SOURCE_STAGES = ("download", "verify")
@@ -1214,7 +1225,7 @@ class LocalOwner:
             selected_bytes = cast(int, value["size_bytes"])
             value = {
                 **value,
-                "required_free_bytes": selected_bytes * 4 + 32 * 1024**2,
+                "required_free_bytes": working_space(selected_bytes),
                 "free_bytes": self.library.free_bytes(),
             }
         value = {**value, "expires_at": int(time.time()) + 600}
@@ -2046,7 +2057,7 @@ class LocalOwner:
         trust = TrustProfile.model_validate_json(identity_json(plan["trust"]))
         free = self.library.free_bytes()
         # Unknown (the drive didn't answer in time): each write checks again.
-        if free is not None and free < cast(int, plan["size_bytes"]) * 4 + 32 * 1024**2:
+        if free is not None and free < working_space(cast(int, plan["size_bytes"])):
             raise PreservationError("insufficient_space")
         # The approved hints are bound above; discovered mirrors are only ever
         # appended after them, under the same receive policy, and never change
@@ -2109,6 +2120,8 @@ class LocalOwner:
             pass
         self._begin_stage(job, "store")
         self._stage_base.pop(job.job_id, None)
+        # The fetched store is this save's scratch: its objects move into the
+        # copy, which hashes every one before it is published.
         conversion = import_preservation(
             original,
             record.manifest_id,
@@ -2117,10 +2130,10 @@ class LocalOwner:
             (load_key(self.home / "capture-key.pem", None),),
             source_key_candidates=candidates,
             control=control.fork(),
+            consume=True,
         )
-        self._begin_stage(job, "check")
-        manifest = verify_archive(
-            destination, conversion.output_identity, owner_trust, control=control.fork()
+        manifest = published_archive_manifest(
+            destination, conversion.output_identity, owner_trust
         )
         self._record_copy(
             job,
@@ -2487,7 +2500,7 @@ class LocalOwner:
         selected_bytes = cast(int, plan["size_bytes"])
         free = self.library.free_bytes()
         # Unknown (the drive didn't answer in time): each write checks again.
-        if free is not None and free < selected_bytes * 4 + 32 * 1024**2:
+        if free is not None and free < working_space(selected_bytes):
             raise PreservationError("insufficient_space")
         work = self._work(job.job_id)
         with directory(work, create=True):
@@ -2540,20 +2553,28 @@ class LocalOwner:
         trust = self._capture_trust()
         key = load_key(self.home / "capture-key.pem", None)
         legacy = work / "original"
+        # The downloads are this save's scratch: they move (not copy) into the
+        # signed store and then into the copy, each of which hashes every
+        # object before publishing, so a save needs no second copy on disk.
         self._begin_stage(job, "sign")
-        identity = pack(recipe, sources, legacy, (key,), control=control.fork())
+        identity = pack(
+            recipe, sources, legacy, (key,), control=control.fork(), consume=True
+        )
         destination = self._data() / "copies" / job.job_id
         with directory(destination.parent, create=True):
             pass
         self._begin_stage(job, "store")
         conversion = import_preservation(
-            legacy, identity, trust, destination, (key,), control=control.fork()
+            legacy,
+            identity,
+            trust,
+            destination,
+            (key,),
+            control=control.fork(),
+            consume=True,
         )
         manifest_id = conversion.output_identity
-        self._begin_stage(job, "check")
-        manifest = verify_archive(
-            destination, manifest_id, trust, control=control.fork()
-        )
+        manifest = published_archive_manifest(destination, manifest_id, trust)
         self._record_copy(
             job,
             Copy(

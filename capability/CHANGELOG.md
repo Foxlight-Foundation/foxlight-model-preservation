@@ -6,6 +6,11 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Saving a model needs about a third of the disk space it used to and finishes
+  much sooner: downloaded files are moved into your Library instead of copied,
+  and each step checks the model once. The free space a save asks for is the
+  model plus a little headroom.
+
 - Find searches Hugging Face by default and says so next to the results; turn
   it off under Search sources and privacy in Settings. Before Browse is chosen,
   nothing is contacted until you search.

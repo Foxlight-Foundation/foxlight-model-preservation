@@ -42,6 +42,7 @@ from .storage import (
     object_path,
     read_metadata,
     unique_objects,
+    verify_object,
 )
 
 PRESERVATION_PROFILE = "foxlight.preservation.v1"
@@ -201,6 +202,7 @@ def import_preservation(
     *,
     source_key_candidates: TrustProfile | None = None,
     control: OperationControl | None = None,
+    consume: bool = False,
 ) -> PMFConversion:
     """Convert an exact v1 capture (including Skulk captures) into signed PMF.
 
@@ -210,6 +212,10 @@ def import_preservation(
     Optional public source keys are retained as an opaque, optional profile.
     They remain candidates, never a replacement for the receiver's trust choice.
     Omitting them preserves the original projection and all existing identities.
+
+    ``consume`` is for the caller's own temporary capture, discarded afterwards:
+    its objects are moved into the new tree instead of copied (a copy across
+    drives), and every object is hashed in the new tree before it is published.
     """
     with (control or OperationControl()).operation("pack") as active:
         with directory(store) as source:
@@ -248,11 +254,24 @@ def import_preservation(
                 records[SOURCE_KEYS_DOCUMENT] = data
             identity, signed = sign_pmf_manifest(manifest, keys)
             with new_pmf_tree(destination, active) as target:
-                check_pmf_space(target, manifest)
+                check_pmf_space(
+                    target, manifest, linked_from=source if consume else None
+                )
                 for file in unique_objects(original):
                     copy_verified_object(
-                        source, object_path(file.sha256), target, file, active
+                        source,
+                        object_path(file.sha256),
+                        target,
+                        file,
+                        active,
+                        move=consume,
                     )
+                if consume:
+                    # Moved, not hashed on the way: check every byte before the
+                    # tree is published.
+                    active.phase("checking")
+                    for file in unique_objects(original):
+                        verify_object(target, file, control=active)
                 for data in records.values():
                     active.checkpoint()
                     atomic_bytes(target, object_path(digest(data)), data)

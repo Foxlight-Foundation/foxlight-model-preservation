@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- A save needs one copy of the model on disk instead of three, and reads it
+  about twice instead of about nine times. Downloads are moved, not copied,
+  into the signed store and then into the saved copy (on the same drive;
+  another drive falls back to a checked copy), and each step hashes every
+  object once before it publishes. `pack(consume=True)` takes each file's
+  identity from its reviewed SHA-256 and actual size; `import_preservation(
+  consume=True)` hashes every moved object before the tree is published, so
+  the separate final check reads only the signed manifest and object sizes.
+  The space a save asks for drops from four times the model to the model plus
+  5% and 64 MiB. Activity's stages are now Download, Check & sign and Store.
+
 - Hugging Face search in Find is on by default (a choice saved earlier, either
   way, is kept). Nothing is contacted until the person searches: on first
   launch, community mirror lists are read only with the first search words.
