@@ -2307,6 +2307,7 @@ class LocalOwner:
                     _pause(control, deadline, min(60.0, 5.0 * 2**stalls))
         if file.object_id is None or not file.object_id.startswith("sha256:"):
             raise PreservationError("origin_unavailable") from origin_error
+        self._room_for_fallback(key, file.size_bytes, destination)
         try:
             return self._save_from_mirrors(
                 file, destination, staging, control, deadline, preferred, origin_error
@@ -2331,6 +2332,24 @@ class LocalOwner:
                 raise PreservationError("origin_unavailable") from swarm_error
             del error
             return "swarm"
+
+    def _room_for_fallback(self, key: str, size: int, destination: Path) -> None:
+        """Release this file's kept origin buffer when a second copy won't fit.
+
+        A mirror or swarm download lands beside the buffer, which is removed
+        only once that succeeds (so a failed fallback can still resume from
+        it). The save's space check counts the model once, so on a drive
+        without room for both the buffer goes first; a later save then starts
+        this one file again.
+        """
+        with contextlib.ExitStack() as held:
+            shared = self._shared_partial(key, held, destination)
+            if shared is None or not shared.exists():
+                return
+            free = self.library.free_bytes()
+            # Unknown (the drive didn't answer in time): keep it; writes check.
+            if free is not None and free < size + 64 * 1024**2:
+                shared.unlink(missing_ok=True)
 
     def _shared_partial(
         self, key: str, held: contextlib.ExitStack, destination: Path

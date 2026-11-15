@@ -211,3 +211,44 @@ def test_progress_reads_what_is_kept(owner, tmp_path, monkeypatch):
         job_id=job.job_id,
     )
     assert seen == [5300]
+
+
+def _stall_then_mirror(owner, monkeypatch, free):
+    """The origin leaves 900 of 1000 bytes and stops; a mirror then has it."""
+    buffers = []
+
+    def stalls(*args, partial, **kwargs):
+        partial.parent.mkdir(parents=True, exist_ok=True)
+        if not partial.exists():
+            partial.write_bytes(b"x" * 900)
+        raise TimeoutError("stalled")
+
+    def mirror(file, destination, *args):
+        buffers.append((owner._data() / "partials" / ("a" * 64 + ".partial")).exists())
+        return "https://mirror.example"
+
+    monkeypatch.setattr(owner_module, "download_file", stalls)
+    monkeypatch.setattr(owner, "_save_from_mirrors", mirror)
+    monkeypatch.setattr(owner.library, "free_bytes", lambda: free)
+    return buffers
+
+
+def test_a_kept_buffer_is_released_when_the_mirror_copy_would_not_fit(
+    owner, tmp_path, monkeypatch
+):
+    # Room for the file once, but not for the mirror copy beside the buffer.
+    buffers = _stall_then_mirror(owner, monkeypatch, free=1000)
+    assert save(owner, tmp_path) == "https://mirror.example"
+    assert buffers == [False]
+
+
+def test_a_kept_buffer_stays_while_there_is_room_for_both(owner, tmp_path, monkeypatch):
+    buffers = _stall_then_mirror(owner, monkeypatch, free=10 * 1024**3)
+    assert save(owner, tmp_path) == "https://mirror.example"
+    assert buffers == [True]
+
+
+def test_a_drive_that_does_not_answer_keeps_the_buffer(owner, tmp_path, monkeypatch):
+    buffers = _stall_then_mirror(owner, monkeypatch, free=None)
+    assert save(owner, tmp_path) == "https://mirror.example"
+    assert buffers == [True]
