@@ -13,7 +13,7 @@ test('Find defaults to complete-map review and keeps unsupported signed listings
  const unavailable={...ready,card_id:'b'.repeat(64),name:'Listing without a complete map',complete_file_map:false,download_support:'complete_signed_file_map_required'};
  await page.route('**/api/desktop-search',r=>{const only=r.request().postDataJSON().ready_only;return r.fulfill({json:{catalog_id:id,results:only?[ready]:[ready,unavailable],total:only?1:2,ready_total:1,matching_total:2,next_offset:null}});});
  await page.goto('/');await expect(page.getByRole('heading',{name:ready.name,exact:true})).toBeVisible();
- const showAll=page.getByRole('checkbox',{name:/Also show listings Sovereign can’t save yet/});
+ const showAll=page.getByRole('switch',{name:/Also show listings Sovereign can’t save yet/});
  await expect(showAll).not.toBeChecked();
  await expect(page.getByRole('heading',{name:unavailable.name,exact:true})).toHaveCount(0);
  await showAll.check();
@@ -95,4 +95,14 @@ for(const area of ['sharing','sources'])test(`${area} More waits for the pending
  release();await expect(page.getByRole('heading',{name:'Page 3',exact:true})).toBeVisible();await expect(more).toBeEnabled();
  await page.getByRole('button',{name:area==='sharing'?'Previous public copies':'Previous source results',exact:true}).click();
  await expect(page.getByRole('heading',{name:'Page 0',exact:true})).toBeVisible();
+});
+
+test('the listings switch sits on the same line as the search-source switches on a wide screen',async({page},info)=>{
+ test.skip(info.project.name!=='desktop','narrow screens may wrap it below');
+ await page.route('**/api/desktop-search',r=>r.fulfill({json:{catalog_id:'a'.repeat(64),results:[],total:0,next_offset:null}}));
+ await page.goto('/');await page.getByRole('button',{name:'Find',exact:true}).click();
+ const hub=await page.getByRole('switch',{name:'Hugging Face'}).boundingBox();
+ const listings=await page.getByRole('switch',{name:/Also show listings/}).boundingBox();
+ expect(hub&&listings&&Math.abs(hub.y-listings.y)).toBeLessThan(4);
+ await expect(page.getByRole('checkbox',{name:/Also show listings/})).toHaveCount(0);
 });

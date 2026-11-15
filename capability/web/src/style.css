@@ -282,8 +282,7 @@ h1:focus,h2:focus {outline:none;}
 .sk-selected dt {color:var(--muted);}
 .sk-selected dd {margin:0;color:var(--text-1);overflow-wrap:anywhere;}
 .sk-selected > p:last-child {border-top:1px solid var(--line-card);padding-top:12px;}
-.sk-result-mark {width:40px;display:flex;justify-content:center;color:var(--text-4);font-size:18px;line-height:1.2;}
-.sk-card[data-selected] .sk-result-mark {color:var(--foxlight);}
+.sk-card[data-selected] .sk-monogram {box-shadow:inset 0 0 0 1px var(--foxlight);}
 .sk-signed {color:var(--ink-ok);}
 
 /* Menu */
@@ -719,6 +718,9 @@ li[data-state="waiting"] .sk-ring-fill {stroke:transparent;}
 /* Browse's extra search sources: a row of on/off switches under the search bar. */
 .sk-source-toggles {display:flex;flex-wrap:wrap;align-items:center;gap:8px 20px;margin-top:10px;}
 .sk-source-toggle {display:inline-flex;align-items:center;gap:6px;}
+/* The source switches and the listings switch share one row, wrapping on narrow screens. */
+.sk-find-options {display:flex;flex-wrap:wrap;align-items:center;gap:8px 32px;}
+.sk-find-options > .sk-source-toggles {margin-top:0;}
 .sk-switch {display:inline-flex;align-items:center;gap:8px;color:var(--text-2);font-size:14px;cursor:pointer;}
 .sk-switch input {appearance:none;-webkit-appearance:none;position:relative;width:34px;height:20px;margin:0;border-radius:var(--radius-pill);background:var(--fill-press);border:1px solid var(--line-control);cursor:pointer;transition:background-color var(--fast) var(--ease);}
 .sk-switch input::after {content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--text-3);transition:transform var(--fast) var(--ease),background-color var(--fast) var(--ease);}
