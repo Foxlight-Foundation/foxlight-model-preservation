@@ -1,11 +1,12 @@
 import {useEffect,useState} from 'react';
 import {api,type I2PProxy,type ModelSource} from './client';
 import {Callout,Consent,Mono} from './ui';
+import {Select} from './select';
 
 export const DEFAULT_I2P_PROXY:I2PProxy={host:'127.0.0.1',port:4444};
 
 /** Select one route offline; selecting it alone never grants a connection. */
-export function I2PChoice({selected,onChange,label='Download connection'}:{selected:boolean;onChange:(value:boolean)=>void;label?:string}){return <label className="sk-field"><span>{label}</span><select className="sk-input" value={selected?'i2p':'http'} onChange={event=>onChange(event.target.value==='i2p')}><option value="http">Direct HTTP(S)</option><option value="i2p">I2P only</option></select></label>;}
+export function I2PChoice({selected,onChange,label='Download connection'}:{selected:boolean;onChange:(value:boolean)=>void;label?:string}){return <div className="sk-field"><span>{label}</span><Select label={label} value={selected?'i2p':'http'} onChange={value=>onChange(value==='i2p')} options={[{value:'http',label:'Direct HTTP(S)'},{value:'i2p',label:'I2P only'}]}/></div>;}
 
 /** Capability comes from actual request/Resume schemas, never a version guess. */
 export function useI2PAvailability():boolean {
@@ -34,7 +35,7 @@ export function I2PAccess({proxy,onProxy,confirmed,onConfirm,locked=false,purpos
   const valid=Number.isSafeInteger(proxy.port)&&proxy.port>=1&&proxy.port<=65535;
   return <section aria-label="I2P connections">
     <I2PDisclosure/>
-    {locked?<p>Original proxy on the Core host: <Mono value={`${proxy.host==='::1'?'[::1]':proxy.host}:${proxy.port}`} label="saved I2P proxy"/>. Resume keeps this proxy and the original remaining allowance.</p>:<div className="sk-fields"><label className="sk-field"><span>I2P proxy address on Core</span><select className="sk-input" value={proxy.host} onChange={event=>{onConfirm(false);onProxy({...proxy,host:event.target.value as I2PProxy['host']});}}><option value="127.0.0.1">127.0.0.1</option><option value="::1">::1</option></select></label><label className="sk-field"><span>I2P proxy port</span><input className="sk-input" type="number" min={1} max={65535} step={1} value={Number.isNaN(proxy.port)?'':proxy.port} onChange={event=>{onConfirm(false);onProxy({...proxy,port:Number(event.target.value)});}}/></label></div>}
+    {locked?<p>Original proxy on the Core host: <Mono value={`${proxy.host==='::1'?'[::1]':proxy.host}:${proxy.port}`} label="saved I2P proxy"/>. Resume keeps this proxy and the original remaining allowance.</p>:<div className="sk-fields"><div className="sk-field"><span>I2P proxy address on Core</span><Select label="I2P proxy address on Core" value={proxy.host} onChange={value=>{onConfirm(false);onProxy({...proxy,host:value as I2PProxy['host']});}} options={[{value:'127.0.0.1',label:'127.0.0.1'},{value:'::1',label:'::1'}]}/></div><label className="sk-field"><span>I2P proxy port</span><input className="sk-input" type="number" min={1} max={65535} step={1} value={Number.isNaN(proxy.port)?'':proxy.port} onChange={event=>{onConfirm(false);onProxy({...proxy,port:Number(event.target.value)});}}/></label></div>}
     {!valid&&<p role="alert">Choose a proxy port from 1 to 65535.</p>}
     <Consent checked={confirmed&&valid} onChange={value=>onConfirm(value&&valid)}>Allow I2P connections through this proxy for {purpose}. This starts no payload sharing.</Consent>
   </section>;

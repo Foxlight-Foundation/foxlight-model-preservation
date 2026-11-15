@@ -27,7 +27,7 @@ from urllib.parse import urlsplit
 from pydantic import Field, JsonValue
 
 from .. import hub, pirateface_find
-from ..archives import ArchiveManifest, verify_archive
+from ..archives import ArchiveManifest, published_archive_manifest, verify_archive
 from ..cards import ArtifactFile, ModelCardEnvelope, identity_json
 from ..kits import export_kit, import_kit, inspect_kit, read_kit_envelope
 from ..ledger import TransferBudget
@@ -171,12 +171,23 @@ ORIGIN_STALLS = 4
 # Bytes each finishing step reads or writes, in model sizes: checking and
 # signing hashes the files, copies them (hashing as it goes) and checks them
 # again; storing hashes, copies and hashes; the last check reads once.
-FINISHING_WORK = {"verify": 1, "sign": 5, "store": 3, "check": 1}
+FINISHING_WORK = {"verify": 1, "sign": 1, "store": 1}
+
+
+def working_space(size: int) -> int:
+    """Free space a save needs: the model once, plus headroom.
+
+    Downloads are moved, not copied, into the saved copy on the same drive, so
+    no second copy is made; a little headroom covers metadata and documents.
+    """
+    return size + size // 20 + 64 * 1024**2
+
+
 # The stages a save shows in Activity, in order.
 SAVE_STAGES = {
-    "receive": ("download", "sign", "store", "check"),
+    "receive": ("download", "sign", "store"),
     # A catalog source's download ends by checking every object it fetched.
-    "source_receive": ("download", "verify", "store", "check"),
+    "source_receive": ("download", "verify", "store"),
 }
 # A copy already in PMF is kept exactly as fetched: nothing to store again.
 PMF_SOURCE_STAGES = ("download", "verify")
@@ -1214,7 +1225,7 @@ class LocalOwner:
             selected_bytes = cast(int, value["size_bytes"])
             value = {
                 **value,
-                "required_free_bytes": selected_bytes * 4 + 32 * 1024**2,
+                "required_free_bytes": working_space(selected_bytes),
                 "free_bytes": self.library.free_bytes(),
             }
         value = {**value, "expires_at": int(time.time()) + 600}
@@ -2046,7 +2057,7 @@ class LocalOwner:
         trust = TrustProfile.model_validate_json(identity_json(plan["trust"]))
         free = self.library.free_bytes()
         # Unknown (the drive didn't answer in time): each write checks again.
-        if free is not None and free < cast(int, plan["size_bytes"]) * 4 + 32 * 1024**2:
+        if free is not None and free < working_space(cast(int, plan["size_bytes"])):
             raise PreservationError("insufficient_space")
         # The approved hints are bound above; discovered mirrors are only ever
         # appended after them, under the same receive policy, and never change
@@ -2109,6 +2120,8 @@ class LocalOwner:
             pass
         self._begin_stage(job, "store")
         self._stage_base.pop(job.job_id, None)
+        # The fetched store is this save's scratch: its objects move into the
+        # copy, which hashes every one before it is published.
         conversion = import_preservation(
             original,
             record.manifest_id,
@@ -2117,10 +2130,10 @@ class LocalOwner:
             (load_key(self.home / "capture-key.pem", None),),
             source_key_candidates=candidates,
             control=control.fork(),
+            consume=True,
         )
-        self._begin_stage(job, "check")
-        manifest = verify_archive(
-            destination, conversion.output_identity, owner_trust, control=control.fork()
+        manifest = published_archive_manifest(
+            destination, conversion.output_identity, owner_trust
         )
         self._record_copy(
             job,
@@ -2294,6 +2307,7 @@ class LocalOwner:
                     _pause(control, deadline, min(60.0, 5.0 * 2**stalls))
         if file.object_id is None or not file.object_id.startswith("sha256:"):
             raise PreservationError("origin_unavailable") from origin_error
+        self._room_for_fallback(key, file.size_bytes, destination)
         try:
             return self._save_from_mirrors(
                 file, destination, staging, control, deadline, preferred, origin_error
@@ -2303,6 +2317,10 @@ class LocalOwner:
         except (OSError, ValueError) as error:
             if swarm is None or not swarm.has(file.path, file.size_bytes):
                 raise
+            # A mirror that sent part of the file and gave up leaves those
+            # bytes behind; the swarm writes its own whole copy, so they go.
+            with contextlib.suppress(OSError):
+                (staging / "mirror" / ".partial" / key).unlink(missing_ok=True)
             control.phase("downloading")
             try:
                 swarm.fetch(
@@ -2317,7 +2335,35 @@ class LocalOwner:
             except (OSError, ValueError) as swarm_error:
                 raise PreservationError("origin_unavailable") from swarm_error
             del error
+            # The file is complete: its kept origin buffer is no longer needed.
+            self._release_origin_buffer(key, destination)
             return "swarm"
+
+    def _release_origin_buffer(self, key: str, destination: Path) -> None:
+        """Delete this file's kept origin buffer, under its lock."""
+        with contextlib.ExitStack() as held:
+            shared = self._shared_partial(key, held, destination)
+            if shared is not None:
+                with contextlib.suppress(OSError):
+                    shared.unlink(missing_ok=True)
+
+    def _room_for_fallback(self, key: str, size: int, destination: Path) -> None:
+        """Release this file's kept origin buffer when a second copy won't fit.
+
+        A mirror or swarm download lands beside the buffer, which is removed
+        only once that succeeds (so a failed fallback can still resume from
+        it). The save's space check counts the model once, so on a drive
+        without room for both the buffer goes first; a later save then starts
+        this one file again.
+        """
+        with contextlib.ExitStack() as held:
+            shared = self._shared_partial(key, held, destination)
+            if shared is None or not shared.exists():
+                return
+            free = self.library.free_bytes()
+            # Unknown (the drive didn't answer in time): keep it; writes check.
+            if free is not None and free < size + 64 * 1024**2:
+                shared.unlink(missing_ok=True)
 
     def _shared_partial(
         self, key: str, held: contextlib.ExitStack, destination: Path
@@ -2487,7 +2533,7 @@ class LocalOwner:
         selected_bytes = cast(int, plan["size_bytes"])
         free = self.library.free_bytes()
         # Unknown (the drive didn't answer in time): each write checks again.
-        if free is not None and free < selected_bytes * 4 + 32 * 1024**2:
+        if free is not None and free < working_space(selected_bytes):
             raise PreservationError("insufficient_space")
         work = self._work(job.job_id)
         with directory(work, create=True):
@@ -2540,20 +2586,28 @@ class LocalOwner:
         trust = self._capture_trust()
         key = load_key(self.home / "capture-key.pem", None)
         legacy = work / "original"
+        # The downloads are this save's scratch: they move (not copy) into the
+        # signed store and then into the copy, each of which hashes every
+        # object before publishing, so a save needs no second copy on disk.
         self._begin_stage(job, "sign")
-        identity = pack(recipe, sources, legacy, (key,), control=control.fork())
+        identity = pack(
+            recipe, sources, legacy, (key,), control=control.fork(), consume=True
+        )
         destination = self._data() / "copies" / job.job_id
         with directory(destination.parent, create=True):
             pass
         self._begin_stage(job, "store")
         conversion = import_preservation(
-            legacy, identity, trust, destination, (key,), control=control.fork()
+            legacy,
+            identity,
+            trust,
+            destination,
+            (key,),
+            control=control.fork(),
+            consume=True,
         )
         manifest_id = conversion.output_identity
-        self._begin_stage(job, "check")
-        manifest = verify_archive(
-            destination, manifest_id, trust, control=control.fork()
-        )
+        manifest = published_archive_manifest(destination, manifest_id, trust)
         self._record_copy(
             job,
             Copy(
@@ -2569,9 +2623,15 @@ class LocalOwner:
     # Hugging Face is a Find source like any other; nothing here holds the
     # owner lock across the network.
     def hub_search_enabled(self) -> bool:
-        """Whether the person chose to send search words to huggingface.co."""
+        """Whether Find also sends search words to huggingface.co.
+
+        On unless the person turned it off (Find and Settings say where the
+        words go); a saved choice, either way, is always kept.
+        """
         try:
             value = strict_json(read_metadata(self._root, "hub-search.json"))
+        except FileNotFoundError:
+            return True
         except (OSError, PreservationError):
             return False
         return isinstance(value, dict) and value.get("enabled") is True

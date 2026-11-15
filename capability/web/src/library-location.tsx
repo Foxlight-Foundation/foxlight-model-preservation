@@ -2,6 +2,8 @@ import {useEffect,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
 import {api,bytes,errorText} from './client';
 import {Callout,Consent,Icon,Row,Sheet,Step} from './ui';
+// Where this computer has no system folder dialog, paths are typed (once known, for the session).
+let noFolderDialog=false;
 
 export interface LibraryMove {state:'moving'|'done'|'stopped'|'failed';items_done:number;items_total:number;bytes_done:number;bytes_total:number;error:string|null}
 export interface LibraryState {path:string|null;system:boolean;available:boolean;private:boolean;free_bytes:number|null;previous:string[];elsewhere_copies:number;elsewhere_other?:number;elsewhere_bytes:number;move:LibraryMove|null}
@@ -13,6 +15,7 @@ type Bridge={postMessage:(body:Record<string,never>)=>Promise<string|null>};
 
 /** Where model copies are kept: this computer’s drive, or any connected drive, NAS or folder. */
 export function LibraryLocation({library,busy,onChange}:{library:LibraryState|undefined;busy:boolean;onChange:()=>Promise<void>}) {
+  const [pickerMissing,setPickerMissing]=useState(noFolderDialog);
   const [open,setOpen]=useState(false),[path,setPath]=useState(''),[review,setReview]=useState<LibraryReview|null>(null),[confirmed,setConfirmed]=useState(false),[working,setWorking]=useState(false),[error,setError]=useState('');
   const live=useRef(true);
   useEffect(()=>{live.current=true;return()=>{live.current=false;};},[]);
@@ -23,7 +26,7 @@ export function LibraryLocation({library,busy,onChange}:{library:LibraryState|un
   async function work(fn:()=>Promise<void>){setWorking(true);setError('');try{await fn();}catch(err){if(live.current)setError(err instanceof Error?err.message:'host_unavailable');}finally{if(live.current)setWorking(false);}}
   function reset(){setReview(null);setConfirmed(false);setError('');}
   function close(){reset();setPath('');setOpen(false);}
-  async function choose(){await work(async()=>{const bridge=(window as unknown as {webkit?:{messageHandlers?:{chooseLibraryFolder?:Bridge}}}).webkit?.messageHandlers?.chooseLibraryFolder;const result=bridge?await bridge.postMessage({}):(await api<{path:string|null}>('desktop-library-folder-choose',{})).path;if(live.current&&result){reset();setPath(result);}});}
+  async function choose(){await work(async()=>{try{const bridge=(window as unknown as {webkit?:{messageHandlers?:{chooseLibraryFolder?:Bridge}}}).webkit?.messageHandlers?.chooseLibraryFolder;const result=bridge?await bridge.postMessage({}):(await api<{path:string|null}>('desktop-library-folder-choose',{})).path;if(live.current&&result){reset();setPath(result);}}catch(err){if(err instanceof Error&&err.message==='folder_picker_unavailable'){noFolderDialog=true;if(live.current){setPickerMissing(true);setTimeout(()=>document.querySelector<HTMLInputElement>('#chooseLibraryFolder-path')?.focus(),0);}return;}throw err;}});}
   async function inspect(){await work(async()=>{const value=await api<LibraryReview>('desktop-library-review',{path:path.trim()});if(live.current){setReview(value);setConfirmed(false);}});}
   async function setup(){if(!review||!confirmed)return;await work(async()=>{await api('desktop-library-setup',{review_id:review.review_id,confirmed:true});await onChange();if(live.current)close();});}
   const where=library.system?'This computer’s drive':library.path;
@@ -39,7 +42,7 @@ export function LibraryLocation({library,busy,onChange}:{library:LibraryState|un
     {error&&!open&&<Callout tone="bad" role="alert">{libraryError(error)}</Callout>}
     <div className="sk-actions"><button className="sk-btn sk-outline" disabled={disabled||moving} onClick={()=>{reset();setOpen(true);}}><Icon name="folder"/>Change location</button>{!library.system&&<button className="sk-btn sk-quiet" disabled={disabled||moving} onClick={()=>void work(async()=>{await api('desktop-library-use-home',{});await onChange();})}>Keep new copies on this computer</button>}</div>
     {open&&createPortal(<Sheet kicker="Library" title="Where to keep model copies" back="Close" onClose={close} footer={<button className="sk-btn sk-solid" disabled={disabled||(!review&&!path.trim())||Boolean(review&&(!confirmed||review.expires_at*1000<=Date.now()))} onClick={()=>void (review?setup():inspect())}>{working?'Checking…':review?'Keep new copies here':'Review folder'}</button>}>
-      <Step n={1} title="Choose a drive, network share or folder"><p>Connect the drive or mount the network share first. Sovereign creates one dedicated folder for your model copies. Its settings and keys stay on this computer.</p><button className="sk-btn sk-outline" disabled={disabled} onClick={()=>void choose()}><Icon name="folder"/>Choose folder</button><label className="sk-field">Folder path<input className="sk-input" value={path} autoComplete="off" spellCheck={false} onChange={event=>{reset();setPath(event.target.value);}} placeholder="/Volumes/Models/Sovereign Library"/></label></Step>
+      <Step n={1} title="Choose a drive, network share or folder"><p>Connect the drive or mount the network share first. Sovereign creates one dedicated folder for your model copies. Its settings and keys stay on this computer.</p>{!pickerMissing&&<button className="sk-btn sk-outline" disabled={disabled} onClick={()=>void choose()}><Icon name="folder"/>Choose folder</button>}<label className="sk-field">Folder path<input id="chooseLibraryFolder-path" className="sk-input" value={path} autoComplete="off" spellCheck={false} onChange={event=>{reset();setPath(event.target.value);}} placeholder="/Volumes/Models/Sovereign Library"/></label></Step>
       {review&&<Step n={2} title="Review"><Row k="Folder"><span className="sk-wrap">{review.path}</span></Row><Row k="Available space">{bytes(review.free_bytes)}</Row><p>{review.reattach?'This folder already holds this Sovereign’s Library. Its copies are used again.':review.exists?'Uses this empty folder.':'Creates this folder.'} New saves go here from now on. Copies you already have keep working where they are, and you can move them here afterwards: each file is read back from the new drive before the original is removed.</p>{review.same_drive&&<Callout tone="warn">This is on the same drive as Sovereign’s own data, so it won’t free any space there.</Callout>}<Consent checked={confirmed} onChange={setConfirmed}>Keep new model copies in this folder.</Consent></Step>}
       {error&&<Callout tone="bad" role="alert">{libraryError(error)}</Callout>}
     </Sheet>,document.body)}

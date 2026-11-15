@@ -10,7 +10,7 @@ const review={source:'huggingface',repository,revision,licence:'apache-2.0',gate
 test('Hugging Face search waits for consent, then plans the exact reviewed files',async({page})=>{
   let consent=false;const searches:string[]=[];const plans:unknown[]=[];
   await page.route('**/api/library*',r=>r.fulfill({json:{host_kind:'sovereign',hub_search:consent,copies:[],jobs:[],next_offset:null}}));
-  await page.route('**/api/desktop-search',r=>r.fulfill({json:{catalog_id:null,results:[],total:0,next_offset:null}}));
+  await page.route('**/api/desktop-search',r=>r.fulfill({json:{catalog_id:'c'.repeat(64),results:[],total:0,next_offset:null}}));
   await page.route('**/api/desktop-source-read',r=>r.fulfill({json:{sources:[]}}));
   await page.route('**/api/desktop-source-search',r=>r.fulfill({json:{results:[],total:0,next_offset:null}}));
   await page.route('**/api/desktop-copy-search',r=>r.fulfill({json:{results:[],total:0,stored_total:0,next_offset:null}}));
@@ -19,16 +19,19 @@ test('Hugging Face search waits for consent, then plans the exact reviewed files
   await page.route('**/api/desktop-hub-review',r=>{const body=r.request().postDataJSON();return r.fulfill({json:body.variant==='tiny-Q8_0.gguf'?{...review,default_files:['README.md','tiny-Q8_0.gguf']}:review});});
   await page.route('**/api/desktop-plan',r=>{plans.push(r.request().postDataJSON());return r.fulfill({json:{plan_id:'p'.repeat(64),kind:'receive',origin:'hub',name:repository,size_bytes:8_001_000,file_count:2,details:{license:'apache-2.0'},members:[repository],required_free_bytes:1,free_bytes:10**12,terms:{accept:[],licences:[]}}});});
   await page.goto('/');
-  // Nothing goes to Hugging Face before the person chooses it.
-  await expect(page.getByRole('heading',{name:'Also search Hugging Face?'})).toBeVisible();
+  // Nothing goes to Hugging Face before the person turns it on beside the search.
+  const hub=page.getByRole('switch',{name:'Hugging Face'});
+  await expect(hub).not.toBeChecked();
+  await page.getByPlaceholder('Search by name or use').fill('tiny');
+  await page.waitForTimeout(800);
   expect(searches).toEqual([]);
-  await page.getByRole('button',{name:'Search Hugging Face too'}).click();
-  await page.getByPlaceholder('Search Hugging Face by model name').fill('tiny');
+  await hub.click();
+  await expect(hub).toBeChecked();
   await expect(page.getByRole('article',{name:repository})).toBeVisible();
   expect(searches).toEqual(['tiny']);
   await page.getByRole('button',{name:'Choose files'}).click();
   await expect(page.getByText('Licence: apache-2.0')).toBeVisible();
-  await page.getByRole('combobox').selectOption('tiny-Q8_0.gguf');
+  await page.getByRole('combobox',{name:'Version'}).click();await page.getByRole('option',{name:/^tiny-Q8_0/}).click();
   await page.getByText(/Files · 2 of 3 selected/).click();
   await expect(page.getByRole('checkbox',{name:'tiny-Q8_0.gguf'})).toBeChecked();
   await expect(page.getByRole('checkbox',{name:'tiny-Q4_K_M.gguf'})).not.toBeChecked();

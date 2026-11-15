@@ -70,3 +70,17 @@ test('the Library page says where copies are kept and links to Settings',async({
   await page.getByRole('button',{name:'Change in Settings'}).click();
   await expect(page.getByRole('heading',{name:'Settings',level:1})).toBeVisible();
 });
+
+test('without a system folder dialog, the path is typed with no error to dismiss',async({page})=>{
+  await common(page);
+  await page.route('**/api/library*',r=>r.fulfill({json:{host_kind:'sovereign',library:home,copies:[],jobs:[],next_offset:null}}));
+  await page.route('**/api/desktop-library-folder-choose',r=>r.fulfill({status:409,json:{error:'folder_picker_unavailable'}}));
+  await page.route('**/api/desktop-backup-read',r=>r.fulfill({json:{destinations:[],next_offset:null}}));
+  await page.goto('/');
+  await page.getByRole('button',{name:'Settings',exact:true}).first().click();
+  await page.getByRole('region',{name:'Where model copies are kept'}).getByRole('button',{name:'Change location'}).click();
+  await page.getByRole('button',{name:'Choose folder'}).click();
+  await expect(page.getByRole('button',{name:'Choose folder'})).toHaveCount(0);
+  await expect(page.getByLabel('Folder path')).toBeFocused();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+});

@@ -172,7 +172,8 @@ flow nor following/searching a source starts sharing, seeding or model execution
   stay together under Sharing.
 - **Appearance:** light or dark.
 
-Find keeps its in-context prompts ("Also search Hugging Face?") and links here;
+Find keeps its in-context prompts (for example "Also search Hugging Face?" once
+it has been turned off) and links here;
 the Library page says where copies are kept, with a link to change it.
 
 ## Where model copies are kept
@@ -540,9 +541,10 @@ existing source interface and admission checks remain separate.
 
 ### Hugging Face as a source
 
-Find can search Hugging Face directly once the person chooses it; the search
-words then go to huggingface.co, and the choice can be withdrawn under **Source
-and privacy**. A chosen repository is pinned to its current commit. Large (LFS)
+Find also searches Hugging Face directly, unless the person turned it off; the
+search words go to huggingface.co, which Find says next to the results, and it
+can be turned off (or back on) under **Search sources and privacy** in Settings.
+A choice saved by an earlier version, either way, is kept. A chosen repository is pinned to its current commit. Large (LFS)
 files carry their SHA-256 in Hub metadata; small git files are fetched from that
 commit, must match their git blob ID, and are hashed. Every selected file
 therefore has an exact size and SHA-256 before any download, and the save uses

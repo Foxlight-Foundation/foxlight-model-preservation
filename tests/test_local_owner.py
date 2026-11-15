@@ -214,7 +214,9 @@ def test_download_review_explains_existing_worker_space_reserve(tmp_path, monkey
             },
         )
         assert plan["free_bytes"] == 1
-        assert plan["required_free_bytes"] == plan["size_bytes"] * 4 + 32 * 1024**2
+        # Saves move their downloads into place: the model once, plus headroom.
+        size = plan["size_bytes"]
+        assert plan["required_free_bytes"] == size + size // 20 + 64 * 1024**2
         assert not owner.read()["jobs"]
         # Bypassing the UI's disabled control still cannot start a byte transfer.
         receipt = finish(owner, submit(owner, plan))

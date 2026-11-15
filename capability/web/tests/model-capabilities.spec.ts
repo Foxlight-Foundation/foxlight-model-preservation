@@ -70,7 +70,7 @@ test('video reading, image editing and embeddings keep their actual directions',
  const embed=page.getByRole('article').filter({has:page.getByRole('heading',{name:'Document finder',exact:true})});
  await expect(embed.getByText('Chat & writing',{exact:true})).toHaveCount(0);
  await expect(embed.getByText('Helps an app find documents with similar meaning',{exact:false})).toBeVisible();
- await page.getByLabel('What would you like to do?',{exact:true}).selectOption('video-understanding');
+ await page.getByRole('combobox',{name:'What would you like to do?'}).click();await page.getByRole('option',{name:'Understanding video'}).click();
  await expect(page.getByRole('heading',{name:'Clip reader',exact:true})).toBeVisible();
  await expect(page.getByRole('heading',{name:'Picture editor',exact:true})).toHaveCount(0);
  expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);

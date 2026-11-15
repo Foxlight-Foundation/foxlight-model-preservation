@@ -16,6 +16,7 @@ const paths:Record<string,ReactNode> = {
   more:<><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></>,
   copy:<><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></>,
   check:<polyline points="20 6 9 17 4 12"/>,
+  chevron:<polyline points="6 9 12 15 18 9"/>,
   arrow:<><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></>,
   shield:<><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></>,
   folder:<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>,
@@ -122,6 +123,11 @@ export function Progress({value,max,tone='live',label}:{value?:number;max?:numbe
 }
 
 /** Empty states: a friendly sentence and one way forward. */
+/** Something is loading: a spinner with words, large for a whole view and
+ *  inline for a list growing at its end. */
+export function Loading({label='Loading…',size}:{label?:string;size?:'page'}) {
+  return <div className="sk-loading" data-size={size} role="status"><span className="sk-spinner" aria-hidden="true"/><span>{label}</span></div>;
+}
 export function Empty({icon,title,children,action}:{icon:IconName;title:ReactNode;children?:ReactNode;action?:ReactNode}) {
   return <div className="sk-empty"><span className="sk-empty-icon"><Icon name={icon} size={22}/></span><h2>{title}</h2>{children&&<p>{children}</p>}{action}</div>;
 }

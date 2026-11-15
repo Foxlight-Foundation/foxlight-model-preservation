@@ -35,3 +35,41 @@ test('copies kept by community mirrors are found after browsing, and saved by th
   await expect.poll(()=>starts.length).toBe(1);
   expect(starts[0]).toMatchObject({plan_id:'p'.repeat(64),confirmed:true,accept_unconfirmed_origin:true});
 });
+
+test('the first-launch screen has no search and contacts nothing; Browse has one search with source toggles',async({page})=>{
+  const calls:string[]=[];
+  await page.route('**/api/library*',r=>r.fulfill({json:{host_kind:'sovereign',hub_search:true,pirate_face_search:false,copies:[],jobs:[],next_offset:null}}));
+  await page.route('**/api/desktop-search',r=>r.fulfill({json:{catalog_id:null,results:[],total:0,next_offset:null}}));
+  await page.route('**/api/desktop-source-read',r=>r.fulfill({json:{sources:[]}}));
+  await page.route('**/api/desktop-copy-search',r=>r.fulfill({json:{results:[],total:0,stored_total:0,next_offset:null}}));
+  await page.route('**/api/desktop-held-refresh',r=>{calls.push('refresh');return r.fulfill({json:{mirrors:2}});});
+  await page.route('**/api/desktop-held-search',r=>{calls.push('held');return r.fulfill({json:{source:'mirrors',results:[]}});});
+  await page.route('**/api/desktop-hub-search',r=>{calls.push('hub');return r.fulfill({json:{source:'huggingface',results:[]}});});
+  await page.goto('/');
+  await expect(page.getByRole('heading',{name:'What would you like to do?',exact:true})).toBeVisible();
+  await expect(page.getByRole('searchbox')).toHaveCount(0);
+  await expect(page.getByRole('switch')).toHaveCount(0);
+  await page.waitForTimeout(1200);
+  expect(calls).toEqual([]);
+});
+
+test('a mirror discovery that ends while the search changes never leaves Browse waiting',async({page})=>{
+  let release:()=>void=()=>{};const refreshed=new Promise<void>(resolve=>{release=resolve;});
+  await page.route('**/api/library*',r=>r.fulfill({json:{host_kind:'sovereign',hub_search:true,copies:[],jobs:[],next_offset:null}}));
+  await page.route('**/api/desktop-search',r=>r.fulfill({json:{catalog_id:'c'.repeat(64),results:[],total:0,next_offset:null}}));
+  await page.route('**/api/desktop-source-read',r=>r.fulfill({json:{sources:[]}}));
+  await page.route('**/api/desktop-copy-search',r=>r.fulfill({json:{results:[],total:0,stored_total:0,next_offset:null}}));
+  await page.route('**/api/desktop-held-refresh',async r=>{await refreshed;return r.fulfill({json:{mirrors:2}});});
+  await page.route('**/api/desktop-held-search',r=>r.fulfill({json:{source:'mirrors',results:[held]}}));
+  await page.route('**/api/desktop-hub-search',r=>r.fulfill({json:{source:'huggingface',results:[]}}));
+  await page.goto('/');
+  const search=page.getByPlaceholder('Search by name or use');
+  await search.fill('rare');
+  await expect(page.getByText('Looking for models that community mirrors keep…')).toBeVisible();
+  await search.fill('');
+  release();
+  await search.fill('rare');
+  await expect(page.getByRole('article',{name:held.name})).toBeVisible();
+  await expect(page.getByText('Looking for models that community mirrors keep…')).toHaveCount(0);
+  await expect(page.getByText('Your search words also go to huggingface.co. You can turn this off in Settings.')).toBeVisible();
+});

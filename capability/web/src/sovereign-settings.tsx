@@ -7,13 +7,12 @@ import {Callout,Icon,Mono,Pill} from './ui';
 export interface SettingsPage {library?:LibraryState;hub_search?:boolean;hub_token?:string|null;pirate_face_search?:boolean;pirate_face_swarm?:boolean}
 
 /** One choice with its plain explanation, current state and a single switch. */
-function Choice({title,on,busy,children,onLabel,offLabel,explainError,onChange}:{title:string;on:boolean;busy:boolean;children:ReactNode;onLabel:string;offLabel:string;explainError:(code:string)=>string;onChange:(next:boolean)=>Promise<void>}) {
+function Choice({title,on,busy,children,explainError,onChange}:{title:string;on:boolean;busy:boolean;children:ReactNode;explainError:(code:string)=>string;onChange:(next:boolean)=>Promise<void>}) {
   const [working,setWorking]=useState(false),[error,setError]=useState('');
   async function change(next:boolean){setWorking(true);setError('');try{await onChange(next);}catch(err){setError(err instanceof Error?err.message:'host_unavailable');}finally{setWorking(false);}}
   return <article className="sk-card sk-setting" aria-label={title}>
-    <div className="sk-model-head"><div className="sk-model-title"><h3>{title}</h3></div><Pill tone={on?'ok':'muted'}>{on?'On':'Off'}</Pill></div>
+    <div className="sk-model-head"><div className="sk-model-title"><h3>{title}</h3></div><label className="sk-switch"><input type="checkbox" role="switch" aria-label={title} aria-checked={on} checked={on} disabled={busy||working} onChange={event=>void change(event.target.checked)}/><span>{on?'On':'Off'}</span></label></div>
     {children}
-    <div className="sk-actions"><button className={`sk-btn ${on?'sk-quiet':'sk-outline'}`} disabled={busy||working} onClick={()=>void change(!on)}>{on?offLabel:onLabel}</button></div>
     {error&&<Callout tone="bad" role="alert">Your choice wasn’t saved. {explainError(error)}</Callout>}
   </article>;
 }
@@ -31,14 +30,14 @@ export function SovereignSettings({page,busy,theme,registryFingerprint,backups,e
     <h2 className="sk-section-title" id="settings-sources">Search sources and privacy</h2>
     <p className="sk-hint sk-pad">Foxlight’s public registry is a built-in source: updating listings contacts registry.foxlight.ai, and searching them stays on this device. Downloads contact the model’s host and its public CDNs, which can see your address and the files requested. Finding models community mirrors keep reads their signed lists; those mirrors can see your address, and your search words stay on this device.</p>
     <div className="sk-cards">
-      <Choice title="Search Hugging Face" on={Boolean(page?.hub_search)} busy={busy} onLabel="Search Hugging Face too" offLabel="Stop searching Hugging Face" explainError={explainError} onChange={next=>set('desktop-hub-consent',next)}>
+      <Choice title="Search Hugging Face" on={Boolean(page?.hub_search)} busy={busy} explainError={explainError} onChange={next=>set('desktop-hub-consent',next)}>
         <p>Find any public model on Hugging Face, not only saved listings. Your search words go to huggingface.co.</p>
       </Choice>
       <article className="sk-card sk-setting" aria-label="Hugging Face access token"><div className="sk-model-head"><div className="sk-model-title"><h3>Hugging Face access token</h3></div><Pill tone={page?.hub_token?'ok':'muted'}>{page?.hub_token?'Added':'None'}</Pill></div><HubToken user={page?.hub_token??null} busy={busy} explainError={explainError} onChange={onChange}/></article>
-      <Choice title="Search Pirate Face" on={Boolean(page?.pirate_face_search)} busy={busy} onLabel="Search Pirate Face too" offLabel="Stop searching Pirate Face" explainError={explainError} onChange={next=>set('desktop-pirate-face-consent',next)}>
+      <Choice title="Search Pirate Face" on={Boolean(page?.pirate_face_search)} busy={busy} explainError={explainError} onChange={next=>set('desktop-pirate-face-consent',next)}>
         <p>Find community torrents of Hugging Face models, including models Hugging Face has removed. Your search words go to pirateface.co.</p>
       </Choice>
-      <Choice title="Swarm downloads" on={Boolean(page?.pirate_face_swarm)} busy={busy} onLabel="Turn on swarm downloads" offLabel="Turn off swarm downloads" explainError={explainError} onChange={next=>set('desktop-pirate-face-swarm',next)}>
+      <Choice title="Swarm downloads" on={Boolean(page?.pirate_face_swarm)} busy={busy} explainError={explainError} onChange={next=>set('desktop-pirate-face-swarm',next)}>
         <p>Keep models from the Pirate Face swarm. Peers in a public swarm can see this computer’s address. Sovereign only downloads from them: it never shares from the swarm, and nothing keeps running after a save.</p>
       </Choice>
     </div>

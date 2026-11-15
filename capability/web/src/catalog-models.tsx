@@ -1,7 +1,7 @@
 import {useState} from 'react';
 import {bytes} from './client';
 import {ModelInformation,modalityLabels,type ModelDetails} from './model-info';
-import {Details,Help,Mono} from './ui';
+import {Details,Help,Mono,Monogram,initials} from './ui';
 
 /** Which everyday apps can open a file format, in plain words. */
 export function formatHint(format:string):string|null {
@@ -39,7 +39,7 @@ export function CatalogModels({models,busy,onReview,explainError}:{models:Catalo
       </section>)}</div>;
     const isSelected=key===selected;
     return <article key={key} className="sk-card sk-result" data-selected={isSelected?'true':undefined} onFocusCapture={()=>setChosen(key)} onPointerDown={()=>setChosen(key)}>
-      <div className="sk-job-head"><span className="sk-result-mark" aria-hidden="true">{isSelected?'✦':'·'}</span><div className="sk-model-title"><h2>{first.name}</h2><p className="sk-meta">{first.publisher&&<>{first.publisher} · </>}<span className="sk-signed">signed listing</span></p></div>{sizes.length>0&&<span className="sk-size">{multiple?`from ${bytes(Math.min(...sizes))}`:bytes(sizes[0])}</span>}</div>
+      <div className="sk-job-head"><Monogram text={initials(first.name)}/><div className="sk-model-title"><h2>{first.name}</h2><p className="sk-meta">{first.publisher&&<>{first.publisher} · </>}<span className="sk-signed">signed listing</span></p></div>{sizes.length>0&&<span className="sk-size">{multiple?`from ${bytes(Math.min(...sizes))}`:bytes(sizes[0])}</span>}</div>
       <ModelInformation details={{...first.details,format:null,quantization:null}} tasks={first.workloads}/>
       {multiple&&<p className="sk-hint">{variants.length} file versions on this page{sizes.length?` · listed downloads from ${bytes(Math.min(...sizes))}`:''}. Choose one supported by the app you plan to use. <Help label="About model versions">These are separate file variants of the same model description, not extra models you need to download together. Precision and file format can affect size and compatibility. Sovereign does not recommend a variant or run it on your device.</Help></p>}
       {multiple?<Details summary={`Choose a file version · ${variants.length} on this page`}>{choices}</Details>:choices}

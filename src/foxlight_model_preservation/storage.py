@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import fcntl
 import hashlib
 import os
@@ -22,6 +23,7 @@ from .models import (
     ManifestMember,
     PreservationError,
     Recipe,
+    SourceFile,
     TrustProfile,
     canonical_path,
 )
@@ -431,6 +433,7 @@ def copy_verified_object(
     *,
     verify_reused_source: bool = False,
     link: bool = False,
+    move: bool = False,
 ) -> None:
     """Copy a checked object; optionally verify each input even when deduplicated.
 
@@ -443,6 +446,13 @@ def copy_verified_object(
     the same filesystem instead of duplicating its bytes. The linked object is
     still hashed before and after publication, and any filesystem that cannot
     link falls back to an ordinary copy. Never link a user's own source files.
+
+    ``move`` is only for a caller's own scratch input that is discarded
+    afterwards (a save's downloaded files, or its temporary preservation
+    store): on the same filesystem the input is renamed into place, so nothing
+    is written or hashed here, and the caller must hash every object before it
+    publishes anything that names them. Across filesystems it falls back to an
+    ordinary checked copy. Never move a user's own source files.
     """
     control.phase("checking")
     try:
@@ -466,20 +476,25 @@ def copy_verified_object(
     try:
         # The link is created inside the cleanup-protected region, so a
         # cancellation at any later checkpoint never leaves it behind.
-        linked = link and _link_object(source, source_path, target, pending)
-        if not linked and shutil.disk_usage(target).free < file.size + 16 * CHUNK_SIZE:
+        moved = move and _move_object(source, source_path, target, pending, file)
+        linked = (
+            not moved and link and _link_object(source, source_path, target, pending)
+        )
+        placed = moved or linked
+        if not placed and shutil.disk_usage(target).free < file.size + 16 * CHUNK_SIZE:
             raise PreservationError("destination has insufficient free space")
         control.phase("copying")
-        if not linked:
+        if not placed:
             with (
                 open_file(source, source_path) as origin,
                 open_file(target, pending, write=True) as output,
             ):
                 copy_exact(origin, output, file.size, control=control)
         control.phase("checking")
-        observed = file_identity(target, pending, control=control)
-        if (observed.size, observed.sha256) != (file.size, file.sha256):
-            raise PreservationError("source changed between inventory and copy")
+        if not moved:
+            observed = file_identity(target, pending, control=control)
+            if (observed.size, observed.sha256) != (file.size, file.sha256):
+                raise PreservationError("source changed between inventory and copy")
         with parent_directory(target, pending) as (pending_parent, pending_name):
             with parent_directory(target, object_path(file.sha256), create=True) as (
                 parent,
@@ -490,7 +505,8 @@ def copy_verified_object(
                     pending_name, name, src_dir_fd=pending_parent, dst_dir_fd=parent
                 )
                 os.fsync(parent)
-        verify_object(target, file, control=control)
+        if not moved:
+            verify_object(target, file, control=control)
     finally:
         try:
             with parent_directory(target, pending) as (parent, name):
@@ -498,6 +514,41 @@ def copy_verified_object(
                 os.fsync(parent)
         except FileNotFoundError:
             pass
+
+
+def _move_object(
+    source: int, source_path: str, target: int, pending: str, file: FileIdentity
+) -> bool:
+    """Rename scratch input into pending work, or report False (another drive).
+
+    Only a regular file of the declared size is taken; its bytes are hashed by
+    the caller before anything naming them is published.
+    """
+    try:
+        with (
+            parent_directory(source, source_path) as (source_parent, source_name),
+            parent_directory(target, pending, create=True) as (parent, name),
+        ):
+            info = os.stat(source_name, dir_fd=source_parent, follow_symlinks=False)
+            if not stat.S_ISREG(info.st_mode) or info.st_size != file.size:
+                raise PreservationError("file length differs from signed size")
+            os.rename(source_name, name, src_dir_fd=source_parent, dst_dir_fd=parent)
+            # Its data must be durable before anything naming it is published,
+            # as a copy's is (the scratch writer may never have synced it).
+            moved = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent)
+            try:
+                os.fsync(moved)
+            finally:
+                os.close(moved)
+            os.fsync(parent)
+            os.fsync(source_parent)
+            return True
+    except PreservationError:
+        raise
+    except OSError as error:
+        if error.errno == errno.EXDEV:
+            return False
+        raise
 
 
 def _link_object(source: int, source_path: str, target: int, pending: str) -> bool:
@@ -527,10 +578,18 @@ def pack(
     *,
     control: OperationControl | None = None,
     expected_manifest_id: str | None = None,
+    consume: bool = False,
 ) -> str:
-    """Capture selected complete members and publish the signed manifest last."""
+    """Capture selected complete members and publish the signed manifest last.
+
+    ``consume`` is for the caller's own scratch files (a save's downloads,
+    discarded afterwards): every selected file must carry its expected SHA-256,
+    which the manifest takes after checking the file's size, and the files are
+    moved into the store instead of copied. Every stored object is still
+    hashed before the manifest is published.
+    """
     with (control or OperationControl()).operation("pack") as active:
-        manifest = _capture_manifest(recipe, sources, active)
+        manifest = _capture_manifest(recipe, sources, active, declared=consume)
         manifest_id = digest(encode_record(manifest))
         if expected_manifest_id is not None and expected_manifest_id != manifest_id:
             raise RequestChanged("source differs from the planned manifest")
@@ -547,7 +606,9 @@ def pack(
             for member in manifest.members:
                 with directory(sources[member.member_id]) as source:
                     for file in member.files:
-                        copy_verified_object(source, file.path, target, file, active)
+                        copy_verified_object(
+                            source, file.path, target, file, active, move=consume
+                        )
             active.phase("checking")
             for file in unique_objects(manifest):
                 verify_object(target, file, control=active)
@@ -558,7 +619,11 @@ def pack(
 
 
 def _capture_manifest(
-    recipe: Recipe, sources: dict[str, Path], control: OperationControl
+    recipe: Recipe,
+    sources: dict[str, Path],
+    control: OperationControl,
+    *,
+    declared: bool = False,
 ) -> Manifest:
     control.phase("inventory")
     if set(sources) != {member.member_id for member in recipe.members}:
@@ -568,6 +633,12 @@ def _capture_manifest(
         identities: list[FileIdentity] = []
         with directory(sources[member.member_id]) as source:
             for selected in member.files:
+                if declared:
+                    # The caller hashed these bytes as it wrote them; the
+                    # stored objects are hashed again before publication.
+                    identity = _declared_identity(source, selected.path, selected)
+                    identities.append(identity)
+                    continue
                 identity = file_identity(source, selected.path, control=control)
                 if (
                     selected.expected_sha256 is not None
@@ -579,6 +650,15 @@ def _capture_manifest(
         members.append(ManifestMember(**metadata, files=tuple(identities)))
     metadata = recipe.model_dump(exclude={"members"})
     return Manifest(**metadata, members=tuple(members))
+
+
+def _declared_identity(root: int, path: str, selected: SourceFile) -> FileIdentity:
+    """A selected file's identity from its expected hash and actual size."""
+    if selected.expected_sha256 is None:
+        raise PreservationError("moving captured files requires their expected hashes")
+    with open_file(root, path) as stream:
+        size = os.fstat(stream.fileno()).st_size
+    return FileIdentity(path=path, size=size, sha256=selected.expected_sha256)
 
 
 def verify_store(

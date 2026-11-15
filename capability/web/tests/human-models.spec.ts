@@ -30,7 +30,7 @@ test('saved models explain their use, details, search and the two recovery actio
  await expect(page.getByRole('heading',{name:copies[0].name,exact:true})).toBeVisible();
  await expect(page.getByRole('heading',{name:copies[1].name,exact:true})).toHaveCount(0);
  await page.getByLabel('Search your saved models',{exact:true}).fill('');
- await page.getByLabel('What would you like to do?',{exact:true}).selectOption('images');
+ await page.getByRole('combobox',{name:'What would you like to do?'}).click();await page.getByRole('option',{name:'Images & editing'}).click();
  await expect(page.getByRole('heading',{name:copies[1].name,exact:true})).toBeVisible();
  await expect(page.getByRole('heading',{name:copies[0].name,exact:true})).toHaveCount(0);
  await page.getByLabel('Search your saved models',{exact:true}).fill('no such model');
@@ -65,7 +65,7 @@ test('technical identity is explained, exact, and help works with focus, Escape 
 test('Find uses ordinary purposes without treating file size or a signature as device suitability',async({page})=>{
  await page.goto('/');await page.getByRole('button',{name:'Find',exact:true}).click();
  await expect(page.getByText(writing.description,{exact:true})).toBeVisible();
- await page.getByLabel('What would you like to do?',{exact:true}).selectOption('images');
+ await page.getByRole('combobox',{name:'What would you like to do?'}).click();await page.getByRole('option',{name:'Images & editing'}).click();
  await expect(page.getByRole('heading',{name:copies[1].name,exact:true})).toBeVisible();
  await expect(page.getByRole('heading',{name:copies[0].name,exact:true})).toHaveCount(0);
  await page.getByRole('button',{name:'About download size',exact:true}).focus();
@@ -116,31 +116,76 @@ test('matching file variants share a description but retain their own exact revi
  await page.keyboard.press('Escape');await expect(dialog).toHaveCount(0);
 });
 
-test('all saved models remain searchable across size-bounded Library pages',async({page})=>{
+test('all saved models remain searchable across size-bounded Library pages, each batch added under the last',async({page})=>{
  const offsets:number[]=[];
  await page.route('**/api/library*',route=>route.fulfill({json:{host_kind:'sovereign',copy_count:256,copies:[copies[0]],jobs:[],next_offset:null}}));
- await page.route('**/api/desktop-copy-search',route=>{const body=route.request().postDataJSON();offsets.push(body.offset);const filtered=Boolean(body.query);return route.fulfill({json:{results:[filtered?{...copies[1],name:'Copy255'}:copies[0]],total:filtered?1:256,stored_total:256,next_offset:filtered?null:body.offset<26?body.offset+13:null}});});
+ await page.route('**/api/desktop-copy-search',route=>{const body=route.request().postDataJSON();offsets.push(body.offset);const filtered=Boolean(body.query);return route.fulfill({json:{results:[filtered?{...copies[1],name:'Copy255'}:{...copies[0],copy_id:String(body.offset).padStart(64,'c')}],total:filtered?1:256,stored_total:256,next_offset:filtered?null:body.offset<26?body.offset+13:null}});});
  await page.goto('/');
  await expect(page.getByText('256 saved models · search stays on this device',{exact:true})).toBeVisible();
  await page.getByRole('button',{name:'More saved models',exact:true}).click();await expect.poll(()=>offsets.at(-1)).toBe(13);
  await page.getByRole('button',{name:'More saved models',exact:true}).click();await expect.poll(()=>offsets.at(-1)).toBe(26);
- await page.getByRole('button',{name:'Previous saved models',exact:true}).click();await expect.poll(()=>offsets.at(-1)).toBe(13);
+ // More adds the next batch under the ones shown; nothing pages back.
+ await expect(page.getByRole('button',{name:'Previous saved models'})).toHaveCount(0);
+ await expect(page.getByRole('heading',{name:copies[0].name,exact:true})).toHaveCount(3);
  await page.getByLabel('Search your saved models',{exact:true}).fill('Copy255');
  await expect(page.getByRole('heading',{name:'Copy255',exact:true})).toBeVisible();await expect.poll(()=>offsets.at(-1)).toBe(0);
  await expect(page.getByRole('button',{name:'Restore files',exact:true})).toBeVisible();
  await expect(page.getByText('1 of 256 saved models match',{exact:true})).toBeVisible();
 });
 
-test('size-bounded catalog pages return to their actual previous offset',async({page})=>{
+test('More models adds each size-bounded batch under the last, from its actual offset',async({page})=>{
  const offsets:number[]=[];
- await page.route('**/api/desktop-search',route=>{const offset=route.request().postDataJSON().offset;offsets.push(offset);return route.fulfill({json:{catalog_id:id,results:[cards[0]],total:60,next_offset:offset<26?offset+13:null}});});
+ await page.route('**/api/desktop-search',route=>{const offset=route.request().postDataJSON().offset;offsets.push(offset);const letter='abc'[offset/13];return route.fulfill({json:{catalog_id:id,results:[{...cards[0],card_id:'card_'+letter.repeat(52),name:`Batch ${offset}`}],total:60,next_offset:offset<26?offset+13:null}});});
  await page.goto('/');await page.getByRole('button',{name:'Find',exact:true}).click();
  await page.getByRole('button',{name:'More models',exact:true}).click();
  await expect.poll(()=>offsets.at(-1)).toBe(13);
  await page.getByRole('button',{name:'More models',exact:true}).click();
  await expect.poll(()=>offsets.at(-1)).toBe(26);
- await page.getByRole('button',{name:'Previous',exact:true}).click();
- await expect.poll(()=>offsets.at(-1)).toBe(13);
+ await expect(page.getByRole('button',{name:'Previous'})).toHaveCount(0);
+ for(const batch of [0,13,26])await expect(page.getByRole('heading',{name:`Batch ${batch}`,exact:true})).toBeVisible();
+ // The last batch has no more after it.
+ await expect(page.getByRole('button',{name:'More models',exact:true})).toHaveCount(0);
+});
+
+test('removing a saved model after More reloads every shown batch, so no card goes stale or missing',async({page})=>{
+ let stored=Array.from({length:30},(_,index)=>({...copies[0],copy_id:index.toString(16).padStart(64,'0'),manifest_id:index.toString(16).padStart(64,'0'),name:`Copy ${index}`}));
+ await page.route('**/api/library*',route=>route.fulfill({json:{host_kind:'sovereign',copies:stored.slice(0,13),copy_count:stored.length,jobs:[],uploads:[],next_offset:null}}));
+ await page.route('**/api/desktop-copy-search',route=>{const offset=route.request().postDataJSON().offset as number;const next=offset+13<stored.length?offset+13:null;return route.fulfill({json:{results:stored.slice(offset,offset+13),total:stored.length,stored_total:stored.length,next_offset:next}});});
+ await page.goto('/');
+ await page.getByRole('button',{name:'More saved models',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Copy 25',exact:true})).toBeVisible();
+ stored=stored.filter(copy=>copy.name!=='Copy 3');
+ await expect(page.getByRole('heading',{name:'Copy 3',exact:true})).toHaveCount(0);
+ // The batches shifted by one on the core: the next copy moves up instead of falling between them.
+ await expect(page.getByRole('heading',{name:'Copy 26',exact:true})).toBeVisible();
+ await expect(page.getByRole('heading',{name:/^Copy \d+$/})).toHaveCount(26);
+});
+
+test('a failed More brings the button back with the shown models kept, and trying again works',async({page})=>{
+ let fail=true;
+ await page.route('**/api/desktop-search',route=>{const offset=route.request().postDataJSON().offset;if(offset===13&&fail){fail=false;return route.fulfill({status:503,json:{error:'host_unavailable'}});}const letter='abc'[offset/13];return route.fulfill({json:{catalog_id:id,results:[{...cards[0],card_id:'card_'+letter.repeat(52),name:`Batch ${offset}`}],total:60,next_offset:offset<26?offset+13:null}});});
+ await page.goto('/');await page.getByRole('button',{name:'Find',exact:true}).click();
+ await page.getByRole('button',{name:'More models',exact:true}).click();
+ await expect(page.getByRole('button',{name:'More models',exact:true})).toBeVisible();
+ await expect(page.getByRole('heading',{name:'Batch 0',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'More models',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Batch 13',exact:true})).toBeVisible();
+ await expect(page.getByRole('heading',{name:'Batch 0',exact:true})).toBeVisible();
+});
+
+test('listings replaced between two batch reads are read again, so every card comes from one catalog',async({page})=>{
+ let catalog='1';const asked:string[]=[];
+ await page.route('**/api/desktop-search',route=>{const offset=route.request().postDataJSON().offset as number;
+  // The listings are updated just as the second batch is first read.
+  if(offset===13)catalog='2';asked.push(`${catalog}@${offset}`);
+  return route.fulfill({json:{catalog_id:catalog.repeat(64),results:[{...cards[0],card_id:'card_'+(offset?'b':'a').repeat(51)+catalog,name:`Catalog ${catalog} batch ${offset}`}],total:26,next_offset:offset<13?13:null}});});
+ await page.goto('/');await page.getByRole('button',{name:'Find',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Catalog 1 batch 0',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'More models',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Catalog 2 batch 13',exact:true})).toBeVisible();
+ await expect(page.getByRole('heading',{name:'Catalog 2 batch 0',exact:true})).toBeVisible();
+ await expect(page.getByRole('heading',{name:/^Catalog 1/})).toHaveCount(0);
+ expect(asked.slice(-3)).toEqual(['2@13','2@0','2@13']);
 });
 
 test('Activity describes the actual stage without inventing a percentage',async({page})=>{
@@ -152,12 +197,12 @@ test('Activity describes the actual stage without inventing a percentage',async(
 });
 
 
-test('other model sources are one visible jump away without any network enrollment',async({page})=>{
+test('in Browse, the sharing file opens straight from the top of Find without any network enrollment',async({page})=>{
  const effects:string[]=[];page.on('request',request=>{if(/desktop-(source-follow|source-plan|refresh|start)/.test(request.url()))effects.push(request.url());});
  await page.goto('/');await page.getByRole('button',{name:'Find',exact:true}).click();
- await page.getByRole('link',{name:'Open a sharing file',exact:true}).click();
- await expect(page.getByRole('region',{name:'Independent model sources',exact:true})).toBeInViewport();
- await expect(page.getByRole('region',{name:'Independent model sources',exact:true})).toBeFocused();
+ const chooser=page.waitForEvent('filechooser');
+ await page.getByRole('button',{name:'Open a sharing file',exact:true}).first().click();
+ expect(await (await chooser).element().getAttribute('aria-label')).toBe('Open sharing file');
  expect(effects).toEqual([]);
 });
 
@@ -171,4 +216,29 @@ test('hover help stays readable while the pointer crosses to its explanation',as
  // Outlast the intentional crossing delay while hovering the explanation itself.
  await page.waitForTimeout(300);await expect(tip).toBeVisible();
  await page.mouse.move(0,0);await expect(tip).toHaveCount(0);
+});
+
+test('the app’s own dropdown works from the keyboard and closes when you click away',async({page})=>{
+ await page.goto('/');
+ await expect(page.getByRole('heading',{name:'Your Library',exact:true})).toBeVisible();
+ const box=page.getByRole('combobox',{name:'What would you like to do?'});
+ await expect(box).toHaveText('All model types');
+ await box.focus();await page.keyboard.press('ArrowDown');
+ await expect(page.getByRole('listbox')).toBeVisible();
+ await expect(page.getByRole('option',{name:'All model types'})).toHaveAttribute('aria-selected','true');
+ await page.keyboard.press('ArrowDown');await page.keyboard.press('Enter');
+ await expect(page.getByRole('listbox')).toHaveCount(0);
+ await expect(box).not.toHaveText('All model types');await expect(box).toBeFocused();
+ await box.click();await expect(page.getByRole('listbox')).toBeVisible();
+ await page.keyboard.press('Escape');await expect(page.getByRole('listbox')).toHaveCount(0);
+ await box.click();await expect(page.getByRole('listbox')).toBeVisible();
+ await page.mouse.click(5,5);await expect(page.getByRole('listbox')).toHaveCount(0);
+});
+
+test('public listings show the same initials tile as saved models, not a dot',async({page})=>{
+ await page.goto('/');await page.getByRole('button',{name:'Find',exact:true}).click();
+ const card=page.getByRole('article').filter({has:page.getByRole('heading',{name:cards[0].name,exact:true})});
+ await expect(card.locator('.sk-monogram')).toHaveText('MY');
+ const size=await card.locator('.sk-monogram').boundingBox();
+ expect(size?.width).toBeGreaterThanOrEqual(36);
 });

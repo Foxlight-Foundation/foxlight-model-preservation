@@ -437,10 +437,11 @@ test('an R2 bucket in a jurisdiction is connected at that jurisdiction',async({p
  await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();
  const panel=page.getByRole('region',{name:'Help keep models available'});
  await panel.getByRole('button',{name:'Set up cloud storage',exact:true}).click();
- const jurisdiction=page.getByLabel('Jurisdiction');
- await expect(jurisdiction).toHaveValue('');
- await expect(jurisdiction.locator('option')).toHaveText(['Default (no jurisdiction)','European Union','FedRAMP','United States']);
- await jurisdiction.selectOption('eu');
+ const jurisdiction=page.getByRole('combobox',{name:'Jurisdiction'});
+ await expect(jurisdiction).toHaveText('Default (no jurisdiction)');
+ await jurisdiction.click();
+ await expect(page.getByRole('option')).toHaveText(['Default (no jurisdiction)','European Union','FedRAMP','United States']);
+ await page.getByRole('option',{name:'European Union'}).click();
  await page.getByLabel('Account ID').fill('0'.repeat(32));await page.getByLabel('Bucket name').fill('my-models');
  await page.getByLabel('Public address').fill('https://mirror.example.org');
  await page.getByLabel('Access key ID').fill('AKIAEXAMPLE');await page.getByLabel('Secret access key').fill('s3cret');

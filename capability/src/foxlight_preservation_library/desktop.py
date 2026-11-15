@@ -264,19 +264,19 @@ class DesktopClient(CoreClient):
     async def _choose_folder(self, *, library: bool = False) -> dict[str, JsonValue]:
         if self._closing:
             raise CoreRefused("sovereign_owner_closing")
-        binary = shutil.which("zenity", path="/usr/bin:/bin")
-        if sys.platform != "linux" or binary is None:
+        title = (
+            "Choose where Sovereign keeps model copies"
+            if library
+            else "Choose a backup drive or folder"
+        )
+        command = _folder_picker(title)
+        if command is None:
             raise CoreRefused("folder_picker_unavailable")
         if self._picker_lock.locked():
             raise CoreRefused("folder_picker_busy")
         async with self._picker_lock:
             process = await asyncio.create_subprocess_exec(
-                binary,
-                "--file-selection",
-                "--directory",
-                "--title=Choose where Sovereign keeps model copies"
-                if library
-                else "--title=Choose a backup drive or folder",
+                *command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
             )
@@ -313,6 +313,33 @@ class DesktopClient(CoreClient):
             pass
         await asyncio.to_thread(self.owner.close)
         await self.http.aclose()
+
+
+OSASCRIPT = Path("/usr/bin/osascript")
+
+
+def _folder_picker(title: str) -> list[str] | None:
+    """The system's own folder chooser, run by the owner on this computer.
+
+    The page can't ask a browser for a folder's path, but the owner runs on
+    the same computer as the person, so it opens the system dialog itself:
+    macOS's "choose folder" (osascript activates itself, so the dialog comes to
+    the front without any automation permission) or zenity on Linux. Both
+    print the chosen folder and exit 1 when the person cancels.
+    """
+    if sys.platform == "darwin" and OSASCRIPT.is_file():
+        return [
+            str(OSASCRIPT),
+            "-e",
+            "activate",
+            "-e",
+            f'POSIX path of (choose folder with prompt "{title}")',
+        ]
+    if sys.platform == "linux":
+        binary = shutil.which("zenity", path="/usr/bin:/bin")
+        if binary is not None:
+            return [binary, "--file-selection", "--directory", f"--title={title}"]
+    return None
 
 
 def default_home() -> Path:

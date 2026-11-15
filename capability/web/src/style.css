@@ -90,8 +90,10 @@
 .sk-start-options .sk-btn {margin-top:auto;}
 *,*::before,*::after {box-sizing:border-box;}
 html {background:var(--void);-webkit-text-size-adjust:100%;text-size-adjust:100%;}
+/* Clip, not hide: a hidden body becomes its own scroller while the page is
+   locked, and the sticky header then scrolls away with it. */
 html.sk-locked {overflow:hidden;}
-body {margin:0;min-height:100vh;background:var(--page-glow);color:var(--text-2);font:400 var(--type-body)/1.5 var(--sans);-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility;text-wrap:pretty;overflow-x:hidden;}
+body {margin:0;min-height:100vh;background:var(--page-glow);color:var(--text-2);font:400 var(--type-body)/1.5 var(--sans);-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility;text-wrap:pretty;overflow-x:clip;}
 [hidden] {display:none!important;}
 button,input,select,textarea {font:inherit;color:inherit;}
 h1,h2,h3,h4 {color:var(--text-1);margin:0;text-wrap:balance;}
@@ -174,6 +176,7 @@ h1:focus,h2:focus {outline:none;}
 .sk-page-head h2 {font-size:22px;font-weight:600;letter-spacing:-.015em;line-height:1.2;}
 .sk-page-head p {color:var(--text-3);font-size:15px;max-width:64ch;text-shadow:var(--shadow-text);}
 .sk-page-actions {display:flex;flex-wrap:wrap;gap:8px;}
+.sk-page-actions:empty {display:none;}
 /* Find hero: the big two-line display heading over the photo. */
 .sk-hero {display:flex;flex-direction:column;gap:18px;padding:44px 0 34px;}
 .sk-hero h1 {font-size:var(--type-display);font-weight:600;letter-spacing:-.02em;line-height:1.05;max-width:560px;text-shadow:var(--shadow-display);}
@@ -281,8 +284,7 @@ h1:focus,h2:focus {outline:none;}
 .sk-selected dt {color:var(--muted);}
 .sk-selected dd {margin:0;color:var(--text-1);overflow-wrap:anywhere;}
 .sk-selected > p:last-child {border-top:1px solid var(--line-card);padding-top:12px;}
-.sk-result-mark {width:40px;display:flex;justify-content:center;color:var(--text-4);font-size:18px;line-height:1.2;}
-.sk-card[data-selected] .sk-result-mark {color:var(--foxlight);}
+.sk-card[data-selected] .sk-monogram {box-shadow:inset 0 0 0 1px var(--foxlight);}
 .sk-signed {color:var(--ink-ok);}
 
 /* Menu */
@@ -706,3 +708,69 @@ li[data-state="waiting"] .sk-ring-fill {stroke:transparent;}
 @media (prefers-reduced-motion: reduce) {.sk-ring[data-spinning] svg {animation:none;}}
 .sk-ring-mid {position:absolute;inset:0;display:grid;place-items:center;font-size:12px;font-variant-numeric:tabular-nums;}
 .sk-ring-mid svg {width:18px;height:18px;fill:none;stroke:var(--healthy);stroke-width:3;stroke-linecap:round;stroke-linejoin:round;}
+
+/* Vertical rhythm: cards, notes and groups stacked directly in a page section
+   are spaced evenly; a larger margin an element sets itself still wins. */
+.sk-main > section > * + * {margin-top:16px;}
+/* A button inside a sentence (for example "… are in Settings.") reads as a link. */
+.sk-hint > .sk-btn {display:inline-flex;gap:4px;min-height:0;padding:0 2px;margin:0;border:0;background:none;color:var(--link);font:inherit;vertical-align:baseline;text-decoration:underline;text-underline-offset:2px;}
+.sk-hint > .sk-btn:hover {background:none;color:var(--text-1);}
+.sk-hint > .sk-btn svg {align-self:center;}
+
+/* Browse's extra search sources: a row of on/off switches under the search bar. */
+.sk-source-toggles {display:flex;flex-wrap:wrap;align-items:center;gap:8px 20px;margin-top:10px;}
+.sk-source-toggle {display:inline-flex;align-items:center;gap:6px;}
+/* The source switches and the listings switch share one row, wrapping on narrow screens. */
+.sk-find-options {display:flex;flex-wrap:wrap;align-items:center;gap:8px 32px;}
+.sk-find-options > .sk-source-toggles {margin-top:0;}
+.sk-switch {display:inline-flex;align-items:center;gap:8px;color:var(--text-2);font-size:14px;cursor:pointer;}
+.sk-switch input {appearance:none;-webkit-appearance:none;position:relative;width:34px;height:20px;margin:0;border-radius:var(--radius-pill);background:var(--fill-press);border:1px solid var(--line-control);cursor:pointer;transition:background-color var(--fast) var(--ease);}
+.sk-switch input::after {content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--text-3);transition:transform var(--fast) var(--ease),background-color var(--fast) var(--ease);}
+.sk-switch input:checked {background:var(--foxlight);border-color:var(--foxlight);}
+.sk-switch input:checked::after {transform:translateX(14px);background:var(--on-foxlight);}
+.sk-switch input:focus-visible {box-shadow:var(--ring-focus);outline:none;}
+.sk-switch input:disabled {opacity:.5;cursor:default;}
+
+
+
+/* A card's title row, then its text: a small, consistent gap. */
+.sk-card > .sk-model-head + * {margin-top:10px;}
+/* Section headings stand clearly apart from the content above them. */
+* + .sk-section-title,
+.sk-main > section > * + .sk-section-title,
+* + .sk-subsection,
+.sk-main > section > * + .sk-subsection {margin-top:40px;}
+/* Paging controls stay clear of whatever follows them. */
+.sk-pager {margin-bottom:24px;}
+
+/* Our own dropdown: an input-styled button and a list on the app's surface. */
+.sk-select {position:relative;min-width:0;}
+.sk-select-button {display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left;cursor:pointer;padding-right:14px;}
+.sk-select-button:disabled {cursor:default;opacity:.6;}
+.sk-select-value {flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.sk-select-button > svg {flex:none;color:var(--text-4);transition:transform var(--fast) var(--ease);}
+.sk-select-button[aria-expanded="true"] > svg {transform:rotate(180deg);}
+.sk-select-list {position:absolute;z-index:40;top:calc(100% + 6px);left:0;right:0;min-width:200px;max-height:320px;overflow:auto;margin:0;padding:6px;list-style:none;border-radius:var(--radius-field);border:1px solid var(--line-card);background:var(--glass-strong);box-shadow:var(--shadow-pop);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);}
+.sk-select-option {display:flex;align-items:center;gap:8px;padding:9px 10px;border-radius:var(--radius-control);color:var(--text-2);font-size:14px;cursor:pointer;}
+.sk-select-option[data-active] {background:var(--fill-hover);color:var(--text-1);}
+.sk-select-option[aria-selected="true"] {color:var(--text-1);font-weight:600;}
+.sk-select-option[aria-disabled] {opacity:.45;cursor:default;}
+.sk-select-tick {display:inline-flex;width:16px;flex:none;color:var(--foxlight);}
+.sk-model-toolbar .sk-purpose .sk-select-button {height:56px;min-height:56px;border-radius:var(--radius-field);background:var(--glass);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border-color:var(--line-card);font-size:15px;}
+
+/* Third-party notices, read inside the app. */
+.sk-notices {font:400 var(--type-body)/1.6 var(--sans);color:var(--text-2);overflow-wrap:anywhere;}
+.sk-notices h3 {margin:32px 0 8px;font:600 16px/1.4 var(--sans);color:var(--text-1);}
+.sk-notices h3:first-of-type {margin-top:20px;}
+.sk-notices p {margin:0 0 12px;white-space:pre-line;}
+.sk-notices hr {margin:16px 0;border:0;border-top:1px solid var(--line-hair);}
+.sk-notices:focus-visible {outline:none;box-shadow:var(--ring-focus);border-radius:var(--radius-control);}
+
+/* Browse's search box and dropdown are exactly the same height, side by side. */
+.sk-model-toolbar .sk-search input {height:56px;}
+
+/* Loading: a spinner with words. A whole view gets a large, centred one. */
+.sk-loading {display:flex;align-items:center;gap:10px;color:var(--text-2);font-size:14px;}
+.sk-pager .sk-loading {justify-content:center;min-height:44px;}
+.sk-loading[data-size="page"] {flex-direction:column;justify-content:center;gap:14px;min-height:220px;font-size:16px;color:var(--text-1);}
+.sk-loading[data-size="page"] .sk-spinner {width:36px;height:36px;border-width:3px;}

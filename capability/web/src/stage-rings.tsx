@@ -46,7 +46,7 @@ function Active({stage,index,count}:{stage:SaveStage;index:number;count:number})
  return <>
   <p className="sk-stage" role="status">Step {index+1} of {count}: {doing[stage.name]}…</p>
   <p className="sk-meta">{[percent!==null&&`${percent}%`,amount,left,speed].filter(Boolean).join(' · ')||'Starting…'}</p>
-  {stage.name!=='download'&&<p className="sk-meta">Before the copy is kept, every byte is checked, signed, stored and checked again. Each step reads the whole model, so a large model takes a while. You can leave this running.</p>}
+  {stage.name!=='download'&&<p className="sk-meta">Before the copy is kept, every file is checked against its recorded hash, signed and stored in your Library. Files are moved into place, not copied, so no second copy is made, and each step reads the model once. You can leave this running.</p>}
  </>;
 }
 

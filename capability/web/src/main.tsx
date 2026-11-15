@@ -14,6 +14,7 @@ import {useI2PAvailability} from './i2p';
 import {RetainedLibrary} from './retained-recovery';
 import {TemporaryJobs,TemporaryFilesReview,type TemporaryWork} from './maintenance';
 import {Callout,Empty,Icon,Label,Menu,Monogram,PageBanner,Pill,Progress,SheetHost,ago,initials,readTheme,useTheme,type IconName,type Tone} from './ui';
+import {NoticesLink} from './notices';
 
 type Area = 'library'|'storage'|'activity'|'sharing'|'find';
 type Review = {plan:Plan; operationId:string};
@@ -131,7 +132,7 @@ function CoreApp() {
       : area==='activity' ? <ActivityArea page={page} busy={busy} available={available} onCancel={job=>void cancel(job)} onCheck={job=>void plan('check',job)} onReclaim={job=>void reclaim(job)} onRetry={job=>void retry(job)} onReceive={openReceive} onSharing={()=>navigate('sharing')} onInspect={job=>void inspectWork(job)}/>
       : <Sharing page={page} busy={busy} onReceive={()=>openReceive()} onKit={copy=>void plan('kit_export',copy)} onRestore={copy=>void plan('recover',copy)} onImport={()=>{setPublicImport(true);setReview(null);}} onReview={currentReview} onStop={job=>void cancel(job)}/>}
       {page&&!review&&(offset>0||page.next_offset!==null)&&<div className="sk-pager">{offset>0&&<button className="sk-btn sk-outline" onClick={()=>setOffset(Math.max(0,offset-4))}>Previous page</button>}{page.next_offset!==null&&<button className="sk-btn sk-outline" onClick={()=>setOffset(page.next_offset!)}>Next page</button>}</div>}
-      <footer className="sk-footer"><span><Icon name="lock" size={14}/>Your storage belongs to this model-store host.</span><span>Nothing is shared until you review and start it.</span><a href="THIRD_PARTY_NOTICES.txt">Third-party notices</a></footer>
+      <footer className="sk-footer"><span><Icon name="lock" size={14}/>Your storage belongs to this model-store host.</span><span>Nothing is shared until you review and start it.</span><NoticesLink/></footer>
     </main>
     {sheet}
   </div></SheetHost>;

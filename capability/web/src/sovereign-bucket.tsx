@@ -2,6 +2,7 @@ import {useEffect,useState} from 'react';
 import {createPortal} from 'react-dom';
 import {api,bytes,errorText} from './client';
 import {Callout,Mono,Row,Sheet,Step,ago} from './ui';
+import {Select} from './select';
 
 type Field='account_id'|'jurisdiction'|'region'|'bucket'|'endpoint'|'public_url';
 export interface BucketProvider {id:string;name:string;asks:Field[];optional?:Field[];choices?:Partial<Record<Field,{value:string;label:string}[]>>;note:string}
@@ -71,7 +72,7 @@ export function CloudStorage<T extends {bucket:BucketSummary|null;bucket_provide
    <Step n={2} title={`Your ${chosen.name} bucket`}>
     <p>{chosen.note}</p>
     {chosen.asks.map(name=>{const options=chosen.choices?.[name];const label=<>{fieldLabel[name][0]}{optional(name)&&<span className="sk-optional"> (optional)</span>}</>;
-     return options?<label key={name} className="sk-field"><span>{label}</span><select className="sk-input" value={values[name]??''} onChange={set(name)}>{options.map(option=><option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+     return options?<div key={name} className="sk-field"><span>{label}</span><Select label={fieldLabel[name][0]} value={values[name]??''} onChange={value=>set(name)({target:{value}})} options={options}/></div>
       :<label key={name} className="sk-field"><span>{label}</span><input className="sk-input" value={values[name]??''} placeholder={placeholder(chosen.id,name)} autoComplete="off" spellCheck={false} onChange={set(name)}/></label>;})}
    </Step>
    <Step n={3} title="A key that can write to it">

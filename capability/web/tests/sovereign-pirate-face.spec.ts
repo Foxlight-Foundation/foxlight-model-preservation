@@ -6,7 +6,7 @@ const rescued={repository:'gone-org/rare-model',name:'rare-model',owner:'gone-or
 
 async function common(page:import('@playwright/test').Page,state:{pf:boolean;swarm:boolean}){
   await page.route('**/api/library*',r=>r.fulfill({json:{host_kind:'sovereign',hub_search:true,pirate_face_search:state.pf,pirate_face_swarm:state.swarm,copies:[],jobs:[],next_offset:null}}));
-  await page.route('**/api/desktop-search',r=>r.fulfill({json:{catalog_id:null,results:[],total:0,next_offset:null}}));
+  await page.route('**/api/desktop-search',r=>r.fulfill({json:{catalog_id:'c'.repeat(64),results:[],total:0,next_offset:null}}));
   await page.route('**/api/desktop-source-read',r=>r.fulfill({json:{sources:[]}}));
   await page.route('**/api/desktop-source-search',r=>r.fulfill({json:{results:[],total:0,next_offset:null}}));
   await page.route('**/api/desktop-copy-search',r=>r.fulfill({json:{results:[],total:0,stored_total:0,next_offset:null}}));
@@ -21,9 +21,10 @@ test('Pirate Face search is a choice, and a model on both shows once with its se
   await page.route('**/api/desktop-pirate-face-consent',r=>{state.pf=true;calls.push('consent');return r.fulfill({json:{pirate_face_search:true}});});
   await page.route('**/api/desktop-pirate-face-search',r=>{calls.push('search:'+r.request().postDataJSON().query);return r.fulfill({json:{source:'pirateface',results:[onBoth,rescued]}});});
   await page.goto('/');
-  await page.getByRole('button',{name:'Search Pirate Face too'}).click();
+  await page.getByRole('switch',{name:'Pirate Face'}).click();
+  await expect(page.getByRole('switch',{name:'Pirate Face'})).toBeChecked();
   await expect.poll(()=>calls[0]).toBe('consent');
-  await page.getByPlaceholder('Search Hugging Face by model name').fill('qwen');
+  await page.getByPlaceholder('Search by name or use').fill('qwen');
   await expect.poll(()=>calls.find(call=>call.startsWith('search:'))).toBe('search:qwen');
   const hub=page.getByRole('article',{name:'Qwen/Qwen-Test'});
   await expect(hub).toHaveCount(1);
@@ -42,7 +43,7 @@ test('a rescued model needs swarm downloads, then an origin acknowledgement',asy
   await page.route('**/api/desktop-plan',r=>{plans.push(r.request().postDataJSON());return r.fulfill({json:{plan_id:'p'.repeat(64),kind:'receive',origin:'pirateface',name:'rare-model',size_bytes:4e9,file_count:2,details:{license:null,origin_check:'unconfirmed',seeders:3},members:[rescued.repository],required_free_bytes:1,free_bytes:10**13,terms:{accept:[],licences:[]}}});});
   await page.route('**/api/desktop-start',r=>{starts.push(r.request().postDataJSON());return r.fulfill({json:{job_id:'j'.repeat(64),kind:'receive',state:'queued',name:'rare-model'}});});
   await page.goto('/');
-  await page.getByPlaceholder('Search Hugging Face by model name').fill('rare');
+  await page.getByPlaceholder('Search by name or use').fill('rare');
   const card=page.getByRole('article',{name:'gone-org/rare-model'});
   await card.getByRole('button',{name:'Choose files'}).click();
   await expect(card.getByText('Rescued: Hugging Face no longer has this model',{exact:false})).toBeVisible();
@@ -68,7 +69,7 @@ test('a model Pirate Face lacks can be offered for rescue, only on request',asyn
   await page.route('**/api/desktop-pirate-face-review',r=>r.fulfill({json:{listed:false,repository:hubResult.repository}}));
   await page.route('**/api/desktop-pirate-face-rescue',r=>{rescues.push(r.request().postDataJSON());return r.fulfill({json:{requested:true}});});
   await page.goto('/');
-  await page.getByPlaceholder('Search Hugging Face by model name').fill('qwen');
+  await page.getByPlaceholder('Search by name or use').fill('qwen');
   const card=page.getByRole('article',{name:'Qwen/Qwen-Test'});
   await card.getByRole('button',{name:'Choose files'}).click();
   await expect(card.getByText('Pirate Face doesn’t have a torrent of this model yet',{exact:false})).toBeVisible();
@@ -84,7 +85,7 @@ test('Pirate Face search works on its own, without Hugging Face search',async({p
   await page.route('**/api/library*',r=>r.fulfill({json:{host_kind:'sovereign',hub_search:false,pirate_face_search:true,pirate_face_swarm:false,copies:[],jobs:[],next_offset:null}}));
   await page.route('**/api/desktop-pirate-face-search',r=>{searches.push(r.request().postDataJSON().query);return r.fulfill({json:{source:'pirateface',results:[rescued]}});});
   await page.goto('/');
-  await page.getByPlaceholder('Search Pirate Face by model name').fill('rare');
+  await page.getByPlaceholder('Search by name or use').fill('rare');
   await expect.poll(()=>searches[0]).toBe('rare');
   await expect(page.getByRole('article',{name:'gone-org/rare-model'})).toBeVisible();
 });

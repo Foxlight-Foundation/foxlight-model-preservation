@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
-from .models import FileIdentity, Manifest, TrustProfile
+from .models import FileIdentity, Manifest, PreservationError, TrustProfile
 from .operations import OperationControl
 from .pmf import verify_pmf_manifest
 from .pmf_models import PMF_TYPE, PMFManifest, pmf_objects
@@ -12,6 +13,8 @@ from .signing import Envelope, canonical_bytes, strict_json, verify_manifest
 from .storage import (
     directory,
     manifest_path,
+    object_path,
+    open_file,
     read_metadata,
     unique_objects,
     verify_object,
@@ -57,6 +60,28 @@ def verify_archive_contents(
         )
         for file in archive_objects(manifest):
             verify_object(source, file, control=control)
+        return manifest
+
+
+def published_archive_manifest(
+    store: Path, manifest_id: str, trust: TrustProfile
+) -> ArchiveManifest:
+    """The verified manifest of a tree whose writer hashed every object first.
+
+    Only for a tree this process just published after hashing each object
+    (``import_preservation(consume=True)``): the signed manifest, its trust and
+    every object's size are checked, without reading the bytes a second time.
+    """
+    with directory(store) as source:
+        manifest = verify_archive_manifest(
+            read_metadata(source, manifest_path(manifest_id)), trust, manifest_id
+        )
+        for file in archive_objects(manifest):
+            with open_file(source, object_path(file.sha256)) as stream:
+                if os.fstat(stream.fileno()).st_size != file.size:
+                    raise PreservationError(
+                        "stored object failed integrity verification"
+                    )
         return manifest
 
 

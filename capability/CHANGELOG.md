@@ -6,6 +6,44 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Settings' on/off choices are switches (no separate status pill and button),
+  card text sits a little below its title, and section headings stand clearly
+  apart from the content above them.
+- More models and More saved models add the next batch under the list instead
+  of replacing it; there is no Previous.
+
+- Choose folder works on macOS from the browser too: Sovereign opens the
+  system's own folder dialog (as it already did on Linux). Where no system
+  dialog exists, the button steps aside and the folder path is typed, with no
+  error to dismiss.
+
+- Find's first-launch screen is just its three choices: no search and no
+  network contact. Search lives in Browse: one search bar, with Hugging Face and
+  Pirate Face as on/off switches beside it (each says where search words go)
+  instead of separate offer cards. Find waits for the saved listings before
+  choosing a view, so reloading never flashes the first-launch screen.
+- Select boxes draw their arrow inset from the edge like their text.
+
+- The first-launch Find screen offers Open recovery kit only on its Recover card
+  (the header button returns on every other screen).
+
+- Find shows one Open a sharing file button: on the Receive card at first
+  launch, and at the top of Find while browsing (where the cards are hidden),
+  which now opens the file chooser directly instead of scrolling to it.
+
+- Cards, notes and groups stacked on a page are evenly spaced instead of
+  touching (for example the Hugging Face and Pirate Face offers in Find), and a
+  button inside a sentence, such as "… are in Settings.", reads as a link.
+
+- Saving a model needs about a third of the disk space it used to and finishes
+  much sooner: downloaded files are moved into your Library instead of copied,
+  and each step checks the model once. The free space a save asks for is the
+  model plus a little headroom.
+
+- Find searches Hugging Face by default and says so next to the results; turn
+  it off under Search sources and privacy in Settings. Before Browse is chosen,
+  nothing is contacted until you search.
+
 - Install docs point at the public 0.35 cohort: core 0.35.0, Library 0.31.0,
   Mac build 18, Linux revision 13 (guided setup 0.1.11, graphical setup 0.1.13)
   and `sovereign-mirror:0.35.0`.
