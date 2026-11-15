@@ -36,6 +36,8 @@ RECEIVE_ONLY: dict[str, str | int | bool] = {
 # libtorrent can report a piece before its bytes reach the file; the check is
 # retried briefly after flushing before a mismatch counts.
 FLUSH_RETRIES = 10
+# How long libtorrent may take to point a file at its destination.
+RENAME_SECONDS = 10
 
 
 def _hash(path: Path, control: OperationControl) -> str:
@@ -131,7 +133,12 @@ class SwarmReceiver:
         *,
         deadline: float,
     ) -> None:
-        """Download one file and move it to ``destination`` once its hash matches."""
+        """Download one file straight into ``destination`` and check its hash.
+
+        libtorrent writes the file where the save keeps it, so the model is on
+        disk once (no staged copy beside it). The session is closed before the
+        save hashes every file again while moving it into the signed store.
+        """
         item = self._files.get(path)
         if item is None:
             raise PreservationError("swarm_file_unknown")
@@ -139,10 +146,22 @@ class SwarmReceiver:
         if self._handle is None:
             self._start()
         handle: Any = self._handle
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if size == 0:
+            destination.write_bytes(b"")
+            return
+        # Whatever was there (an origin or mirror attempt) is replaced.
+        destination.unlink(missing_ok=True)
+        handle.rename_file(index, str(destination))
+        renamed_by = time.monotonic() + RENAME_SECONDS
+        while handle.torrent_file().files().file_path(index) != str(destination):
+            control.checkpoint()
+            if time.monotonic() > renamed_by:
+                raise PreservationError("swarm_unavailable")
+            time.sleep(0.05)
         self._wanted.add(index)
         handle.file_priority(index, 4)
         handle.resume()
-        received = self.staging / self.swarm.name / path
         last, progress_at = -1, time.monotonic()
         while True:
             control.checkpoint()
@@ -160,25 +179,15 @@ class SwarmReceiver:
             time.sleep(0.25)
         handle.flush_cache()
         for attempt in range(FLUSH_RETRIES):
-            if size == 0 or (received.is_file() and _hash(received, control) == sha256):
+            if destination.is_file() and _hash(destination, control) == sha256:
                 break
             if attempt + 1 == FLUSH_RETRIES:
-                raise PreservationError("swarm_file_mismatch")
-            time.sleep(0.5)
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        if size == 0:
-            destination.write_bytes(b"")
-        else:
-            # libtorrent keeps the file open; a copy leaves its view intact.
-            with open(received, "rb") as reader, open(destination, "wb") as writer:
-                while chunk := reader.read(CHUNK_SIZE):
-                    control.checkpoint()
-                    writer.write(chunk)
-                writer.flush()
-                os.fsync(writer.fileno())
-            if _hash(destination, control) != sha256:
                 destination.unlink(missing_ok=True)
                 raise PreservationError("swarm_file_mismatch")
+            time.sleep(0.5)
+        # Done with this file: pieces it shares with another wanted file go
+        # to libtorrent's part file, not into it.
+        handle.file_priority(index, 0)
 
     def close(self) -> None:
         """End the session; nothing keeps seeding after the save."""

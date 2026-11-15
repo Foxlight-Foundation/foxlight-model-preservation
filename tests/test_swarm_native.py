@@ -81,6 +81,8 @@ def test_selected_files_arrive_verified_and_nothing_else_is_kept(tmp_path):
             deadline=time.monotonic() + 30,
         )
         assert target.read_bytes() == contents["model.safetensors"]
+        # libtorrent wrote it in place: no staged copy is kept beside it.
+        assert not (tmp_path / "staging" / swarm.name / "model.safetensors").exists()
         # A wrong expected hash is never accepted.
         with pytest.raises(PreservationError, match="swarm_file_mismatch"):
             receiver.fetch(
