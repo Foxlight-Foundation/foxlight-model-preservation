@@ -35,3 +35,22 @@ test('copies kept by community mirrors are found after browsing, and saved by th
   await expect.poll(()=>starts.length).toBe(1);
   expect(starts[0]).toMatchObject({plan_id:'p'.repeat(64),confirmed:true,accept_unconfirmed_origin:true});
 });
+
+test('with Hugging Face search on by default, a first launch contacts nothing until a search',async({page})=>{
+  const calls:string[]=[];
+  await page.route('**/api/library*',r=>r.fulfill({json:{host_kind:'sovereign',hub_search:true,copies:[],jobs:[],next_offset:null}}));
+  await page.route('**/api/desktop-search',r=>r.fulfill({json:{catalog_id:null,results:[],total:0,next_offset:null}}));
+  await page.route('**/api/desktop-source-read',r=>r.fulfill({json:{sources:[]}}));
+  await page.route('**/api/desktop-copy-search',r=>r.fulfill({json:{results:[],total:0,stored_total:0,next_offset:null}}));
+  await page.route('**/api/desktop-held-refresh',r=>{calls.push('refresh');return r.fulfill({json:{mirrors:2}});});
+  await page.route('**/api/desktop-held-search',r=>{calls.push('held:'+r.request().postDataJSON().query);return r.fulfill({json:{source:'mirrors',results:[]}});});
+  await page.route('**/api/desktop-hub-search',r=>{calls.push('hub:'+r.request().postDataJSON().query);return r.fulfill({json:{source:'huggingface',results:[]}});});
+  await page.goto('/');
+  const search=page.getByPlaceholder('Search Hugging Face by model name');
+  await expect(search).toBeVisible();
+  await page.waitForTimeout(1500);
+  expect(calls).toEqual([]);
+  await search.fill('qwen');
+  await expect.poll(()=>calls).toEqual(expect.arrayContaining(['refresh','hub:qwen']));
+  await expect(page.getByText('Your search words also go to huggingface.co. You can turn this off in Settings.')).toBeVisible();
+});

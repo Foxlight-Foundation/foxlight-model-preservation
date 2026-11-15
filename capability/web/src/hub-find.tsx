@@ -24,6 +24,7 @@ export function HubFind({query,enabled,busy,kept={},seeds={},pirateFace=false,ex
   if(!words)return null;
   return <section className="sk-hub" aria-label="Results from Hugging Face">
     <h2 className="sk-section-title">From Hugging Face {searching&&<span className="sk-meta">· searching…</span>}</h2>
+    <p className="sk-hint sk-pad">Your search words also go to huggingface.co. You can turn this off in Settings.</p>
     {error&&<Callout tone="bad" role="alert">{explainError(error)}</Callout>}
     {results?.length===0&&!searching&&<p className="sk-hint sk-pad">No public Hugging Face models match “{words}”.</p>}
     <div className="sk-cards">{results?.map(item=><article className="sk-card sk-result" key={item.repository} aria-label={item.repository}>

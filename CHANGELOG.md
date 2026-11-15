@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Hugging Face search in Find is on by default (a choice saved earlier, either
+  way, is kept). Nothing is contacted until the person searches: on first
+  launch, community mirror lists are read only with the first search words.
+
 - Install docs point at the public 0.35 cohort: core 0.35.0, Library 0.31.0,
   Mac build 18, Linux revision 13 (guided setup 0.1.11, graphical setup 0.1.13)
   and `sovereign-mirror:0.35.0`.

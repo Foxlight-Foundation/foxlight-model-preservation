@@ -220,6 +220,9 @@ def test_search_waits_for_consent_and_a_hub_save_completes(
     _serve_origin(monkeypatch, fake_hub)
     owner = LocalOwner(tmp_path / "owner")
     try:
+        # On by default; turning it off stops every request.
+        assert owner.read()["hub_search"] is True
+        owner.control("hub-consent", {"enabled": False})
         assert owner.read()["hub_search"] is False
         with pytest.raises(PreservationError, match="hub_search_not_enabled"):
             owner.control("hub-search", {"query": "tiny"})

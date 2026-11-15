@@ -6,6 +6,10 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Find searches Hugging Face by default and says so next to the results; turn
+  it off under Search sources and privacy in Settings. Before Browse is chosen,
+  nothing is contacted until you search.
+
 - Install docs point at the public 0.35 cohort: core 0.35.0, Library 0.31.0,
   Mac build 18, Linux revision 13 (guided setup 0.1.11, graphical setup 0.1.13)
   and `sovereign-mirror:0.35.0`.

@@ -2569,9 +2569,15 @@ class LocalOwner:
     # Hugging Face is a Find source like any other; nothing here holds the
     # owner lock across the network.
     def hub_search_enabled(self) -> bool:
-        """Whether the person chose to send search words to huggingface.co."""
+        """Whether Find also sends search words to huggingface.co.
+
+        On unless the person turned it off (Find and Settings say where the
+        words go); a saved choice, either way, is always kept.
+        """
         try:
             value = strict_json(read_metadata(self._root, "hub-search.json"))
+        except FileNotFoundError:
+            return True
         except (OSError, PreservationError):
             return False
         return isinstance(value, dict) and value.get("enabled") is True
