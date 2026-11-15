@@ -34,8 +34,11 @@ test('a kit selected from older activity still opens its trust review',async({pa
  await page.route('**/api/upload/*',route=>route.fulfill({json:{upload_id:'b'.repeat(32),offset:16,size_bytes:16,complete:true}}));
  await page.route('**/api/desktop-plan',route=>route.fulfill({json:{plan_id:id,kind:'kit_import',name:'From older activity',manifest_id:id,size_bytes:16,member_count:2,threshold:1,keys:['ed25519:'+id],expires_at:9999999999}}));
  await page.goto('/');await page.getByRole('button',{name:'Activity',exact:true}).click();
- await page.getByRole('button',{name:'Older activity',exact:true}).click();
- await expect(page.getByRole('button',{name:'Newer activity',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'More activity',exact:true}).click();
+ // The older batch is added under the newer one; nothing pages back.
+ await expect.poll(()=>calls).toContain(48);
+ await expect(page.getByRole('button',{name:'More activity',exact:true})).toHaveCount(0);
+ await expect(page.getByRole('button',{name:'Newer activity'})).toHaveCount(0);
  await page.getByLabel('Open recovery kit',{exact:true}).setInputFiles({name:'saved.foxkit',mimeType:'application/octet-stream',buffer:Buffer.alloc(16)});
  await expect(page.getByRole('button',{name:'Import verified copy',exact:true})).toBeDisabled();
  await expect(page.getByText('From older activity',{exact:true})).toBeVisible();
@@ -215,4 +218,31 @@ test('a finished save says where its files came from',async({page})=>{
  await page.goto('/');await page.getByRole('button',{name:'Activity',exact:true}).click();
  await expect(page.getByText('From Hugging Face and community mirrors (starter.foxlight.ai): 3 of 10 files',{exact:true})).toBeVisible();
  await expect(page.getByText('From Hugging Face',{exact:true})).toBeVisible();
+});
+
+test('More activity adds older jobs under the newer ones, with nothing to page back to',async({page})=>{
+ const job=(letter:string,name:string)=>({job_id:letter.repeat(64),kind:'receive',state:'succeeded',name,bytes_received:1024,error_code:null,output:null,copy_id:null});
+ await page.route('**/api/library*',route=>{const offset=Number(new URL(route.request().url()).searchParams.get('offset')??0);return route.fulfill({json:{...empty,jobs:offset===0?[job('c','Newer save')]:[job('d','Older save')],next_offset:offset===0?48:null}});});
+ await page.route('**/api/desktop-search',route=>route.fulfill({json:{catalog_id:null,results:[],total:0,next_offset:null}}));
+ await page.goto('/');await page.getByRole('button',{name:/^Activity/}).click();
+ await expect(page.getByText('Newer save',{exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'More activity',exact:true}).click();
+ await expect(page.getByText('Older save',{exact:true})).toBeVisible();
+ await expect(page.getByText('Newer save',{exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:'More activity',exact:true})).toHaveCount(0);
+});
+
+test('Third-party notices open in the app and close back to where you were',async({page})=>{
+ await page.route('**/api/library*',route=>route.fulfill({json:empty}));
+ await page.route('**/api/desktop-search',route=>route.fulfill({json:{catalog_id:null,results:[],total:0,next_offset:null}}));
+ await page.route('**/THIRD_PARTY_NOTICES.txt',route=>route.fulfill({contentType:'text/plain',body:'Third-party notices for the compiled interface.\n\nreact 19\nMIT License'}));
+ await page.goto('/');
+ const link=page.getByRole('link',{name:'Third-party notices',exact:true});
+ await link.click();
+ await expect(page).not.toHaveURL(/THIRD_PARTY_NOTICES/);
+ await expect(page.getByRole('heading',{name:'Third-party notices',exact:true})).toBeVisible();
+ await expect(page.getByLabel('Third-party notices text')).toContainText('MIT License');
+ await page.getByRole('button',{name:'Close third-party notices'}).click();
+ await expect(page.getByLabel('Third-party notices text')).toHaveCount(0);
+ await expect(link).toHaveAttribute('href','THIRD_PARTY_NOTICES.txt');
 });
