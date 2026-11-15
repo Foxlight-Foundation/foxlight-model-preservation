@@ -160,14 +160,20 @@ def test_a_held_copy_is_found_and_saved_from_mirrors(
         issue_objects,
         served_hashes,
     )
+    from foxlight_model_preservation.pirateface_seed import (
+        TORRENTS_PATH,
+        SeededTorrent,
+        issue_torrents,
+    )
 
     store = tmp_path / "served"
     shutil.copytree(capture.store, store)
     key = Ed25519PrivateKey.generate()
-    peers, holdings, objects = (
+    peers, holdings, objects, torrents = (
         tmp_path / "peers.json",
         tmp_path / "holdings.json",
         tmp_path / "objects.json",
+        tmp_path / "torrents.json",
     )
     server, thread, address = _serve(
         store,
@@ -176,6 +182,7 @@ def test_a_held_copy_is_found_and_saved_from_mirrors(
             "/.well-known/sovereign/peers.json": peers,
             "/" + HOLDINGS_PATH: holdings,
             "/" + OBJECTS_PATH: objects,
+            "/" + TORRENTS_PATH: torrents,
         },
     )
     try:
@@ -185,6 +192,11 @@ def test_a_held_copy_is_found_and_saved_from_mirrors(
         held = store_holdings(store, [capture.identity])
         holdings.write_bytes(issue_holdings(key, held))
         objects.write_bytes(issue_objects(key, served_hashes(store)))
+        torrents.write_bytes(
+            issue_torrents(
+                key, [SeededTorrent(manifest=capture.identity, infohash="c" * 40)]
+            )
+        )
         # Hugging Face no longer has anything: origin downloads and Hub
         # metadata both fail, so the bytes can only come from mirrors.
         _origin_down(monkeypatch)
@@ -206,6 +218,13 @@ def test_a_held_copy_is_found_and_saved_from_mirrors(
             )
             assert plan["origin"] == "mirror"
             assert plan["holders"] == [address]  # asked first for every file
+            # The torrent the mirror lists is one more source for this copy,
+            # used only once swarm downloads are turned on.
+            assert plan["swarm"] == {"infohash": "c" * 40}
+            assert (plan["repository"], plan["revision"]) == (
+                held[0].origin_repository,
+                held[0].origin_revision,
+            )
             assert plan["details"]["origin_check"] == "unconfirmed"
             assert plan["file_count"] == held[0].file_count
             start = {
@@ -462,3 +481,49 @@ def test_a_trickling_holder_cannot_stall_the_manifest_fetch(
         )
     # The slow mirror was abandoned and the next holder was still tried.
     assert asked == ["https://slow.example", "https://next.example"]
+
+
+def test_a_crawl_keeps_torrents_signed_by_the_card_key_and_finds_them_by_copy(
+    tmp_path: Path, capture: Capture
+) -> None:
+    from foxlight_model_preservation.pirateface_seed import (
+        TORRENTS_PATH,
+        SeededTorrent,
+        issue_torrents,
+    )
+
+    store = tmp_path / "served"
+    shutil.copytree(capture.store, store)
+    key = Ed25519PrivateKey.generate()
+    peers, torrents = tmp_path / "peers.json", tmp_path / "torrents.json"
+    server, thread, address = _serve(
+        store,
+        capture,
+        {"/.well-known/sovereign/peers.json": peers, "/" + TORRENTS_PATH: torrents},
+    )
+    entry = SeededTorrent(manifest=capture.identity, infohash="b" * 40)
+    try:
+        peers.write_bytes(
+            build_peers(issue_card(key, (address,), {capture.identity}), ())
+        )
+        client = MirrorDirectory(tmp_path / "client", rng=random.Random(2))  # noqa: S311
+        # A mirror that lists no torrents has none.
+        client.crawl((address,), LAB, expand=False)
+        assert client.torrents(capture.identity, policy=LAB) == []
+        # A list signed by some other key is never kept.
+        torrents.write_bytes(issue_torrents(Ed25519PrivateKey.generate(), [entry]))
+        client.crawl((address,), LAB, expand=False)
+        assert client.torrents(capture.identity, policy=LAB) == []
+        torrents.write_bytes(issue_torrents(key, [entry]))
+        client.crawl((address,), LAB, expand=False)
+        assert client.torrents(capture.identity, policy=LAB) == [
+            {"infohash": "b" * 40, "source": "pirateface"}
+        ]
+        # Only the copy the torrent carries.
+        assert client.torrents(digest(b"another copy"), policy=LAB) == []
+        # The default HTTPS-only policy never uses a plain-HTTP mirror's list.
+        assert client.torrents(capture.identity, policy=TransferPolicy()) == []
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(5)

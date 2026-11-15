@@ -100,6 +100,8 @@ MAX_MIRRORS = 2048
 OBJECTS_CACHE_BYTES = 64 * 1024**2
 # Kept mirror holdings (what each mirror says it keeps), pruned the same way.
 HOLDINGS_CACHE_BYTES = 64 * 1024**2
+# The torrents lists kept beside holdings, within their own budget.
+TORRENTS_CACHE_BYTES = 16 * 1024**2
 DROP_AFTER = 3
 MAX_CARD_BYTES = 64 * 1024
 # Comfortably below the 8 MiB metadata reader limit, so a full directory can
@@ -537,6 +539,7 @@ class MirrorDirectory:
             try:
                 self._keep_objects(base, cards, policy, deadline, active)
                 self._keep_holdings(base, cards, policy, deadline, active)
+                self._keep_torrents(base, cards, policy, deadline, active)
             except DeadlineExceeded:
                 break
             if not expand:
@@ -622,6 +625,87 @@ class MirrorDirectory:
                     HOLDINGS_CACHE_BYTES,
                 )
             return
+
+    def _keep_torrents(
+        self,
+        base: str,
+        cards: list[bytes],
+        policy: TransferPolicy,
+        deadline: float,
+        control: OperationControl,
+    ) -> None:
+        """Fetch and keep the torrents list of the mirror serving ``base``.
+
+        Kept exactly like holdings: only a list signed by that mirror's own
+        card key, only for a mirror this directory keeps, within a budget. A
+        mirror that shares no torrents simply has none.
+        """
+        # Imported here: the torrents module reaches back into this one.
+        from .pirateface_seed import MAX_TORRENTS_BYTES, TORRENTS_PATH, verify_torrents
+
+        admitted = set(self.read().mirrors)
+        for raw in cards:
+            try:
+                card = _verify_card(raw)
+            except (ValueError, PreservationError):
+                continue
+            if base not in card.addresses or card.mirror_key.key_id not in admitted:
+                continue
+            try:
+                data = _bounded_read(
+                    base, TORRENTS_PATH, policy, MAX_TORRENTS_BYTES, deadline, control
+                )
+                verify_torrents(data, card.mirror_key)
+            except OperationError:
+                raise
+            except (OSError, ValueError, http.client.HTTPException):
+                return
+            with directory(self.path / "torrents", create=True) as root:
+                atomic_bytes(root, _objects_name(card.mirror_key.key_id), data)
+                _prune_objects(
+                    root,
+                    {_objects_name(key) for key in admitted},
+                    TORRENTS_CACHE_BYTES,
+                )
+            return
+
+    def torrents(
+        self,
+        manifest: str,
+        *,
+        policy: TransferPolicy = DEFAULT_POLICY,
+        now: int | None = None,
+    ) -> list[dict[str, str]]:
+        """Torrents that live mirrors say carry a copy, most widely listed first.
+
+        Each is the mirror's claim: a receiver still checks every file against
+        the copy's signed fingerprints, so a wrong torrent can't change a save.
+        """
+        from .pirateface_seed import verify_torrents
+
+        instant = int(time.time()) if now is None else now
+        counts: dict[tuple[str, str], int] = {}
+        for seen in self.read().mirrors.values():
+            card = None if _dropped(seen) else _live(seen, instant)
+            if card is None or not any(
+                permitted(address, policy) for address in card.addresses
+            ):
+                continue
+            try:
+                with directory(self.path / "torrents") as root:
+                    data = read_metadata(root, _objects_name(card.mirror_key.key_id))
+                listed = verify_torrents(data, card.mirror_key, now=instant)
+            except (FileNotFoundError, ValueError, PreservationError):
+                continue
+            for entry in listed.entries:
+                if entry.manifest == manifest:
+                    key = (entry.infohash, entry.source)
+                    counts[key] = counts.get(key, 0) + 1
+        ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+        return [
+            {"infohash": infohash, "source": source}
+            for (infohash, source), _count in ranked
+        ]
 
     def _live_holdings(
         self, policy: TransferPolicy, instant: int
