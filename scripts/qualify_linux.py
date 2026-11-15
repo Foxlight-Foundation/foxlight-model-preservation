@@ -272,16 +272,32 @@ def qualify_gui(root: Path) -> dict[str, object]:
             require(dark > 1000, "native interface remained visually blank")
             # Core 0.30 renamed the file buttons; the published revision this
             # script also qualifies may still use the earlier names.
-            for choices in (
+            wanted = (
                 ("Browse public models",),
                 ("Open a recovery kit", "Choose a recovery kit"),
                 ("Open a sharing file", "Choose a sharing file"),
                 ("Getting started",),
-            ):
-                require(
-                    any(label in names for label in choices),
-                    "newcomer control missing: " + choices[0],
-                )
+            )
+            # Since Library 0.32 Find waits for the saved listings before
+            # choosing a view, so the newcomer choices can appear a moment
+            # after the heading: look again until they do.
+            deadline = time.monotonic() + 30
+            while True:
+                missing = [
+                    choices[0]
+                    for choices in wanted
+                    if not any(label in names for label in choices)
+                ]
+                if not missing or time.monotonic() > deadline:
+                    break
+                time.sleep(0.25)
+                names = []
+                for node in accessible_nodes():
+                    try:
+                        names.append(node.name)
+                    except (GLib.Error, RuntimeError):
+                        pass
+            require(not missing, "newcomer control missing: " + ", ".join(missing))
             recover = next(
                 label
                 for label in ("Open a recovery kit", "Choose a recovery kit")
