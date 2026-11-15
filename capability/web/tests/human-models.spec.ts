@@ -173,6 +173,21 @@ test('a failed More brings the button back with the shown models kept, and tryin
  await expect(page.getByRole('heading',{name:'Batch 0',exact:true})).toBeVisible();
 });
 
+test('listings replaced between two batch reads are read again, so every card comes from one catalog',async({page})=>{
+ let catalog='1';const asked:string[]=[];
+ await page.route('**/api/desktop-search',route=>{const offset=route.request().postDataJSON().offset as number;
+  // The listings are updated just as the second batch is first read.
+  if(offset===13)catalog='2';asked.push(`${catalog}@${offset}`);
+  return route.fulfill({json:{catalog_id:catalog.repeat(64),results:[{...cards[0],card_id:'card_'+(offset?'b':'a').repeat(51)+catalog,name:`Catalog ${catalog} batch ${offset}`}],total:26,next_offset:offset<13?13:null}});});
+ await page.goto('/');await page.getByRole('button',{name:'Find',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Catalog 1 batch 0',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'More models',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Catalog 2 batch 13',exact:true})).toBeVisible();
+ await expect(page.getByRole('heading',{name:'Catalog 2 batch 0',exact:true})).toBeVisible();
+ await expect(page.getByRole('heading',{name:/^Catalog 1/})).toHaveCount(0);
+ expect(asked.slice(-3)).toEqual(['2@13','2@0','2@13']);
+});
+
 test('Activity describes the actual stage without inventing a percentage',async({page})=>{
  await page.route('**/api/library*',route=>route.fulfill({json:{host_kind:'sovereign',copies:[],jobs:[{job_id:id,kind:'receive',state:'running',stage:'checking',name:'Writing model',bytes_received:1024,error_code:null,output:null,copy_id:null}],active_count:1,next_offset:null}}));
  await page.goto('/');await page.getByRole('button',{name:/^Activity/}).click();
