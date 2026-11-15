@@ -70,6 +70,11 @@ class NativePolicy(Record):
     upload_rate: int = Field(default=1024**2, ge=1024, le=100 * 1024**2)
     # Also seed the matching Pirate Face torrent of each held copy (v7).
     pirate_face: bool = False
+    # Share every held file as Sovereign's own per-file torrent (v7).
+    file_torrents: bool = False
+    # Let those sessions ask the home router to forward their port (the
+    # desktop owner's sharing choice; command-line mirrors never do).
+    map_ports: bool = False
 
 
 class PirateFaceSeed(Record):

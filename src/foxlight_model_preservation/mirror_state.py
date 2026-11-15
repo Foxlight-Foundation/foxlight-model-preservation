@@ -67,8 +67,12 @@ def encode_state(state: MirrorState) -> bytes:
     if state.native_policy is None and not state.native_models:
         value.pop("native_policy")
         value.pop("native_models")
-    elif state.native_policy is not None and not state.native_policy.pirate_face:
-        value["native_policy"].pop("pirate_face")
+    elif state.native_policy is not None:
+        # Switches added later are written only when on, so a mirror that never
+        # used them keeps the same state identity.
+        for name in ("pirate_face", "file_torrents", "map_ports"):
+            if not getattr(state.native_policy, name):
+                value["native_policy"].pop(name)
     if not state.pirate_face:
         value.pop("pirate_face")
     from .signing import canonical_bytes

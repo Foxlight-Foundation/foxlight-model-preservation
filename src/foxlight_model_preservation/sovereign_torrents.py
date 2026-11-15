@@ -25,14 +25,27 @@ import os
 import re
 import secrets
 import shutil
+import tempfile
 import threading
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from .models import PreservationError
-from .operations import OperationControl
+from .operations import OperationCancelled, OperationControl
+from .storage import object_path
 from .torrent_binding import torrent_engine
+
+if TYPE_CHECKING:
+    from .mirror_models import MirrorState
+    from .mirror_state import MirrorLedger
+    from .pirateface_seed import SeededTorrent
+
+# Where a mirror keeps its built torrents and its sharing session's scratch.
+FILES_DIRECTORY = "scratch/native/files"
+# Upload allowance reserved ahead of the bytes actually sent, like other egress.
+RESERVE_BYTES = 256 * 1024**2
 
 MIN_PIECE = 256 * 1024
 MAX_PIECE = 16 * 1024**2
@@ -101,16 +114,17 @@ def build_torrent(
     source: Path,
     sha256: str,
     path: str,
-    scratch: Path,
+    scratch: Path | None = None,
     *,
     control: OperationControl | None = None,
 ) -> FileTorrent:
     """Build one stored file's torrent by reading it in place.
 
-    The file is reached through a link in ``scratch`` named as the torrent
-    says, so nothing is copied; ``scratch`` must be on a filesystem that can
-    hold symbolic links (the app's own data folder, not an exFAT drive).
-    Reading reports its progress as hashed bytes and stops on cancellation.
+    The file is reached through a symbolic link named as the torrent says, so
+    nothing is copied. The link lives in ``scratch`` (default: the system's
+    temporary folder), which must be able to hold symbolic links even when the
+    store can't (an exFAT library drive). Reading reports its progress as
+    hashed bytes and stops on cancellation.
     """
     active = control or OperationControl()
     size = os.stat(source).st_size
@@ -120,8 +134,11 @@ def build_torrent(
     files = engine.file_storage()
     files.add_file(name, size)
     creator = engine.create_torrent(files, length)  # default: hybrid v1 + v2
-    folder = scratch / ("build-" + secrets.token_hex(8))
-    folder.mkdir(parents=True, mode=0o700)
+    if scratch is None:
+        folder = Path(tempfile.mkdtemp(prefix="sovereign-torrent-"))
+    else:
+        folder = scratch / ("build-" + secrets.token_hex(8))
+        folder.mkdir(parents=True, mode=0o700)
     try:
         os.symlink(source.resolve(), folder / name)
         stopped: list[BaseException] = []
@@ -251,6 +268,16 @@ class FileSharer:
                 for handle in self._handles.values()
             )
 
+    def pause(self) -> None:
+        """Stop uploading until resumed (an upload total was reached)."""
+        with self._lock:
+            self.session.pause()
+
+    def resume(self) -> None:
+        """Upload again."""
+        with self._lock:
+            self.session.resume()
+
     def connect(self, peer: tuple[str, int]) -> None:
         """Connect every shared file to a known peer (a lab network, or tests)."""
         with self._lock:
@@ -264,3 +291,166 @@ class FileSharer:
                 self.session.remove_torrent(handle)
             self._handles.clear()
             self.session.pause()
+
+
+def held_files(store: Path, manifest: str) -> tuple[tuple[str, int, str], ...]:
+    """Every file of one held copy: (SHA-256, size, path), from its manifest."""
+    from .mirror_holdings import held_manifest
+
+    document = held_manifest(store, manifest)
+    if document is None:
+        return ()
+    return tuple(
+        (file.sha256, file.size, file.path)
+        for member in document.members
+        for file in member.files
+    )
+
+
+def listed(ledger: MirrorLedger, held: Iterable[str]) -> list[SeededTorrent]:
+    """The Sovereign torrents a mirror shares, for its signed torrents list.
+
+    A copy is listed once every one of its files has a built torrent, one entry
+    per file. Nothing is listed while per-file sharing is off.
+    """
+    from .pirateface_seed import SeededTorrent
+
+    policy = ledger.read().native_policy
+    if policy is None or not policy.file_torrents:
+        return []
+    cache = TorrentCache(ledger.path / FILES_DIRECTORY / "torrents")
+    store = ledger.path / "store"
+    entries: list[SeededTorrent] = []
+    for manifest in sorted(held):
+        files = held_files(store, manifest)
+        built = [cache.get(sha256, size, path) for sha256, size, path in files]
+        if files and all(built):
+            entries.extend(
+                SeededTorrent(
+                    manifest=manifest,
+                    infohash=torrent.infohash,
+                    source="sovereign",
+                    object=torrent.sha256,
+                )
+                for torrent in built
+                if torrent is not None
+            )
+    return entries
+
+
+class FileSharing:
+    """Keep one mirror's per-file sharing in step with what it may serve.
+
+    Each tick: work out every file of every copy it may serve, share the ones
+    whose torrent is built, stop the rest, and build one missing torrent at a
+    time in the background (reading the stored file once). Upload is reserved
+    from the mirror's egress allowance in steps ahead of what is sent; when the
+    owner's daily or monthly total is reached, sharing pauses until it frees.
+    """
+
+    def __init__(
+        self,
+        ledger: MirrorLedger,
+        *,
+        settings: dict[str, str | int | bool] | None = None,
+    ) -> None:
+        self.ledger = ledger
+        self.settings = settings
+        self.home = ledger.path / FILES_DIRECTORY
+        self.cache = TorrentCache(self.home / "torrents")
+        self.sharer: FileSharer | None = None
+        self.paused = False
+        self.failed: dict[str, str] = {}
+        self._reserved = 0
+        self._router = False
+        self._build: threading.Thread | None = None
+        self._control = OperationControl()
+
+    def tick(self, state: MirrorState, allowed: Callable[[str], bool]) -> None:
+        """Bring sharing in line with the policy and the copies it may serve."""
+        policy = state.native_policy
+        if policy is None or not policy.file_torrents:
+            self.stop()
+            return
+        store = self.ledger.path / "store"
+        wanted: dict[str, tuple[int, str]] = {}
+        for manifest in sorted(state.models):
+            if allowed(manifest):
+                for sha256, size, path in held_files(store, manifest):
+                    wanted.setdefault(sha256, (size, path))
+        if self.sharer is not None and self._router != policy.map_ports:
+            self.stop()  # the router choice changed: start a fresh session
+        if self.sharer is None:
+            self.sharer = FileSharer(
+                self.home / "session",
+                open_router=policy.map_ports,
+                settings=self.settings,
+            )
+            self._router = policy.map_ports
+            self._reserved = 0
+            self.paused = False
+        sharer = self.sharer
+        self._spend(sharer)
+        for sha256 in sharer.shared() - wanted.keys():
+            sharer.stop(sha256)
+        missing: list[tuple[str, int, str]] = []
+        for sha256, (size, path) in wanted.items():
+            if sha256 in sharer.shared() or sha256 in self.failed:
+                continue
+            torrent = self.cache.get(sha256, size, path)
+            if torrent is not None:
+                sharer.share(torrent, store / object_path(sha256))
+            else:
+                missing.append((sha256, size, path))
+        if missing and (self._build is None or not self._build.is_alive()):
+            sha256, _size, path = missing[0]
+            self._build = threading.Thread(
+                target=self._make,
+                args=(store / object_path(sha256), sha256, path),
+                daemon=True,
+            )
+            self._build.start()
+
+    def _spend(self, sharer: FileSharer) -> None:
+        """Reserve upload ahead of what is sent; pause when none is left."""
+        if sharer.uploaded() + RESERVE_BYTES // 2 < self._reserved:
+            return
+        if self.ledger.reserve(RESERVE_BYTES):
+            self._reserved += RESERVE_BYTES
+            if self.paused:
+                sharer.resume()
+                self.paused = False
+        elif not self.paused:
+            sharer.pause()
+            self.paused = True
+
+    def _make(self, stored: Path, sha256: str, path: str) -> None:
+        try:
+            self.cache.put(build_torrent(stored, sha256, path, control=self._control))
+        except OperationCancelled:
+            pass
+        except (PreservationError, OSError, RuntimeError, ValueError) as error:
+            # One unreadable file never stops the others; it isn't retried
+            # until the mirror restarts.
+            self.failed[sha256] = type(error).__name__
+
+    def status(self) -> dict[str, int | bool]:
+        """How many files are shared, and whether an upload total paused them."""
+        return {
+            "files": len(self.sharer.shared()) if self.sharer else 0,
+            "uploaded_bytes": self.sharer.uploaded() if self.sharer else 0,
+            "paused": self.paused,
+        }
+
+    def stop(self) -> None:
+        """Stop sharing (the stored files and built torrents are kept)."""
+        if self.sharer is not None:
+            self.sharer.close()
+            self.sharer = None
+
+    def close(self) -> None:
+        """Stop sharing and any torrent being built."""
+        self._control.cancel()
+        if self._build is not None:
+            self._build.join(timeout=30)
+        self.stop()

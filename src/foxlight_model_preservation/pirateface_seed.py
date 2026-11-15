@@ -475,11 +475,24 @@ def seeded(state: MirrorState, serving: Iterable[str]) -> list[SeededTorrent]:
 
 
 class SeededTorrent(Record):
-    """One torrent a mirror seeds, and the held copy it carries."""
+    """One torrent a mirror seeds, and the held copy it carries.
+
+    A Pirate Face torrent carries the whole copy. A Sovereign torrent carries
+    one file of it (``object``, its SHA-256): the same file gives the same
+    torrent on every computer, so each file has one swarm.
+    """
 
     manifest: Digest
     infohash: str = Field(pattern=r"^[0-9a-f]{40}$")
-    source: Literal["pirateface"] = "pirateface"
+    source: Literal["pirateface", "sovereign"] = "pirateface"
+    object: Digest | None = None
+
+    @model_validator(mode="after")
+    def one_file(self) -> Self:
+        """A Sovereign torrent names its file; a Pirate Face one doesn't."""
+        if (self.source == "sovereign") != (self.object is not None):
+            raise PreservationError("a Sovereign torrent names exactly one file")
+        return self
 
 
 class MirrorTorrents(Record):

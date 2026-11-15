@@ -111,6 +111,7 @@ from ..signing import (
     load_key,
     public_record,
 )
+from ..sovereign_torrents import listed
 from ..storage import atomic_bytes, directory, manifest_path, read_metadata
 from ..transfer import MirrorHTTPError, TransferPolicy, response
 from .library import Library
@@ -1392,11 +1393,13 @@ class CommunityMirror:
                     self._mirror_key(),
                     store_holdings(self._mirror() / "public", held),
                 )
-            # The Pirate Face torrents it seeds, when that is turned on.
+            # The torrents it shares: Sovereign's own per-file ones, and Pirate
+            # Face ones when that is turned on.
             with contextlib.suppress(PreservationError, OSError, ValueError):
+                pool = MirrorLedger(self._mirror())
                 torrents = issue_torrents(
                     self._mirror_key(),
-                    seeded(MirrorLedger(self._mirror()).read(), held),
+                    [*seeded(pool.read(), held), *listed(pool, held)],
                 )
         try:
             with directory(self._mirror()) as root:
