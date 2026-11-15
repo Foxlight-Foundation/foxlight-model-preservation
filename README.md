@@ -25,7 +25,7 @@ No Skulk, hosted account, GPU or manual Python setup is required by the native a
 New here? Follow [your first model with Sovereign](docs/getting-started.md):
 install, find, preserve, send a kit and recover on another computer.
 
-- **Mac (Apple silicon):** [download Sovereign 0.1.0 build 18](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/sovereign-macos-v0.1.0-build18),
+- **Mac (Apple silicon):** [download Sovereign 0.1.0 build 19](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/sovereign-macos-v0.1.0-build19),
   open the DMG and drag **Sovereign** to **Applications**.
   [Verification and installation](docs/macos-distribution.md).
 - **Linux / APT (amd64 or arm64):** [graphical setup](docs/linux-distribution.md#graphical-setup-recommended) detects your processor and configures signed app updates. Guided terminal setup, manual apt and verified Debian packages are also available.
@@ -60,7 +60,7 @@ provides the saved copy’s public verification identifiers for separate compari
 
 ## Current public previews
 
-- **Standalone 0.35.0** includes persistent HTTP/IPFS/BitTorrent mirrors,
+- **Standalone 0.36.0** includes persistent HTTP/IPFS/BitTorrent mirrors,
   offline local-copy intake, portable handoffs, signed source following,
   retained-copy inspection/recovery-kit export, offline completion recovery,
   PirateFace lookup/intake and
@@ -161,7 +161,8 @@ censorship resistance for at-risk users.
 
 ## Install
 
-Python 3.11+ on Linux or macOS, with an authenticated Python/uv toolchain. Use the
+Python 3.11+ on Linux or an Apple silicon Mac (Intel Macs are
+[not supported](docs/installation.md)), with an authenticated Python/uv toolchain. Use the
 [0.36.0 installation archive](https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/tag/v0.36.0)
 and its detached attestation bundle. [Verify it first](docs/installation.md),
 extract it, then install into a new directory:

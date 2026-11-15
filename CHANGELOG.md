@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Docs no longer claim Intel Mac support: core's `cryptography>=50` has no
+  Intel Mac wheels and the installation helper accepts only prebuilt wheels.
+  The README's download link and current-release line name Mac build 19 and
+  core 0.36.0.
+
 - Install docs point at the public 0.36 cohort: core 0.36.0, Library 0.32.0,
   Mac build 19, Linux revision 14 (guided setup 0.1.12, graphical setup 0.1.14)
   and `sovereign-mirror:0.36.0`.
