@@ -394,15 +394,17 @@ def test_a_file_is_received_by_magnet_and_checked(tmp_path: Path) -> None:
     try:
         sharer.share(built, stored)
         receiver = FileSwarmReceiver(
-            {"weights/model.gguf": (sha256, built.infohash, len(data))},
+            {sha256: (built.infohash, len(data))},
             tmp_path / "staging",
             settings=LAB,
             peers=(("127.0.0.1", sharer.port()),),
             stall_seconds=20,
         )
         try:
-            assert receiver.has("weights/model.gguf", len(data))
-            assert not receiver.has("weights/model.gguf", len(data) + 1)
+            assert receiver.has("weights/model.gguf", len(data), sha256)
+            assert not receiver.has("weights/model.gguf", len(data) + 1, sha256)
+            # Same path, other bytes (another member's file): not this torrent.
+            assert not receiver.has("weights/model.gguf", len(data), "1" * 64)
             target = tmp_path / "work" / "model.gguf"
             receiver.fetch(
                 "weights/model.gguf",
@@ -442,7 +444,7 @@ def test_a_torrent_that_breaks_the_rules_is_refused_before_any_data(
     try:
         sharer.share(wrong, elsewhere)
         receiver = FileSwarmReceiver(
-            {"model.bin": (sha256, wrong.infohash, len(data))},
+            {sha256: (wrong.infohash, len(data))},
             tmp_path / "staging",
             settings=LAB,
             peers=(("127.0.0.1", sharer.port()),),
@@ -459,6 +461,19 @@ def test_a_torrent_that_breaks_the_rules_is_refused_before_any_data(
                     deadline=time.monotonic() + 30,
                 )
             assert not target.exists()
+            # Nothing of the refused torrent was downloaded anywhere.
+            staged = [p for p in (tmp_path / "staging").rglob("*") if p.is_file()]
+            assert all(p.stat().st_size == 0 for p in staged)
+            # And receiving never uploads, local-network peers included.
+            session = receiver._session
+            for name in (
+                "global_peer_class_id",
+                "tcp_peer_class_id",
+                "local_peer_class_id",
+            ):
+                assert not dict(session.get_peer_class(getattr(session, name))).get(
+                    "ignore_unchoke_slots"
+                )
         finally:
             receiver.close()
     finally:

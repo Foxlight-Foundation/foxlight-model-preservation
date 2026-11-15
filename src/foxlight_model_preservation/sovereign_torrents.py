@@ -589,27 +589,27 @@ class FileSwarmReceiver:
 
     def __init__(
         self,
-        files: dict[str, tuple[str, str, int]],
+        files: dict[str, tuple[str, int]],
         staging: Path,
         *,
         stall_seconds: float = 180,
         settings: dict[str, str | int | bool] | None = None,
         peers: tuple[tuple[str, int], ...] = (),
     ) -> None:
-        self._files = files  # path -> (SHA-256, infohash, size)
+        self._files = files  # SHA-256 -> (infohash, size)
         self.staging = staging
         self.stall_seconds = stall_seconds
         self._settings = settings
         self._peers = peers
         self._session: Any = None
 
-    def has(self, path: str, size: int) -> bool:
-        """Whether a listed torrent carries this file at this size."""
-        known = self._files.get(path)
-        return known is not None and known[2] == size
+    def has(self, path: str, size: int, sha256: str | None = None) -> bool:
+        """Whether a listed torrent carries this file (by SHA-256) at this size."""
+        known = self._files.get(sha256 or "")
+        return known is not None and known[1] == size
 
     def _start(self) -> Any:
-        from .swarm import RECEIVE_ONLY
+        from .swarm import RECEIVE_ONLY, no_unchoke_bypass
 
         engine = cast(Any, torrent_engine())
         self.staging.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -625,6 +625,8 @@ class FileSwarmReceiver:
                 **RECEIVE_ONLY,
             }
         )
+        # Receiving never shares, local-network peers included.
+        no_unchoke_bypass(self._session)
         return engine
 
     def fetch(
@@ -639,16 +641,19 @@ class FileSwarmReceiver:
         """Download one file to ``destination`` and check its SHA-256."""
         import hashlib
 
-        known = self._files.get(path)
-        if known is None or known[0] != sha256:
+        known = self._files.get(sha256)
+        if known is None:
             raise PreservationError("swarm_file_unknown")
-        _sha, infohash, size = known
+        infohash, size = known
         engine = cast(Any, torrent_engine())
         if self._session is None:
             engine = self._start()
         session = cast(Any, self._session)
         params = engine.parse_magnet_uri("magnet:?xt=urn:btih:" + infohash)
         params.save_path = str(self.staging)
+        # Nothing downloads until the metadata is checked and the file points
+        # at its destination.
+        params.flags |= engine.torrent_flags.default_dont_download
         handle = session.add_torrent(params)
         try:
             for peer in self._peers:
@@ -673,6 +678,8 @@ class FileSwarmReceiver:
                 control,
                 deadline,
             )
+            handle.file_priority(0, 4)
+            handle.resume()
             done = 0
 
             def progressed() -> bool:

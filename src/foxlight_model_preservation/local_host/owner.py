@@ -2342,7 +2342,9 @@ class LocalOwner:
         except OperationError:
             raise
         except (OSError, ValueError) as error:
-            if swarm is None or not swarm.has(file.path, file.size_bytes):
+            if swarm is None or not swarm.has(
+                file.path, file.size_bytes, file.object_id.removeprefix("sha256:")
+            ):
                 raise
             # A mirror that sent part of the file and gave up leaves those
             # bytes behind; the swarm writes its own whole copy, so they go.
@@ -2857,12 +2859,13 @@ class LocalOwner:
             # Sovereign's own per-file swarms, from signed mirror listings.
             from ..sovereign_torrents import FileSwarmReceiver
 
-            files: dict[str, tuple[str, str, int]] = {}
+            # By SHA-256: two members may hold different files at one path.
+            files: dict[str, tuple[str, int]] = {}
             for row in cast(list[list[JsonValue]], plan.get("files") or []):
                 sha256 = str(row[4]).removeprefix("sha256:")
                 infohash = file_swarms.get(sha256)
                 if isinstance(infohash, str):
-                    files[str(row[2])] = (sha256, infohash, cast(int, row[3]))
+                    files[sha256] = (infohash, cast(int, row[3]))
             if files:
                 return cast(SwarmReceiver, FileSwarmReceiver(files, work / ".files"))
         recorded = plan.get("swarm")
