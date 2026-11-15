@@ -5,6 +5,8 @@ import {Callout,Details,Help,Icon,Mono,Monogram,initials} from './ui';
 export interface HeldModel {manifest:string;name:string;origin_repository:string|null;origin_revision:string|null;format:string;size_bytes:number;file_count:number;licence:string|null;workloads:string[];mirrors:string[];mirror_count:number}
 
 let discovered=false;
+// One discovery per session, shared by every mounted search while it runs.
+let discovering:Promise<void>|null=null;
 
 /** Copies community mirrors keep, found from their signed holdings and searched on this device. */
 export function HeldFind({query,busy,eager=true,explainError,onPlan,onFound}:{query:string;busy:boolean;eager?:boolean;explainError:(code:string)=>string;onPlan:(body:Record<string,unknown>)=>Promise<void>;onFound?:(rows:HeldModel[])=>void}) {
@@ -14,7 +16,15 @@ export function HeldFind({query,busy,eager=true,explainError,onPlan,onFound}:{qu
   const searches=useRef(0),found=useRef(onFound);found.current=onFound;
   const words=query.trim();
   // Discover community mirrors once per session; searching then stays on this device.
-  useEffect(()=>{if(discovered||waiting)return;let live=true;void api('desktop-held-refresh',{}).catch(()=>undefined).finally(()=>{discovered=true;if(live)setRefreshing(false);});return()=>{live=false;};},[waiting]);
+  useEffect(()=>{
+    if(discovered){setRefreshing(false);return;}
+    if(waiting)return;
+    let live=true;
+    discovering??=api('desktop-held-refresh',{}).then(()=>undefined,()=>undefined).finally(()=>{discovered=true;});
+    // Whichever effect is current when discovery ends clears the waiting state.
+    void discovering.then(()=>{if(live)setRefreshing(false);});
+    return()=>{live=false;};
+  },[waiting]);
   useEffect(()=>{if(refreshing)return;const sequence=++searches.current;const timer=setTimeout(()=>{void api<{results:HeldModel[]}>('desktop-held-search',{query:words}).then(value=>{if(sequence===searches.current){setResults(value.results);setError('');found.current?.(value.results);}}).catch(err=>{if(sequence===searches.current)setError(err instanceof Error?err.message:'held_copy_unavailable');});},250);return()=>{clearTimeout(timer);searches.current++;};},[words,refreshing]);
   if(waiting)return null;
   if(refreshing)return <p className="sk-hint sk-pad" role="status">Looking for models that community mirrors keep…</p>;

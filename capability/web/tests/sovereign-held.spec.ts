@@ -54,3 +54,24 @@ test('with Hugging Face search on by default, a first launch contacts nothing un
   await expect.poll(()=>calls).toEqual(expect.arrayContaining(['refresh','hub:qwen']));
   await expect(page.getByText('Your search words also go to huggingface.co. You can turn this off in Settings.')).toBeVisible();
 });
+
+test('clearing the first search while mirrors are looked up never leaves it stuck',async({page})=>{
+  let release:()=>void=()=>{};const refreshed=new Promise<void>(resolve=>{release=resolve;});
+  await page.route('**/api/library*',r=>r.fulfill({json:{host_kind:'sovereign',hub_search:true,copies:[],jobs:[],next_offset:null}}));
+  await page.route('**/api/desktop-search',r=>r.fulfill({json:{catalog_id:null,results:[],total:0,next_offset:null}}));
+  await page.route('**/api/desktop-source-read',r=>r.fulfill({json:{sources:[]}}));
+  await page.route('**/api/desktop-copy-search',r=>r.fulfill({json:{results:[],total:0,stored_total:0,next_offset:null}}));
+  await page.route('**/api/desktop-held-refresh',async r=>{await refreshed;return r.fulfill({json:{mirrors:2}});});
+  await page.route('**/api/desktop-held-search',r=>r.fulfill({json:{source:'mirrors',results:[held]}}));
+  await page.route('**/api/desktop-hub-search',r=>r.fulfill({json:{source:'huggingface',results:[]}}));
+  await page.goto('/');
+  const search=page.getByPlaceholder('Search Hugging Face by model name');
+  await search.fill('rare');
+  await expect(page.getByText('Looking for models that community mirrors keep…')).toBeVisible();
+  await search.fill('');
+  release();
+  await page.waitForTimeout(300);
+  await search.fill('rare');
+  await expect(page.getByRole('article',{name:held.name})).toBeVisible();
+  await expect(page.getByText('Looking for models that community mirrors keep…')).toHaveCount(0);
+});
