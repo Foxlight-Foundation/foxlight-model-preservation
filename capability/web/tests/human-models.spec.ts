@@ -116,7 +116,7 @@ test('matching file variants share a description but retain their own exact revi
  await page.keyboard.press('Escape');await expect(dialog).toHaveCount(0);
 });
 
-test('all saved models remain searchable across size-bounded Library pages',async({page})=>{
+test('all saved models remain searchable across size-bounded Library pages, each batch added under the last',async({page})=>{
  const offsets:number[]=[];
  await page.route('**/api/library*',route=>route.fulfill({json:{host_kind:'sovereign',copy_count:256,copies:[copies[0]],jobs:[],next_offset:null}}));
  await page.route('**/api/desktop-copy-search',route=>{const body=route.request().postDataJSON();offsets.push(body.offset);const filtered=Boolean(body.query);return route.fulfill({json:{results:[filtered?{...copies[1],name:'Copy255'}:copies[0]],total:filtered?1:256,stored_total:256,next_offset:filtered?null:body.offset<26?body.offset+13:null}});});
@@ -124,23 +124,27 @@ test('all saved models remain searchable across size-bounded Library pages',asyn
  await expect(page.getByText('256 saved models · search stays on this device',{exact:true})).toBeVisible();
  await page.getByRole('button',{name:'More saved models',exact:true}).click();await expect.poll(()=>offsets.at(-1)).toBe(13);
  await page.getByRole('button',{name:'More saved models',exact:true}).click();await expect.poll(()=>offsets.at(-1)).toBe(26);
- await page.getByRole('button',{name:'Previous saved models',exact:true}).click();await expect.poll(()=>offsets.at(-1)).toBe(13);
+ // More adds the next batch under the ones shown; nothing pages back.
+ await expect(page.getByRole('button',{name:'Previous saved models'})).toHaveCount(0);
+ await expect(page.getByRole('heading',{name:copies[0].name,exact:true})).toHaveCount(3);
  await page.getByLabel('Search your saved models',{exact:true}).fill('Copy255');
  await expect(page.getByRole('heading',{name:'Copy255',exact:true})).toBeVisible();await expect.poll(()=>offsets.at(-1)).toBe(0);
  await expect(page.getByRole('button',{name:'Restore files',exact:true})).toBeVisible();
  await expect(page.getByText('1 of 256 saved models match',{exact:true})).toBeVisible();
 });
 
-test('size-bounded catalog pages return to their actual previous offset',async({page})=>{
+test('More models adds each size-bounded batch under the last, from its actual offset',async({page})=>{
  const offsets:number[]=[];
- await page.route('**/api/desktop-search',route=>{const offset=route.request().postDataJSON().offset;offsets.push(offset);return route.fulfill({json:{catalog_id:id,results:[cards[0]],total:60,next_offset:offset<26?offset+13:null}});});
+ await page.route('**/api/desktop-search',route=>{const offset=route.request().postDataJSON().offset;offsets.push(offset);const letter='abc'[offset/13];return route.fulfill({json:{catalog_id:id,results:[{...cards[0],card_id:'card_'+letter.repeat(52),name:`Batch ${offset}`}],total:60,next_offset:offset<26?offset+13:null}});});
  await page.goto('/');await page.getByRole('button',{name:'Find',exact:true}).click();
  await page.getByRole('button',{name:'More models',exact:true}).click();
  await expect.poll(()=>offsets.at(-1)).toBe(13);
  await page.getByRole('button',{name:'More models',exact:true}).click();
  await expect.poll(()=>offsets.at(-1)).toBe(26);
- await page.getByRole('button',{name:'Previous',exact:true}).click();
- await expect.poll(()=>offsets.at(-1)).toBe(13);
+ await expect(page.getByRole('button',{name:'Previous'})).toHaveCount(0);
+ for(const batch of [0,13,26])await expect(page.getByRole('heading',{name:`Batch ${batch}`,exact:true})).toBeVisible();
+ // The last batch has no more after it.
+ await expect(page.getByRole('button',{name:'More models',exact:true})).toHaveCount(0);
 });
 
 test('Activity describes the actual stage without inventing a percentage',async({page})=>{

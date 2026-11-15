@@ -6,6 +6,12 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Settings' on/off choices are switches (no separate status pill and button),
+  card text sits a little below its title, and section headings stand clearly
+  apart from the content above them.
+- More models and More saved models add the next batch under the list instead
+  of replacing it; there is no Previous.
+
 - Choose folder works on macOS from the browser too: Sovereign opens the
   system's own folder dialog (as it already did on Linux). Where no system
   dialog exists, the button steps aside and the folder path is typed, with no

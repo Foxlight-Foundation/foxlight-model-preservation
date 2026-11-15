@@ -15,13 +15,15 @@ test('settings gather search sources, privacy, storage and appearance',async({pa
   await expect(page.getByRole('region',{name:'Where model copies are kept'})).toBeVisible();
   await expect(page.getByRole('heading',{name:'Backup folders'})).toBeVisible();
   const hub=page.getByRole('article',{name:'Search Hugging Face'});
-  await expect(hub.getByText('Off')).toBeVisible();
-  await hub.getByRole('button',{name:'Search Hugging Face too'}).click();
+  const hubSwitch=hub.getByRole('switch',{name:'Search Hugging Face'});
+  await expect(hubSwitch).not.toBeChecked();
+  await hubSwitch.click();
   await expect.poll(()=>calls.at(-1)).toEqual({path:'desktop-hub-consent',body:{enabled:true}});
-  await expect(hub.getByText('On')).toBeVisible();
+  await expect(hubSwitch).toBeChecked();
+  await expect(hub.getByText('On',{exact:true})).toBeVisible();
   const swarm=page.getByRole('article',{name:'Swarm downloads'});
   await expect(swarm.getByText('peers in a public swarm can see this computer’s address',{exact:false})).toBeVisible();
-  await page.getByRole('article',{name:'Search Pirate Face'}).getByRole('button',{name:'Stop searching Pirate Face'}).click();
+  await page.getByRole('article',{name:'Search Pirate Face'}).getByRole('switch',{name:'Search Pirate Face'}).click();
   await expect.poll(()=>calls.at(-1)).toEqual({path:'desktop-pirate-face-consent',body:{enabled:false}});
   await expect(page.getByRole('article',{name:'Hugging Face access token'})).toBeVisible();
   await page.getByRole('button',{name:'Open sharing settings'}).click();
@@ -38,6 +40,6 @@ test('a setting that fails to save says so',async({page})=>{
   await page.goto('/');
   await page.getByRole('button',{name:'Settings',exact:true}).first().click();
   const hub=page.getByRole('article',{name:'Search Hugging Face'});
-  await hub.getByRole('button',{name:'Search Hugging Face too'}).click();
+  await hub.getByRole('switch',{name:'Search Hugging Face'}).click();
   await expect(hub.getByRole('alert')).toContainText('wasn’t saved');
 });

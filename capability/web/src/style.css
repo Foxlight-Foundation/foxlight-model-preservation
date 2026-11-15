@@ -730,3 +730,13 @@ li[data-state="waiting"] .sk-ring-fill {stroke:transparent;}
 /* Select boxes: our own chevron, inset from the edge like the text is. */
 select.sk-input,
 .sk-model-toolbar .sk-purpose select.sk-input {appearance:none;-webkit-appearance:none;padding-right:42px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a97b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center;background-size:16px 16px;}
+
+/* A card's title row, then its text: a small, consistent gap. */
+.sk-card > .sk-model-head + * {margin-top:10px;}
+/* Section headings stand clearly apart from the content above them. */
+* + .sk-section-title,
+.sk-main > section > * + .sk-section-title,
+* + .sk-subsection,
+.sk-main > section > * + .sk-subsection {margin-top:40px;}
+/* Paging controls stay clear of whatever follows them. */
+.sk-pager {margin-bottom:24px;}
