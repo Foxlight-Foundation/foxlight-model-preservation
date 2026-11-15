@@ -119,7 +119,7 @@ test('matching file variants share a description but retain their own exact revi
 test('all saved models remain searchable across size-bounded Library pages, each batch added under the last',async({page})=>{
  const offsets:number[]=[];
  await page.route('**/api/library*',route=>route.fulfill({json:{host_kind:'sovereign',copy_count:256,copies:[copies[0]],jobs:[],next_offset:null}}));
- await page.route('**/api/desktop-copy-search',route=>{const body=route.request().postDataJSON();offsets.push(body.offset);const filtered=Boolean(body.query);return route.fulfill({json:{results:[filtered?{...copies[1],name:'Copy255'}:copies[0]],total:filtered?1:256,stored_total:256,next_offset:filtered?null:body.offset<26?body.offset+13:null}});});
+ await page.route('**/api/desktop-copy-search',route=>{const body=route.request().postDataJSON();offsets.push(body.offset);const filtered=Boolean(body.query);return route.fulfill({json:{results:[filtered?{...copies[1],name:'Copy255'}:{...copies[0],copy_id:String(body.offset).padStart(64,'c')}],total:filtered?1:256,stored_total:256,next_offset:filtered?null:body.offset<26?body.offset+13:null}});});
  await page.goto('/');
  await expect(page.getByText('256 saved models · search stays on this device',{exact:true})).toBeVisible();
  await page.getByRole('button',{name:'More saved models',exact:true}).click();await expect.poll(()=>offsets.at(-1)).toBe(13);
@@ -145,6 +145,32 @@ test('More models adds each size-bounded batch under the last, from its actual o
  for(const batch of [0,13,26])await expect(page.getByRole('heading',{name:`Batch ${batch}`,exact:true})).toBeVisible();
  // The last batch has no more after it.
  await expect(page.getByRole('button',{name:'More models',exact:true})).toHaveCount(0);
+});
+
+test('removing a saved model after More reloads every shown batch, so no card goes stale or missing',async({page})=>{
+ let stored=Array.from({length:30},(_,index)=>({...copies[0],copy_id:index.toString(16).padStart(64,'0'),manifest_id:index.toString(16).padStart(64,'0'),name:`Copy ${index}`}));
+ await page.route('**/api/library*',route=>route.fulfill({json:{host_kind:'sovereign',copies:stored.slice(0,13),copy_count:stored.length,jobs:[],uploads:[],next_offset:null}}));
+ await page.route('**/api/desktop-copy-search',route=>{const offset=route.request().postDataJSON().offset as number;const next=offset+13<stored.length?offset+13:null;return route.fulfill({json:{results:stored.slice(offset,offset+13),total:stored.length,stored_total:stored.length,next_offset:next}});});
+ await page.goto('/');
+ await page.getByRole('button',{name:'More saved models',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Copy 25',exact:true})).toBeVisible();
+ stored=stored.filter(copy=>copy.name!=='Copy 3');
+ await expect(page.getByRole('heading',{name:'Copy 3',exact:true})).toHaveCount(0);
+ // The batches shifted by one on the core: the next copy moves up instead of falling between them.
+ await expect(page.getByRole('heading',{name:'Copy 26',exact:true})).toBeVisible();
+ await expect(page.getByRole('heading',{name:/^Copy \d+$/})).toHaveCount(26);
+});
+
+test('a failed More brings the button back with the shown models kept, and trying again works',async({page})=>{
+ let fail=true;
+ await page.route('**/api/desktop-search',route=>{const offset=route.request().postDataJSON().offset;if(offset===13&&fail){fail=false;return route.fulfill({status:503,json:{error:'host_unavailable'}});}const letter='abc'[offset/13];return route.fulfill({json:{catalog_id:id,results:[{...cards[0],card_id:'card_'+letter.repeat(52),name:`Batch ${offset}`}],total:60,next_offset:offset<26?offset+13:null}});});
+ await page.goto('/');await page.getByRole('button',{name:'Find',exact:true}).click();
+ await page.getByRole('button',{name:'More models',exact:true}).click();
+ await expect(page.getByRole('button',{name:'More models',exact:true})).toBeVisible();
+ await expect(page.getByRole('heading',{name:'Batch 0',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'More models',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Batch 13',exact:true})).toBeVisible();
+ await expect(page.getByRole('heading',{name:'Batch 0',exact:true})).toBeVisible();
 });
 
 test('Activity describes the actual stage without inventing a percentage',async({page})=>{
