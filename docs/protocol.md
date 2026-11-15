@@ -137,7 +137,7 @@ implicitly starts this transport. No model or catalog signing domain changes.
 The independent app's private `sovereign.local-owner.v2` journal separately
 records backup, publication and finite sharing jobs. Validated v1 owner metadata
 is retained before upgrade; older owners refuse v2. Signed archives and kits
-are unchanged. See [the independent app](sovereign-desktop.md#backup-folders-and-public-sharing-in-current-source).
+are unchanged. See [the independent app](sovereign-desktop.md#backup-folders-and-public-sharing).
 
 Recovery-kit export additionally reopens and hashes the completed output before
 publishing it. `model-preserve kit-verify MANIFEST --kit FILE --trust TRUST`

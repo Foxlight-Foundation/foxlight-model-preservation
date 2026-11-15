@@ -45,7 +45,7 @@ For peer operations, use **Set up peer support** in Library to review and
 explicitly install the pinned native build, then review starting contacts. No
 administrator or PATH changes are needed on supported managed platforms. No native peer networking starts on launch or
 compatibility checks. Source/receiving trust and restore/code permission remain
-separate. See [Library peer use](README.md#receive-through-peers).
+separate. See [Library peer use](README.md#receive-through-peers-library-09010-source-preview).
 
 For I2P HTTP operations, configure an independently trusted local I2P proxy on
 the Core host, then select **I2P only** and confirm the operation in Library.

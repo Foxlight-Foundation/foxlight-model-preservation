@@ -332,7 +332,7 @@ installed launcher with `--check` to inspect the actual owner API before use.
 Publishing and receiving retain separately reviewed, bounded HTTP/BitTorrent
 sessions with explicit stop and public-key/torrent downloads. One-file sharing,
 source following, offline search and native peer setup/receiving use Core-owned
-jobs and explicit consent. See [peer setup and receiving](capability/README.md#receive-through-peers)
+jobs and explicit consent. See [peer setup and receiving](capability/README.md#receive-through-peers-library-09010-source-preview)
 and [I2P source/receiving controls](capability/README.md#i2p-source-and-receiving-controls).
 The I2P HTTP pilot needs a separately operated proxy/router; Library does not
 install one or provide an application-wide anonymity mode.

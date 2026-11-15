@@ -7,7 +7,7 @@ service. These commands are available from the current source checkout; consult
 the [release notes](../CHANGELOG.md) for your installed version.
 
 The current independent app also provides offline HTTP handoff review and
-explicit one-hour HTTP sharing. See [the app workflow and privacy limits](sovereign-desktop.md#backup-folders-and-public-sharing-in-current-source).
+explicit one-hour HTTP sharing. See [the app workflow and privacy limits](sovereign-desktop.md#backup-folders-and-public-sharing).
 Peer/source handoffs retain the standalone mechanisms below.
 
 ## Publisher

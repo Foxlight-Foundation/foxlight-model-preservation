@@ -149,7 +149,7 @@ Changing an entry's manifest requires a new explicit selection.
 This receiver transfers **public preservation-v1 and PMF archives**, as ordinary
 source fetch does; the signed payload type selects verification. Skulk can restore the
 resulting archives/kits through its existing workflow. The separate [Library 0.9
-source preview](../capability/README.md#receive-through-peers) adds peer file
+source preview](../capability/README.md#receive-through-peers-library-09010-source-preview) adds peer file
 import, offline setup, explicit updates and metadata review, bounded receiving,
 Activity and resume through a compatible Core. Kubo 0.43.1 is a separately
 installed prerequisite on that Core host. Core owns finite native sessions and
