@@ -6,6 +6,11 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Help keep models available asks your router to open the sharing port, so
+  people outside your network can download from this computer. It's in the
+  consent, with a switch to turn it off, and the status says whether the router
+  agreed.
+
 - Install docs point at the public 0.36 cohort: core 0.36.0, Library 0.32.0,
   Mac build 19, Linux revision 14 (guided setup 0.1.12, graphical setup 0.1.14)
   and `sovereign-mirror:0.36.0`.

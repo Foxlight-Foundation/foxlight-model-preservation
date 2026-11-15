@@ -29,6 +29,8 @@ RENDEZVOUS_KEY = hashlib.sha1(  # noqa: S324 - BitTorrent DHT keys are SHA-1
 ).digest()
 MAX_ADDRESSES = 256
 DHT_ALERTS = 1024 | 262144  # libtorrent dht_notification | dht_operation_notification
+# libtorrent port_mapping_notification | status_notification (external address).
+ROUTER_ALERTS = 4 | 64
 
 
 class _Alert(Protocol):
@@ -45,6 +47,22 @@ class _DhtSession(Protocol):
     def pause(self) -> None: ...
     def is_dht_running(self) -> bool: ...
     def apply_settings(self, settings: dict[str, str | int | bool]) -> None: ...
+    def add_port_mapping(
+        self, protocol: object, external: int, local: int
+    ) -> object: ...
+
+
+class _Ports(Protocol):
+    class portmap_protocol:  # noqa: N801 - libtorrent's own name
+        tcp: object
+
+
+class _PortAlert(Protocol):
+    map_protocol: int
+    external_port: int
+    external_address: object
+
+    def message(self) -> str: ...
 
 
 class _Binding(Protocol):
@@ -75,8 +93,11 @@ class Rendezvous:
     """Own one DHT-only libtorrent session: no torrents, no peer connections.
 
     ``bootstrap`` replaces libtorrent's default public routers, for a lab
-    network; ``interface`` is the address to listen on. Local service discovery,
-    UPnP and NAT-PMP stay off: Sovereign never configures a router.
+    network; ``interface`` is the address to listen on. Local service discovery
+    stays off. ``open_port`` asks the home router (UPnP / NAT-PMP) to forward
+    that TCP port to this computer, for the mirror's HTTP server; it is the
+    owner's choice inside the sharing consent. Without it the router is never
+    configured.
     """
 
     def __init__(
@@ -85,18 +106,25 @@ class Rendezvous:
         bootstrap: tuple[tuple[str, int], ...] | None = None,
         interface: str = "0.0.0.0",  # noqa: S104 - the DHT is a public network
         lab: bool = False,
+        open_port: int | None = None,
+        dht: bool = True,
     ) -> None:
         engine = _binding()
+        if open_port is not None and not 1 <= open_port <= 65535:
+            raise PreservationError("invalid mirror port")
         settings: dict[str, str | int | bool] = {
             "listen_interfaces": f"{interface}:0",
-            "enable_dht": True,
+            # Off only for a session that just opens the router port for an
+            # owner who chose not to announce on the DHT.
+            "enable_dht": dht,
             "enable_lsd": False,
-            "enable_upnp": False,
-            "enable_natpmp": False,
+            "enable_upnp": open_port is not None,
+            "enable_natpmp": open_port is not None,
             "enable_incoming_utp": False,
             "enable_outgoing_utp": False,
-            # DHT notifications and operations (lookup replies) only.
-            "alert_mask": DHT_ALERTS,
+            # DHT notifications and operations (lookup replies), and the
+            # router's answers when a port is to be opened.
+            "alert_mask": DHT_ALERTS | (ROUTER_ALERTS if open_port else 0),
         }
         if bootstrap is not None:
             settings["dht_bootstrap_nodes"] = ",".join(
@@ -121,6 +149,49 @@ class Rendezvous:
         self.session = engine.session(settings)
         for node in bootstrap or ():
             self.session.add_dht_node(node)
+        self.open_port = open_port
+        self.dht = dht
+        self.external_port: int | None = None
+        self.external_address: str | None = None
+        self.router_error: str | None = None
+        if open_port is not None:
+            protocol = cast(_Ports, engine).portmap_protocol.tcp
+            try:
+                self.session.add_port_mapping(protocol, open_port, open_port)
+            except TypeError:
+                # libtorrent 2.0's Python binding queues the mapping, then
+                # cannot convert the mapping IDs it returns; the request stands.
+                pass
+
+    def router(self) -> dict[str, int | str | None]:
+        """What the home router answered: the forwarded port and outside
+        address once it agreed, or why it refused. All None until it answers
+        (and when no port was asked for)."""
+        with self._lock:
+            for alert in self.session.pop_alerts():
+                self._note(alert)
+        return {
+            "external_port": self.external_port,
+            "external_address": self.external_address,
+            "error": self.router_error,
+        }
+
+    def _note(self, alert: object) -> None:
+        """Remember a router answer about this mirror's port; ignore the rest."""
+        if self.open_port is None:
+            return
+        name = type(alert).__name__
+        if name == "portmap_alert":
+            mapping = cast(_PortAlert, alert)
+            # TCP only (map_protocol 1): the DHT's own UDP mapping isn't the mirror.
+            if int(mapping.map_protocol) == 1 and mapping.external_port:
+                self.external_port = int(mapping.external_port)
+                self.router_error = None
+        elif name == "portmap_error_alert":
+            if self.external_port is None:
+                self.router_error = str(cast(_PortAlert, alert).message())[:200]
+        elif name == "external_ip_alert":
+            self.external_address = str(cast(_PortAlert, alert).external_address)
 
     @property
     def port(self) -> int:
@@ -208,6 +279,7 @@ class Rendezvous:
             self.session.wait_for_alert(250)
             for alert in self.session.pop_alerts():
                 if not isinstance(alert, reply):
+                    self._note(alert)
                     continue
                 for host, port in cast(_Alert, alert).peers():
                     url = _url(host, port)

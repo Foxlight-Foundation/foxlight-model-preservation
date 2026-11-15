@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Sharing from home: while sharing is on, the app asks the home router to
+  forward the mirror's port (UPnP / NAT-PMP, through libtorrent's own port
+  mapping), as the sharing consent now says. **Ask my router to open port …**
+  turns it off. When the router agrees, the mirror publishes the router's
+  outside address and forwarded port, and announces that port on the DHT; a
+  refusal, or a provider-shared address (carrier-grade NAT), is said plainly
+  and nothing is published. An owner who turned DHT announcements off doesn't
+  join the DHT for this. Tests never touch a real router.
+
 - Find reads the torrents community mirrors list (their signed `torrents.json`,
   kept only when the mirror's own card key signed it). A copy a mirror keeps
   and also shares as a torrent gets that swarm as one more source, after

@@ -188,6 +188,10 @@ class CommunityPolicy(Record):
     # Also seed each shared model's matching Pirate Face torrent from the
     # mirror's stored files (after looking it up on Pirate Face).
     seed_pirate_face: bool = False
+    # Ask the home router (UPnP / NAT-PMP) to forward the mirror's port while
+    # sharing, so people outside can reach it. Part of the sharing consent,
+    # on unless the owner turns it off.
+    open_router_port: bool = True
 
     @field_validator("public_url")
     @classmethod
@@ -551,6 +555,7 @@ class CommunityMirror:
             "rarest_first",
             "announce_disclosure",
             "seed_pirate_face",
+            "open_router_port",
         }
         if not body or not set(body) <= allowed:
             raise PreservationError("invalid_control")
@@ -992,7 +997,9 @@ class CommunityMirror:
         if policy.public_url is not None:
             return (policy.public_url,)
         reach = self.reachability()
-        if reach["status"] == "public_address" and isinstance(reach["mirror_url"], str):
+        if reach["status"] in {"public_address", "router_opened"} and isinstance(
+            reach["mirror_url"], str
+        ):
             return (reach["mirror_url"],)
         return ()
 
@@ -1452,16 +1459,35 @@ class CommunityMirror:
         policy = TransferPolicy(allow_http=True, timeout=10, deadline_seconds=600)
         relay_policy = TransferPolicy(timeout=10, deadline_seconds=600)
         seeds: tuple[str, ...] = ()
+        current = self.policy()
+        held = bool(self.held())
+        available = rendezvous_available()
+        # The router is asked to forward the mirror's port only while sharing
+        # something, when the owner kept that choice and gave no address of
+        # their own (a declared address means they forwarded it themselves).
+        router = (
+            current.port
+            if available
+            and held
+            and current.open_router_port
+            and current.public_url is None
+            and self.consented(current)
+            else None
+        )
         port = self.dht_port()
         # Announcing an address with nothing to serve would only expose it.
-        if port is not None and self.held() and rendezvous_available():
-            if self.rendezvous is None:
-                self.rendezvous = Rendezvous()
-            self.rendezvous.announce(port, seconds=20, control=control)
-            seeds = self.rendezvous.lookup(seconds=20, control=control)
+        announce = port is not None and held and available
+        if announce or router is not None:
+            dht = bool(self.announcing()[0])
+            node = self.rendezvous
+            if node is None or node.open_port != router or node.dht != dht:
+                self._close_rendezvous()
+                self.rendezvous = Rendezvous(open_port=router, dht=dht)
+            if announce and port is not None:
+                self.rendezvous.announce(port, seconds=20, control=control)
+                seeds = self.rendezvous.lookup(seconds=20, control=control)
         else:
             self._close_rendezvous()
-        current = self.policy()
         relays = current.nostr_relays if self.announcing()[1] else ()
         if relays:
             # Cards found on relays are verified like any other; relays only
@@ -1494,7 +1520,11 @@ class CommunityMirror:
             if parsed.scheme != "http" or parsed.path not in {"", "/"}:
                 return None
             return _url_port(policy.public_url)
-        return policy.port if self.addresses() else None
+        reach = self.reachability()
+        if reach["status"] == "router_opened" and isinstance(reach["mirror_url"], str):
+            # The port people reach is the one the router forwards.
+            return _url_port(reach["mirror_url"])
+        return policy.port if reach["status"] == "public_address" else None
 
     def close_rendezvous(self) -> None:
         """Leave the DHT; the mirror no longer announces itself there."""
@@ -1511,9 +1541,11 @@ class CommunityMirror:
     def reachability(self) -> dict[str, JsonValue]:
         """Say plainly whether other networks could reach this computer directly.
 
-        Sovereign never configures the router (UPnP stays off) and asks no
-        outside service. A computer with only private addresses is behind a
-        router: people outside its network cannot reach it directly.
+        Sovereign asks no outside service. A computer with only private
+        addresses is behind a router: people outside cannot reach it directly,
+        unless the router agreed to forward the mirror's port (UPnP / NAT-PMP,
+        the owner's choice while sharing). A forwarded port behind an internet
+        provider's own shared address (carrier-grade NAT) still isn't reachable.
         """
         address: str | None = None
         try:
@@ -1525,6 +1557,34 @@ class CommunityMirror:
             pass
         policy = self.policy()
         public = address is not None and ipaddress.ip_address(address).is_global
+        node = self.rendezvous
+        answer: dict[str, int | str | None] = (
+            node.router()
+            if node is not None and node.open_port is not None
+            else {"external_port": None, "external_address": None, "error": None}
+        )
+        outside = answer["external_address"]
+        forwarded = answer["external_port"]
+        router: dict[str, JsonValue] = {
+            "asked": node is not None and node.open_port is not None,
+            "external_port": forwarded,
+            "error": answer["error"],
+        }
+        if not public and isinstance(forwarded, int) and isinstance(outside, str):
+            try:
+                shared = not ipaddress.ip_address(outside).is_global
+            except ValueError:
+                shared = True
+            host = f"[{outside}]" if ":" in outside else outside
+            return {
+                "local_address": address,
+                "port": policy.port,
+                # The router forwarded the port; a provider-shared address
+                # (carrier-grade NAT) still can't be reached from outside.
+                "status": "carrier_nat" if shared else "router_opened",
+                "mirror_url": None if shared else f"http://{host}:{forwarded}",
+                "router": router,
+            }
         return {
             "local_address": address,
             "port": policy.port,
@@ -1534,6 +1594,7 @@ class CommunityMirror:
             if address is not None
             else "offline",
             "mirror_url": f"http://{address}:{policy.port}" if address else None,
+            "router": router,
         }
 
     def announcements(self) -> dict[str, JsonValue]:
