@@ -52,17 +52,10 @@ for(const area of ['Find','Library','Activity','Sharing','Settings']){
 
 test('the audit catches cards stacked flush, as they were before the rhythm rule',async({page})=>{
   await mock(page);
-  // A first launch, as in Tom's screenshot: Find, with both search offers.
-  await page.route('**/api/library*',r=>r.fulfill({json:{host_kind:'sovereign',hub_search:false,pirate_face_search:false,pirate_face_swarm:false,copies:[],copy_count:0,jobs:[],next_offset:null}}));
   await page.emulateMedia({colorScheme:'dark'});
   await page.goto('/');
-  await expect(page.getByText('Also search Hugging Face?')).toBeVisible();
-  await page.getByText('Also search Hugging Face?').scrollIntoViewIfNeeded();
-  await page.evaluate(()=>window.scrollBy(0,-120));
-  await page.evaluate(()=>{const s=document.createElement('style');s.id='before';s.textContent='.sk-main > section > * + * {margin-top:0 !important}';document.head.append(s);});
-  await page.screenshot({path:test.info().outputPath('find-before.png')});
-  await page.evaluate(()=>document.getElementById('before')?.remove());
+  await page.getByRole('button',{name:'Library',exact:true}).first().click();
+  await expect(page.getByRole('heading',{name:'Your Library',exact:true})).toBeVisible();
   expect((await touching(page,true)).length).toBeGreaterThan(0);
   expect(await touching(page)).toEqual([]);
-  await page.screenshot({path:test.info().outputPath('find-after.png')});
 });

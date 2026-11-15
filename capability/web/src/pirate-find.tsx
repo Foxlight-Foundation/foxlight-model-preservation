@@ -15,11 +15,8 @@ export function PirateFind({query,enabled,swarm,busy,hidden=[],explainError,onEn
   const searches=useRef(0),found=useRef(onFound);found.current=onFound;
   const words=query.trim();
   useEffect(()=>{if(!enabled||!words){setResults(null);setError('');found.current?.([]);return;}const sequence=++searches.current;setSearching(true);const timer=setTimeout(()=>{void api<{results:PirateResult[]}>('desktop-pirate-face-search',{query:words}).then(value=>{if(sequence===searches.current){setResults(value.results);setError('');found.current?.(value.results);}}).catch(err=>{if(sequence===searches.current)setError(err instanceof Error?err.message:'pirate_face_unavailable');}).finally(()=>{if(sequence===searches.current)setSearching(false);});},450);return()=>{clearTimeout(timer);searches.current++;};},[enabled,words]);
-  if(!enabled)return <section className="sk-card sk-hub" aria-label="Pirate Face">
-    <div className="sk-model-head"><Monogram text="PF"/><div className="sk-model-title"><h2>Also search Pirate Face?</h2><p className="sk-meta">Community torrents of Hugging Face models, including models Hugging Face has removed.</p></div></div>
-    <p className="sk-hint">Your search words go to pirateface.co. Sovereign checks every file against its fingerprint before keeping it.</p>
-    <div className="sk-actions"><button className="sk-btn sk-solid" disabled={busy} onClick={()=>void onEnabled()}><Icon name="search"/>Search Pirate Face too</button></div>
-  </section>;
+  // Turned on and off from Browse's source toggles.
+  if(!enabled)return null;
   if(!words)return null;
   // A model also found on Hugging Face shows once, there, with its seed count.
   const shown=results?.filter(item=>!hidden.includes(item.repository));

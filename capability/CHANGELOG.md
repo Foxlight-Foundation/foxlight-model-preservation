@@ -6,6 +6,13 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Find's first-launch screen is just its three choices: no search and no
+  network contact. Search lives in Browse: one search bar, with Hugging Face and
+  Pirate Face as on/off switches beside it (each says where search words go)
+  instead of separate offer cards. Find waits for the saved listings before
+  choosing a view, so reloading never flashes the first-launch screen.
+- Select boxes draw their arrow inset from the edge like their text.
+
 - The first-launch Find screen offers Open recovery kit only on its Recover card
   (the header button returns on every other screen).
 

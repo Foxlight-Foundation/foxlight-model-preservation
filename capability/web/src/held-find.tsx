@@ -9,24 +9,20 @@ let discovered=false;
 let discovering:Promise<void>|null=null;
 
 /** Copies community mirrors keep, found from their signed holdings and searched on this device. */
-export function HeldFind({query,busy,eager=true,explainError,onPlan,onFound}:{query:string;busy:boolean;eager?:boolean;explainError:(code:string)=>string;onPlan:(body:Record<string,unknown>)=>Promise<void>;onFound?:(rows:HeldModel[])=>void}) {
+export function HeldFind({query,busy,explainError,onPlan,onFound}:{query:string;busy:boolean;explainError:(code:string)=>string;onPlan:(body:Record<string,unknown>)=>Promise<void>;onFound?:(rows:HeldModel[])=>void}) {
   const [results,setResults]=useState<HeldModel[]|null>(null),[error,setError]=useState(''),[refreshing,setRefreshing]=useState(!discovered);
-  // Before Browse is chosen, nothing is contacted until the person searches.
-  const waiting=!eager&&!discovered&&!query.trim();
   const searches=useRef(0),found=useRef(onFound);found.current=onFound;
   const words=query.trim();
   // Discover community mirrors once per session; searching then stays on this device.
   useEffect(()=>{
     if(discovered){setRefreshing(false);return;}
-    if(waiting)return;
     let live=true;
     discovering??=api('desktop-held-refresh',{}).then(()=>undefined,()=>undefined).finally(()=>{discovered=true;});
     // Whichever effect is current when discovery ends clears the waiting state.
     void discovering.then(()=>{if(live)setRefreshing(false);});
     return()=>{live=false;};
-  },[waiting]);
+  },[]);
   useEffect(()=>{if(refreshing)return;const sequence=++searches.current;const timer=setTimeout(()=>{void api<{results:HeldModel[]}>('desktop-held-search',{query:words}).then(value=>{if(sequence===searches.current){setResults(value.results);setError('');found.current?.(value.results);}}).catch(err=>{if(sequence===searches.current)setError(err instanceof Error?err.message:'held_copy_unavailable');});},250);return()=>{clearTimeout(timer);searches.current++;};},[words,refreshing]);
-  if(waiting)return null;
   if(refreshing)return <p className="sk-hint sk-pad" role="status">Looking for models that community mirrors keep…</p>;
   if(error)return <Callout tone="bad" role="alert">{explainError(error)}</Callout>;
   if(!results?.length)return words?<p className="sk-hint sk-pad">No community mirror lists a model matching “{words}”.</p>:null;
