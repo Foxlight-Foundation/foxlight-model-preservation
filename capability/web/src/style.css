@@ -755,3 +755,7 @@ li[data-state="waiting"] .sk-ring-fill {stroke:transparent;}
 .sk-select-option[aria-disabled] {opacity:.45;cursor:default;}
 .sk-select-tick {display:inline-flex;width:16px;flex:none;color:var(--foxlight);}
 .sk-model-toolbar .sk-purpose .sk-select-button {min-height:56px;border-radius:var(--radius-field);background:var(--glass);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border-color:var(--line-card);font-size:15px;}
+
+/* Third-party notices, read inside the app. */
+.sk-notices {margin:0;max-height:none;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.55 var(--mono);color:var(--text-2);}
+.sk-notices:focus-visible {outline:none;box-shadow:var(--ring-focus);border-radius:var(--radius-control);}
