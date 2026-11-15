@@ -374,6 +374,8 @@ class FileSharing:
         self.paused = False
         self.failed: dict[str, str] = {}
         self._charged = 0
+        # The accounting day and month the outstanding credit belongs to.
+        self._period: tuple[str, str] | None = None
         self._router = False
         self._build: threading.Thread | None = None
         self._control = OperationControl()
@@ -445,6 +447,12 @@ class FileSharing:
         Serving hours and a paused mirror pause sharing too.
         """
         uploaded = sharer.uploaded()
+        period = _period(now)
+        if period != self._period:
+            # Credit reserved in an earlier day or month was charged there; it
+            # never carries over on top of the new period's allowance.
+            self._charged = min(self._charged, uploaded)
+            self._period = period
         left = _allowance_left(self.ledger.read(), now)
         if left is None:
             owed = max(0, uploaded - self._charged)
@@ -509,6 +517,12 @@ class FileSharing:
         if self._build is not None:
             self._build.join(timeout=30)
         self.stop()
+
+
+def _period(now: int | None = None) -> tuple[str, str]:
+    """The ledger's accounting day and month for ``now`` (UTC)."""
+    moment = datetime.fromtimestamp(int(time.time()) if now is None else now, UTC)
+    return moment.strftime("%Y-%m-%d"), moment.strftime("%Y-%m")
 
 
 def _allowance_left(state: MirrorState, now: int | None = None) -> int | None:

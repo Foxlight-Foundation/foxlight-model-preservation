@@ -293,3 +293,58 @@ def test_a_small_upload_total_still_shares_and_stops_exactly_at_it(
     sharing.spend(session)  # type: ignore[arg-type]
     assert session.paused
     assert ledger.read().egress_day_used <= total
+
+
+def test_credit_left_over_from_yesterday_never_adds_to_today(
+    tmp_path: Path, capture
+) -> None:
+    import datetime as clock
+
+    total = 3 * 1024 * 1024
+    ledger, sharing = _limited(tmp_path, capture, total, None)
+    session = _Session()
+    noon = int(clock.datetime(2030, 1, 1, 12, tzinfo=clock.UTC).timestamp())
+    sharing.spend(session, now=noon)  # type: ignore[arg-type]
+    yesterday = sharing._charged
+    assert yesterday > 0  # reserved, none of it sent
+    tomorrow = noon + 86400
+    sharing.spend(session, now=tomorrow)  # type: ignore[arg-type]
+    # Only today's allowance is spendable: the unused credit didn't carry over.
+    assert sharing._charged - session.sent <= total
+
+
+def test_a_large_library_still_publishes_a_readable_torrent_list() -> None:
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    from foxlight_model_preservation.pirateface_seed import (
+        MAX_TORRENTS_BYTES,
+        SeededTorrent,
+        issue_torrents,
+        verify_torrents,
+    )
+    from foxlight_model_preservation.signing import public_record
+
+    key = Ed25519PrivateKey.generate()
+    copies = [hashlib.sha256(f"copy {n}".encode()).hexdigest() for n in range(3)]
+    entries = [
+        SeededTorrent(manifest=copies[0], infohash="f" * 40),  # Pirate Face
+        *(
+            SeededTorrent(
+                manifest=copy,
+                infohash=hashlib.sha1(f"{copy} {n}".encode()).hexdigest(),  # noqa: S324
+                source="sovereign",
+                object=hashlib.sha256(f"{copy} file {n}".encode()).hexdigest(),
+            )
+            for copy in copies
+            for n in range(500)
+        ),
+    ]
+    document = issue_torrents(key, entries)
+    assert len(document) <= MAX_TORRENTS_BYTES
+    kept = verify_torrents(document, public_record(key)).entries
+    # Whole copies are kept or dropped together, Pirate Face entries first.
+    assert any(entry.source == "pirateface" for entry in kept)
+    for copy in {entry.manifest for entry in kept if entry.source == "sovereign"}:
+        assert (
+            sum(1 for entry in kept if entry.manifest == copy and entry.object) == 500
+        )

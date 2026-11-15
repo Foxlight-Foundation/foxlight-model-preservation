@@ -524,17 +524,34 @@ def issue_torrents(
     lifetime: int = 7 * 86400,
     now: int | None = None,
 ) -> bytes:
-    """Sign the torrents this mirror seeds."""
+    """Sign the torrents this mirror shares, within the list's byte budget.
+
+    A list that outgrows its budget drops whole copies (all of a copy's
+    entries go together) rather than publish a document readers would reject;
+    Pirate Face entries, one per copy, are kept first.
+    """
     instant = int(time.time()) if now is None else now
     unique = {(item.manifest, item.infohash): item for item in entries}
-    selected = [unique[key] for key in sorted(unique)][:MAX_TORRENT_ENTRIES]
-    document = MirrorTorrents(
-        mirror_key=public_record(key),
-        entries=tuple(selected),
-        issued_at=instant,
-        expires_at=instant + lifetime,
-    )
-    return encode_record(sign_record(document, (key,), TORRENTS_TYPE))
+    groups: dict[tuple[bool, str], list[SeededTorrent]] = {}
+    for pair in sorted(unique):
+        item = unique[pair]
+        groups.setdefault((item.source != "pirateface", item.manifest), []).append(item)
+    ordered = [groups[group] for group in sorted(groups)]
+    count = len(ordered)
+    while True:
+        selected = [item for group in ordered[:count] for item in group][
+            :MAX_TORRENT_ENTRIES
+        ]
+        document = MirrorTorrents(
+            mirror_key=public_record(key),
+            entries=tuple(selected),
+            issued_at=instant,
+            expires_at=instant + lifetime,
+        )
+        envelope = encode_record(sign_record(document, (key,), TORRENTS_TYPE))
+        if len(envelope) <= MAX_TORRENTS_BYTES or count == 0:
+            return envelope
+        count = count * 9 // 10
 
 
 def verify_torrents(
