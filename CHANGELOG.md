@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Install docs point at the public 0.36 cohort: core 0.36.0, Library 0.32.0,
+  Mac build 19, Linux revision 14 (guided setup 0.1.12, graphical setup 0.1.14)
+  and `sovereign-mirror:0.36.0`.
+
 - Guided Linux setup 0.1.12 and graphical setup 0.1.14 install revision 14
   (core 0.36.0 / Library 0.32.0), now served by the signed apt channel; package
   pins amd64 347769e5… and arm64 d754d3fe…, documented bootstrap hash 133e4362….
