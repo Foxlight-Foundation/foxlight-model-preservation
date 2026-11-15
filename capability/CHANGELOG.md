@@ -6,6 +6,10 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Find shows one Open a sharing file button: on the Receive card at first
+  launch, and at the top of Find while browsing (where the cards are hidden),
+  which now opens the file chooser directly instead of scrolling to it.
+
 - Cards, notes and groups stacked on a page are evenly spaced instead of
   touching (for example the Hugging Face and Pirate Face offers in Find), and a
   button inside a sentence, such as "… are in Settings.", reads as a link.

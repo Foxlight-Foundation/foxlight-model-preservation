@@ -152,12 +152,12 @@ test('Activity describes the actual stage without inventing a percentage',async(
 });
 
 
-test('other model sources are one visible jump away without any network enrollment',async({page})=>{
+test('in Browse, the sharing file opens straight from the top of Find without any network enrollment',async({page})=>{
  const effects:string[]=[];page.on('request',request=>{if(/desktop-(source-follow|source-plan|refresh|start)/.test(request.url()))effects.push(request.url());});
  await page.goto('/');await page.getByRole('button',{name:'Find',exact:true}).click();
- await page.getByRole('link',{name:'Open a sharing file',exact:true}).click();
- await expect(page.getByRole('region',{name:'Independent model sources',exact:true})).toBeInViewport();
- await expect(page.getByRole('region',{name:'Independent model sources',exact:true})).toBeFocused();
+ const chooser=page.waitForEvent('filechooser');
+ await page.getByRole('button',{name:'Open a sharing file',exact:true}).first().click();
+ expect(await (await chooser).element().getAttribute('aria-label')).toBe('Open sharing file');
  expect(effects).toEqual([]);
 });
 
