@@ -974,8 +974,13 @@ def test_a_consent_given_before_the_disclosure_announces_nothing_until_reviewed(
     monkeypatch.setattr(module, "rendezvous_available", lambda: True)
 
     class Lab:
-        def __init__(self) -> None:
+        def __init__(self, **kwargs: object) -> None:
             joined.append(1)
+            self.open_port = kwargs.get("open_port")
+            self.dht = kwargs.get("dht", True)
+
+        def router(self) -> dict[str, object]:
+            return {"external_port": None, "external_address": None, "error": None}
 
         def announce(self, *args: object, **kwargs: object) -> None: ...
 
