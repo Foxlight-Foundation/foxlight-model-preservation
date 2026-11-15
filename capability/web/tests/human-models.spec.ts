@@ -219,3 +219,11 @@ test('the app’s own dropdown works from the keyboard and closes when you click
  await box.click();await expect(page.getByRole('listbox')).toBeVisible();
  await page.mouse.click(5,5);await expect(page.getByRole('listbox')).toHaveCount(0);
 });
+
+test('public listings show the same initials tile as saved models, not a dot',async({page})=>{
+ await page.goto('/');await page.getByRole('button',{name:'Find',exact:true}).click();
+ const card=page.getByRole('article').filter({has:page.getByRole('heading',{name:cards[0].name,exact:true})});
+ await expect(card.locator('.sk-monogram')).toHaveText('MY');
+ const size=await card.locator('.sk-monogram').boundingBox();
+ expect(size?.width).toBeGreaterThanOrEqual(36);
+});
