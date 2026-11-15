@@ -1482,10 +1482,10 @@ class CommunityMirror:
             node = self.rendezvous
             if node is None or node.open_port != router or node.dht != dht:
                 self._close_rendezvous()
-                self.rendezvous = Rendezvous(open_port=router, dht=dht)
+                node = self.rendezvous = Rendezvous(open_port=router, dht=dht)
             if announce and port is not None:
-                self.rendezvous.announce(port, seconds=20, control=control)
-                seeds = self.rendezvous.lookup(seconds=20, control=control)
+                node.announce(port, seconds=20, control=control)
+                seeds = node.lookup(seconds=20, control=control)
         else:
             self._close_rendezvous()
         relays = current.nostr_relays if self.announcing()[1] else ()
