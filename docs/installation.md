@@ -140,9 +140,14 @@ Library 0.24 and later also include the BitTorrent DHT binding
 (libtorrent 2.0.14) in this profile, for the community mirror's DHT rendezvous.
 libtorrent publishes only binary wheels, so the desktop profile then installs
 only where one exists: Linux (glibc 2.17+ or musl) on x86_64 and aarch64,
-Windows, Apple silicon on macOS 14 or newer, and Intel Macs on macOS 15 or newer.
-Elsewhere installing the desktop profile fails because no libtorrent wheel
-matches; the default `requirements.lock` profile is unaffected.
+Windows, and Apple silicon on macOS 14 or newer. Elsewhere installing the
+desktop profile fails because no libtorrent wheel matches; the default
+`requirements.lock` profile is unaffected.
+
+Intel Macs are not supported by either installation archive. Core requires
+`cryptography>=50,<51`, which publishes Mac wheels only for Apple silicon, and
+the installation helper accepts only prebuilt wheels, so installation stops on
+an Intel Mac. The signed Mac app is also Apple silicon only.
 
 This opens the independent Library without installing Skulk or the managed SDK.
 First launch offers **Browse public models**, **Open a recovery kit** and
