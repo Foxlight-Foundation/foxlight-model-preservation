@@ -105,4 +105,7 @@ test('the listings switch sits on the same line as the search-source switches on
  const listings=await page.getByRole('switch',{name:/Also show listings/}).boundingBox();
  expect(hub&&listings&&Math.abs(hub.y-listings.y)).toBeLessThan(4);
  await expect(page.getByRole('checkbox',{name:/Also show listings/})).toHaveCount(0);
+ // The search box and the model-type dropdown beside it line up exactly.
+ const search=(await page.getByRole('searchbox').first().boundingBox())!,types=(await page.getByRole('combobox',{name:'What would you like to do?'}).boundingBox())!;
+ expect(search.height).toBe(types.height);expect(search.y).toBe(types.y);
 });
