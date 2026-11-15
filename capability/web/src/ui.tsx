@@ -123,6 +123,11 @@ export function Progress({value,max,tone='live',label}:{value?:number;max?:numbe
 }
 
 /** Empty states: a friendly sentence and one way forward. */
+/** Something is loading: a spinner with words, large for a whole view and
+ *  inline for a list growing at its end. */
+export function Loading({label='Loading…',size}:{label?:string;size?:'page'}) {
+  return <div className="sk-loading" data-size={size} role="status"><span className="sk-spinner" aria-hidden="true"/><span>{label}</span></div>;
+}
 export function Empty({icon,title,children,action}:{icon:IconName;title:ReactNode;children?:ReactNode;action?:ReactNode}) {
   return <div className="sk-empty"><span className="sk-empty-icon"><Icon name={icon} size={22}/></span><h2>{title}</h2>{children&&<p>{children}</p>}{action}</div>;
 }

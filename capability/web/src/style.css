@@ -762,3 +762,9 @@ li[data-state="waiting"] .sk-ring-fill {stroke:transparent;}
 
 /* Browse's search box and dropdown are exactly the same height, side by side. */
 .sk-model-toolbar .sk-search input {height:56px;}
+
+/* Loading: a spinner with words. A whole view gets a large, centred one. */
+.sk-loading {display:flex;align-items:center;gap:10px;color:var(--text-2);font-size:14px;}
+.sk-pager .sk-loading {justify-content:center;min-height:44px;}
+.sk-loading[data-size="page"] {flex-direction:column;justify-content:center;gap:14px;min-height:220px;font-size:16px;color:var(--text-1);}
+.sk-loading[data-size="page"] .sk-spinner {width:36px;height:36px;border-width:3px;}

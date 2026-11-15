@@ -259,3 +259,17 @@ test('losing the connection names Sovereign, not Skulk, and clears once it answe
  down=false;
  await expect(alert).toHaveCount(0);
 });
+
+test('loading a view shows a large spinner with words, not a faint line of text',async({page},info)=>{
+ let release:()=>void=()=>{};const held=new Promise<void>(resolve=>{release=resolve;});
+ await page.route('**/api/library*',route=>route.fulfill({json:empty}));
+ await page.route('**/api/desktop-search',async route=>{await held;await route.fulfill({json:{catalog_id:null,results:[],total:0,next_offset:null}});});
+ await page.goto('/');
+ const loading=page.getByRole('status').filter({hasText:'Loading…'});
+ await expect(loading).toBeVisible();
+ const spinner=(await loading.locator('.sk-spinner').boundingBox())!;
+ expect(spinner.width).toBeGreaterThanOrEqual(32);
+ if(process.env.SHOTS&&info.project.name==='desktop')await page.screenshot({path:process.env.SHOTS+'/loading.png',clip:{x:0,y:80,width:1280,height:420}});
+ release();
+ await expect(loading).toHaveCount(0);
+});
