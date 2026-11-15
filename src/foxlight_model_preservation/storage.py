@@ -533,6 +533,13 @@ def _move_object(
             if not stat.S_ISREG(info.st_mode) or info.st_size != file.size:
                 raise PreservationError("file length differs from signed size")
             os.rename(source_name, name, src_dir_fd=source_parent, dst_dir_fd=parent)
+            # Its data must be durable before anything naming it is published,
+            # as a copy's is (the scratch writer may never have synced it).
+            moved = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent)
+            try:
+                os.fsync(moved)
+            finally:
+                os.close(moved)
             os.fsync(parent)
             os.fsync(source_parent)
             return True

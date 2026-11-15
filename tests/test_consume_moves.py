@@ -171,3 +171,32 @@ def test_another_drive_falls_back_to_a_checked_copy(
         for member in recipe.members
         for file in member.files
     )
+
+
+def test_a_moved_file_is_flushed_to_disk_before_publication(
+    tmp_path: Path, capture: Capture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    synced: set[int] = set()
+    real = os.fsync
+
+    def fsync(descriptor: int) -> None:
+        info = os.fstat(descriptor)
+        if info.st_mode & 0o170000 == 0o100000:  # a regular file's data
+            synced.add(info.st_ino)
+        real(descriptor)
+
+    monkeypatch.setattr(storage.os, "fsync", fsync)
+    recipe, sources = _scratch(capture, tmp_path / "scratch")
+    inodes = {
+        os.stat(sources[member.member_id] / file.path).st_ino
+        for member in recipe.members
+        for file in member.files
+    }
+    pack(recipe, sources, tmp_path / "moved", (capture.key,), consume=True)
+    stored = {
+        os.stat(path).st_ino
+        for path in (tmp_path / "moved" / "objects" / "sha256").iterdir()
+    }
+    # Every object that arrived by a move had its data synced.
+    assert stored & inodes
+    assert stored & inodes <= synced
