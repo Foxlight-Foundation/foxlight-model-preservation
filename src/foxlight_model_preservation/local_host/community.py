@@ -1487,6 +1487,10 @@ class CommunityMirror:
             if node is None or node.open_port != router or node.dht != dht:
                 self._close_rendezvous()
                 node = self.rendezvous = Rendezvous(open_port=router, dht=dht)
+                # What people can reach may have changed with the session (a
+                # forwarding turned off is no longer reachable): ask again.
+                port = self.dht_port()
+                announce = port is not None and held and available
             if router is not None and not announce:
                 # A router usually answers within seconds: wait briefly so a
                 # newly forwarded port is announced now, not a round later.

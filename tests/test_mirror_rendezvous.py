@@ -362,6 +362,12 @@ def test_a_forwarded_port_makes_a_home_mirror_reachable(
         assert owner.community.addresses() == (f"http://93.184.216.34:{port}",)
         # The DHT announces the port people actually reach: the forwarded one.
         assert owner.community.dht_port() == port
+        # Turning forwarding off: the same round no longer announces that port.
+        owner.control("community-configure", {"open_router_port": False})
+        _Router.announced.clear()
+        owner.community.gossip(OperationControl())
+        assert _Router.announced == []
+        assert owner.community.reachability()["status"] == "private_network"
     finally:
         owner.close()
 
