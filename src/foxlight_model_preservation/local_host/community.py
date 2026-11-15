@@ -189,9 +189,11 @@ class CommunityPolicy(Record):
     # mirror's stored files (after looking it up on Pirate Face).
     seed_pirate_face: bool = False
     # Ask the home router (UPnP / NAT-PMP) to forward the mirror's port while
-    # sharing, so people outside can reach it. Part of the sharing consent,
-    # on unless the owner turns it off.
-    open_router_port: bool = True
+    # sharing, so people outside can reach it. Recorded only by an explicit
+    # choice in the sharing consent (on by default there). None means never
+    # chosen: a sharer from before this choice existed was told the router is
+    # never changed, so nothing is forwarded until they choose it.
+    open_router_port: bool | None = None
 
     @field_validator("public_url")
     @classmethod
@@ -1469,7 +1471,7 @@ class CommunityMirror:
             current.port
             if available
             and held
-            and current.open_router_port
+            and current.open_router_port is True
             and current.public_url is None
             and self.consented(current)
             else None

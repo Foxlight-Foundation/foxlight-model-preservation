@@ -7,7 +7,7 @@ import {Announce,LicenceFamilies,LicenceList,ShareChoice,UploadLimits,describeLi
 
 type Status='sharing'|'eligible'|'failed'|'withheld'|'not_chosen'|'license_not_selected'|'no_license'|'unsupported';
 interface CommunityCopy {copy_id:string;name:string;size_bytes:number;status:Status;licenses:string[];public_manifest_id:string|null;error_code?:string|null}
-interface Policy {enabled:boolean;share:'eligible'|'chosen';licenses:string[];chosen:string[];withheld:string[];daily_upload_bytes:number|null;monthly_upload_bytes:number|null;port:number;consent_expires:number|null;public_url?:string|null;announce_dht?:boolean;publish_nostr?:boolean;nostr_relays?:string[];seed_pirate_face?:boolean;open_router_port?:boolean}
+interface Policy {enabled:boolean;share:'eligible'|'chosen';licenses:string[];chosen:string[];withheld:string[];daily_upload_bytes:number|null;monthly_upload_bytes:number|null;port:number;consent_expires:number|null;public_url?:string|null;announce_dht?:boolean;publish_nostr?:boolean;nostr_relays?:string[];seed_pirate_face?:boolean;open_router_port?:boolean|null}
 interface PirateFaceStatus {available:boolean;on:boolean;checked:number;listed:number;matched:number;seeding:number;differs:number}
 interface Reachability {status:'public_address'|'router_opened'|'carrier_nat'|'private_network'|'offline';local_address:string|null;port:number;mirror_url:string|null;router?:{asked:boolean;external_port:number|null;error:string|null}}
 type Reason='awaiting_review'|'address_invalid'|'turned_off'|'not_sharing'|'dht_unavailable'|'nothing_shared'|'no_reachable_address'|'address_not_plain_http'|'no_relays';
@@ -71,8 +71,10 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
  const limitsChanged=()=>!state||limits[0]!==state.policy.daily_upload_bytes||limits[1]!==state.policy.monthly_upload_bytes;
  // Sent only when changed: turning it on or off restarts serving briefly.
  const pirateChanged=()=>!!state&&pirate!==(state.policy.seed_pirate_face??false);
- const routerChanged=()=>!!state&&router!==(state.policy.open_router_port??true);
- const choices=()=>({share,licenses,...(limitsChanged()?{daily_upload_bytes:limits[0],monthly_upload_bytes:limits[1]}:{}),...(pirateChanged()?{seed_pirate_face:pirate}:{}),...(routerChanged()?{open_router_port:router}:{}),...findChoices()});
+ // Sent whenever it differs from what's recorded, including never chosen yet:
+ // forwarding happens only after an explicit choice.
+ const routerChanged=()=>!!state&&router!==state.policy.open_router_port;
+ const choices=()=>({share,licenses,...(limitsChanged()?{daily_upload_bytes:limits[0],monthly_upload_bytes:limits[1]}:{}),...(pirateChanged()?{seed_pirate_face:pirate}:{}),...(routerChanged()&&!address.trim()?{open_router_port:router}:{}),...findChoices()});
  async function turnOn(){if(await act('desktop-community-configure',{enabled:true,consent:true,...choices()}))setSetup(false);}
  async function checkAddress(){setChecking(true);setCheck(null);setError('');try{const value=await api<AddressCheck>('desktop-community-check-address',{});if(live.current)setCheck(value);}catch(err){if(live.current)setError(err instanceof Error?err.message:'host_unavailable');}finally{if(live.current)setChecking(false);}}
  if(unavailable||!state)return null;
@@ -103,7 +105,7 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
    <Announce checked={nostr} onChange={setNostr} title="Publish to Nostr relays">Publishes this mirror’s signed card, with this computer’s address (and your cloud storage address, if any), to {relays.length} public Nostr {relays.length===1?'relay':'relays'}{relays.length>0&&<> ({relays.map(item=>item.replace(/^wss:\/\//,'')).join(', ')})</>}. Anyone can read it, and it isn’t anonymous.</Announce>
   </Step>;
  const asked=reachability.router?.asked??false;
- const routerNote=policy.public_url?'':asked?(reachability.router?.error?` Your router didn’t agree to open port ${reachability.port} (${reachability.router.error}).`:` Asking your router to open port ${reachability.port}…`):(policy.open_router_port??true)?'':' You chose not to let Sovereign ask your router to open a port.';
+ const routerNote=policy.public_url?'':asked?(reachability.router?.error?` Your router didn’t agree to open port ${reachability.port} (${reachability.router.error}).`:` Asking your router to open port ${reachability.port}…`):policy.open_router_port===false?' You chose not to let Sovereign ask your router to open a port.':` Sovereign can ask your router to open port ${reachability.port} so people outside can download: choose it in Change what’s shared.`;
  const reach=reachability.status==='router_opened'
   ?<Callout tone="ok">Your router opened port {reachability.router?.external_port} for this computer. People anywhere can download from <code>{reachability.mirror_url}</code>.</Callout>
   :reachability.status==='carrier_nat'

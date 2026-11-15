@@ -183,8 +183,14 @@ class Rendezvous:
         name = type(alert).__name__
         if name == "portmap_alert":
             mapping = cast(_PortAlert, alert)
-            # TCP only (map_protocol 1): the DHT's own UDP mapping isn't the mirror.
-            if int(mapping.map_protocol) == 1 and mapping.external_port:
+            # Only the mirror's own TCP mapping, which asks for the same port
+            # outside. libtorrent also maps its own listener (TCP and UDP),
+            # and the binding can't say which mapping is which, so a mirror
+            # port the router moved elsewhere is reported as not forwarded
+            # rather than risk publishing the listener's port.
+            if int(mapping.map_protocol) == 1 and int(mapping.external_port) == (
+                self.open_port
+            ):
                 self.external_port = int(mapping.external_port)
                 self.router_error = None
         elif name == "portmap_error_alert":

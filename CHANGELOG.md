@@ -9,7 +9,11 @@
   outside address and forwarded port, and announces that port on the DHT; a
   refusal, or a provider-shared address (carrier-grade NAT), is said plainly
   and nothing is published. An owner who turned DHT announcements off doesn't
-  join the DHT for this. Tests never touch a real router.
+  join the DHT for this. Someone already sharing before this change was told
+  the router is never changed, so nothing is forwarded until they choose it in
+  the sharing settings. Only a TCP mapping of exactly the mirror's port counts
+  (libtorrent's own listener mappings are never published). Tests never touch
+  a real router.
 
 - Find reads the torrents community mirrors list (their signed `torrents.json`,
   kept only when the mirror's own card key signed it). A copy a mirror keeps

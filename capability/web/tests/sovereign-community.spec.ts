@@ -84,7 +84,7 @@ test('one switch shares every eligible backup after a single standing consent',a
  await sent(page,start,'desktop-community-configure');
  const copyleft=familyIds('copyleft');
  const chosen=new Set([...defaults.filter(item=>!copyleft.includes(item)&&item!=='llama4'),'grok2-community']);
- expect(configured).toEqual({enabled:true,consent:true,share:'eligible',licenses:order.filter(item=>chosen.has(item)),public_url:null,announce_dht:true,publish_nostr:true,announce_disclosure:1});
+ expect(configured).toEqual({enabled:true,consent:true,share:'eligible',licenses:order.filter(item=>chosen.has(item)),open_router_port:true,public_url:null,announce_dht:true,publish_nostr:true,announce_disclosure:1});
  await expect(page.locator('#sovereign-main')).not.toHaveAttribute('inert','');
  await expect(panel.getByText('Sharing 1 model',{exact:true})).toBeVisible();
  // Reachability is stated plainly.
@@ -538,6 +538,22 @@ test('a core without BitTorrent shows Pirate Face seeding but cannot turn it on'
 });
 
 
+test('someone sharing from before the router choice is asked, not forwarded',async({page})=>{
+ let configured:Record<string,unknown>|null=null;
+ const legacy=()=>{const value=view(true);return {...value,policy:{...value.policy,open_router_port:null}};};
+ await page.route('**/api/desktop-community-read',r=>r.fulfill({json:legacy()}));
+ await page.route('**/api/desktop-community-configure',r=>{configured=r.request().postDataJSON();return r.fulfill({json:legacy()});});
+ await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();
+ const panel=page.getByRole('region',{name:'Help keep models available'});
+ await expect(panel.getByText('Sovereign can ask your router to open port 8743 so people outside can download',{exact:false})).toBeVisible();
+ await panel.getByRole('button',{name:'Change what’s shared',exact:true}).click();
+ await expect(page.getByRole('switch',{name:'Ask my router to open port 8743'})).toBeChecked();
+ await page.getByRole('checkbox',{name:/, and ask my router to open port 8743\.$/}).check();
+ await sent(page,page.getByRole('button',{name:'Save changes',exact:true}),'desktop-community-configure');
+ // Saving records the choice that was never made before.
+ expect(configured).toMatchObject({open_router_port:true});
+});
+
 test('the router choice can be turned off, and what the router did is said plainly',async({page})=>{
  let configured:Record<string,unknown>|null=null,reachability:Record<string,unknown>={...reach,router:{asked:true,external_port:null,error:null}};
  await page.route('**/api/desktop-community-read',r=>r.fulfill({json:view(true,{reachability})}));
@@ -553,7 +569,7 @@ test('the router choice can be turned off, and what the router did is said plain
  reachability={...reach,router:{asked:true,external_port:null,error:'no router answered'}};
  await expect(panel.getByText('Your router didn’t agree to open port 8743 (no router answered).',{exact:false})).toBeVisible({timeout:10_000});
  // Turning it off is sent only as a change, and the consent no longer mentions it.
- await panel.getByRole('button',{name:/Change|Settings|Edit/}).first().click();
+ await panel.getByRole('button',{name:'Change what’s shared',exact:true}).click();
  const ask=page.getByRole('switch',{name:'Ask my router to open port 8743'});
  await ask.uncheck();
  await expect(page.getByRole('checkbox',{name:/ask my router/})).toHaveCount(0);

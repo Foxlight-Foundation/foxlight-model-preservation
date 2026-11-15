@@ -239,13 +239,16 @@ def test_the_router_answer_is_remembered_for_the_mirror_port_only() -> None:
 
         node._note(alert("portmap_error_alert"))
         assert node.router()["error"] == "no router"
-        # The DHT's own UDP mapping isn't the mirror's port.
-        node._note(alert("portmap_alert", map_protocol=2, external_port=6881))
-        assert node.router()["external_port"] is None
+        # The DHT's own UDP mapping isn't the mirror's port, nor is
+        # libtorrent's TCP listener, nor the mirror's port moved elsewhere.
+        node._note(alert("portmap_alert", map_protocol=2, external_port=18080))
+        node._note(alert("portmap_alert", map_protocol=1, external_port=6881))
         node._note(alert("portmap_alert", map_protocol=1, external_port=41000))
+        assert node.router()["external_port"] is None
+        node._note(alert("portmap_alert", map_protocol=1, external_port=18080))
         node._note(alert("external_ip_alert", external_address="93.184.216.34"))
         assert node.router() == {
-            "external_port": 41000,
+            "external_port": 18080,
             "external_address": "93.184.216.34",
             "error": None,
         }
@@ -269,7 +272,9 @@ class _Router:
 
     def router(self) -> dict[str, object]:
         empty = {"external_port": None, "external_address": None, "error": None}
-        return {**empty, **_Router.answer} if self.open_port else empty
+        if not self.open_port:
+            return empty
+        return {**empty, "external_port": self.open_port, **_Router.answer}
 
     def announce(self, *args: object, **kwargs: object) -> bool:
         return True
@@ -326,6 +331,7 @@ def _sharing_behind_a_router(
             "licenses": [*DEFAULT_LICENSES, "test-only"],
             "publish_nostr": False,
             "announce_disclosure": 1,
+            "open_router_port": True,
             **choice,
         },
     )
@@ -338,7 +344,7 @@ def test_a_forwarded_port_makes_a_home_mirror_reachable(
 ) -> None:
     from foxlight_model_preservation.operations import OperationControl
 
-    _Router.answer = {"external_port": 41000, "external_address": "93.184.216.34"}
+    _Router.answer = {"external_address": "93.184.216.34"}
     owner, port = _sharing_behind_a_router(tmp_path, capture, monkeypatch)
     try:
         owner.community.gossip(OperationControl())
@@ -346,10 +352,10 @@ def test_a_forwarded_port_makes_a_home_mirror_reachable(
         assert any(made.get("open_port") == port for made in _Router.made)
         reach = owner.community.reachability()
         assert reach["status"] == "router_opened"
-        assert reach["mirror_url"] == "http://93.184.216.34:41000"
-        assert owner.community.addresses() == ("http://93.184.216.34:41000",)
+        assert reach["mirror_url"] == f"http://93.184.216.34:{port}"
+        assert owner.community.addresses() == (f"http://93.184.216.34:{port}",)
         # The DHT announces the port people actually reach: the forwarded one.
-        assert owner.community.dht_port() == 41000
+        assert owner.community.dht_port() == port
     finally:
         owner.close()
 
@@ -361,7 +367,7 @@ def test_a_provider_shared_address_is_said_plainly_and_never_published(
 
     # Carrier-grade NAT: the router forwarded, but its own outside address is
     # one the internet provider shares among customers.
-    _Router.answer = {"external_port": 41000, "external_address": "100.64.3.4"}
+    _Router.answer = {"external_address": "100.64.3.4"}
     owner, _port = _sharing_behind_a_router(tmp_path, capture, monkeypatch)
     try:
         owner.community.gossip(OperationControl())
@@ -377,7 +383,7 @@ def test_turning_router_forwarding_off_never_asks_the_router(
 ) -> None:
     from foxlight_model_preservation.operations import OperationControl
 
-    _Router.answer = {"external_port": 41000, "external_address": "93.184.216.34"}
+    _Router.answer = {"external_address": "93.184.216.34"}
     owner, _port = _sharing_behind_a_router(
         tmp_path, capture, monkeypatch, open_router_port=False
     )
@@ -388,5 +394,29 @@ def test_turning_router_forwarding_off_never_asks_the_router(
         assert reach["status"] == "private_network"
         assert reach["router"]["asked"] is False
         assert owner.community.addresses() == ()
+    finally:
+        owner.close()
+
+
+def test_a_sharer_from_before_the_router_choice_is_never_forwarded(
+    tmp_path: Path, capture: Capture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Someone already sharing was told the router is never changed: until they
+    choose it, upgrading must not forward anything."""
+    from foxlight_model_preservation.operations import OperationControl
+
+    _Router.answer = {"external_address": "93.184.216.34"}
+    owner, _port = _sharing_behind_a_router(
+        tmp_path, capture, monkeypatch, open_router_port=None
+    )
+    try:
+        assert owner.community.policy().open_router_port is None
+        owner.community.gossip(OperationControl())
+        assert all(made.get("open_port") is None for made in _Router.made)
+        assert owner.community.reachability()["status"] == "private_network"
+        # Choosing it later is what turns it on.
+        owner.control("community-configure", {"open_router_port": True})
+        owner.community.gossip(OperationControl())
+        assert owner.community.reachability()["status"] == "router_opened"
     finally:
         owner.close()

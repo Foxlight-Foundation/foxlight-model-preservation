@@ -410,7 +410,8 @@ interface. Sovereign says plainly whether this computer has a public address or
 sits behind a router, and asks no outside service. While sharing, it asks the
 router to forward that port to this computer (UPnP / NAT-PMP), as the sharing
 consent says; **Ask my router to open port …** turns this off and leaves the
-router exactly as it is. When the router agrees, the mirror publishes the
+router exactly as it is. Someone who started sharing before this choice existed
+isn't forwarded until they choose it under **Change what’s shared**. When the router agrees, the mirror publishes the
 router's outside address and forwarded port. A router that refuses, or an
 internet provider that shares one public address among customers (carrier-grade
 NAT), is reported as such, and the mirror stays reachable from its own network
