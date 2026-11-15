@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Guided Linux setup 0.1.12 and graphical setup 0.1.14 install revision 14
+  (core 0.36.0 / Library 0.32.0), now served by the signed apt channel; package
+  pins amd64 347769e5… and arm64 d754d3fe…, documented bootstrap hash 133e4362….
+
 - Pin Sovereign Mac build 19 and Linux revision 14 to the authenticated
   Library 0.32.0 installation archive (sha256 d81df1c6…, source 80f8e72f; its
   desktop lock carries core 0.36.0 and libtorrent 2.0.14). Native signing,
