@@ -273,3 +273,16 @@ test('loading a view shows a large spinner with words, not a faint line of text'
  release();
  await expect(loading).toHaveCount(0);
 });
+
+test('opening a side sheet while scrolled keeps the header in place',async({page})=>{
+ const many=Array.from({length:40},(_,index)=>({card_id:'card_'+index.toString(16).padStart(52,'0'),name:`Model ${index}`,publisher:'example',format:'gguf',quantization:'Q4',size_bytes:1024,workloads:['TextGeneration'],download_support:'ready'}));
+ await page.route('**/api/library*',route=>route.fulfill({json:{...empty,copies:[]}}));
+ await page.route('**/api/desktop-search',route=>route.fulfill({json:{catalog_id:'a'.repeat(64),results:many,total:40,next_offset:null}}));
+ await page.goto('/');await page.getByRole('button',{name:'Find',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Model 39',exact:true})).toBeAttached();
+ await page.mouse.wheel(0,1500);await expect.poll(()=>page.evaluate(()=>scrollY)).toBeGreaterThan(500);
+ await page.getByRole('button',{name:'Getting started',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Your model, kept safe'})).toBeVisible();
+ const header=await page.locator('.sk-header').boundingBox();
+ expect(header?.y).toBe(0);
+});
