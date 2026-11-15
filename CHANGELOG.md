@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.36.0
+
+- Fallback downloads keep the one-copy promise. Pirate Face swarm downloads
+  are written in place (libtorrent renames each file to its destination before
+  fetching it) instead of copied out of a staging folder; a file's kept Hugging
+  Face buffer is released before a mirror or swarm fallback when the drive
+  can't hold both, and after a swarm completes the file; a mirror's leftover
+  partial is removed before the swarm starts.
+
 - A save needs one copy of the model on disk instead of three, and reads it
   about twice instead of about nine times. Downloads are moved, not copied,
   into the signed store and then into the saved copy (on the same drive;

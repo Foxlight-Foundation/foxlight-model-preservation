@@ -6,6 +6,24 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+## 0.32.0
+
+- Dropdowns are the app's own (an input-styled button and a list on the app's
+  surface, usable from the keyboard) instead of the system menu.
+- Public listings in Find show the model's initials tile instead of a dot.
+- "Also show listings Sovereign can't save yet" is a switch on the same row as
+  the Hugging Face and Pirate Face switches; Browse's search box and dropdown
+  are the same height.
+- Loading shows a spinner: large and centred for a whole view, inline while a
+  list grows. More activity adds older jobs under the newer ones, and every
+  More reloads the batches already shown, so a removed or replaced model never
+  leaves a stale card.
+- Third-party notices open in an in-app sheet, in the app's own typeface.
+- When the page loses Sovereign, it says the app on this computer isn't
+  responding (not that Skulk can't be reached) and clears once it answers.
+- The header stays in place when a side sheet opens while the page is scrolled.
+- Requires core 0.36.0.
+
 - Settings' on/off choices are switches (no separate status pill and button),
   card text sits a little below its title, and section headings stand clearly
   apart from the content above them.
@@ -22,7 +40,6 @@ tagged `library-v*`; versions without a tag are source previews installed from
   Pirate Face as on/off switches beside it (each says where search words go)
   instead of separate offer cards. Find waits for the saved listings before
   choosing a view, so reloading never flashes the first-launch screen.
-- Select boxes draw their arrow inset from the edge like their text.
 
 - The first-launch Find screen offers Open recovery kit only on its Recover card
   (the header button returns on every other screen).
