@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Find reads the torrents community mirrors list (their signed `torrents.json`,
+  kept only when the mirror's own card key signed it). A copy a mirror keeps
+  and also shares as a torrent gets that swarm as one more source, after
+  Hugging Face and the mirrors, used only with swarm downloads turned on;
+  every file is still checked against the copy's signed fingerprints.
+
 - Docs no longer claim Intel Mac support: core's `cryptography>=50` has no
   Intel Mac wheels and the installation helper accepts only prebuilt wheels.
   The README's download link and current-release line name Mac build 19 and

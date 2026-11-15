@@ -3180,12 +3180,31 @@ class LocalOwner:
         )
         recipe, selected = held_recipe(manifest, decision)
         licence = described.licence
+        # A torrent the mirrors list for this copy is one more source, after
+        # Hugging Face and the mirrors, used only with swarm downloads on;
+        # every file is still checked against this copy's signed fingerprints.
+        swarm: dict[str, JsonValue] = {}
+        if repository and revision:
+            listed = [
+                item
+                for item in self.community.directory.torrents(
+                    manifest_id, policy=self._held_policy
+                )
+                if item["source"] == "pirateface"
+            ]
+            if listed:
+                swarm = {
+                    "repository": repository,
+                    "revision": revision,
+                    "swarm": {"infohash": listed[0]["infohash"]},
+                }
         return self._plan(
             {
                 "kind": "receive",
                 "origin": "mirror",
                 "name": recipe.name,
                 "manifest": manifest_id,
+                **swarm,
                 "holders": cast(JsonValue, list(holders[:8])),
                 "recipe": recipe.model_dump(mode="json"),
                 "files": [
