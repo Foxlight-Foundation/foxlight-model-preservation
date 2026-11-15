@@ -246,3 +246,16 @@ test('Third-party notices open in the app and close back to where you were',asyn
  await expect(page.getByLabel('Third-party notices text')).toHaveCount(0);
  await expect(link).toHaveAttribute('href','THIRD_PARTY_NOTICES.txt');
 });
+
+test('losing the connection names Sovereign, not Skulk, and clears once it answers again',async({page})=>{
+ let down=false;
+ await page.route('**/api/library*',route=>down?route.fulfill({status:503,json:{error:'host_unavailable'}}):route.fulfill({json:empty}));
+ await page.route('**/api/desktop-search',route=>route.fulfill({json:{catalog_id:null,results:[],total:0,next_offset:null}}));
+ await page.goto('/');await expect(page.getByRole('heading',{name:/What would you like to do/})).toBeVisible();
+ down=true;
+ const alert=page.getByRole('alert');
+ await expect(alert).toContainText('Sovereign on this computer isn’t responding');
+ await expect(alert).not.toContainText('Skulk');
+ down=false;
+ await expect(alert).toHaveCount(0);
+});
