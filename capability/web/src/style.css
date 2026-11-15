@@ -759,7 +759,11 @@ li[data-state="waiting"] .sk-ring-fill {stroke:transparent;}
 .sk-model-toolbar .sk-purpose .sk-select-button {height:56px;min-height:56px;border-radius:var(--radius-field);background:var(--glass);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border-color:var(--line-card);font-size:15px;}
 
 /* Third-party notices, read inside the app. */
-.sk-notices {margin:0;max-height:none;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.55 var(--mono);color:var(--text-2);}
+.sk-notices {font:400 var(--type-body)/1.6 var(--sans);color:var(--text-2);overflow-wrap:anywhere;}
+.sk-notices h3 {margin:32px 0 8px;font:600 16px/1.4 var(--sans);color:var(--text-1);}
+.sk-notices h3:first-of-type {margin-top:20px;}
+.sk-notices p {margin:0 0 12px;white-space:pre-line;}
+.sk-notices hr {margin:16px 0;border:0;border-top:1px solid var(--line-hair);}
 .sk-notices:focus-visible {outline:none;box-shadow:var(--ring-focus);border-radius:var(--radius-control);}
 
 /* Browse's search box and dropdown are exactly the same height, side by side. */

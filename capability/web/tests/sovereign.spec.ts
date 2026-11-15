@@ -232,18 +232,25 @@ test('More activity adds older jobs under the newer ones, with nothing to page b
  await expect(page.getByRole('button',{name:'More activity',exact:true})).toHaveCount(0);
 });
 
-test('Third-party notices open in the app and close back to where you were',async({page})=>{
+test('Third-party notices open in the app, in its own typeface, and close back to where you were',async({page},info)=>{
  await page.route('**/api/library*',route=>route.fulfill({json:empty}));
  await page.route('**/api/desktop-search',route=>route.fulfill({json:{catalog_id:null,results:[],total:0,next_offset:null}}));
- await page.route('**/THIRD_PARTY_NOTICES.txt',route=>route.fulfill({contentType:'text/plain',body:'Third-party notices for the compiled interface.\n\nreact 19\nMIT License'}));
  await page.goto('/');
  const link=page.getByRole('link',{name:'Third-party notices',exact:true});
  await link.click();
  await expect(page).not.toHaveURL(/THIRD_PARTY_NOTICES/);
  await expect(page.getByRole('heading',{name:'Third-party notices',exact:true})).toBeVisible();
- await expect(page.getByLabel('Third-party notices text')).toContainText('MIT License');
+ const notices=page.getByLabel('Third-party notices text');
+ // Each package is a heading, and wrapped licence lines flow as one paragraph.
+ await expect(notices.getByRole('heading',{name:/^react \d/})).toBeVisible();
+ const permission=notices.locator('p').filter({hasText:'Permission is hereby granted'}).first();
+ expect(await permission.textContent()).not.toContain('\n');
+ const font=await notices.evaluate(element=>getComputedStyle(element).fontFamily);
+ const body=await page.evaluate(()=>getComputedStyle(document.body).fontFamily);
+ expect(font).toBe(body);
+ if(process.env.SHOTS&&info.project.name==='desktop')await page.screenshot({path:process.env.SHOTS+'/notices.png'});
  await page.getByRole('button',{name:'Close third-party notices'}).click();
- await expect(page.getByLabel('Third-party notices text')).toHaveCount(0);
+ await expect(notices).toHaveCount(0);
  await expect(link).toHaveAttribute('href','THIRD_PARTY_NOTICES.txt');
 });
 
