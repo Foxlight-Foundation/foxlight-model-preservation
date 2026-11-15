@@ -24,7 +24,12 @@ from pathlib import Path
 from typing import Any, Literal, Self, cast
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from pydantic import Field, model_validator
+from pydantic import (
+    Field,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+    model_validator,
+)
 
 from .mirror_cards import CLOCK_SKEW, MAX_CARD_SECONDS
 from .mirror_holdings import held_manifest, holding
@@ -486,6 +491,14 @@ class SeededTorrent(Record):
     infohash: str = Field(pattern=r"^[0-9a-f]{40}$")
     source: Literal["pirateface", "sovereign"] = "pirateface"
     object: Digest | None = None
+
+    @model_serializer(mode="wrap")
+    def _wire(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        """A Pirate Face entry keeps its original wire shape: no ``object``."""
+        data = cast(dict[str, Any], handler(self))
+        if data.get("object") is None:
+            data.pop("object", None)
+        return data
 
     @model_validator(mode="after")
     def one_file(self) -> Self:

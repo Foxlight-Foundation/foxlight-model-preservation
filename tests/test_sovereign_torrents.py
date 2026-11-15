@@ -348,3 +348,37 @@ def test_a_large_library_still_publishes_a_readable_torrent_list() -> None:
         assert (
             sum(1 for entry in kept if entry.manifest == copy and entry.object) == 500
         )
+
+
+def test_a_pirate_face_entry_keeps_its_original_wire_shape() -> None:
+    from foxlight_model_preservation.pirateface_seed import SeededTorrent
+
+    entry = SeededTorrent(manifest="a" * 64, infohash="b" * 40)
+    # Exactly the fields earlier readers accept: no "object" for Pirate Face.
+    assert entry.model_dump(mode="json") == {
+        "manifest": "a" * 64,
+        "infohash": "b" * 40,
+        "source": "pirateface",
+    }
+    own = SeededTorrent(
+        manifest="a" * 64, infohash="b" * 40, source="sovereign", object="c" * 64
+    )
+    assert own.model_dump(mode="json")["object"] == "c" * 64
+
+
+def test_a_mirror_may_serve_only_through_file_torrents(tmp_path: Path, capture) -> None:
+    from test_mirror import cycle, mirror
+
+    from foxlight_model_preservation.mirror import run_mirror
+    from foxlight_model_preservation.mirror_native import configure
+
+    ledger, _ = mirror(tmp_path, capture)
+    cycle(ledger)
+    ledger.update(lambda state: state.model_copy(update={"http_enabled": False}))
+    configure(ledger, file_torrents=True)
+    control = OperationControl()
+    control.cancel()
+    with pytest.raises(PreservationError) as caught:
+        run_mirror(ledger, control=control)
+    # It gets past the start-up check (then stops because it was cancelled).
+    assert "serving transport" not in str(caught.value)
