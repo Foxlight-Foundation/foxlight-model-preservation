@@ -376,6 +376,9 @@ class FileSharing:
         self.cache = TorrentCache(self.home / "torrents")
         self.sharer: FileSharer | None = None
         self.paused = False
+        # Set when the BitTorrent component can't start: sharing stays off,
+        # and the mirror's other transports carry on.
+        self.unavailable = False
         self.failed: dict[str, str] = {}
         self._charged = 0
         # The accounting day and month the outstanding credit belongs to.
@@ -402,11 +405,17 @@ class FileSharing:
         if self.sharer is not None and self._router != policy.map_ports:
             self.stop()  # the router choice changed: start a fresh session
         if self.sharer is None:
-            self.sharer = FileSharer(
-                self.home / "session",
-                open_router=policy.map_ports,
-                settings=self.settings,
-            )
+            if self.unavailable:
+                return
+            try:
+                self.sharer = FileSharer(
+                    self.home / "session",
+                    open_router=policy.map_ports,
+                    settings=self.settings,
+                )
+            except (PreservationError, OSError, RuntimeError):
+                self.unavailable = True
+                return
             self._router = policy.map_ports
             self._charged = 0
             self.paused = False
@@ -513,6 +522,7 @@ class FileSharing:
     def status(self) -> dict[str, int | bool]:
         """How many files are shared, and whether an upload total paused them."""
         return {
+            "unavailable": self.unavailable,
             "files": len(self.sharer.shared()) if self.sharer else 0,
             "uploaded_bytes": self.sharer.uploaded() if self.sharer else 0,
             "paused": self.paused,

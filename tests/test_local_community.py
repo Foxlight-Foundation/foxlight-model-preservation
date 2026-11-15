@@ -1053,6 +1053,15 @@ def test_seeding_on_pirate_face_restarts_serving_with_the_new_choice(
     monkeypatch.setattr(
         "foxlight_model_preservation.mirror_native.torrent_engine", lambda: None
     )
+
+    def missing() -> None:
+        raise PreservationError("the optional bittorrent dependency is missing")
+
+    # Without the BitTorrent component, per-file sharing stays off and HTTP
+    # sharing carries on.
+    monkeypatch.setattr(
+        "foxlight_model_preservation.sovereign_torrents.torrent_engine", missing
+    )
     lookups: list[str] = []
     monkeypatch.setattr(
         "foxlight_model_preservation.pirateface_seed.lookup",
