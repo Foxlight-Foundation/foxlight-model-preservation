@@ -260,7 +260,7 @@ class _Swarm:
     def __init__(self, owner, staging):
         self.owner, self.staging, self.seen = owner, staging, []
 
-    def has(self, path, size):
+    def has(self, path, size, sha256=None):
         return True
 
     def fetch(self, path, sha256, destination, control, *, deadline):
