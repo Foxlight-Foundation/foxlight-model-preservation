@@ -264,6 +264,7 @@ class _Router:
 
     made: list[dict[str, object]] = []
     answer: dict[str, object] = {}
+    announced: list[int] = []
 
     def __init__(self, **kwargs: object) -> None:
         self.open_port = kwargs.get("open_port")
@@ -276,7 +277,8 @@ class _Router:
             return empty
         return {**empty, "external_port": self.open_port, **_Router.answer}
 
-    def announce(self, *args: object, **kwargs: object) -> bool:
+    def announce(self, port: int, *args: object, **kwargs: object) -> bool:
+        _Router.announced.append(port)
         return True
 
     def lookup(self, *args: object, **kwargs: object) -> tuple[str, ...]:
@@ -319,6 +321,7 @@ def _sharing_behind_a_router(
     monkeypatch.setattr(module, "Rendezvous", _Router)
     monkeypatch.setattr(module, "rendezvous_available", lambda: True)
     _Router.made.clear()
+    _Router.announced.clear()
     owner = LocalOwner(tmp_path / "owner")
     saved(owner, tmp_path, capture)
     port = free_port()
@@ -347,9 +350,12 @@ def test_a_forwarded_port_makes_a_home_mirror_reachable(
     _Router.answer = {"external_address": "93.184.216.34"}
     owner, port = _sharing_behind_a_router(tmp_path, capture, monkeypatch)
     try:
+        _Router.announced.clear()
         owner.community.gossip(OperationControl())
-        # Sharing asks the router to forward exactly the mirror's port.
+        # Sharing asks the router to forward exactly the mirror's port, and the
+        # same round announces it once the router agrees.
         assert any(made.get("open_port") == port for made in _Router.made)
+        assert _Router.announced == [port]
         reach = owner.community.reachability()
         assert reach["status"] == "router_opened"
         assert reach["mirror_url"] == f"http://93.184.216.34:{port}"

@@ -127,6 +127,8 @@ _CAPTURE_NOTICE = ".foxlight-capture-notice.txt"
 _LICENSE_NAMES = ("license", "licence", "copying")
 DEFAULT_PORT = 8743
 CONSENT_SECONDS = 365 * 86400
+# How long a sharing round waits for the router to answer a forwarding request.
+ROUTER_ANSWER_SECONDS = 10
 
 
 class Holding(Protocol):
@@ -1485,6 +1487,18 @@ class CommunityMirror:
             if node is None or node.open_port != router or node.dht != dht:
                 self._close_rendezvous()
                 node = self.rendezvous = Rendezvous(open_port=router, dht=dht)
+            if router is not None and not announce:
+                # A router usually answers within seconds: wait briefly so a
+                # newly forwarded port is announced now, not a round later.
+                deadline = time.monotonic() + ROUTER_ANSWER_SECONDS
+                while time.monotonic() < deadline:
+                    answer = node.router()
+                    if answer["external_port"] is not None or answer["error"]:
+                        break
+                    control.checkpoint()
+                    time.sleep(0.25)
+                port = self.dht_port()
+                announce = port is not None
             if announce and port is not None:
                 node.announce(port, seconds=20, control=control)
                 seeds = node.lookup(seconds=20, control=control)
