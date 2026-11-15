@@ -21,6 +21,12 @@ test('first-launch choices and help start no network job or trust grant',async({
   // One way in on first launch: the Receive card, not a second copy in the header.
   await expect(page.getByRole('button',{name:'Open a sharing file',exact:true})).toHaveCount(1);
   await expect(page.getByRole('link',{name:'Open a sharing file'})).toHaveCount(0);
+  // Likewise the recovery kit: the Recover card here, the header everywhere else.
+  const header=page.locator('label.sk-btn:has(input[aria-label="Open recovery kit"])');
+  await expect(header).toHaveCount(0);
+  await page.getByRole('button',{name:'Library',exact:true}).click();
+  await expect(header).toBeVisible();
+  await page.getByRole('button',{name:'Find',exact:true}).click();
   await page.getByRole('button',{name:'Getting started',exact:true}).click();
   await expect(page.getByRole('heading',{name:'Your model, kept safe',exact:true})).toBeVisible();
   await expect(page.getByText('Sovereign doesn’t run models. It keeps and restores their files.',{exact:true})).toBeVisible();

@@ -6,6 +6,9 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- The first-launch Find screen offers Open recovery kit only on its Recover card
+  (the header button returns on every other screen).
+
 - Find shows one Open a sharing file button: on the Receive card at first
   launch, and at the top of Find while browsing (where the cards are hidden),
   which now opens the file chooser directly instead of scrolling to it.
