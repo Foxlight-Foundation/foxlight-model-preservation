@@ -489,3 +489,44 @@ def test_an_idle_mirror_never_rewrites_its_ledger(tmp_path: Path, capture) -> No
         sharing.spend(session)  # type: ignore[arg-type]
     assert (record.stat().st_mtime_ns, record.read_bytes()) == before
     assert not session.paused
+
+
+def test_a_file_falls_back_to_the_next_swarm_and_cancelling_stops_at_once(
+    tmp_path: Path,
+) -> None:
+    from foxlight_model_preservation.operations import OperationCancelled
+    from foxlight_model_preservation.sovereign_torrents import SwarmSources
+
+    calls: list[str] = []
+
+    class Swarm:
+        def __init__(self, name: str, error: BaseException | None) -> None:
+            self.name, self.error, self.closed = name, error, False
+
+        def has(self, path: str, size: int, sha256: str | None = None) -> bool:
+            return True
+
+        def fetch(self, path, sha256, destination, control, *, deadline) -> None:  # type: ignore[no-untyped-def]
+            calls.append(self.name)
+            if self.error is not None:
+                raise self.error
+            destination.write_bytes(b"ok")
+
+        def close(self) -> None:
+            self.closed = True
+
+    own = Swarm("sovereign", PreservationError("swarm_unavailable"))
+    fallback = Swarm("pirateface", None)
+    sources = SwarmSources([own, fallback])
+    assert sources.has("model.bin", 2, "a" * 64)
+    target = tmp_path / "model.bin"
+    sources.fetch("model.bin", "a" * 64, target, OperationControl(), deadline=0)
+    assert calls == ["sovereign", "pirateface"] and target.read_bytes() == b"ok"
+    sources.close()
+    assert own.closed and fallback.closed
+    # Stop is never treated as "try the next one".
+    calls.clear()
+    stopped = SwarmSources([Swarm("sovereign", OperationCancelled()), fallback])
+    with pytest.raises(OperationCancelled):
+        stopped.fetch("model.bin", "a" * 64, target, OperationControl(), deadline=0)
+    assert calls == ["sovereign"]

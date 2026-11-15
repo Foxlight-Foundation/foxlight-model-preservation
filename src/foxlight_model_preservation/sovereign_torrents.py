@@ -417,8 +417,9 @@ class FileSharing:
         for sha256 in sharer.shared() - wanted.keys():
             sharer.stop(sha256)
         missing: list[str] = []
+        shared = sharer.shared()  # once per tick, not once per file
         for sha256, size in wanted.items():
-            if sha256 in sharer.shared() or sha256 in self.failed:
+            if sha256 in shared or sha256 in self.failed:
                 continue
             torrent = self.cache.get(sha256, size)
             if torrent is not None:
@@ -734,3 +735,47 @@ class FileSwarmReceiver:
         if self._session is not None:
             self._session.pause()
             self._session = None
+
+
+class SwarmSources:
+    """Several swarms as one source: each file from the first that delivers it.
+
+    A swarm that doesn't list a file, or can't deliver it (no peers, a
+    mismatch), passes it to the next; every file is still checked by whichever
+    receiver delivers it.
+    """
+
+    def __init__(self, receivers: Iterable[Any]) -> None:
+        self._receivers = list(receivers)
+
+    def has(self, path: str, size: int, sha256: str | None = None) -> bool:
+        """Whether any of the swarms lists this file."""
+        return any(item.has(path, size, sha256) for item in self._receivers)
+
+    def fetch(
+        self,
+        path: str,
+        sha256: str,
+        destination: Path,
+        control: OperationControl,
+        *,
+        deadline: float,
+    ) -> None:
+        """Fetch from each swarm in turn until one delivers the checked file."""
+        from .operations import OperationError
+
+        failure: BaseException | None = None
+        for item in self._receivers:
+            try:
+                item.fetch(path, sha256, destination, control, deadline=deadline)
+                return
+            except OperationError:
+                raise
+            except (PreservationError, OSError, ValueError) as error:
+                failure = error
+        raise failure or PreservationError("swarm_file_unknown")
+
+    def close(self) -> None:
+        """Close every swarm."""
+        for item in self._receivers:
+            item.close()

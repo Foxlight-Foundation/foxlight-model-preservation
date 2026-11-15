@@ -2853,12 +2853,16 @@ class LocalOwner:
     def _swarm_receiver(
         self, plan: dict[str, JsonValue], work: Path
     ) -> SwarmReceiver | None:
-        """The swarm as a source for this save, when chosen and available."""
+        """The swarms for this save, when chosen and available.
+
+        Sovereign's own per-file swarms come first; a Pirate Face torrent for
+        the same copy stays a fallback for any file they can't deliver.
+        """
+        from ..sovereign_torrents import FileSwarmReceiver, SwarmSources
+
+        sources: list[object] = []
         file_swarms = plan.get("file_swarms")
         if isinstance(file_swarms, dict) and self.pirate_face_enabled("swarm"):
-            # Sovereign's own per-file swarms, from signed mirror listings.
-            from ..sovereign_torrents import FileSwarmReceiver
-
             # By SHA-256: two members may hold different files at one path.
             files: dict[str, tuple[str, int]] = {}
             for row in cast(list[list[JsonValue]], plan.get("files") or []):
@@ -2867,7 +2871,20 @@ class LocalOwner:
                 if isinstance(infohash, str):
                     files[sha256] = (infohash, cast(int, row[3]))
             if files:
-                return cast(SwarmReceiver, FileSwarmReceiver(files, work / ".files"))
+                sources.append(FileSwarmReceiver(files, work / ".files"))
+        pirate = self._pirate_face_receiver(plan, work)
+        if pirate is not None:
+            sources.append(pirate)
+        if not sources:
+            return None
+        if len(sources) == 1:
+            return cast(SwarmReceiver, sources[0])
+        return cast(SwarmReceiver, SwarmSources(sources))
+
+    def _pirate_face_receiver(
+        self, plan: dict[str, JsonValue], work: Path
+    ) -> SwarmReceiver | None:
+        """The copy's Pirate Face torrent as a source, when chosen and available."""
         recorded = plan.get("swarm")
         if not isinstance(recorded, dict) or not self.pirate_face_enabled("swarm"):
             return None
