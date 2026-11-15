@@ -41,6 +41,8 @@ Stage = Literal[
     "checking",
     "copying",
     "downloading",
+    # A resumed download re-reading the bytes an earlier attempt kept.
+    "resuming",
     "mirroring",
     # A fetch's final check of every object, after its downloads.
     "verifying",

@@ -656,3 +656,51 @@ def test_a_catalog_save_shows_its_download_check_as_a_stage(tmp_path: Path) -> N
         assert [name for name, _, _ in states()] == ["download", "verify"]
     finally:
         owner.close()
+
+
+def test_a_resumed_download_shows_its_re_check_in_the_download_ring(tmp_path):
+    from foxlight_model_preservation.local_host.owner import Job
+    from foxlight_model_preservation.operations import OperationControl
+
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        job = Job(
+            job_id="e" * 64,
+            operation_id="op",
+            plan_id="f" * 64,
+            kind="receive",
+            state="running",
+            created_at=0.0,
+            name="hub model",
+        )
+        owner._totals[job.job_id] = 1_000
+        buffer = tmp_path / "kept.partial"
+        buffer.write_bytes(b"x" * 600)
+        # One 300-byte file already finished; this file kept 600 bytes.
+        owner._kept[job.job_id] = (300, buffer)
+        base = OperationControl().progress
+
+        def report(stage: str, hashed: int) -> None:
+            with owner._lock:
+                previous = owner._progress.get(job.job_id)
+                snapshot = base.model_copy(
+                    update={"stage": stage, "bytes_hashed": hashed}
+                )
+                owner._progress[job.job_id] = snapshot
+                owner._follow_resume(job.job_id, previous, snapshot)
+
+        def download() -> tuple[str, int]:
+            stages = owner._stages_view(job)
+            assert isinstance(stages, list)
+            return stages[0]["state"], stages[0]["done"]
+
+        report("downloading", 40)  # hashing before the re-check isn't counted
+        assert download() == ("active", 900)  # kept bytes on disk
+        report("resuming", 40)
+        assert download() == ("active", 300)  # the re-check starts at zero
+        report("resuming", 340)
+        assert download() == ("active", 600)  # earlier file + 300 re-checked
+        report("downloading", 640)
+        assert download() == ("active", 900)  # back to what is kept
+    finally:
+        owner.close()

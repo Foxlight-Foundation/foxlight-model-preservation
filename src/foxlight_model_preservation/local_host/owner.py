@@ -276,6 +276,7 @@ class LocalOwner:
             # the hashed count at which a fetch's own check began.
             self._stage_names: dict[str, tuple[str, ...]] = {}
             self._stage_base: dict[str, int] = {}
+            self._resume_base: dict[str, int] = {}
             self._summaries: dict[str, dict[str, JsonValue]] = {}
             self._search_metadata: dict[str, str] = {}
             self._closed = False
@@ -875,6 +876,19 @@ class LocalOwner:
             del self._finishing[job_id]
             self._stage_base.pop(job_id, None)
 
+    def _follow_resume(
+        self, job_id: str, previous: Progress | None, snapshot: Progress
+    ) -> None:
+        """A resumed download re-reads its kept bytes ("resuming"): the
+        Download ring counts that re-check from where it began. Called under
+        the owner lock."""
+        if snapshot.stage == "resuming" and (
+            previous is None or previous.stage != "resuming"
+        ):
+            self._resume_base[job_id] = (
+                previous.bytes_hashed if previous is not None else 0
+            )
+
     def _begin_stage(self, job: Job, name: str) -> None:
         """Mark a save's next finishing stage; its own counters start at zero."""
         with self._lock:
@@ -915,6 +929,18 @@ class LocalOwner:
                 state, done = "done", total or 0
             elif index > current or current < 0:
                 state, done = "waiting", 0
+            elif (
+                name == "download"
+                and progress is not None
+                and progress.stage == "resuming"
+                and job.job_id in self._kept
+            ):
+                # Re-reading what an earlier attempt kept: earlier files, then
+                # this file's bytes checked so far.
+                state = "active"
+                done = self._kept[job.job_id][0] + max(
+                    0, progress.bytes_hashed - self._resume_base.get(job.job_id, 0)
+                )
             elif name == "download":
                 # Saves that don't track kept bytes count what has arrived.
                 kept = self._job_done(job)
@@ -1882,6 +1908,7 @@ class LocalOwner:
                 self._progress[job.job_id] = snapshot
                 if job.kind == "source_receive":
                     self._follow_fetch(job.job_id, previous, snapshot)
+                self._follow_resume(job.job_id, previous, snapshot)
 
         control = OperationControl(observe)
         self._progress[job.job_id] = control.progress
