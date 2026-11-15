@@ -420,3 +420,30 @@ def test_a_sharer_from_before_the_router_choice_is_never_forwarded(
         assert owner.community.reachability()["status"] == "router_opened"
     finally:
         owner.close()
+
+
+def test_reading_the_router_answer_never_waits_for_a_lookup() -> None:
+    import threading
+
+    node = Rendezvous(interface="127.0.0.1", bootstrap=(), lab=True, dht=False)
+    try:
+        node.open_port = 18080
+        node.external_port = 18080
+        held = threading.Event()
+        release = threading.Event()
+
+        def lookup() -> None:  # stands in for a long DHT lookup holding the lock
+            with node._lock:
+                held.set()
+                release.wait(10)
+
+        worker = threading.Thread(target=lookup)
+        worker.start()
+        held.wait(5)
+        started = time.monotonic()
+        assert node.router()["external_port"] == 18080  # the last known answer
+        assert time.monotonic() - started < 1
+        release.set()
+        worker.join(5)
+    finally:
+        node.close()

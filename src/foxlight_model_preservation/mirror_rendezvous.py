@@ -166,10 +166,18 @@ class Rendezvous:
     def router(self) -> dict[str, int | str | None]:
         """What the home router answered: the forwarded port and outside
         address once it agreed, or why it refused. All None until it answers
-        (and when no port was asked for)."""
-        with self._lock:
-            for alert in self.session.pop_alerts():
-                self._note(alert)
+        (and when no port was asked for).
+
+        Never waits: a DHT lookup can hold the session for many seconds, and
+        it records router answers itself as they arrive, so while it runs the
+        last known answer is returned at once.
+        """
+        if self._lock.acquire(blocking=False):
+            try:
+                for alert in self.session.pop_alerts():
+                    self._note(alert)
+            finally:
+                self._lock.release()
         return {
             "external_port": self.external_port,
             "external_address": self.external_address,
