@@ -252,3 +252,55 @@ def test_a_drive_that_does_not_answer_keeps_the_buffer(owner, tmp_path, monkeypa
     buffers = _stall_then_mirror(owner, monkeypatch, free=None)
     assert save(owner, tmp_path) == "https://mirror.example"
     assert buffers == [True]
+
+
+class _Swarm:
+    """Has every file; records what was on disk when it was asked."""
+
+    def __init__(self, owner, staging):
+        self.owner, self.staging, self.seen = owner, staging, []
+
+    def has(self, path, size):
+        return True
+
+    def fetch(self, path, sha256, destination, control, *, deadline):
+        self.seen.append((self.staging / "mirror" / ".partial" / sha256).exists())
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(b"y" * 1000)
+
+
+def test_the_swarm_replaces_failed_mirror_bytes_and_then_the_origin_buffer(
+    owner, tmp_path, monkeypatch
+):
+    staging = tmp_path / "work" / ".staging"
+
+    def stalls(*args, partial, **kwargs):
+        partial.parent.mkdir(parents=True, exist_ok=True)
+        if not partial.exists():
+            partial.write_bytes(b"x" * 900)
+        raise TimeoutError("stalled")
+
+    def mirror_gives_up(*args):
+        pending = staging / "mirror" / ".partial" / ("a" * 64)
+        pending.parent.mkdir(parents=True, exist_ok=True)
+        pending.write_bytes(b"m" * 700)  # most of the file, then no more
+        raise OSError("mirror stopped")
+
+    monkeypatch.setattr(owner_module, "download_file", stalls)
+    monkeypatch.setattr(owner, "_save_from_mirrors", mirror_gives_up)
+    monkeypatch.setattr(owner.library, "free_bytes", lambda: 10 * 1024**3)
+    swarm = _Swarm(owner, staging)
+    source = owner._save_file(
+        "org/model",
+        "b" * 40,
+        FILE,
+        tmp_path / "work" / "model.gguf",
+        staging,
+        OperationControl(),
+        deadline=time.monotonic() + 60,
+        swarm=swarm,
+    )
+    assert source == "swarm"
+    assert swarm.seen == [False]  # the mirror's partial went before the swarm
+    # The swarm finished the file, so the kept origin buffer is released too.
+    assert not (owner._data() / "partials" / ("a" * 64 + ".partial")).exists()

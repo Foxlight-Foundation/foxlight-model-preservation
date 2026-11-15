@@ -2317,6 +2317,10 @@ class LocalOwner:
         except (OSError, ValueError) as error:
             if swarm is None or not swarm.has(file.path, file.size_bytes):
                 raise
+            # A mirror that sent part of the file and gave up leaves those
+            # bytes behind; the swarm writes its own whole copy, so they go.
+            with contextlib.suppress(OSError):
+                (staging / "mirror" / ".partial" / key).unlink(missing_ok=True)
             control.phase("downloading")
             try:
                 swarm.fetch(
@@ -2331,7 +2335,17 @@ class LocalOwner:
             except (OSError, ValueError) as swarm_error:
                 raise PreservationError("origin_unavailable") from swarm_error
             del error
+            # The file is complete: its kept origin buffer is no longer needed.
+            self._release_origin_buffer(key, destination)
             return "swarm"
+
+    def _release_origin_buffer(self, key: str, destination: Path) -> None:
+        """Delete this file's kept origin buffer, under its lock."""
+        with contextlib.ExitStack() as held:
+            shared = self._shared_partial(key, held, destination)
+            if shared is not None:
+                with contextlib.suppress(OSError):
+                    shared.unlink(missing_ok=True)
 
     def _room_for_fallback(self, key: str, size: int, destination: Path) -> None:
         """Release this file's kept origin buffer when a second copy won't fit.
