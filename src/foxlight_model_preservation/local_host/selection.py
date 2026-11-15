@@ -335,10 +335,12 @@ def _partial_prefix(
     discarded and 0 is returned, so the caller starts a fresh hash.
     """
     count = 0
+    entered = False
     try:
         with partial.open("rb") as stream:
             if control is not None:
                 control.phase("resuming")
+                entered = True
             while chunk := stream.read(1024 * 1024):
                 if control is not None:
                     control.checkpoint()
@@ -348,7 +350,7 @@ def _partial_prefix(
     except FileNotFoundError:
         return 0
     finally:
-        if control is not None and count:
+        if control is not None and entered:
             control.phase("downloading")
     if count > size:
         partial.unlink()
@@ -416,7 +418,7 @@ def download_file(
         pass
     sha = hashlib.sha256()
     offset = _partial_prefix(partial, file.size_bytes, sha.update, control)
-    if offset == file.size_bytes:
+    if offset == file.size_bytes and partial.exists():
         # An earlier attempt finished this file but stopped before moving it:
         # keep it when its bytes match, with no network at all.
         if file.object_id == "sha256:" + sha.hexdigest():

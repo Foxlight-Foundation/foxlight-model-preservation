@@ -277,3 +277,20 @@ def test_stop_interrupts_the_re_read_of_a_large_kept_download(tmp_path, monkeypa
         assert _partial(tmp_path).stat().st_size == 3 * 1024 * 1024
     finally:
         DATA = original
+
+
+def test_an_empty_file_with_no_buffer_is_downloaded(tmp_path, monkeypatch):
+    hub = Hub(b"")
+    _download(hub, tmp_path / "model.bin", monkeypatch, data=b"")
+    assert (tmp_path / "model.bin").read_bytes() == b""
+    assert len(hub.requests) == 1
+
+
+def test_an_empty_kept_buffer_goes_back_to_downloading(tmp_path, monkeypatch):
+    _partial(tmp_path).parent.mkdir()
+    _partial(tmp_path).write_bytes(b"")
+    seen = _observed(tmp_path, monkeypatch, Hub(DATA))
+    stages = [stage for stage, _ in seen]
+    assert "resuming" in stages
+    assert stages[-1] == "downloading"
+    assert (tmp_path / "model.bin").read_bytes() == DATA
