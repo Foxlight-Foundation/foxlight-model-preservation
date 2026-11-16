@@ -1,5 +1,6 @@
 import {useState,type ReactNode} from 'react';
 import {api} from './client';
+import {rediscoverHeld} from './held-find';
 import {HubToken} from './hub-find';
 import {LibraryLocation,type LibraryState} from './library-location';
 import {Callout,Icon,Mono,Pill} from './ui';
@@ -19,7 +20,7 @@ function Choice({title,on,busy,children,explainError,onChange}:{title:string;on:
 
 /** Every setting in one place: storage, search sources and privacy, sharing and appearance. */
 export function SovereignSettings({page,busy,theme,registryFingerprint,backups,explainError,onToggleTheme,onSharing,onChange}:{page:SettingsPage|undefined;busy:boolean;theme:string;registryFingerprint?:string|null;backups:ReactNode;explainError:(code:string)=>string;onToggleTheme:()=>void;onSharing:()=>void;onChange:()=>Promise<void>}) {
-  async function set(action:string,enabled:boolean){await api(action,{enabled});await onChange();}
+  async function set(action:string,enabled:boolean){await api(action,{enabled});if(action==='desktop-pirate-face-swarm'&&enabled)rediscoverHeld();await onChange();}
   return <section aria-label="Settings">
     <div className="sk-page-head"><div><h1>Settings</h1><p>Where Sovereign keeps your models, where it looks for them and what it shares. Nothing here starts a download or sharing by itself.</p></div></div>
 

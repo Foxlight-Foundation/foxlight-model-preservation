@@ -14,11 +14,17 @@ function keptBy(model:HeldModel):string{
 let discovered=false;
 // One discovery per session, shared by every mounted search while it runs.
 let discovering:Promise<void>|null=null;
+// Turning swarm downloads on lets discovery read computers' listings: start it again.
+let generation=0;
+const rediscovered=new Set<()=>void>();
+export function rediscoverHeld(){discovered=false;discovering=null;generation++;for(const listener of rediscovered)listener();}
 
 /** Copies community mirrors keep, found from their signed holdings and searched on this device. */
 export function HeldFind({query,busy,explainError,onPlan,onFound}:{query:string;busy:boolean;explainError:(code:string)=>string;onPlan:(body:Record<string,unknown>)=>Promise<void>;onFound?:(rows:HeldModel[])=>void}) {
   const [results,setResults]=useState<HeldModel[]|null>(null),[error,setError]=useState(''),[refreshing,setRefreshing]=useState(!discovered);
   const searches=useRef(0),found=useRef(onFound);found.current=onFound;
+  const [round,setRound]=useState(generation);
+  useEffect(()=>{const listener=()=>{setRefreshing(true);setRound(generation);};rediscovered.add(listener);return()=>{rediscovered.delete(listener);};},[]);
   const words=query.trim();
   // Discover community mirrors once per session; searching then stays on this device.
   useEffect(()=>{
@@ -28,7 +34,7 @@ export function HeldFind({query,busy,explainError,onPlan,onFound}:{query:string;
     // Whichever effect is current when discovery ends clears the waiting state.
     void discovering.then(()=>{if(live)setRefreshing(false);});
     return()=>{live=false;};
-  },[]);
+  },[round]);
   useEffect(()=>{if(refreshing)return;const sequence=++searches.current;const timer=setTimeout(()=>{void api<{results:HeldModel[]}>('desktop-held-search',{query:words}).then(value=>{if(sequence===searches.current){setResults(value.results);setError('');found.current?.(value.results);}}).catch(err=>{if(sequence===searches.current)setError(err instanceof Error?err.message:'held_copy_unavailable');});},250);return()=>{clearTimeout(timer);searches.current++;};},[words,refreshing]);
   if(refreshing)return <p className="sk-hint sk-pad" role="status">Looking for models that community mirrors keep…</p>;
   if(error)return <Callout tone="bad" role="alert">{explainError(error)}</Callout>;

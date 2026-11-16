@@ -442,15 +442,16 @@ class ListingReader:
             if not _until(complete, deadline, active):
                 return None
             handle.flush_cache()
-            result: dict[str, bytes] = {}
-            for index, inner in files:
-                path = folder / info.files().file_path(index)
-                size = int(info.files().file_size(index))
-                data = path.read_bytes()
-                if len(data) != size:
+            # Writes can trail "complete": read again, within the deadline,
+            # until every file is on disk at its full size.
+            while True:
+                result = _read_files(folder, info, files)
+                if result is not None:
+                    return result
+                if time.monotonic() > deadline:
                     return None
-                result[inner] = data
-            return result
+                active.checkpoint()
+                time.sleep(0.2)
         except OSError:
             return None
         finally:
@@ -465,6 +466,48 @@ class ListingReader:
         if self._own_rendezvous and self._rendezvous is not None:
             self._rendezvous.close()
             self._rendezvous = None
+
+
+def _read_files(
+    folder: Path, info: Any, files: list[tuple[int, str]]
+) -> dict[str, bytes] | None:
+    """Every listing file exactly as the torrent describes it (its size and
+    its v2 Merkle root), or None while any isn't on disk that way yet."""
+    result: dict[str, bytes] = {}
+    storage = info.files()
+    for index, inner in files:
+        path = folder / storage.file_path(index)
+        try:
+            data = path.read_bytes()
+        except OSError:
+            return None
+        if len(data) != int(storage.file_size(index)):
+            return None
+        if _merkle_root(data).hex() != str(storage.root(index)):
+            return None
+        result[inner] = data
+    return result
+
+
+def _merkle_root(data: bytes) -> bytes:
+    """A file's BEP 52 Merkle root: SHA-256 over 16 KiB blocks, the leaves
+    padded with zero hashes to a power of two."""
+    if not data:
+        return bytes(32)
+    layer = [
+        hashlib.sha256(data[offset : offset + 16384]).digest()
+        for offset in range(0, len(data), 16384)
+    ]
+    width = 1
+    while width < len(layer):
+        width *= 2
+    layer += [bytes(32)] * (width - len(layer))
+    while len(layer) > 1:
+        layer = [
+            hashlib.sha256(layer[index] + layer[index + 1]).digest()
+            for index in range(0, len(layer), 2)
+        ]
+    return layer[0]
 
 
 def _until(ready: Any, deadline: float, control: OperationControl) -> bool:
