@@ -4,7 +4,8 @@ Sovereign helps you find a model, keep its complete files, and recover them if
 their original host disappears. You do not need Skulk, an account or a GPU to
 keep or recover a model. Running it later needs a compatible model application.
 
-These instructions cover core 0.36 / Library 0.32: Mac build 19 and Linux revision 14.
+These instructions cover core 0.37 / Library 0.33 on Linux revision 15, and Mac
+build 19 (core 0.36 / Library 0.32) until Mac build 20 is published.
 The first-launch choices, Getting started help, recipient instructions,
 Share → Save kit to send and **Help keep models available** on the Sharing screen
 require that matching cohort. Older native installers
