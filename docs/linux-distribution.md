@@ -278,11 +278,18 @@ Skulk, capability SDK, model runtime, GPU or hosted account. Sharing is opt-in.
 To remove the software, use `sudo apt remove foxlight-sovereign`. The Library,
 models, provenance and saved recovery files remain under your control.
 
-The current recipe is **0.1.0 revision 14**, paired with the authenticated public
-core 0.36 / Library 0.32 cohort, which saves a model with one copy of disk space instead of three (downloads
-move into place, and mirror and swarm fallbacks keep to it) and carries a UX
-pass: the app's own dropdowns, switches and spinners, and spacing fixes. Its packages, signed apt indexes and
-guided setup are published.
+The current recipe is **0.1.0 revision 15**, paired with the authenticated public
+core 0.37 / Library 0.33 cohort, which shares model files over BitTorrent once you turn sharing on (one
+swarm per file, an optional router port mapping, and a signed listing other
+computers find through the DHT and Nostr), lets Find save from those
+listings, asks once after a save whether to help keep that model available,
+and stops the app briefly reporting it isn't responding while a slow drive
+is busy. Its packages, signed apt indexes
+and qualification are published separately; until then the channel and guided
+setup remain revision 14.
+Revision 14 (core 0.36 / Library 0.32) saved a model with one copy of disk space instead of three (downloads
+moved into place, and mirror and swarm fallbacks kept to it) and carried a UX
+pass: the app's own dropdowns, switches and spinners, and spacing fixes.
 Revision 13 (core 0.35 / Library 0.31) added mirrors seeding matching Pirate Face torrents
 from their stored files, Activity showing each stage of a save as a ring with
 its percentage, and a fix for saves that froze when a library drive stopped
