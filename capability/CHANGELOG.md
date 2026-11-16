@@ -6,6 +6,12 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- After your first save of a model whose licence allows sharing, Activity asks
+  once: "Help keep this model available?". Review sharing opens the usual
+  sharing review with that model in mind (if you share only the models you
+  choose, it starts with this one); Not now never asks again. Nothing is
+  shared until you agree in the review.
+
 - Find also lists models kept by computers that share over BitTorrent without
   an address anyone can reach ("Kept by 2 computers over BitTorrent"), when
   swarm downloads are on, and keeps a copy from them over their swarms.

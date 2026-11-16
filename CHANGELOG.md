@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- After a save, the desktop app may ask once "Help keep this model
+  available?": only while sharing is off, and only for a model whose licence
+  is on the sharing list. The page read says whether it may ask
+  (`keep_available_ask`); `community-asked` records the answer either way, so
+  it is never asked again. Answering shares nothing: agreeing opens the
+  existing sharing review, and sharing starts only once the person agrees
+  there.
+
 - Find reads the listings of computers that share over BitTorrent with no
   address anyone can reach. With swarm downloads on, each Find refresh reads
   up to four due listings (named by listing cards, through each key's DHT
