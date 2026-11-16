@@ -215,10 +215,14 @@ def _prune(base: Path, current: str) -> None:
 
 def current_listing(root: Path) -> Listing | None:
     """The listing generation being shared from ``root``, or None."""
+    return _generation(root, "current")
+
+
+def _generation(root: Path, which: str) -> Listing | None:
     base = root / LISTING_DIRECTORY
     try:
         with directory(base) as fd:
-            v2 = read_metadata(fd, "current").decode().strip()
+            v2 = read_metadata(fd, which).decode().strip()
     except (OSError, UnicodeDecodeError, PreservationError):
         return None
     if not _V2.fullmatch(v2):
@@ -232,6 +236,12 @@ def current_listing(root: Path) -> Listing | None:
     if found != v2:
         return None
     return Listing(v1, v2, data, folder)
+
+
+def previous_listing(root: Path) -> Listing | None:
+    """The generation the current one replaced, still shared so readers that
+    found the older pointer can finish fetching it; None once pruned."""
+    return _generation(root, "previous")
 
 
 def dht_keys(key: Ed25519PrivateKey) -> tuple[bytes, bytes]:

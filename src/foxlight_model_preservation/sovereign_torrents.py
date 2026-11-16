@@ -44,6 +44,7 @@ from .sovereign_listing import (
     current_listing,
     dht_keys,
     pointer_value,
+    previous_listing,
 )
 from .storage import object_path
 from .torrent_binding import torrent_engine
@@ -233,7 +234,8 @@ class FileSharer:
         self._lock = threading.RLock()
         self._handles: dict[str, Any] = {}
         # This computer's own signed listing, shared beside its files.
-        self._listing: tuple[str, Any] | None = None
+        self._listings: dict[str, Any] = {}
+        self._current: str | None = None
         # Payload bytes uploaded by files no longer shared in this session.
         self._earlier = 0
         self.session = engine.session(
@@ -284,29 +286,35 @@ class FileSharer:
         with self._lock:
             return frozenset(self._handles)
 
-    def share_listing(self, listing: Listing | None) -> None:
-        """Share this listing generation (replacing the one before), or none."""
+    def share_listing(
+        self, listing: Listing | None, previous: Listing | None = None
+    ) -> None:
+        """Share this listing generation, and the one it replaced while it is
+        kept (readers that found the older pointer finish fetching it); stop
+        sharing any other. ``None`` shares none."""
+        wanted = {
+            item.infohash_v2: item
+            for item in (listing, previous if listing is not None else None)
+            if item is not None
+        }
         with self._lock:
-            current = self._listing[0] if self._listing else None
-            wanted = listing.infohash_v2 if listing else None
-            if current == wanted:
-                return
-            if self._listing is not None:
-                handle = self._listing[1]
+            for v2 in [v2 for v2 in self._listings if v2 not in wanted]:
+                handle = self._listings.pop(v2)
                 self._earlier += int(handle.status().total_payload_upload)
                 self.session.remove_torrent(handle)
-                self._listing = None
-            if listing is not None:
-                info, _v1, _v2 = _parse(listing.data)
+            for v2, item in wanted.items():
+                if v2 in self._listings:
+                    continue
+                info, _v1, _v2 = _parse(item.data)
                 flags = self._engine.torrent_flags
-                handle = self.session.add_torrent(
+                self._listings[v2] = self.session.add_torrent(
                     {
                         "ti": info,
-                        "save_path": str(listing.folder),
+                        "save_path": str(item.folder),
                         "flags": flags.upload_mode | flags.seed_mode,
                     }
                 )
-                self._listing = (listing.infohash_v2, handle)
+            self._current = listing.infohash_v2 if listing is not None else None
 
     def put_pointer(
         self, secret: bytes, public: bytes, salt: bytes, value: bytes
@@ -316,13 +324,17 @@ class FileSharer:
             self.session.dht_put_mutable_item(secret, public, value, salt)
 
     def listing(self) -> str | None:
-        """The v2 infohash of the listing this session shares, if any."""
+        """The v2 infohash of the current listing this session shares, if any."""
         with self._lock:
-            return self._listing[0] if self._listing else None
+            return self._current
+
+    def listings(self) -> frozenset[str]:
+        """Every listing generation this session shares (current and previous)."""
+        with self._lock:
+            return frozenset(self._listings)
 
     def _all(self) -> list[Any]:
-        listing = [self._listing[1]] if self._listing else []
-        return [*self._handles.values(), *listing]
+        return [*self._handles.values(), *self._listings.values()]
 
     def uploaded(self) -> int:
         """Bytes uploaded since this session began (for upload totals)."""
@@ -358,7 +370,8 @@ class FileSharer:
             for handle in self._all():
                 self.session.remove_torrent(handle)
             self._handles.clear()
-            self._listing = None
+            self._listings.clear()
+            self._current = None
             self.session.pause()
 
 
@@ -495,7 +508,7 @@ class FileSharing:
         # The signed listing the owner's app published in this mirror's root,
         # and its signed pointer in the DHT this session already takes part in.
         listing = current_listing(self.ledger.path)
-        sharer.share_listing(listing)
+        sharer.share_listing(listing, previous_listing(self.ledger.path))
         self._point(sharer, listing)
         if missing and (self._build is None or not self._build.is_alive()):
             sha256 = missing[0]

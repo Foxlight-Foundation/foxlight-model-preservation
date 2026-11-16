@@ -1437,16 +1437,22 @@ class CommunityMirror:
                     atomic_bytes(root, "torrents.json", torrents)
         except FileNotFoundError:
             pass  # No mirror yet; the next sync creates it and announces.
-        if sharing_files and local != held:
-            # The card covers only what the bucket holds; the listing covers
-            # everything this computer shares over BitTorrent.
-            objects, holdings, torrents = self._documents(local)
+        # The card (and the bucket's copy of these documents) covers only what
+        # the bucket holds when that is its only address; the listing covers
+        # everything this computer shares over BitTorrent.
+        listing = (
+            self._documents(local)
+            if sharing_files and local != held
+            else (objects, holdings, torrents)
+        )
         self._publish_listing(
-            {
-                "objects.json": objects,
-                "holdings.json": holdings,
-                "torrents.json": torrents,
-            }
+            dict(
+                zip(
+                    ("objects.json", "holdings.json", "torrents.json"),
+                    listing,
+                    strict=True,
+                )
+            )
             if sharing_files
             else None,
             local,
@@ -1508,6 +1514,17 @@ class CommunityMirror:
         present = {name: data for name, data in documents.items() if data is not None}
         if "holdings.json" not in present:
             return  # nothing worth listing could be described
+        # The copies the listing can actually describe: a copy counts as
+        # shared a moment before its manifest is readable in the public store.
+        manifests: dict[str, bytes] = {}
+        for manifest_id in sorted(held):
+            with contextlib.suppress(OSError, PreservationError):
+                with directory(root / "public") as public:
+                    manifests[manifest_id] = read_metadata(
+                        public, manifest_path(manifest_id)
+                    )
+        if not manifests:
+            return  # nothing it could describe yet; a later round publishes it
         try:
             pool = MirrorLedger(root)
             entries: list[JsonValue] = [
@@ -1516,17 +1533,10 @@ class CommunityMirror:
             ]
         except (PreservationError, OSError, ValueError):
             return
-        shared: list[JsonValue] = list(sorted(held))
-        subject = digest(identity_json([shared, sorted(entries, key=str)]))
+        described: list[JsonValue] = list(sorted(manifests))
+        subject = digest(identity_json([described, sorted(entries, key=str)]))
         if unchanged_listing(root, subject):
             return
-        manifests: dict[str, bytes] = {}
-        for manifest_id in sorted(held):
-            with contextlib.suppress(OSError, PreservationError):
-                with directory(root / "public") as public:
-                    manifests[manifest_id] = read_metadata(
-                        public, manifest_path(manifest_id)
-                    )
         with contextlib.suppress(PreservationError, OSError, RuntimeError):
             publish_listing(root, listing_files(present, manifests), subject)
 

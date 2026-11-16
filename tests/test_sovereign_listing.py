@@ -365,3 +365,109 @@ def test_the_listing_covers_every_shared_copy_even_when_the_card_covers_fewer(
         assert (inner / "manifests" / f"{identity}.json").exists()
     finally:
         owner.close()
+
+
+def test_the_replaced_listing_is_still_seeded_until_it_is_pruned(
+    tmp_path: Path,
+) -> None:
+    from foxlight_model_preservation.sovereign_listing import previous_listing
+    from foxlight_model_preservation.sovereign_torrents import FileSharer
+
+    root = tmp_path / "mirror"
+    first = publish_listing(root, {**DOCUMENTS, "objects.json": b"1"})
+    second = publish_listing(root, {**DOCUMENTS, "objects.json": b"2"})
+    assert previous_listing(root) == first
+    sharer = FileSharer(tmp_path / "session", open_router=False)
+    try:
+        sharer.share_listing(current_listing(root), previous_listing(root))
+        assert sharer.listings() == {first.infohash_v2, second.infohash_v2}
+        assert sharer.listing() == second.infohash_v2
+        # A third generation: the first is pruned and no longer shared.
+        third = publish_listing(root, {**DOCUMENTS, "objects.json": b"3"})
+        sharer.share_listing(current_listing(root), previous_listing(root))
+        assert sharer.listings() == {second.infohash_v2, third.infohash_v2}
+        assert not first.folder.exists()
+        # Sharing turned off: neither generation is shared.
+        sharer.share_listing(None, previous_listing(root))
+        assert sharer.listings() == frozenset() and sharer.listing() is None
+    finally:
+        sharer.close()
+
+
+def test_a_bucket_is_never_sent_documents_for_copies_it_does_not_hold(
+    tmp_path: Path, capture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With the bucket as the only address, its documents stay scoped to what
+    it holds even though the listing covers every locally shared copy."""
+    from types import SimpleNamespace
+
+    from test_local_backups import saved
+    from test_local_community import enable, served, wait_for
+    from test_local_community import free_port as free
+
+    from foxlight_model_preservation.local_host import community as module
+    from foxlight_model_preservation.local_host.owner import LocalOwner
+
+    port = free()
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        saved(owner, tmp_path, capture)
+        enable(owner, port)
+        identity = wait_for(
+            lambda: next(
+                (
+                    row["public_manifest_id"]
+                    for row in owner.control("community-read", {})["copies"]
+                    if row["status"] == "sharing"
+                ),
+                None,
+            )
+        )
+        wait_for(lambda: served(port, identity) == 200)
+        community = owner.community
+        other = "e" * 64  # shared here, not yet uploaded to the bucket
+        monkeypatch.setattr(community, "held", lambda: frozenset({identity, other}))
+        monkeypatch.setattr(
+            community,
+            "bucket",
+            lambda: SimpleNamespace(
+                synced=(identity,),
+                target=SimpleNamespace(
+                    public_url="https://bucket.example.org/m/", key_name="k"
+                ),
+            ),
+        )
+        # Documents named by the copies they describe.
+        monkeypatch.setattr(
+            community,
+            "_documents",
+            lambda held: tuple(
+                f"{kind}:{','.join(sorted(held))}".encode()
+                for kind in ("objects", "holdings", "torrents")
+            ),
+        )
+        sent: dict[str, bytes] = {}
+        monkeypatch.setattr(module, "load_credentials", lambda name: None)
+        monkeypatch.setattr(module, "BucketClient", lambda *args: None)
+        monkeypatch.setattr(module, "publish_peers", lambda client, data: None)
+        monkeypatch.setattr(
+            module, "publish_objects", lambda client, data: sent.update(objects=data)
+        )
+        monkeypatch.setattr(
+            module, "publish_holdings", lambda client, data: sent.update(holdings=data)
+        )
+        published: list[dict[str, bytes | None] | None] = []
+        monkeypatch.setattr(
+            community,
+            "_publish_listing",
+            lambda documents, held: published.append(documents),
+        )
+        assert community.announce() is not None
+        assert sent["holdings"] == f"holdings:{identity}".encode()
+        listing = published[-1]
+        assert listing is not None
+        assert listing["holdings.json"] == (
+            f"holdings:{','.join(sorted({identity, other}))}".encode()
+        )
+    finally:
+        owner.close()
