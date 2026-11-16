@@ -1832,10 +1832,18 @@ class CommunityMirror:
                 nostr_reasons.append("address_invalid")
             if not own and not bucket_live:
                 nostr_reasons.append("no_reachable_address")
+        # With no address, the mirror card isn't published, but while models
+        # are shared over BitTorrent the listing card is (by the same choice).
+        nostr_listing = (
+            nostr_reasons == ["no_reachable_address"]
+            and self._files_shared()
+            and current_listing(self._mirror()) is not None
+        )
         return {
             "dht_available": available,
             "dht_announcing": not dht_reasons,
             "nostr_publishing": not nostr_reasons,
+            "nostr_listing": nostr_listing,
             "announce_reasons": {"dht": dht_reasons, "nostr": nostr_reasons},
             "announce_review_required": review,
             "address_invalid": address_invalid,

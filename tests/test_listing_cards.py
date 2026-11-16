@@ -209,3 +209,48 @@ def test_kept_listing_cards_stay_within_a_byte_budget_and_a_bad_file_recovers(
     assert store.listing_cards(now=now) == []
     assert store.ingest_listings([cards[0]], now=now) == 1
     assert store.listing_cards(now=now) == [cards[0]]
+
+
+def test_the_status_says_when_only_the_listing_card_is_published(
+    tmp_path: Path, capture: Capture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pytest.importorskip("libtorrent", reason="optional native BitTorrent extra")
+    from test_local_backups import saved
+    from test_local_community import enable, free_port, served, wait_for
+
+    from foxlight_model_preservation.local_host.owner import LocalOwner
+    from foxlight_model_preservation.sovereign_listing import current_listing
+
+    port = free_port()
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        saved(owner, tmp_path, capture)
+        enable(owner, port)
+        identity = wait_for(
+            lambda: next(
+                (
+                    row["public_manifest_id"]
+                    for row in owner.control("community-read", {})["copies"]
+                    if row["status"] == "sharing"
+                ),
+                None,
+            )
+        )
+        wait_for(lambda: served(port, identity) == 200)
+        community = owner.community
+
+        def listing() -> bool:
+            community.announce()
+            return current_listing(community._mirror()) is not None
+
+        wait_for(listing, seconds=60)
+        # Publishing to Nostr chosen and reviewed (tests never reach relays).
+        chosen = community.policy().model_copy(update={"publish_nostr": True})
+        monkeypatch.setattr(community, "_load_policy", lambda: (chosen, False))
+        monkeypatch.setattr(community, "announce_reviewed", lambda policy=None: True)
+        status = community.announcements()
+        assert status["nostr_publishing"] is False
+        assert status["nostr_listing"] is True
+        assert status["announce_reasons"]["nostr"] == ["no_reachable_address"]  # type: ignore[index]
+    finally:
+        owner.close()

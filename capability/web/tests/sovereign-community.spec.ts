@@ -546,6 +546,14 @@ test('sharing explains BitTorrent and says how many files it shares that way',as
  await expect(page.getByText('Shared models are also shared over BitTorrent, one file at a time',{exact:false})).toBeVisible();
 });
 
+test('a computer nobody can reach says its listing card is published to Nostr',async({page})=>{
+ await page.route('**/api/desktop-community-read',r=>r.fulfill({json:view(true,{policy:{...policy,enabled:true,consent_expires:2000000000,publish_nostr:true},nostr_publishing:false,nostr_listing:true,announce_reasons:{dht:['no_reachable_address'],nostr:['no_reachable_address']}})}));
+ await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();
+ const panel=page.getByRole('region',{name:'Help keep models available'});
+ await expect(panel.getByText('anyone can read which models this computer shares over BitTorrent',{exact:false})).toBeVisible();
+ await expect(panel.getByText('Not published to Nostr relays',{exact:false})).toHaveCount(0);
+});
+
 test('someone sharing from before BitTorrent is asked before files go out that way',async({page})=>{
  let configured:Record<string,unknown>|null=null;
  const earlier=()=>{const value=view(true);return {...value,policy:{...value.policy,bittorrent_consent:false}};};
