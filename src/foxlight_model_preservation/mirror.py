@@ -13,6 +13,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from pydantic import JsonValue
 
 from .archives import ArchiveManifest, archive_objects, verify_archive_manifest
@@ -1424,6 +1425,7 @@ def run_mirror(
     serving_selection: Callable[[tuple[str, ...]], None] | None = None,
     expected_policy_id: str | None = None,
     native_peer_runner: PeerSessionRunner | None = None,
+    listing_key: Callable[[], Ed25519PrivateKey] | None = None,
 ) -> dict[str, JsonValue]:
     """Own selected mirror transports until stop, pause/leave or grant expiry.
 
@@ -1443,6 +1445,8 @@ def run_mirror(
     A trusted embedding host may select a native peer runner under its own
     dedicated process owner; ordinary callers retain the standalone supervisor.
     The adapter does not bypass profile, trust, upload or session permission.
+    Listing_key, when given, is the key a mirror sharing files over BitTorrent
+    signs its listing's DHT pointer with (the embedding app's mirror key).
     """
     if public == resume or not 1 <= seconds <= 86400:
         raise PreservationError(
@@ -1584,7 +1588,12 @@ def run_mirror(
                     return
 
         background = threading.Thread(target=worker)
-        native = NativeMirrors(ledger, authorized, peer_runner=native_peer_runner)
+        native = NativeMirrors(
+            ledger,
+            authorized,
+            peer_runner=native_peer_runner,
+            listing_key=listing_key,
+        )
         if web is not None:
             web.start()
         background.start()

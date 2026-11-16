@@ -58,6 +58,31 @@ that off; it then announces the forwarded port. Mirrors run from the command
 line never configure a router. An IPFS DHT rendezvous can follow the same
 pattern later.
 
+## Listings for computers nobody can reach
+
+A computer sharing from home usually has no address anyone can reach, so it has
+no card. While the app shares its files over BitTorrent (the sharing consent),
+it publishes the same signed documents a reachable mirror serves over HTTP as
+one small torrent, its **listing**: `holdings.json`, `torrents.json`,
+`objects.json` and the signed manifests of the copies it shares, under a
+folder named `sovereign-listing` (BitTorrent hybrid v1 + v2, 256 KiB pieces, at
+most 64 MiB; manifests that don't fit are left out). Everything in it is signed,
+so where it is fetched from doesn't matter.
+
+The sharing session stores a signed pointer to the current listing in the
+BitTorrent DHT: a mutable item (BEP 44) under the mirror key, which is Ed25519
+as BEP 44 requires, with salt `sovereign.listing.v1` and the value
+`sovereign-listing-v1:` followed by the listing's v2 infohash (hex). Only the
+key's owner can change it; a reader checks the signature itself as well as
+libtorrent. The pointer is stored again every 30 minutes (DHT items lapse after
+about two hours). The listing is rebuilt only when what is shared changes, or
+daily so its signatures never lapse; the generation it replaced is kept for
+readers still fetching it. Turning sharing off withdraws the listing, and the
+pointer lapses.
+
+Anyone who knows a contributor's mirror key can find its listing this way.
+Spreading those keys, and Find reading listings, come next.
+
 ## Nostr relays
 
 Mirrors also publish their signed cards to several independent Nostr relays, as

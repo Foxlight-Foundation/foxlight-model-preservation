@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- A computer sharing files over BitTorrent also publishes its signed listing
+  as a small torrent of its own: its holdings, its torrent list, its object
+  coverage and the signed manifests of the copies it shares, all signed as
+  served over HTTP. A signed pointer to the current listing is stored in the
+  BitTorrent DHT under its mirror key (BEP 44, mutable item, salt
+  `sovereign.listing.v1`), from the sharing session that already takes part
+  in the DHT. So a computer nobody can reach directly can still be found by
+  anyone who knows its key. The listing is rebuilt only when what is shared
+  changes, or daily so its signatures never lapse; the previous generation is
+  kept for readers still fetching it. Reading listings comes next.
+
 - BitTorrent sharing follows the router choice too: when the owner kept
   **Ask my router to open port …** on (and gave no address of their own), the
   sharing session also asks the router to forward its BitTorrent port, so

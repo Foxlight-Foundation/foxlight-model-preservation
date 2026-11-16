@@ -38,10 +38,20 @@ from typing import TYPE_CHECKING, Any, cast
 
 from .models import PreservationError
 from .operations import OperationCancelled, OperationControl
+from .sovereign_listing import (
+    LISTING_SALT,
+    Listing,
+    current_listing,
+    dht_keys,
+    pointer_value,
+    previous_listing,
+)
 from .storage import object_path
 from .torrent_binding import torrent_engine
 
 if TYPE_CHECKING:
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
     from .mirror_models import MirrorState
     from .mirror_state import MirrorLedger
     from .pirateface_seed import SeededTorrent
@@ -59,6 +69,8 @@ WATCH_SECONDS = 0.2
 # after the last charge, so an idle or quiet mirror isn't rewriting its ledger.
 CHARGE_BYTES = 8 * 1024**2
 CHARGE_SECONDS = 5.0
+# How often the listing's DHT pointer is stored again (items last ~2 hours).
+POINTER_SECONDS = 30 * 60
 
 MIN_PIECE = 256 * 1024
 MAX_PIECE = 16 * 1024**2
@@ -221,6 +233,9 @@ class FileSharer:
         home.mkdir(parents=True, exist_ok=True, mode=0o700)
         self._lock = threading.RLock()
         self._handles: dict[str, Any] = {}
+        # This computer's own signed listing, shared beside its files.
+        self._listings: dict[str, Any] = {}
+        self._current: str | None = None
         # Payload bytes uploaded by files no longer shared in this session.
         self._earlier = 0
         self.session = engine.session(
@@ -271,12 +286,68 @@ class FileSharer:
         with self._lock:
             return frozenset(self._handles)
 
+    def share_listing(
+        self, listing: Listing | None, previous: Listing | None = None
+    ) -> None:
+        """Share this listing generation, and the one it replaced while it is
+        kept (readers that found the older pointer finish fetching it); stop
+        sharing any other. ``None`` shares none."""
+        wanted = {
+            item.infohash_v2: item
+            for item in (listing, previous if listing is not None else None)
+            if item is not None
+        }
+        with self._lock:
+            for v2 in [v2 for v2 in self._listings if v2 not in wanted]:
+                handle = self._listings.pop(v2)
+                self._earlier += int(handle.status().total_payload_upload)
+                self.session.remove_torrent(handle)
+            for v2, item in wanted.items():
+                if v2 in self._listings:
+                    continue
+                info, _v1, _v2 = _parse(item.data)
+                flags = self._engine.torrent_flags
+                self._listings[v2] = self.session.add_torrent(
+                    {
+                        "ti": info,
+                        "save_path": str(item.folder),
+                        "flags": flags.upload_mode | flags.seed_mode,
+                    }
+                )
+            self._current = listing.infohash_v2 if listing is not None else None
+
+    def put_pointer(
+        self, secret: bytes, public: bytes, salt: bytes, value: bytes
+    ) -> bool:
+        """Store a signed mutable DHT item (BEP 44) from this session.
+
+        False while the session's DHT hasn't started: libtorrent silently
+        drops requests made before then, so the caller asks again later.
+        """
+        with self._lock:
+            if not self.session.is_dht_running():
+                return False
+            self.session.dht_put_mutable_item(secret, public, value, salt)
+            return True
+
+    def listing(self) -> str | None:
+        """The v2 infohash of the current listing this session shares, if any."""
+        with self._lock:
+            return self._current
+
+    def listings(self) -> frozenset[str]:
+        """Every listing generation this session shares (current and previous)."""
+        with self._lock:
+            return frozenset(self._listings)
+
+    def _all(self) -> list[Any]:
+        return [*self._handles.values(), *self._listings.values()]
+
     def uploaded(self) -> int:
-        """Model bytes uploaded since this session began (for upload totals)."""
+        """Bytes uploaded since this session began (for upload totals)."""
         with self._lock:
             return self._earlier + sum(
-                int(handle.status().total_payload_upload)
-                for handle in self._handles.values()
+                int(handle.status().total_payload_upload) for handle in self._all()
             )
 
     def set_upload_rate(self, rate: int) -> None:
@@ -297,15 +368,17 @@ class FileSharer:
     def connect(self, peer: tuple[str, int]) -> None:
         """Connect every shared file to a known peer (a lab network, or tests)."""
         with self._lock:
-            for handle in self._handles.values():
+            for handle in self._all():
                 handle.connect_peer(peer)
 
     def close(self) -> None:
         """Stop sharing everything now, not when this object is collected."""
         with self._lock:
-            for handle in self._handles.values():
+            for handle in self._all():
                 self.session.remove_torrent(handle)
             self._handles.clear()
+            self._listings.clear()
+            self._current = None
             self.session.pause()
 
 
@@ -369,8 +442,12 @@ class FileSharing:
         ledger: MirrorLedger,
         *,
         settings: dict[str, str | int | bool] | None = None,
+        listing_key: Callable[[], Ed25519PrivateKey] | None = None,
     ) -> None:
         self.ledger = ledger
+        self.listing_key = listing_key
+        # The listing the DHT pointer last named, and when it was stored.
+        self._pointed: tuple[str, float] | None = None
         self.settings = settings
         self.home = ledger.path / FILES_DIRECTORY
         self.cache = TorrentCache(self.home / "torrents")
@@ -435,6 +512,11 @@ class FileSharing:
                 sharer.share(torrent, store / object_path(sha256))
             else:
                 missing.append(sha256)
+        # The signed listing the owner's app published in this mirror's root,
+        # and its signed pointer in the DHT this session already takes part in.
+        listing = current_listing(self.ledger.path)
+        sharer.share_listing(listing, previous_listing(self.ledger.path))
+        self._point(sharer, listing)
         if missing and (self._build is None or not self._build.is_alive()):
             sha256 = missing[0]
             self._build = threading.Thread(
@@ -443,6 +525,27 @@ class FileSharing:
                 daemon=True,
             )
             self._build.start()
+
+    def _point(self, sharer: FileSharer, listing: Listing | None) -> None:
+        """Store the DHT pointer to the current listing: when it changes, and
+        again before stored items lapse (they last about two hours)."""
+        if listing is None or self.listing_key is None:
+            return
+        now = time.monotonic()
+        if self._pointed is not None and (
+            self._pointed[0] == listing.infohash_v2
+            and now - self._pointed[1] < POINTER_SECONDS
+        ):
+            return
+        try:
+            secret, public = dht_keys(self.listing_key())
+            if not sharer.put_pointer(
+                secret, public, LISTING_SALT, pointer_value(listing.infohash_v2)
+            ):
+                return  # the DHT is still starting: try again next tick
+        except (PreservationError, OSError, RuntimeError, ValueError):
+            return
+        self._pointed = (listing.infohash_v2, now)
 
     def _watchdog(self) -> None:
         while self._watching.is_set():
@@ -524,6 +627,7 @@ class FileSharing:
         return {
             "unavailable": self.unavailable,
             "files": len(self.sharer.shared()) if self.sharer else 0,
+            "listing": bool(self.sharer and self.sharer.listing()),
             "uploaded_bytes": self.sharer.uploaded() if self.sharer else 0,
             "paused": self.paused,
         }

@@ -111,6 +111,12 @@ from ..signing import (
     load_key,
     public_record,
 )
+from ..sovereign_listing import (
+    listing_files,
+    publish_listing,
+    unchanged_listing,
+    withdraw_listing,
+)
 from ..sovereign_torrents import listed
 from ..storage import atomic_bytes, directory, manifest_path, read_metadata
 from ..transfer import MirrorHTTPError, TransferPolicy, response
@@ -925,7 +931,14 @@ class CommunityMirror:
             if observe is not None:
                 observe(value)
 
-        run_mirror(ledger, resume=True, control=control, observe=record)
+        run_mirror(
+            ledger,
+            resume=True,
+            control=control,
+            observe=record,
+            # The key its signed listing's DHT pointer is stored under.
+            listing_key=self._mirror_key,
+        )
 
     def _native_wanted(self, policy: CommunityPolicy) -> tuple[bool, bool, bool]:
         """The mirror's BitTorrent transports this policy asks for: Pirate Face
@@ -1404,7 +1417,7 @@ class CommunityMirror:
         The document is served at /.well-known/sovereign/peers.json and read on
         every request, so updating it needs no restart.
         """
-        held = self.held()
+        local = held = self.held()
         addresses = self.addresses()
         bucket = self.bucket()
         if bucket is not None and bucket.synced:
@@ -1423,27 +1436,11 @@ class CommunityMirror:
         # Object coverage lets catalog saves find files here by hash. It is
         # signed by the same mirror key and served beside the peers document.
         objects = holdings = torrents = None
-        if card is not None:
-            # Optional: a coverage problem must never stop the card renewing.
-            with contextlib.suppress(PreservationError, OSError):
-                objects = issue_objects(
-                    self._mirror_key(), served_hashes(self._mirror() / "public")
-                )
-            # What this mirror keeps, by name, so others can find it in Find.
-            # It lists exactly the copies the card covers.
-            with contextlib.suppress(PreservationError, OSError):
-                holdings = issue_holdings(
-                    self._mirror_key(),
-                    store_holdings(self._mirror() / "public", held),
-                )
-            # The torrents it shares: Sovereign's own per-file ones, and Pirate
-            # Face ones when that is turned on.
-            with contextlib.suppress(PreservationError, OSError, ValueError):
-                pool = MirrorLedger(self._mirror())
-                torrents = issue_torrents(
-                    self._mirror_key(),
-                    [*seeded(pool.read(), held), *listed(pool, held)],
-                )
+        # A computer sharing files over BitTorrent publishes the same signed
+        # documents in its listing, so it can be found with no address at all.
+        sharing_files = bool(local) and self._files_shared()
+        if card is not None or sharing_files:
+            objects, holdings, torrents = self._documents(held)
         try:
             with directory(self._mirror()) as root:
                 atomic_bytes(root, "peers.json", document)
@@ -1455,6 +1452,26 @@ class CommunityMirror:
                     atomic_bytes(root, "torrents.json", torrents)
         except FileNotFoundError:
             pass  # No mirror yet; the next sync creates it and announces.
+        # The card (and the bucket's copy of these documents) covers only what
+        # the bucket holds when that is its only address; the listing covers
+        # everything this computer shares over BitTorrent.
+        listing = (
+            self._documents(local)
+            if sharing_files and local != held
+            else (objects, holdings, torrents)
+        )
+        self._publish_listing(
+            dict(
+                zip(
+                    ("objects.json", "holdings.json", "torrents.json"),
+                    listing,
+                    strict=True,
+                )
+            )
+            if sharing_files
+            else None,
+            local,
+        )
         # Only a document carrying this mirror's card is worth replacing the
         # bucket's copy with; a transient empty one would hide the bucket.
         if bucket is not None and bucket.synced and card is not None:
@@ -1472,6 +1489,71 @@ class CommunityMirror:
             except (ValueError, OSError):
                 pass  # The next round publishes it again.
         return card
+
+    def _documents(
+        self, held: frozenset[str]
+    ) -> tuple[bytes | None, bytes | None, bytes | None]:
+        """This mirror's signed object coverage, holdings and torrents for the
+        copies ``held``. Each is optional: a problem with one never stops the
+        card renewing."""
+        objects = holdings = torrents = None
+        with contextlib.suppress(PreservationError, OSError):
+            objects = issue_objects(
+                self._mirror_key(), served_hashes(self._mirror() / "public")
+            )
+        # What this mirror keeps, by name, so others can find it in Find.
+        with contextlib.suppress(PreservationError, OSError):
+            holdings = issue_holdings(
+                self._mirror_key(),
+                store_holdings(self._mirror() / "public", held),
+            )
+        # The torrents it shares: Sovereign's own per-file ones, and Pirate
+        # Face ones when that is turned on.
+        with contextlib.suppress(PreservationError, OSError, ValueError):
+            pool = MirrorLedger(self._mirror())
+            torrents = issue_torrents(
+                self._mirror_key(),
+                [*seeded(pool.read(), held), *listed(pool, held)],
+            )
+        return objects, holdings, torrents
+
+    def _publish_listing(
+        self, documents: dict[str, bytes | None] | None, held: frozenset[str]
+    ) -> None:
+        """Write this computer's listing for its file-sharing session to seed,
+        or withdraw it when files aren't shared. Never stops a round."""
+        root = self._mirror()
+        if documents is None:
+            withdraw_listing(root)
+            return
+        present = {name: data for name, data in documents.items() if data is not None}
+        if "holdings.json" not in present:
+            return  # nothing worth listing could be described
+        # The copies the listing can actually describe: a copy counts as
+        # shared a moment before its manifest is readable in the public store.
+        manifests: dict[str, bytes] = {}
+        for manifest_id in sorted(held):
+            with contextlib.suppress(OSError, PreservationError):
+                with directory(root / "public") as public:
+                    manifests[manifest_id] = read_metadata(
+                        public, manifest_path(manifest_id)
+                    )
+        if not manifests:
+            return  # nothing it could describe yet; a later round publishes it
+        try:
+            pool = MirrorLedger(root)
+            entries: list[JsonValue] = [
+                [entry.manifest, entry.infohash, entry.source, entry.object or ""]
+                for entry in [*seeded(pool.read(), held), *listed(pool, held)]
+            ]
+        except (PreservationError, OSError, ValueError):
+            return
+        described: list[JsonValue] = list(sorted(manifests))
+        subject = digest(identity_json([described, sorted(entries, key=str)]))
+        if unchanged_listing(root, subject):
+            return
+        with contextlib.suppress(PreservationError, OSError, RuntimeError):
+            publish_listing(root, listing_files(present, manifests), subject)
 
     def _nostr_key(self) -> bytes:
         with directory(self.path, create=True) as root:
@@ -1554,6 +1636,14 @@ class CommunityMirror:
         card = self.announce()
         if card is not None and relays:
             publish_card(card, self._nostr_key(), relays, relay_policy, control=control)
+
+    def _files_shared(self) -> bool:
+        """Whether this mirror shares its files over BitTorrent (the consent)."""
+        try:
+            policy = MirrorLedger(self._mirror()).read().native_policy
+        except (PreservationError, OSError, ValueError):
+            return False
+        return policy is not None and policy.file_torrents
 
     def dht_port(self) -> int | None:
         """The public HTTP port to announce on the DHT, or None to stay off it.
