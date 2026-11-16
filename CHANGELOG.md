@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Listing cards: how people learn of computers that share over BitTorrent with
+  no address anyone can reach. A listing card is signed by the mirror key it
+  names (whose DHT pointer leads to that computer's listing), says which copies
+  it probably holds (a coverage filter), expires within 14 days and grants
+  nothing. A sharing computer publishes its card to Nostr relays (topic
+  `sovereign-listing-v1`, under the existing Nostr choice) and in its own peers
+  document; mirrors keep the cards they learn and relay up to 32 in their
+  peers documents after their mirror cards, where older apps skip them.
+  Standalone mirrors read them from relays within their existing round budget.
+
 - A computer sharing files over BitTorrent also publishes its signed listing
   as a small torrent of its own: its holdings, its torrent list, its object
   coverage and the signed manifests of the copies it shares, all signed as

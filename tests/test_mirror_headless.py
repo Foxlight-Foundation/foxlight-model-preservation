@@ -1246,6 +1246,7 @@ def test_gossip_round_reads_stay_within_its_reservation(tmp_path, capture, monke
         + mirror_announce.CRAWL_DOCUMENTS * (MAX_HOLDINGS_BYTES + 1)
         + mirror_announce.SPOT_CHECKS * 2 * (MAX_METADATA_BYTES + 1)
         + mirror_announce.RELAY_FIND_BYTES
+        + mirror_announce.LISTING_FIND_BYTES
         + mirror_announce.RELAY_PUBLISH_BYTES
         == mirror_announce.ROUND_BODY_BYTES
     )

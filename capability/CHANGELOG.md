@@ -6,6 +6,11 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- While your models are shared over BitTorrent, publishing to Nostr relays
+  also publishes a signed card saying which models this computer shares, so
+  people can find it even when it can't be reached directly. The Nostr choice
+  says so.
+
 - Help keep models available also shares your shared models over BitTorrent,
   one file at a time, so people can download them even when this computer
   can't be reached directly. The panel says how many files it shares that way.

@@ -44,9 +44,12 @@ from .mirror_cards import (
     MAX_PEERS,
     MAX_PEERS_BYTES,
     PEERS_PATH,
+    ListingCard,
     MirrorCard,
     base_url,
+    read_listing_cards,
     read_peers,
+    verify_listing_card,
 )
 from .mirror_cards import verify_card as _verify_card
 from .mirror_holdings import (
@@ -96,6 +99,9 @@ from .transfer import (
 )
 
 MAX_MIRRORS = 2048
+# Listing cards kept, and how many a peers document relays (after mirror cards).
+MAX_LISTINGS = 512
+MAX_RELAYED_LISTINGS = 32
 # Cached signed object coverage, across every kept mirror.
 OBJECTS_CACHE_BYTES = 64 * 1024**2
 # Kept mirror holdings (what each mirror says it keeps), pruned the same way.
@@ -136,6 +142,27 @@ class SeenMirror(Record):
     failures: int = Field(default=0, ge=0)
     checked: bool = False
     last_seen: int = Field(ge=0)
+
+
+class SeenListing(Record):
+    """One listing card: a computer sharing over BitTorrent, maybe unreachable."""
+
+    card: Envelope
+    last_seen: int = Field(ge=0)
+
+
+class ListingState(Record):
+    """Listing cards learned from relays and peers documents; owner-private.
+
+    Kept in its own file so an older app's directory file is never changed.
+    """
+
+    schema_version: Literal["sovereign.listing-directory.v1"] = (
+        "sovereign.listing-directory.v1"
+    )
+    listings: dict[str, SeenListing] = Field(
+        default_factory=dict, max_length=MAX_LISTINGS
+    )
 
 
 class DirectoryState(Record):
@@ -524,11 +551,12 @@ class MirrorDirectory:
                 continue
             visited.add(base)
             try:
-                cards = read_peers(
-                    _bounded_read(
-                        base, PEERS_PATH, policy, MAX_PEERS_BYTES, deadline, active
-                    )
+                data = _bounded_read(
+                    base, PEERS_PATH, policy, MAX_PEERS_BYTES, deadline, active
                 )
+                cards = read_peers(data)
+                # Listing cards it relays: computers sharing over BitTorrent.
+                self.ingest_listings(read_listing_cards(data))
             except DeadlineExceeded:
                 break
             except OperationError:
@@ -1134,7 +1162,8 @@ class MirrorDirectory:
     def gossip(
         self, *, limit: int = MAX_PEERS, now: int | None = None
     ) -> tuple[bytes, ...]:
-        """Return checked, live cards worth vouching for, most reliable first."""
+        """Return checked, live cards worth vouching for, most reliable first,
+        then the newest live listing cards (relayed, not vouched for)."""
         instant = int(time.time()) if now is None else now
         ranked: list[tuple[int, bytes]] = []
         for seen in self.read().mirrors.values():
@@ -1142,7 +1171,88 @@ class MirrorDirectory:
                 continue
             ranked.append((seen.successes - seen.failures, encode_record(seen.card)))
         ranked.sort(key=lambda item: item[0], reverse=True)
-        return tuple(raw for _score, raw in ranked[:limit])
+        cards = [raw for _score, raw in ranked[:limit]]
+        room = max(0, min(MAX_RELAYED_LISTINGS, limit - len(cards)))
+        return (*cards, *self.listing_cards(now=instant)[:room])
+
+    # Listing cards ----------------------------------------------------------
+
+    def read_listings(self) -> ListingState:
+        """The listing cards kept; an absent file keeps none."""
+        try:
+            with directory(self.path) as root:
+                return ListingState.model_validate_json(
+                    read_metadata(root, "listings.json")
+                )
+        except FileNotFoundError:
+            return ListingState()
+
+    def ingest_listings(self, cards: Iterable[bytes], *, now: int | None = None) -> int:
+        """Keep each verified listing card, newest per mirror key; return how
+        many keys are new. Listing cards grant nothing: they only say whose
+        DHT pointer to read."""
+        instant = int(time.time()) if now is None else now
+        admitted: list[tuple[ListingCard, Envelope]] = []
+        for raw in cards:
+            if len(raw) > MAX_CARD_BYTES:
+                continue
+            try:
+                card = verify_listing_card(raw, now=instant)
+            except (ValueError, PreservationError):
+                continue
+            admitted.append((card, Envelope.model_validate_json(raw)))
+        if not admitted:
+            return 0
+        added = 0
+        with self._exclusive() as root:
+            listings = dict(self.read_listings().listings)
+            for card, envelope in admitted:
+                key = card.mirror_key.key_id
+                previous = listings.get(key)
+                if previous is not None:
+                    older = _listing(previous.card)
+                    if older is not None and card.issued_at <= older.issued_at:
+                        continue
+                else:
+                    added += 1
+                listings[key] = SeenListing(card=envelope, last_seen=instant)
+            # Expired cards go first; then the least recently seen.
+            live = {
+                key: seen
+                for key, seen in listings.items()
+                if (card := _listing(seen.card)) is not None
+                and card.expires_at > instant
+            }
+            kept = dict(
+                sorted(live.items(), key=lambda item: -item[1].last_seen)[:MAX_LISTINGS]
+            )
+            atomic_bytes(
+                root, "listings.json", encode_record(ListingState(listings=kept))
+            )
+        return added
+
+    def listing_cards(self, *, now: int | None = None) -> list[bytes]:
+        """Live listing cards, most recently seen first."""
+        instant = int(time.time()) if now is None else now
+        result: list[tuple[int, bytes]] = []
+        for seen in self.read_listings().listings.values():
+            card = _listing(seen.card)
+            if card is None or card.expires_at <= instant:
+                continue
+            result.append((seen.last_seen, encode_record(seen.card)))
+        result.sort(key=lambda item: -item[0])
+        return [raw for _seen, raw in result]
+
+
+def _listing(envelope: Envelope) -> ListingCard | None:
+    """The listing card in an envelope kept earlier (its signature was checked
+    when it was kept; freshness is checked by the caller)."""
+    try:
+        return ListingCard.model_validate_json(
+            canonical_bytes(strict_json(decode_base64(envelope.payload)))
+        )
+    except (ValueError, PreservationError):
+        return None
 
 
 def _reclaim(mirrors: dict[str, SeenMirror], instant: int) -> None:
