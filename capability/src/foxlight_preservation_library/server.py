@@ -747,6 +747,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                         "api/desktop-community-read",
                         "api/desktop-community-configure",
                         "api/desktop-community-choose",
+                        "api/desktop-community-asked",
                         "api/desktop-community-bucket-connect",
                         "api/desktop-community-bucket-disconnect",
                         "api/desktop-community-bucket-contents",

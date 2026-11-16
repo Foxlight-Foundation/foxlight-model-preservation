@@ -810,6 +810,7 @@ class LocalOwner:
                 "library": library,
                 "pirate_face_search": self.pirate_face_enabled(),
                 "pirate_face_swarm": self.pirate_face_enabled("swarm"),
+                "keep_available_ask": self._keep_available_ask(),
                 "hub_token": self._hub_token_user(),
                 "locations": [],
                 "models": [],
@@ -1434,6 +1435,15 @@ class LocalOwner:
                 if policy.enabled:
                     self._community_refresh()
                 return self.community.read(self._journal.copies)
+            if action == "community-asked" and not body:
+                # Answered once, either way: the question after a save is
+                # never asked again. Sharing stays a choice made in its sheet.
+                atomic_bytes(
+                    self._root,
+                    "keep-available-asked.json",
+                    identity_json({"asked": True}),
+                )
+                return {"keep_available_ask": False}
             if action == "community-choose" and set(body) == {
                 "copy_id",
                 "chosen",
@@ -2712,6 +2722,25 @@ class LocalOwner:
         except (OSError, PreservationError):
             return False
         return isinstance(value, dict) and value.get("enabled") is True
+
+    def _keep_available_ask(self) -> bool:
+        """Whether a finished save may ask "Help keep this model available?".
+
+        Asked once, and only while sharing is off: nothing is shared until
+        the person agrees in the sharing sheet the question opens.
+        """
+        try:
+            value = strict_json(read_metadata(self._root, "keep-available-asked.json"))
+        except FileNotFoundError:
+            value = None
+        except (OSError, PreservationError):
+            return False
+        if isinstance(value, dict) and value.get("asked") is True:
+            return False
+        try:
+            return not self.community.consented()
+        except (OSError, ValueError, PreservationError):
+            return False
 
     def pirate_face_enabled(self, choice: str = "search") -> bool:
         """Whether the person chose Pirate Face search, or swarm downloads.

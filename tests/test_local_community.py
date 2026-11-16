@@ -1229,3 +1229,29 @@ def test_agreeing_to_bittorrent_while_sharing_applies_at_once(
         wait_for(lambda: served(port, identity) == 200)
     finally:
         owner.close()
+
+
+def test_a_save_asks_once_to_help_keep_it_available_and_only_while_sharing_is_off(
+    tmp_path: Path,
+) -> None:
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        assert owner.read()["keep_available_ask"] is True
+        # Sharing already on: there is nothing to ask.
+        enable(owner, free_port())
+        assert owner.read()["keep_available_ask"] is False
+        owner.control("community-configure", {"enabled": False})
+        assert owner.read()["keep_available_ask"] is True
+        with pytest.raises(PreservationError):
+            owner.control("community-asked", {"copy_id": "x"})
+        # Answered either way, it is never asked again, and nothing is shared.
+        assert owner.control("community-asked", {}) == {"keep_available_ask": False}
+        assert owner.read()["keep_available_ask"] is False
+        assert not owner.control("community-read", {})["consented"]
+    finally:
+        owner.close()
+    reopened = LocalOwner(tmp_path / "owner")
+    try:
+        assert reopened.read()["keep_available_ask"] is False
+    finally:
+        reopened.close()

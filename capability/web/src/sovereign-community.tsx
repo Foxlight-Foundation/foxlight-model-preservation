@@ -3,6 +3,7 @@ import {createPortal} from 'react-dom';
 import {api,bytes,errorText} from './client';
 import {CloudStorage,type BucketProvider,type BucketSummary} from './sovereign-bucket';
 import {Callout,Consent,Details,Pill,Row,Sheet,Step,type Tone} from './ui';
+import type {KeepAsk} from './keep-available-ask';
 import {Announce,LicenceFamilies,LicenceList,ShareChoice,UploadLimits,describeLicences,limitsValid,listed,type LicenceDefinition} from './community-parts';
 
 type Status='sharing'|'eligible'|'failed'|'withheld'|'not_chosen'|'license_not_selected'|'no_license'|'unsupported';
@@ -46,13 +47,15 @@ function checkResult(result:AddressCheck,port:number):[string,'ok'|'warn'|'bad']
 }
 
 /** One switch that turns this computer into a long-lived mirror of its backups. */
-export function HelpKeepAvailable({version,onDialogChange}:{version:string|undefined;onDialogChange?:(open:boolean)=>void}) {
+export function HelpKeepAvailable({version,ask,onAsked,onDialogChange}:{version:string|undefined;ask?:KeepAsk|null;onAsked?:()=>void;onDialogChange?:(open:boolean)=>void}) {
  const [state,setState]=useState<Community|null>(null),[unavailable,setUnavailable]=useState(false);
  const [setup,setSetup]=useState<false|'all'|'announce'>(false),[agreed,setAgreed]=useState(false),[share,setShare]=useState<'eligible'|'chosen'>('eligible');
  const [licenses,setLicenses]=useState<string[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const [limits,setLimits]=useState<[number|null,number|null]>([null,null]);
  const [address,setAddress]=useState(''),[dht,setDht]=useState(true),[nostr,setNostr]=useState(true),[pirate,setPirate]=useState(false),[router,setRouter]=useState(true);
  const [checking,setChecking]=useState(false),[check,setCheck]=useState<AddressCheck|null>(null);
+ // The saved model a "Help keep this model available?" answer opened this for.
+ const [focus,setFocus]=useState<KeepAsk|null>(null);
  const live=useRef(true);
  useEffect(()=>{live.current=true;return()=>{live.current=false;};},[]);
  // Setup is a modal step: the page behind it becomes inert while it is open.
@@ -62,6 +65,8 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
  // state, so an open setup sheet (and its Close control) is never torn away.
  const refresh=useCallback(async()=>{try{const value=await api<Community>('desktop-community-read',{});if(live.current){loaded.current=true;setState(value);setUnavailable(false);}}catch{if(live.current&&!loaded.current)setUnavailable(true);}},[]);
  useEffect(()=>{void refresh();const timer=setInterval(()=>void refresh(),5000);return()=>clearInterval(timer);},[refresh,version]);
+ // Opened from the question after a save: the same review, once state is read.
+ useEffect(()=>{if(!ask||!state)return;onAsked?.();if(!state.consented){open();setFocus(ask);}},[ask,state]);// eslint-disable-line react-hooks/exhaustive-deps
  async function act(action:string,body:Record<string,unknown>){setBusy(true);setError('');try{const value=await api<Community>(action,body);if(live.current)setState(value);return true;}catch(err){if(live.current)setError(err instanceof Error?err.message:'host_unavailable');return false;}finally{if(live.current)setBusy(false);}}
  function open(mode:'all'|'announce'='all'){if(!state)return;setLicenses(state.policy.licenses);setShare(state.policy.share);setLimits([state.policy.daily_upload_bytes,state.policy.monthly_upload_bytes]);setAddress(state.policy.public_url??'');setDht(state.policy.announce_dht??true);setNostr(state.policy.publish_nostr??true);setPirate(state.policy.seed_pirate_face??false);setRouter(state.policy.open_router_port??true);setAgreed(false);setError('');setSetup(mode);}
  // What people find is chosen with its disclosure on screen; sending the
@@ -75,7 +80,9 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
  // forwarding happens only after an explicit choice.
  const routerChanged=()=>!!state&&router!==state.policy.open_router_port;
  const choices=()=>({share,licenses,...(limitsChanged()?{daily_upload_bytes:limits[0],monthly_upload_bytes:limits[1]}:{}),...(pirateChanged()?{seed_pirate_face:pirate}:{}),...(routerChanged()&&!address.trim()?{open_router_port:router}:{}),...findChoices()});
- async function turnOn(){if(await act('desktop-community-configure',{enabled:true,consent:true,...choices()}))setSetup(false);}
+ // Sharing only chosen backups still includes the one the question was about.
+ async function turnOn(){if(!await act('desktop-community-configure',{enabled:true,consent:true,...choices()}))return;if(focus&&share==='chosen')await act('desktop-community-choose',{copy_id:focus.copy_id,chosen:true,withheld:false});close();}
+ function close(){setSetup(false);setFocus(null);}
  async function checkAddress(){setChecking(true);setCheck(null);setError('');try{const value=await api<AddressCheck>('desktop-community-check-address',{});if(live.current)setCheck(value);}catch(err){if(live.current)setError(err instanceof Error?err.message:'host_unavailable');}finally{if(live.current)setChecking(false);}}
  if(unavailable||!state)return null;
  const {policy,reachability}=state;
@@ -163,8 +170,9 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
    <p>Sharing stays on exactly as it is. Choose whether this computer also announces itself publicly. Nothing is announced until you save.</p>
    {announceStep(1)}
   </Sheet>,document.body)}
-  {setup==='all'&&createPortal(<Sheet kicker="Help keep models available" title="Share your backups with everyone" back="Close sharing setup" onClose={()=>setSetup(false)} footer={<button className="sk-btn sk-solid" disabled={busy||!agreed||licenses.length===0||badAddress||(limitsChanged()&&!limitsValid(...limits))} onClick={()=>void (on&&state.policy.bittorrent_consent!==false?act('desktop-community-configure',choices()).then(ok=>ok&&setSetup(false)):turnOn())}>{busy?'Saving…':on?'Save changes':'Start sharing'}</button>}>
+  {setup==='all'&&createPortal(<Sheet kicker="Help keep models available" title="Share your backups with everyone" back="Close sharing setup" onClose={close} footer={<button className="sk-btn sk-solid" disabled={busy||!agreed||licenses.length===0||badAddress||(limitsChanged()&&!limitsValid(...limits))} onClick={()=>void (on&&state.policy.bittorrent_consent!==false?act('desktop-community-configure',choices()).then(ok=>ok&&close()):turnOn())}>{busy?'Saving…':on?'Save changes':'Start sharing'}</button>}>
    {alert}
+   {focus&&<Callout tone="info">{focus.name} is saved. Sharing it helps other people keep their own verified copy. Review what’s shared and what others can see below, then agree to start. If you share only the backups you choose, it starts with this one.</Callout>}
    <Step n={1} title="What to share">
     <ShareChoice value={share} onChange={setShare} name="community-share" every={['Every backup whose licence allows it','New backups join on their own. You can keep any one back.']} chosen={['Only the backups I choose','Pick them from the list after you start.']}/>
    </Step>
