@@ -6,6 +6,10 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Guided Linux setup 0.1.13 and graphical setup 0.1.15 install revision 15
+  (core 0.37.0 / Library 0.33.0), now served by the signed apt channel; package
+  pins amd64 47a16341… and arm64 3aa1afe7…, documented bootstrap hash b535f7df….
+
 - Pin Sovereign Mac build 20 and Linux revision 15 to the authenticated
   Library 0.33.0 installation archive (sha256 5004dd29…, source 31dbf59a; its
   desktop lock carries core 0.37.0 and libtorrent 2.0.14). Native signing,
