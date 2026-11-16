@@ -13,6 +13,12 @@
   changes, or daily so its signatures never lapse; the previous generation is
   kept for readers still fetching it. Reading listings comes next.
 
+- BitTorrent sharing follows the router choice too: when the owner kept
+  **Ask my router to open port …** on (and gave no address of their own), the
+  sharing session also asks the router to forward its BitTorrent port, so
+  people outside can connect to it directly. Turning the choice off, or giving
+  an address, stops asking.
+
 - Downloading to a drive formatted exFAT (common for external drives) no
   longer makes the app flash "Sovereign on this computer isn't responding".
   Progress read the download's size on every refresh, and on exFAT under macOS

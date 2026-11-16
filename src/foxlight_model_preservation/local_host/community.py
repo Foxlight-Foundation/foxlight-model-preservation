@@ -940,6 +940,20 @@ class CommunityMirror:
             listing_key=self._mirror_key,
         )
 
+    def _native_wanted(self, policy: CommunityPolicy) -> tuple[bool, bool, bool]:
+        """The mirror's BitTorrent transports this policy asks for: Pirate Face
+        seeding, per-file sharing, and asking the router for the sharing port."""
+        consented = self.consented(policy) and rendezvous_available()
+        files = consented and policy.bittorrent_consent
+        return (
+            bool(policy.seed_pirate_face and consented),
+            files,
+            # The sharing session asks the router to forward its BitTorrent
+            # port under the same choice as the mirror's own port: only when
+            # the owner kept it, and gave no address of their own.
+            files and policy.open_router_port is True and policy.public_url is None,
+        )
+
     def _apply_pirate_face(self, ledger: MirrorLedger, policy: CommunityPolicy) -> bool:
         """Match the mirror's BitTorrent sharing to the choice; True if changed.
 
@@ -948,19 +962,20 @@ class CommunityMirror:
         Face torrents when the owner turned that on.
         """
         native = ledger.read().native_policy
-        consented = self.consented(policy) and rendezvous_available()
         current = (
             bool(native and native.pirate_face),
             bool(native and native.file_torrents),
+            bool(native and native.map_ports),
         )
-        wanted = (
-            bool(policy.seed_pirate_face and consented),
-            consented and policy.bittorrent_consent,
-        )
+        wanted = self._native_wanted(policy)
         if current == wanted or (native is None and not any(wanted)):
             return False
         configure_native(
-            ledger, pirate_face=wanted[0], file_torrents=wanted[1], max_active=4
+            ledger,
+            pirate_face=wanted[0],
+            file_torrents=wanted[1],
+            map_ports=wanted[2],
+            max_active=4,
         )
         # The pool otherwise downloads nothing; lookups need a small allowance.
         ingress = PIRATE_FACE_INGRESS if wanted[0] else 1

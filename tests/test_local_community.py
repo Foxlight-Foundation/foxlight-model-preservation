@@ -1166,7 +1166,62 @@ def test_someone_sharing_from_before_bittorrent_shares_files_that_way_only_once_
         community._apply_pirate_face(ledger, agreed)
         native = ledger.read().native_policy
         assert native is not None and native.file_torrents
+        # The router is asked to forward the sharing port only under the
+        # owner's router choice, and never when they gave their own address.
+        assert not native.map_ports
+        routed = community.configure({"open_router_port": True})
+        community._apply_pirate_face(ledger, routed)
+        native = ledger.read().native_policy
+        assert native is not None and native.file_torrents and native.map_ports
+        addressed = community.configure({"public_url": "https://mirror.example.org"})
+        community._apply_pirate_face(ledger, addressed)
+        native = ledger.read().native_policy
+        assert native is not None and native.file_torrents and not native.map_ports
         # Turning sharing off withdraws it; turning it on again asks again.
         assert community.configure({"enabled": False}).bittorrent_consent is False
+    finally:
+        owner.close()
+
+
+def test_agreeing_to_bittorrent_while_sharing_applies_at_once(
+    tmp_path: Path, capture: Capture
+) -> None:
+    pytest.importorskip("libtorrent", reason="optional native BitTorrent extra")
+    port = free_port()
+    home = tmp_path / "owner"
+    owner = LocalOwner(home)
+    try:
+        saved(owner, tmp_path, capture)
+        enable(owner, port)
+
+        def files_shared() -> bool:
+            try:
+                native = MirrorLedger(owner.community._mirror()).read().native_policy
+            except (OSError, PreservationError):
+                return False  # no mirror yet
+            return native is not None and native.file_torrents
+
+        wait_for(files_shared)
+        # Someone who agreed before the consent mentioned BitTorrent.
+        community = owner.community
+        community._save(
+            community.policy().model_copy(update={"bittorrent_consent": False})
+        )
+        owner.control("community-configure", {"seed_pirate_face": False})
+        wait_for(lambda: not files_shared())
+        identity = wait_for(
+            lambda: next(
+                (
+                    row["public_manifest_id"]
+                    for row in owner.control("community-read", {})["copies"]
+                    if row["status"] == "sharing"
+                ),
+                None,
+            )
+        )
+        # Agreeing again applies at once: saving restarts the running mirror.
+        owner.control("community-configure", {"enabled": True, "consent": True})
+        wait_for(files_shared)
+        wait_for(lambda: served(port, identity) == 200)
     finally:
         owner.close()
