@@ -112,12 +112,9 @@ from ..signing import (
     public_record,
 )
 from ..sovereign_listing import (
-    LISTING_SALT,
-    current_listing,
-    dht_keys,
     listing_files,
-    pointer_value,
     publish_listing,
+    unchanged_listing,
     withdraw_listing,
 )
 from ..sovereign_torrents import listed
@@ -934,7 +931,14 @@ class CommunityMirror:
             if observe is not None:
                 observe(value)
 
-        run_mirror(ledger, resume=True, control=control, observe=record)
+        run_mirror(
+            ledger,
+            resume=True,
+            control=control,
+            observe=record,
+            # The key its signed listing's DHT pointer is stored under.
+            listing_key=self._mirror_key,
+        )
 
     def _apply_pirate_face(self, ledger: MirrorLedger, policy: CommunityPolicy) -> bool:
         """Match the mirror's BitTorrent sharing to the choice; True if changed.
@@ -1492,6 +1496,18 @@ class CommunityMirror:
         present = {name: data for name, data in documents.items() if data is not None}
         if "holdings.json" not in present:
             return  # nothing worth listing could be described
+        try:
+            pool = MirrorLedger(root)
+            entries: list[JsonValue] = [
+                [entry.manifest, entry.infohash, entry.source, entry.object or ""]
+                for entry in [*seeded(pool.read(), held), *listed(pool, held)]
+            ]
+        except (PreservationError, OSError, ValueError):
+            return
+        shared: list[JsonValue] = list(sorted(held))
+        subject = digest(identity_json([shared, sorted(entries, key=str)]))
+        if unchanged_listing(root, subject):
+            return
         manifests: dict[str, bytes] = {}
         for manifest_id in sorted(held):
             with contextlib.suppress(OSError, PreservationError):
@@ -1500,7 +1516,7 @@ class CommunityMirror:
                         public, manifest_path(manifest_id)
                     )
         with contextlib.suppress(PreservationError, OSError, RuntimeError):
-            publish_listing(root, listing_files(present, manifests))
+            publish_listing(root, listing_files(present, manifests), subject)
 
     def _nostr_key(self) -> bytes:
         with directory(self.path, create=True) as root:
@@ -1545,11 +1561,8 @@ class CommunityMirror:
         port = self.dht_port()
         # Announcing an address with nothing to serve would only expose it.
         announce = port is not None and held and available
-        # Sharing files over BitTorrent already joins the DHT; the listing's
-        # signed pointer is published there too, whatever the address choice.
-        listing = available and held and self._files_shared()
-        if announce or router is not None or listing:
-            dht = bool(self.announcing()[0]) or listing
+        if announce or router is not None:
+            dht = bool(self.announcing()[0])
             node = self.rendezvous
             if node is None or node.open_port != router or node.dht != dht:
                 self._close_rendezvous()
@@ -1586,8 +1599,6 @@ class CommunityMirror:
         card = self.announce()
         if card is not None and relays:
             publish_card(card, self._nostr_key(), relays, relay_policy, control=control)
-        if listing and self.rendezvous is not None:
-            self._point_to_listing(self.rendezvous, control)
 
     def _files_shared(self) -> bool:
         """Whether this mirror shares its files over BitTorrent (the consent)."""
@@ -1596,25 +1607,6 @@ class CommunityMirror:
         except (PreservationError, OSError, ValueError):
             return False
         return policy is not None and policy.file_torrents
-
-    def _point_to_listing(self, node: Rendezvous, control: OperationControl) -> None:
-        """Store the signed DHT pointer to this computer's current listing.
-
-        DHT items lapse after a couple of hours, so every round stores it again.
-        """
-        current = current_listing(self._mirror())
-        if current is None:
-            return
-        secret, public = dht_keys(self._mirror_key())
-        with contextlib.suppress(PreservationError, RuntimeError):
-            node.put_pointer(
-                secret,
-                public,
-                LISTING_SALT,
-                pointer_value(current.infohash_v2),
-                seconds=20,
-                control=control,
-            )
 
     def dht_port(self) -> int | None:
         """The public HTTP port to announce on the DHT, or None to stay off it.

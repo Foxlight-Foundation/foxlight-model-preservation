@@ -52,6 +52,8 @@ _custody_lock = threading.RLock()
 _publication_lock = threading.Lock()
 
 if TYPE_CHECKING:
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
     from .sovereign_torrents import FileSharing
 
 
@@ -494,6 +496,7 @@ class NativeMirrors:
         pirate_face_source: str | None = None,
         pirate_face_settings: dict[str, str | int | bool] | None = None,
         file_settings: dict[str, str | int | bool] | None = None,
+        listing_key: Callable[[], Ed25519PrivateKey] | None = None,
     ):
         self.ledger = ledger
         self.authorized = authorized
@@ -503,6 +506,7 @@ class NativeMirrors:
         self.pirate_face_settings = pirate_face_settings
         # Sovereign's per-file sharing: one session for every held file.
         self.file_settings = file_settings
+        self.listing_key = listing_key
         self.files: FileSharing | None = None
         self._lookup: threading.Thread | None = None
         self._closed = threading.Event()
@@ -637,7 +641,9 @@ class NativeMirrors:
         if policy.file_torrents and self.files is None:
             from .sovereign_torrents import FileSharing
 
-            self.files = FileSharing(self.ledger, settings=self.file_settings)
+            self.files = FileSharing(
+                self.ledger, settings=self.file_settings, listing_key=self.listing_key
+            )
         if self.files is not None:
             self.files.tick(state, lambda manifest: self._allowed(state, manifest))
         if at_capacity:

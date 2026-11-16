@@ -24,6 +24,7 @@ import os
 import re
 import secrets
 import shutil
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -45,6 +46,9 @@ LISTING_PIECE = 256 * 1024
 # Everything in one listing; manifests that don't fit are left out (the copy
 # is still listed, but can only be saved from somewhere its manifest is).
 MAX_LISTING_BYTES = 64 * 1024**2
+# A listing that still describes what is shared is renewed this often, well
+# within its signed documents' week-long lifetime.
+RENEW_SECONDS = 24 * 3600
 _V2 = re.compile(r"[0-9a-f]{64}")
 _MANIFEST = re.compile(r"manifests/[0-9a-f]{64}\.json")
 
@@ -130,9 +134,32 @@ def read_listing(data: bytes) -> tuple[Any, str, str]:
     return info, str(hashes.v1), str(hashes.v2)
 
 
-def publish_listing(root: Path, files: dict[str, bytes]) -> Listing:
+def unchanged_listing(root: Path, subject: str, now: float | None = None) -> bool:
+    """Whether the current listing already describes ``subject`` (what is
+    shared) and is fresh enough that its signed documents needn't be renewed.
+
+    The documents carry their own issue times, so rebuilding every round would
+    give a new torrent, and a new pointer, each time nothing changed.
+    """
+    if current_listing(root) is None:
+        return False
+    try:
+        recorded, published = (root / LISTING_DIRECTORY / "subject").read_text().split()
+        age = (time.time() if now is None else now) - float(published)
+    except (OSError, ValueError):
+        return False
+    return recorded == subject and 0 <= age < RENEW_SECONDS
+
+
+def publish_listing(
+    root: Path,
+    files: dict[str, bytes],
+    subject: str | None = None,
+    now: float | None = None,
+) -> Listing:
     """Write ``files`` as a listing generation in ``root/listing`` (unless an
-    identical one is there), make it current, and drop older generations."""
+    identical one is there), make it current, and drop older generations.
+    ``subject`` records what it describes, for :func:`unchanged_listing`."""
     if not files:
         raise PreservationError("an empty listing is not published")
     base = root / LISTING_DIRECTORY
@@ -153,6 +180,10 @@ def publish_listing(root: Path, files: dict[str, bytes]) -> Listing:
         shutil.rmtree(build, ignore_errors=True)
     _set_current(base, v2)
     _prune(base, v2)
+    if subject is not None:
+        with directory(base) as fd:
+            stamp = int(time.time() if now is None else now)
+            atomic_bytes(fd, "subject", f"{subject} {stamp}".encode())
     return Listing(v1, v2, torrent, generation)
 
 

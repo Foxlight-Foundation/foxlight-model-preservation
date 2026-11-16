@@ -192,7 +192,6 @@ def test_a_sharing_computer_with_no_address_can_be_found_through_its_listing(
     from test_local_community import free_port as free
 
     from foxlight_model_preservation import sovereign_torrents
-    from foxlight_model_preservation.local_host import community as module
     from foxlight_model_preservation.local_host.owner import LocalOwner
     from foxlight_model_preservation.mirror_holdings import verify_holdings
     from foxlight_model_preservation.operations import OperationControl
@@ -201,19 +200,30 @@ def test_a_sharing_computer_with_no_address_can_be_found_through_its_listing(
 
     router = Rendezvous(interface="127.0.0.1", bootstrap=(), lab=True)
     boot = (("127.0.0.1", router.port),)
-    monkeypatch.setattr(
-        module,
-        "Rendezvous",
-        lambda **kwargs: Rendezvous(
-            interface="127.0.0.1", bootstrap=boot, lab=True, dht=kwargs.get("dht", True)
-        ),
-    )
     sharers: list[sovereign_torrents.FileSharer] = []
-    real = sovereign_torrents.FileSharer
+    # The real sharing session (tests otherwise keep it off the DHT), joined to
+    # a loopback DHT instead of the public one, and never to a router.
+    real = sovereign_torrents.FileSharer.__mro__[1]
+    lab = {
+        "listen_interfaces": "127.0.0.1:0",
+        "enable_lsd": False,
+        "dht_bootstrap_nodes": f"127.0.0.1:{router.port}",
+        "dht_restrict_routing_ips": False,
+        "dht_restrict_search_ips": False,
+        "dht_ignore_dark_internet": False,
+        "dht_enforce_node_id": False,
+        "dht_prefer_verified_node_ids": False,
+    }
 
     class Recorded(real):  # type: ignore[misc, valid-type]
-        def __init__(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
-            super().__init__(*args, **kwargs)
+        def __init__(self, home, *, open_router, upload_rate=0, settings=None):  # type: ignore[no-untyped-def]
+            super().__init__(
+                home,
+                open_router=False,
+                upload_rate=upload_rate,
+                settings={**(settings or {}), **lab},
+            )
+            self.session.add_dht_node(("127.0.0.1", router.port))
             sharers.append(self)
 
     monkeypatch.setattr(sovereign_torrents, "FileSharer", Recorded)
@@ -256,11 +266,13 @@ def test_a_sharing_computer_with_no_address_can_be_found_through_its_listing(
             value = reader.get_pointer(public, LISTING_SALT, seconds=5)
             found = read_pointer(value)
         assert found is not None
-        mirror = tmp_path / "owner"
         listing = wait_for(
             lambda: current_listing(owner.community._mirror()), seconds=10
         )
         assert listing.infohash_v2 == found
+        # Another round with nothing new shared keeps the same listing.
+        owner.community.gossip(OperationControl())
+        assert current_listing(owner.community._mirror()) == listing
         # The sharing session seeds exactly that listing.
         wait_for(lambda: any(sharer.listing() == found for sharer in sharers), 60)
         sharer = next(sharer for sharer in sharers if sharer.listing() == found)
@@ -276,9 +288,27 @@ def test_a_sharing_computer_with_no_address_can_be_found_through_its_listing(
         assert [entry.manifest for entry in holdings.entries] == [identity]
         assert (inner / "manifests" / f"{identity}.json").exists()
         assert (inner / "torrents.json").exists()
-        del mirror
     finally:
         owner.close()
         reader.close()
         router.close()
         downloader.pause()
+
+
+def test_a_listing_is_rebuilt_only_when_what_it_describes_changes_or_ages(
+    tmp_path: Path,
+) -> None:
+    from foxlight_model_preservation.sovereign_listing import (
+        RENEW_SECONDS,
+        unchanged_listing,
+    )
+
+    assert not unchanged_listing(tmp_path, "subject")
+    publish_listing(tmp_path, dict(DOCUMENTS), "subject", now=1_000_000)
+    assert unchanged_listing(tmp_path, "subject", now=1_000_000 + 60)
+    # Something else shared, or documents due for renewal: rebuild.
+    assert not unchanged_listing(tmp_path, "other", now=1_000_000 + 60)
+    assert not unchanged_listing(tmp_path, "subject", now=1_000_000 + RENEW_SECONDS)
+    # A listing whose files are gone is never treated as current.
+    (tmp_path / "listing" / "current").unlink()
+    assert not unchanged_listing(tmp_path, "subject", now=1_000_000 + 60)
