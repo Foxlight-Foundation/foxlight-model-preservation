@@ -102,6 +102,8 @@ MAX_MIRRORS = 2048
 # Listing cards kept, and how many a peers document relays (after mirror cards).
 MAX_LISTINGS = 512
 MAX_RELAYED_LISTINGS = 32
+# Kept well within what a metadata read accepts, however large each card is.
+MAX_LISTINGS_BYTES = 2 * 1024 * 1024
 # Cached signed object coverage, across every kept mirror.
 OBJECTS_CACHE_BYTES = 64 * 1024**2
 # Kept mirror holdings (what each mirror says it keeps), pruned the same way.
@@ -1178,13 +1180,14 @@ class MirrorDirectory:
     # Listing cards ----------------------------------------------------------
 
     def read_listings(self) -> ListingState:
-        """The listing cards kept; an absent file keeps none."""
+        """The listing cards kept; an absent or unreadable file keeps none (the
+        next card learned rewrites it), so discovery never stops on it."""
         try:
             with directory(self.path) as root:
                 return ListingState.model_validate_json(
                     read_metadata(root, "listings.json")
                 )
-        except FileNotFoundError:
+        except (OSError, ValueError, PreservationError):
             return ListingState()
 
     def ingest_listings(self, cards: Iterable[bytes], *, now: int | None = None) -> int:
@@ -1223,9 +1226,17 @@ class MirrorDirectory:
                 if (card := _listing(seen.card)) is not None
                 and card.expires_at > instant
             }
-            kept = dict(
-                sorted(live.items(), key=lambda item: -item[1].last_seen)[:MAX_LISTINGS]
-            )
+            ranked = sorted(live.items(), key=lambda item: -item[1].last_seen)
+            # Within a count and a byte budget: cards can be large, and anyone
+            # can sign one, so the least recently seen go first.
+            kept: dict[str, SeenListing] = {}
+            size = 0
+            for key, seen in ranked[:MAX_LISTINGS]:
+                entry = len(encode_record(seen)) + len(key) + 8
+                if size + entry > MAX_LISTINGS_BYTES:
+                    break
+                kept[key] = seen
+                size += entry
             atomic_bytes(
                 root, "listings.json", encode_record(ListingState(listings=kept))
             )

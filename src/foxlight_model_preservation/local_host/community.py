@@ -1437,11 +1437,6 @@ class CommunityMirror:
             if addresses and held
             else None
         )
-        # A computer sharing over BitTorrent says so in a listing card, which
-        # its peers document (and Nostr, when published there) carries.
-        self.listing_card = self._issue_listing_card()
-        own = (self.listing_card,) if self.listing_card is not None else ()
-        document = build_peers(card, (*own, *self.directory.gossip()))
         # Object coverage lets catalog saves find files here by hash. It is
         # signed by the same mirror key and served beside the peers document.
         objects = holdings = torrents = None
@@ -1450,17 +1445,6 @@ class CommunityMirror:
         sharing_files = bool(local) and self._files_shared()
         if card is not None or sharing_files:
             objects, holdings, torrents = self._documents(held)
-        try:
-            with directory(self._mirror()) as root:
-                atomic_bytes(root, "peers.json", document)
-                if objects is not None:
-                    atomic_bytes(root, "objects.json", objects)
-                if holdings is not None:
-                    atomic_bytes(root, "holdings.json", holdings)
-                if torrents is not None:
-                    atomic_bytes(root, "torrents.json", torrents)
-        except FileNotFoundError:
-            pass  # No mirror yet; the next sync creates it and announces.
         # The card (and the bucket's copy of these documents) covers only what
         # the bucket holds when that is its only address; the listing covers
         # everything this computer shares over BitTorrent.
@@ -1481,6 +1465,22 @@ class CommunityMirror:
             else None,
             local,
         )
+        # Then the listing card for the generation just published, which this
+        # computer's peers document (and Nostr, when published there) carries.
+        self.listing_card = self._issue_listing_card()
+        own = (self.listing_card,) if self.listing_card is not None else ()
+        document = build_peers(card, (*own, *self.directory.gossip()))
+        try:
+            with directory(self._mirror()) as root:
+                atomic_bytes(root, "peers.json", document)
+                if objects is not None:
+                    atomic_bytes(root, "objects.json", objects)
+                if holdings is not None:
+                    atomic_bytes(root, "holdings.json", holdings)
+                if torrents is not None:
+                    atomic_bytes(root, "torrents.json", torrents)
+        except FileNotFoundError:
+            pass  # No mirror yet; the next sync creates it and announces.
         # Only a document carrying this mirror's card is worth replacing the
         # bucket's copy with; a transient empty one would hide the bucket.
         if bucket is not None and bucket.synced and card is not None:

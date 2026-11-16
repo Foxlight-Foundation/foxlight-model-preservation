@@ -144,7 +144,6 @@ def test_a_computer_sharing_with_no_address_publishes_its_listing_card(
     from test_local_community import enable, free_port, served, wait_for
 
     from foxlight_model_preservation.local_host.owner import LocalOwner
-    from foxlight_model_preservation.operations import OperationControl
     from foxlight_model_preservation.sovereign_listing import current_listing
 
     port = free_port()
@@ -167,10 +166,11 @@ def test_a_computer_sharing_with_no_address_publishes_its_listing_card(
         assert community.addresses() == ()
 
         def published() -> bytes | None:
-            community.gossip(OperationControl())
-            if current_listing(community._mirror()) is None:
-                return None
+            before = current_listing(community._mirror())
             community.announce()
+            if before is None and current_listing(community._mirror()) is not None:
+                # The announcement that published the listing carries its card.
+                assert community.listing_card is not None
             return community.listing_card
 
         raw = wait_for(published, seconds=60)
@@ -183,3 +183,29 @@ def test_a_computer_sharing_with_no_address_publishes_its_listing_card(
         assert read_peers(document) == []  # no address, so no mirror card
     finally:
         owner.close()
+
+
+def test_kept_listing_cards_stay_within_a_byte_budget_and_a_bad_file_recovers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from foxlight_model_preservation import mirror_directory
+
+    store = MirrorDirectory(tmp_path / "directory")
+    now = int(time.time())
+    cards = [
+        issue_listing_card(Ed25519PrivateKey.generate(), HELD, now=now)
+        for _ in range(6)
+    ]
+    one = len(cards[0])
+    monkeypatch.setattr(mirror_directory, "MAX_LISTINGS_BYTES", one * 3)
+    for index, card in enumerate(cards):
+        store.ingest_listings([card], now=now + index)
+    kept = store.listing_cards(now=now + 10)
+    # The most recently seen fit; the file stays readable.
+    assert 0 < len(kept) < len(cards) and kept[0] == cards[-1]
+    assert (tmp_path / "directory" / "listings.json").stat().st_size < one * 4
+    # A damaged file never stops discovery: it reads as empty and is rewritten.
+    (tmp_path / "directory" / "listings.json").write_bytes(b"{not json")
+    assert store.listing_cards(now=now) == []
+    assert store.ingest_listings([cards[0]], now=now) == 1
+    assert store.listing_cards(now=now) == [cards[0]]
