@@ -6,6 +6,10 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Install docs point at the public 0.37 cohort: core 0.37.0, Library 0.33.0,
+  Mac build 20, Linux revision 15 (guided setup 0.1.13, graphical setup 0.1.15)
+  and `sovereign-mirror:0.37.0`.
+
 - Guided Linux setup 0.1.13 and graphical setup 0.1.15 install revision 15
   (core 0.37.0 / Library 0.33.0), now served by the signed apt channel; package
   pins amd64 47a16341… and arm64 3aa1afe7…, documented bootstrap hash b535f7df….
