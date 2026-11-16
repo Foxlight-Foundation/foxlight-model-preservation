@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.37.0
+
 - After a save, the desktop app may ask once "Help keep this model
   available?": only while sharing is off, and only for a model whose licence
   is on the sharing list. The page read says whether it may ask

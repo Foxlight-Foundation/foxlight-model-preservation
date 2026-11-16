@@ -6,6 +6,8 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+## 0.33.0
+
 - After your first save of a model whose licence allows sharing, Activity asks
   once: "Help keep this model available?". Review sharing opens the usual
   sharing review with that model in mind (if you share only the models you
@@ -43,6 +45,7 @@ tagged `library-v*`; versions without a tag are source previews installed from
   Library 0.32.0 installation archive (sha256 d81df1c6…, source 80f8e72f; its
   desktop lock carries core 0.36.0 and libtorrent 2.0.14). Native signing,
   notarization, apt publication and qualification remain separate gates.
+- Requires core 0.37.0.
 
 ## 0.32.0
 
