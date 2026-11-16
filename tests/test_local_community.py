@@ -1058,6 +1058,15 @@ def test_seeding_on_pirate_face_restarts_serving_with_the_new_choice(
     monkeypatch.setattr(
         "foxlight_model_preservation.mirror_native.torrent_engine", lambda: None
     )
+
+    def missing() -> None:
+        raise PreservationError("the optional bittorrent dependency is missing")
+
+    # Without the BitTorrent component, per-file sharing stays off and HTTP
+    # sharing carries on.
+    monkeypatch.setattr(
+        "foxlight_model_preservation.sovereign_torrents.torrent_engine", missing
+    )
     lookups: list[str] = []
     monkeypatch.setattr(
         "foxlight_model_preservation.pirateface_seed.lookup",
@@ -1086,7 +1095,10 @@ def test_seeding_on_pirate_face_restarts_serving_with_the_new_choice(
         )
         wait_for(lambda: served(port, identity) == 200)
         ledger = MirrorLedger(home / "sharing/community/mirror")
-        assert ledger.read().native_policy is None
+        # Sharing shares files as Sovereign's own torrents; Pirate Face waits
+        # for its own choice.
+        native = ledger.read().native_policy
+        assert native is not None and native.file_torrents and not native.pirate_face
         view = owner.control("community-configure", {"seed_pirate_face": True})
         assert view["policy"]["seed_pirate_face"] is True
         wait_for(
@@ -1118,5 +1130,43 @@ def test_seeding_on_pirate_face_restarts_serving_with_the_new_choice(
         owner.control("community-configure", {"seed_pirate_face": False})
         wait_for(lambda: not ledger.read().native_policy.pirate_face)
         wait_for(lambda: served(port, identity) == 200)
+    finally:
+        owner.close()
+
+
+def test_someone_sharing_from_before_bittorrent_shares_files_that_way_only_once_they_agree(  # noqa: E501
+    tmp_path: Path, capture: Capture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Turning file sharing on needs the BitTorrent component itself.
+    pytest.importorskip("libtorrent", reason="optional native BitTorrent extra")
+    from foxlight_model_preservation.local_host import community as module
+
+    monkeypatch.setattr(module, "rendezvous_available", lambda: True)
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        saved(owner, tmp_path, capture)
+        community = owner.community
+        # Agreed before the consent said anything about BitTorrent.
+        earlier = community.policy().model_copy(
+            update={
+                "enabled": True,
+                "consent_expires": int(time.time()) + 3600,
+                "bittorrent_consent": False,
+            }
+        )
+        community._save(earlier)
+        assert community.consented()
+        ledger = community.ledger()
+        community._apply_pirate_face(ledger, earlier)
+        native = ledger.read().native_policy
+        assert native is None or not native.file_torrents
+        # Agreeing to the consent as it reads now is agreeing to BitTorrent too.
+        agreed = community.configure({"enabled": True, "consent": True})
+        assert agreed.bittorrent_consent is True
+        community._apply_pirate_face(ledger, agreed)
+        native = ledger.read().native_policy
+        assert native is not None and native.file_torrents
+        # Turning sharing off withdraws it; turning it on again asks again.
+        assert community.configure({"enabled": False}).bittorrent_consent is False
     finally:
         owner.close()

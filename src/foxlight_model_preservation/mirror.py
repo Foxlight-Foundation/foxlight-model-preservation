@@ -1479,6 +1479,7 @@ def run_mirror(
                 state.native_policy.ipfs_binary
                 or state.native_policy.torrent
                 or state.native_policy.pirate_face
+                or state.native_policy.file_torrents
             )
         ):
             raise PreservationError("select at least one mirror serving transport")

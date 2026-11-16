@@ -7,11 +7,11 @@ import {Announce,LicenceFamilies,LicenceList,ShareChoice,UploadLimits,describeLi
 
 type Status='sharing'|'eligible'|'failed'|'withheld'|'not_chosen'|'license_not_selected'|'no_license'|'unsupported';
 interface CommunityCopy {copy_id:string;name:string;size_bytes:number;status:Status;licenses:string[];public_manifest_id:string|null;error_code?:string|null}
-interface Policy {enabled:boolean;share:'eligible'|'chosen';licenses:string[];chosen:string[];withheld:string[];daily_upload_bytes:number|null;monthly_upload_bytes:number|null;port:number;consent_expires:number|null;public_url?:string|null;announce_dht?:boolean;publish_nostr?:boolean;nostr_relays?:string[];seed_pirate_face?:boolean;open_router_port?:boolean|null}
+interface Policy {enabled:boolean;share:'eligible'|'chosen';licenses:string[];chosen:string[];withheld:string[];daily_upload_bytes:number|null;monthly_upload_bytes:number|null;port:number;consent_expires:number|null;public_url?:string|null;announce_dht?:boolean;publish_nostr?:boolean;nostr_relays?:string[];seed_pirate_face?:boolean;open_router_port?:boolean|null;bittorrent_consent?:boolean}
 interface PirateFaceStatus {available:boolean;on:boolean;checked:number;listed:number;matched:number;seeding:number;differs:number}
 interface Reachability {status:'public_address'|'router_opened'|'carrier_nat'|'private_network'|'offline';local_address:string|null;port:number;mirror_url:string|null;router?:{asked:boolean;external_port:number|null;error:string|null}}
 type Reason='awaiting_review'|'address_invalid'|'turned_off'|'not_sharing'|'dht_unavailable'|'nothing_shared'|'no_reachable_address'|'address_not_plain_http'|'no_relays';
-export interface Community {policy:Policy;consented:boolean;default_licenses:string[];licence_families?:LicenceDefinition;copies:CommunityCopy[];sharing_count:number;running:boolean;http_port:number|null;reachability:Reachability;last_error:string|null;bucket:BucketSummary|null;bucket_providers:BucketProvider[];uploaded_today_bytes?:number;uploaded_this_month_bytes?:number;dht_available?:boolean;dht_announcing?:boolean;nostr_publishing?:boolean;announce_reasons?:{dht:Reason[];nostr:Reason[]};announce_review_required?:boolean;address_invalid?:boolean;pirate_face?:PirateFaceStatus}
+export interface Community {torrent_files?:number;policy:Policy;consented:boolean;default_licenses:string[];licence_families?:LicenceDefinition;copies:CommunityCopy[];sharing_count:number;running:boolean;http_port:number|null;reachability:Reachability;last_error:string|null;bucket:BucketSummary|null;bucket_providers:BucketProvider[];uploaded_today_bytes?:number;uploaded_this_month_bytes?:number;dht_available?:boolean;dht_announcing?:boolean;nostr_publishing?:boolean;announce_reasons?:{dht:Reason[];nostr:Reason[]};announce_review_required?:boolean;address_invalid?:boolean;pirate_face?:PirateFaceStatus}
 type CheckOutcome='too_slow'|'this_mirror'|'other_mirror'|'no_card'|'not_a_mirror'|'http_error'|'private_address'|'unreachable';
 interface AddressCheck {address:string;outcome:CheckOutcome;http_status:number|null}
 
@@ -91,6 +91,7 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
  const pirateStep=(n:number)=>pf&&<Step n={n} title="Pirate Face">
    <Announce checked={pirate&&pf.available} disabled={!pf.available} onChange={setPirate} title="Also seed on Pirate Face">Looks up each shared model on Pirate Face (pirateface.co). Where its torrent holds exactly the files this computer shares, this computer seeds it too, straight from those files: no second copy. Every piece is checked against them first, and nothing is ever downloaded. Peers in the public BitTorrent swarm see this computer’s address, and your upload limits apply.{!pf.available&&' This copy of Sovereign doesn’t include the BitTorrent component, so this can’t be turned on.'}</Announce>
   </Step>;
+ const torrentRow=(state.torrent_files??0)>0&&<Row k="BitTorrent">{state.torrent_files===1?'Sharing 1 file':`Sharing ${state.torrent_files} files`}, so people can download even when this computer can’t be reached directly</Row>;
  const pirateRow=pf&&policy.seed_pirate_face&&<Row k="Pirate Face">{!pf.available?'Can’t seed: this copy of Sovereign doesn’t include the BitTorrent component':pf.checked===0?'Looking up your shared models…':`Seeding ${pf.seeding} of ${pf.matched} matching ${pf.matched===1?'torrent':'torrents'} · ${pf.listed} of ${pf.checked} looked-up ${pf.checked===1?'model':'models'} listed`}{pf.differs>0&&` · ${pf.differs} listed with different files, not seeded`}</Row>;
  const findable=<ul className="sk-community-announce" aria-label="How people find this mirror">
   <li>{state.dht_announcing?'Announced on the BitTorrent DHT. Anyone can look up this computer’s address there as a Sovereign mirror.':`Not announced on the BitTorrent DHT: ${why(reasons.dht,dhtWhy)}.`}</li>
@@ -124,6 +125,7 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
   {on?<>
    {reach}
    {state.announce_review_required&&<Callout tone="warn">Sharing continues as before, but this computer isn’t announced on the BitTorrent DHT or Nostr relays until you choose. An earlier version turned both on without saying what they reveal.<div className="sk-actions"><button className="sk-btn sk-solid" disabled={busy} onClick={()=>open('announce')}>Choose how people find this computer</button></div></Callout>}
+   {policy.bittorrent_consent===false&&state.dht_available!==false&&<Callout tone="info">Sovereign can also share your shared models over BitTorrent, one file at a time, so people can download them even when this computer can’t be reached directly. People downloading that way see this computer’s network address. It stays off until you agree.<div className="sk-actions"><button className="sk-btn sk-solid" disabled={busy} onClick={()=>open()}>Review sharing over BitTorrent</button></div></Callout>}
    {state.last_error&&state.last_error!=='community_nothing_to_share'&&<Callout tone="bad">{communityError(state.last_error)}</Callout>}
    {state.last_error==='community_nothing_to_share'&&<Callout>{communityError(state.last_error)}</Callout>}
    {policy.public_url&&<>
@@ -135,6 +137,7 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
    {state.announce_reasons&&findable}
    <Row k="Shares">{policy.share==='eligible'?'Every backup whose licence is on your list':'Only the backups you choose'}</Row>
    <Row k="Licences">{describeLicences(policy.licenses,state.licence_families)}</Row>
+   {torrentRow}
    {pirateRow}
    <Row k="Uploaded today">{bytes(state.uploaded_today_bytes??0)}{policy.daily_upload_bytes===null?' · no limit':<> of {bytes(policy.daily_upload_bytes)}</>}</Row>
    <Row k="Uploaded this month">{bytes(state.uploaded_this_month_bytes??0)}{policy.monthly_upload_bytes===null?' · no limit':<> of {bytes(policy.monthly_upload_bytes)}</>}</Row>
@@ -160,7 +163,7 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
    <p>Sharing stays on exactly as it is. Choose whether this computer also announces itself publicly. Nothing is announced until you save.</p>
    {announceStep(1)}
   </Sheet>,document.body)}
-  {setup==='all'&&createPortal(<Sheet kicker="Help keep models available" title="Share your backups with everyone" back="Close sharing setup" onClose={()=>setSetup(false)} footer={<button className="sk-btn sk-solid" disabled={busy||!agreed||licenses.length===0||badAddress||(limitsChanged()&&!limitsValid(...limits))} onClick={()=>void (on?act('desktop-community-configure',choices()).then(ok=>ok&&setSetup(false)):turnOn())}>{busy?'Saving…':on?'Save changes':'Start sharing'}</button>}>
+  {setup==='all'&&createPortal(<Sheet kicker="Help keep models available" title="Share your backups with everyone" back="Close sharing setup" onClose={()=>setSetup(false)} footer={<button className="sk-btn sk-solid" disabled={busy||!agreed||licenses.length===0||badAddress||(limitsChanged()&&!limitsValid(...limits))} onClick={()=>void (on&&state.policy.bittorrent_consent!==false?act('desktop-community-configure',choices()).then(ok=>ok&&setSetup(false)):turnOn())}>{busy?'Saving…':on?'Save changes':'Start sharing'}</button>}>
    {alert}
    <Step n={1} title="What to share">
     <ShareChoice value={share} onChange={setShare} name="community-share" every={['Every backup whose licence allows it','New backups join on their own. You can keep any one back.']} chosen={['Only the backups I choose','Pick them from the list after you start.']}/>
@@ -173,6 +176,7 @@ export function HelpKeepAvailable({version,onDialogChange}:{version:string|undef
    {pirateStep(4)}
    <Step n={pf?5:4} title="What others can see">
     <p>Anyone who connects can download the shared models and will see this computer’s network address. Direct sharing isn’t anonymous or encrypted.</p>
+    <p>Shared models are also shared over BitTorrent, one file at a time, so people can download them even when this computer can’t be reached directly. People downloading through BitTorrent see this computer’s network address too.</p>
     <UploadLimits daily={limits[0]} monthly={limits[1]} onChange={(daily,monthly)=>setLimits([daily,monthly])}/>
     <Row k="Port">{policy.port}</Row>
     {!address.trim()&&<><label className="sk-switch"><input type="checkbox" role="switch" aria-checked={router} checked={router} onChange={event=>setRouter(event.target.checked)}/><span>Ask my router to open port {policy.port}</span></label>

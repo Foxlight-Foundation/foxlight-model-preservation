@@ -6,6 +6,11 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Help keep models available also shares your shared models over BitTorrent,
+  one file at a time, so people can download them even when this computer
+  can't be reached directly. The panel says how many files it shares that way.
+  If you were already sharing, it asks you first: nothing goes out over
+  BitTorrent until you agree.
 - Help keep models available asks your router to open the sharing port, so
   people outside your network can download from this computer. It's in the
   consent, with a switch to turn it off, and the status says whether the router

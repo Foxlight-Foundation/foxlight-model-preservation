@@ -14,7 +14,7 @@ import time
 from collections.abc import Callable, Generator
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from .handoffs import Handoff, peer_contacts
 from .mirror_models import MirrorState, NativeModel, NativePolicy, at_least
@@ -50,6 +50,9 @@ LOOKUP_DEADLINE_SECONDS = 120.0
 
 _custody_lock = threading.RLock()
 _publication_lock = threading.Lock()
+
+if TYPE_CHECKING:
+    from .sovereign_torrents import FileSharing
 
 
 class PeerSessionRunner(Protocol):
@@ -111,11 +114,16 @@ def configure(
     session_bytes: int = 64 * 1024**2,
     upload_rate: int = 1024**2,
     pirate_face: bool = False,
+    file_torrents: bool = False,
+    map_ports: bool = False,
 ) -> MirrorState:
     """Enroll native public transports offline; invalidate standing restart consent.
 
     ``pirate_face`` also seeds each held copy's matching Pirate Face torrent
     from the stored objects, after looking it up on Pirate Face.
+    ``file_torrents`` shares every held file as Sovereign's own per-file torrent
+    (no rate limit; upload totals are reserved like other egress), and
+    ``map_ports`` lets that session ask the home router to forward its port.
 
     The operator supplies an authenticated Kubo executable and its expected hash.
     No software is downloaded, daemon started, source trusted or model deleted.
@@ -133,6 +141,8 @@ def configure(
         session_bytes=session_bytes,
         upload_rate=upload_rate,
         pirate_face=pirate_face,
+        file_torrents=file_torrents,
+        map_ports=map_ports,
     )
     if ipfs_binary:
         ipfs_binary = str(Path(ipfs_binary).resolve(strict=True))
@@ -143,7 +153,7 @@ def configure(
         raise PreservationError(
             "IPFS options require an explicitly selected executable"
         )
-    if torrent or pirate_face:
+    if torrent or pirate_face or file_torrents:
         torrent_engine()
     contacts = tuple(bootstrap_address(x, allow_private_peers) for x in bootstrap)
     with ledger.service_lock(), ledger.child("scratch") as scratch:
@@ -483,6 +493,7 @@ class NativeMirrors:
         peer_runner: PeerSessionRunner | None = None,
         pirate_face_source: str | None = None,
         pirate_face_settings: dict[str, str | int | bool] | None = None,
+        file_settings: dict[str, str | int | bool] | None = None,
     ):
         self.ledger = ledger
         self.authorized = authorized
@@ -490,6 +501,9 @@ class NativeMirrors:
         # Tests point lookups at a local Pirate Face and keep peers on loopback.
         self.pirate_face_source = pirate_face_source
         self.pirate_face_settings = pirate_face_settings
+        # Sovereign's per-file sharing: one session for every held file.
+        self.file_settings = file_settings
+        self.files: FileSharing | None = None
         self._lookup: threading.Thread | None = None
         self._closed = threading.Event()
         self._lookup_at = float("-inf")
@@ -620,6 +634,12 @@ class NativeMirrors:
             if not session.thread.is_alive():
                 session.thread.join()
                 del self.sessions[key]
+        if policy.file_torrents and self.files is None:
+            from .sovereign_torrents import FileSharing
+
+            self.files = FileSharing(self.ledger, settings=self.file_settings)
+        if self.files is not None:
+            self.files.tick(state, lambda manifest: self._allowed(state, manifest))
         if at_capacity:
             return
         if policy.pirate_face:
@@ -742,6 +762,9 @@ class NativeMirrors:
 
     def close(self) -> None:
         """Stop actual owned sessions/children without removing retained caches."""
+        if self.files is not None:
+            self.files.close()
+            self.files = None
         for session in self.sessions.values():
             session.control.cancel()
         for session in self.sessions.values():

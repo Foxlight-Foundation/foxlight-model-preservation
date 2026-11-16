@@ -118,6 +118,51 @@ def no_origin_retry_pauses(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _file_sharing_stays_local(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Per-file sharing sessions in tests never join the public DHT or a router."""
+    from foxlight_model_preservation import sovereign_torrents
+
+    real = sovereign_torrents.FileSharer
+    local: dict[str, str | int | bool] = {
+        "listen_interfaces": "127.0.0.1:0",
+        "enable_dht": False,
+        "enable_lsd": False,
+        "enable_upnp": False,
+        "enable_natpmp": False,
+    }
+
+    class LocalSharer(real):  # type: ignore[misc, valid-type]
+        def __init__(self, home, *, open_router, upload_rate=0, settings=None):  # type: ignore[no-untyped-def]
+            super().__init__(
+                home,
+                open_router=False,
+                upload_rate=upload_rate,
+                settings={**(settings or {}), **local},
+            )
+
+    monkeypatch.setattr(sovereign_torrents, "FileSharer", LocalSharer)
+
+
+@pytest.fixture(autouse=True)
+def _file_receiving_stays_local(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Per-file receivers in tests never join the public DHT."""
+    from foxlight_model_preservation import sovereign_torrents
+
+    real = sovereign_torrents.FileSwarmReceiver
+
+    class LocalReceiver(real):  # type: ignore[misc, valid-type]
+        def __init__(self, files, staging, **kwargs):  # type: ignore[no-untyped-def]
+            settings = {
+                **(kwargs.pop("settings", None) or {}),
+                "listen_interfaces": "127.0.0.1:0",
+                "enable_dht": False,
+            }
+            super().__init__(files, staging, settings=settings, **kwargs)
+
+    monkeypatch.setattr(sovereign_torrents, "FileSwarmReceiver", LocalReceiver)
+
+
+@pytest.fixture(autouse=True)
 def _never_open_a_real_router(monkeypatch: pytest.MonkeyPatch) -> None:
     """Tests never ask a real home router to forward a port.
 

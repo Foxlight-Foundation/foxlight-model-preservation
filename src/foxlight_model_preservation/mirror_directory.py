@@ -678,13 +678,16 @@ class MirrorDirectory:
     ) -> list[dict[str, str]]:
         """Torrents that live mirrors say carry a copy, most widely listed first.
 
+        A Sovereign torrent carries one file of the copy: its entry names that
+        file's SHA-256 as ``object``.
+
         Each is the mirror's claim: a receiver still checks every file against
         the copy's signed fingerprints, so a wrong torrent can't change a save.
         """
         from .pirateface_seed import verify_torrents
 
         instant = int(time.time()) if now is None else now
-        counts: dict[tuple[str, str], int] = {}
+        counts: dict[tuple[str, str, str], int] = {}
         for seen in self.read().mirrors.values():
             card = None if _dropped(seen) else _live(seen, instant)
             if card is None or not any(
@@ -699,12 +702,16 @@ class MirrorDirectory:
                 continue
             for entry in listed.entries:
                 if entry.manifest == manifest:
-                    key = (entry.infohash, entry.source)
+                    key = (entry.infohash, entry.source, entry.object or "")
                     counts[key] = counts.get(key, 0) + 1
         ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
         return [
-            {"infohash": infohash, "source": source}
-            for (infohash, source), _count in ranked
+            {
+                "infohash": infohash,
+                "source": source,
+                **({"object": item} if item else {}),
+            }
+            for (infohash, source, item), _count in ranked
         ]
 
     def _live_holdings(

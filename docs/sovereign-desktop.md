@@ -405,6 +405,17 @@ instead of copying them, so sharing needs almost no extra space. Withholding a
 backup, narrowing the policy or turning the switch off blocks serving; nothing
 is ever deleted.
 
+Shared models are also shared over BitTorrent, as Sovereign's own torrents: one
+per file, built the same way on every computer, so everyone holding a file helps
+the same swarm. They are shared from the stored files (no second copy), upload
+only, with no rate limit; daily or monthly upload totals, if you set them, pause
+it when reached. People downloading through BitTorrent see this computer's
+address, as with direct sharing. Mirrors list these torrents in their signed
+`torrents.json`, which Find reads.
+If you agreed to sharing before the consent mentioned BitTorrent, nothing is
+shared that way until you agree to it: the panel asks, under **Review sharing
+over BitTorrent**.
+
 The mirror serves HTTP on a fixed port (8743 by default) on every network
 interface. Sovereign says plainly whether this computer has a public address or
 sits behind a router, and asks no outside service. While sharing, it asks the

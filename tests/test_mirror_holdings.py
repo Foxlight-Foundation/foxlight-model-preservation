@@ -192,9 +192,21 @@ def test_a_held_copy_is_found_and_saved_from_mirrors(
         held = store_holdings(store, [capture.identity])
         holdings.write_bytes(issue_holdings(key, held))
         objects.write_bytes(issue_objects(key, served_hashes(store)))
+        from foxlight_model_preservation.sovereign_torrents import held_files
+
+        first_file = held_files(store, capture.identity)[0][0]
         torrents.write_bytes(
             issue_torrents(
-                key, [SeededTorrent(manifest=capture.identity, infohash="c" * 40)]
+                key,
+                [
+                    SeededTorrent(manifest=capture.identity, infohash="c" * 40),
+                    SeededTorrent(
+                        manifest=capture.identity,
+                        infohash="d" * 40,
+                        source="sovereign",
+                        object=first_file,
+                    ),
+                ],
             )
         )
         # Hugging Face no longer has anything: origin downloads and Hub
@@ -221,6 +233,8 @@ def test_a_held_copy_is_found_and_saved_from_mirrors(
             # The torrent the mirror lists is one more source for this copy,
             # used only once swarm downloads are turned on.
             assert plan["swarm"] == {"infohash": "c" * 40}
+            # Sovereign's own per-file swarm for one of its files.
+            assert plan["file_swarms"] == {first_file: "d" * 40}
             assert (plan["repository"], plan["revision"]) == (
                 held[0].origin_repository,
                 held[0].origin_revision,

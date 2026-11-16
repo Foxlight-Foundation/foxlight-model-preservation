@@ -8,6 +8,18 @@
   that waits for the download's own writes, a second or two each time, until
   the window gave up. Progress now uses the size last read in the background.
 
+- Sovereign's own torrents, one per stored file: the same file gives the same
+  torrent on every computer (name = its SHA-256 alone, piece size from
+  its size alone, BitTorrent hybrid v1 + v2), so everyone holding it joins one
+  swarm whatever else they saved. Mirrors build them by reading each stored file
+  in place once, share them from the stored files in one upload-only session
+  (no rate limit; egress reserved from the existing daily/monthly allowance,
+  pausing when it is reached), and list them in their signed `torrents.json`
+  (`"source": "sovereign"`, with the file's SHA-256). Desktop sharing turns this
+  on with its consent; the mirror state moves to v8 so older apps refuse it.
+  Someone who agreed to sharing before the consent mentioned BitTorrent isn't
+  shared that way until they agree to it (the panel asks). Stopping sharing
+  counts every byte already sent toward the day's and month's totals.
 - Sharing from home: while sharing is on, the app asks the home router to
   forward the mirror's port (UPnP / NAT-PMP, through libtorrent's own port
   mapping), as the sharing consent now says. **Ask my router to open port …**
