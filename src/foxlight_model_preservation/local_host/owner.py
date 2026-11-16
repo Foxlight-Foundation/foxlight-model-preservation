@@ -7,6 +7,7 @@ closing the application requests a cooperative stop and retains its journal.
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import fcntl
 import http.client
@@ -26,7 +27,7 @@ from urllib.parse import urlsplit
 
 from pydantic import Field, JsonValue
 
-from .. import hub, pirateface_find
+from .. import hub, pirateface_find, sovereign_listing
 from ..archives import ArchiveManifest, published_archive_manifest, verify_archive
 from ..cards import ArtifactFile, ModelCardEnvelope, identity_json
 from ..kits import export_kit, import_kit, inspect_kit, read_kit_envelope
@@ -38,7 +39,7 @@ from ..licences import (
     terms_review,
 )
 from ..mirror_directory import fetch_with_mirrors, load_seeds, permitted
-from ..mirror_holdings import fetch_held_manifest, holding
+from ..mirror_holdings import fetch_held_manifest, holding, read_held_manifest
 from ..mirror_models import MirrorObservation
 from ..mirror_state import reenroll
 from ..models import (
@@ -3020,7 +3021,14 @@ class LocalOwner:
                     expand=True,
                     control=OperationControl(),
                 )
-            return {"mirrors": len(self.community.directory.read().mirrors)}
+            # Computers that share over BitTorrent, maybe with no address:
+            # their listings are read through the DHT and the swarm, which
+            # shows this computer's address, so only with swarm downloads on.
+            read = self._read_listings() if self.pirate_face_enabled("swarm") else 0
+            return {
+                "mirrors": len(self.community.directory.read().mirrors),
+                "listings": read,
+            }
         if action == "held-search":
             query = body.get("query", "")
             if set(body) - {"query"} or not isinstance(query, str) or len(query) > 200:
@@ -3221,6 +3229,40 @@ class LocalOwner:
             return "differs"
         return "matches" if results and set(results) == {"matches"} else "unconfirmed"
 
+    # Listings read per refresh, and the time they may take together.
+    _listings_per_refresh = 4
+    _listing_seconds = 60.0
+
+    def _read_listings(self) -> int:
+        """Read a few computers' listings that are due; return how many."""
+        store = self.community.directory
+        due = store.listings_to_read(self._listings_per_refresh)
+        if not due:
+            return 0
+        try:
+            reader = self._listing_reader()
+        except (PreservationError, OSError, RuntimeError):
+            return 0  # no BitTorrent component: listings stay unread
+        read = 0
+        deadline = time.monotonic() + self._listing_seconds
+        try:
+            for card in due:
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    break
+                store.note_listing_tried(card)
+                public = base64.b64decode(card.mirror_key.public_key)
+                with contextlib.suppress(PreservationError, OSError, RuntimeError):
+                    files = reader.read(public, seconds=min(left, 30))
+                    if files is not None and store.keep_listing(card, files):
+                        read += 1
+        finally:
+            reader.close()
+        return read
+
+    def _listing_reader(self) -> sovereign_listing.ListingReader:
+        return sovereign_listing.ListingReader(self._data() / "listing-reads")
+
     def _held_plan(self, manifest_id: str) -> dict[str, JsonValue]:
         """Plan saving a copy that community mirrors keep, by its content address.
 
@@ -3231,9 +3273,19 @@ class LocalOwner:
         holders = self.community.directory.holders(
             manifest_id, policy=self._held_policy
         )
-        if not holders:
+        listed = self.community.directory.listed_manifest(manifest_id)
+        if holders:
+            manifest, signers = fetch_held_manifest(
+                manifest_id, holders, self._held_policy
+            )
+        elif listed is not None:
+            # Only computers sharing over BitTorrent keep it: their listing
+            # carries its signed manifest, and its files come from swarms.
+            if not self.pirate_face_enabled("swarm"):
+                raise PreservationError("held_copy_needs_swarm")
+            manifest, signers = read_held_manifest(manifest_id, listed)
+        else:
             raise PreservationError("held_copy_unavailable")
-        manifest, signers = fetch_held_manifest(manifest_id, holders, self._held_policy)
         described = holding(manifest_id, manifest)
         repository, revision = described.origin_repository, described.origin_revision
         check = self._origin_check(manifest)
@@ -3241,9 +3293,14 @@ class LocalOwner:
         origin_text = (
             f"{repository}@{revision}" if repository and revision else "not stated"
         )
-        decision = (
+        kept_from = (
             f"Kept from community mirrors ({', '.join(hosts[:8])}). "
-            f"Claimed origin {origin_text}: "
+            if hosts
+            else "Kept from computers sharing it over BitTorrent. "
+        )
+        decision = (
+            kept_from
+            + f"Claimed origin {origin_text}: "
             + {
                 "matches": "matches Hugging Face.",
                 "differs": "differs from Hugging Face.",
@@ -3303,6 +3360,10 @@ class LocalOwner:
                     "origin_revision": revision,
                     "origin_check": check,
                     "mirrors": cast(JsonValue, hosts[:8]),
+                    # Computers whose listings keep it (over BitTorrent).
+                    "computers": self.community.directory.listing_computers(
+                        manifest_id
+                    ),
                     "signers": cast(JsonValue, list(signers[:4])),
                     "file_list": "mirror",
                 },
@@ -3320,8 +3381,12 @@ class LocalOwner:
                 ),
                 "members": [member.origin_repository for member in recipe.members],
                 "size_bytes": sum(file.size_bytes for file in selected.values()),
-                "source": "community mirrors, and huggingface.co while it still has "
-                "the same files",
+                "source": (
+                    "community mirrors"
+                    if holders
+                    else "computers sharing it over BitTorrent"
+                )
+                + ", and huggingface.co while it still has the same files",
             }
         )
 

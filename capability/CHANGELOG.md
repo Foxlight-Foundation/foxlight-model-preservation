@@ -6,6 +6,10 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Find also lists models kept by computers that share over BitTorrent without
+  an address anyone can reach ("Kept by 2 computers over BitTorrent"), when
+  swarm downloads are on, and keeps a copy from them over their swarms.
+
 - While your models are shared over BitTorrent, publishing to Nostr relays
   also publishes a signed card saying which models this computer shares, so
   people can find it even when it can't be reached directly. The Nostr choice

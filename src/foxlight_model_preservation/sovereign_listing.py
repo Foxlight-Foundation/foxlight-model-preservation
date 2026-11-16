@@ -34,6 +34,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from .models import PreservationError
+from .operations import OperationControl
 from .storage import atomic_bytes, directory, read_metadata
 from .torrent_binding import torrent_engine
 
@@ -115,9 +116,17 @@ def read_listing(data: bytes) -> tuple[Any, str, str]:
     hashes = info.info_hashes()
     if not hashes.has_v1() or not hashes.has_v2():
         raise PreservationError("a listing torrent must be hybrid v1 + v2")
+    _check_files(info)
+    return info, str(hashes.v1), str(hashes.v2)
+
+
+def _check_files(info: Any) -> list[tuple[int, str]]:
+    """A listing torrent's name, piece size, paths and total size; returns its
+    files (index, path inside the listing), pad files left out."""
     if info.name() != LISTING_NAME or info.piece_length() != LISTING_PIECE:
         raise PreservationError("not a listing torrent")
     storage = info.files()
+    found: list[tuple[int, str]] = []
     total = 0
     for index in range(storage.num_files()):
         flags = int(storage.file_flags(index))
@@ -130,9 +139,10 @@ def read_listing(data: bytes) -> tuple[Any, str, str]:
         if inner == path or not (inner in DOCUMENTS or _MANIFEST.fullmatch(inner)):
             raise PreservationError("unexpected file in a listing torrent")
         total += int(storage.file_size(index))
+        found.append((index, inner))
     if total > MAX_LISTING_BYTES:
         raise PreservationError("listing torrent is too large")
-    return info, str(hashes.v1), str(hashes.v2)
+    return found
 
 
 def unchanged_listing(root: Path, subject: str, now: float | None = None) -> bool:
@@ -325,3 +335,143 @@ def listing_manifests(listing: Listing) -> frozenset[str]:
         for name in names
         if _MANIFEST.fullmatch("manifests/" + name)
     )
+
+
+class ListingReader:
+    """Read other computers' listings: receive only, nothing is shared back.
+
+    The mirror key's DHT pointer names the listing's v2 infohash; the listing
+    is fetched as a magnet, and its metadata must be a listing torrent (its
+    name, piece size, file names and size bound) before anything downloads.
+    Its documents are verified by whoever keeps them (signed by that key);
+    joining the DHT and swarm shows this computer's address, as any swarm
+    download does, so callers read listings only with swarm downloads on.
+    """
+
+    def __init__(
+        self,
+        staging: Path,
+        *,
+        rendezvous: Any = None,
+        settings: dict[str, str | int | bool] | None = None,
+        peers: tuple[tuple[str, int], ...] = (),
+    ) -> None:
+        self.staging = staging
+        self._rendezvous = rendezvous
+        self._own_rendezvous = rendezvous is None
+        self._settings = settings
+        self._peers = peers
+        self._session: Any = None
+
+    def _dht(self) -> Any:
+        if self._rendezvous is None:
+            from .mirror_rendezvous import Rendezvous
+
+            self._rendezvous = Rendezvous()
+        return self._rendezvous
+
+    def _start(self) -> Any:
+        from .swarm import RECEIVE_ONLY, no_unchoke_bypass
+
+        engine = cast(Any, torrent_engine())
+        if self._session is None:
+            self._session = engine.session(
+                {
+                    "listen_interfaces": "0.0.0.0:0,[::]:0",
+                    "enable_dht": True,
+                    "enable_lsd": False,
+                    "enable_upnp": False,
+                    "enable_natpmp": False,
+                    "alert_mask": 0,
+                    **(self._settings or {}),
+                    **RECEIVE_ONLY,
+                }
+            )
+            no_unchoke_bypass(self._session)
+        return engine
+
+    def read(
+        self,
+        public: bytes,
+        *,
+        seconds: float = 30,
+        control: OperationControl | None = None,
+    ) -> dict[str, bytes] | None:
+        """The files of the listing ``public``'s pointer names, or None when
+        there is no pointer, no peer delivers it in time, or it isn't one."""
+        active = control or OperationControl()
+        deadline = time.monotonic() + seconds
+        value = self._dht().get_pointer(
+            public, LISTING_SALT, seconds=min(seconds, 20), control=active
+        )
+        infohash = read_pointer(value)
+        if infohash is None:
+            return None
+        engine = self._start()
+        session = self._session
+        folder = self.staging / infohash
+        params = engine.parse_magnet_uri(f"magnet:?xt=urn:btmh:1220{infohash}")
+        params.save_path = str(folder)
+        params.flags |= engine.torrent_flags.default_dont_download
+        handle = session.add_torrent(params)
+        try:
+            for peer in self._peers:
+                handle.connect_peer(peer)
+            if not _until(lambda: handle.status().has_metadata, deadline, active):
+                return None
+            info = handle.torrent_file()
+            if str(info.info_hashes().v2) != infohash:
+                return None
+            try:
+                files = _check_files(info)
+            except PreservationError:
+                return None
+            for index, _inner in files:
+                handle.file_priority(index, 4)
+            handle.resume()
+            sizes = {index: int(info.files().file_size(index)) for index, _ in files}
+
+            def complete() -> bool:
+                # Each wanted file whole (its pieces checked as they arrive);
+                # "finished" alone is already true before priorities apply.
+                progress = handle.file_progress()
+                return all(
+                    int(progress[index]) >= size for index, size in sizes.items()
+                )
+
+            if not _until(complete, deadline, active):
+                return None
+            handle.flush_cache()
+            result: dict[str, bytes] = {}
+            for index, inner in files:
+                path = folder / info.files().file_path(index)
+                size = int(info.files().file_size(index))
+                data = path.read_bytes()
+                if len(data) != size:
+                    return None
+                result[inner] = data
+            return result
+        except OSError:
+            return None
+        finally:
+            session.remove_torrent(handle)
+            shutil.rmtree(folder, ignore_errors=True)
+
+    def close(self) -> None:
+        """Leave the swarm and, when this reader joined it, the DHT."""
+        if self._session is not None:
+            self._session.pause()
+            self._session = None
+        if self._own_rendezvous and self._rendezvous is not None:
+            self._rendezvous.close()
+            self._rendezvous = None
+
+
+def _until(ready: Any, deadline: float, control: OperationControl) -> bool:
+    """Wait for ``ready`` until the deadline; False if it never came."""
+    while not ready():
+        control.checkpoint()
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.1)
+    return True

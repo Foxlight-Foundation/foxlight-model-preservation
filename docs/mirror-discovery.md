@@ -88,8 +88,19 @@ listing card to Nostr relays (topic `sovereign-listing-v1`, replaceable slot
 document, which a connected cloud bucket serves to anyone. Mirrors keep the
 listing cards they learn, from relays and from crawled peers documents, and
 relay up to 32 of them in their own peers documents after their mirror cards.
-Older apps skip them there, since they aren't mirror cards. Find reading
-listings comes next.
+Older apps skip them there, since they aren't mirror cards.
+
+**Find reads listings** only with swarm downloads on, since reading one joins
+the DHT and the listing's swarm and shows this computer's address. Each Find
+refresh reads up to four listings that are due (never read, or read more than
+six hours ago), within a minute: the key's pointer, then the listing as a
+magnet, receive only, its metadata checked to be a listing torrent before
+anything downloads. Only what that key signed is kept: its holdings (required),
+its torrent list, and the signed manifests of copies its holdings name, each
+hashing to its identity (128 MiB in all, least recently read dropped first).
+Find shows those copies with how many computers keep them. A copy that only
+computers keep is saved from its file swarms, with its manifest from the
+listing; every file is still checked against it.
 
 ## Nostr relays
 

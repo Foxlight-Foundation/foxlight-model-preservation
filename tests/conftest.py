@@ -181,3 +181,36 @@ def _never_open_a_real_router(monkeypatch: pytest.MonkeyPatch) -> None:
             self.open_port = wanted  # type: ignore[assignment]
 
     monkeypatch.setattr(community, "Rendezvous", NoRouter)
+
+
+@pytest.fixture(autouse=True)
+def _listing_reading_stays_local(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Listing readers in tests never join the public DHT or swarm.
+
+    Without a lab DHT handed to it, a reader finds no pointer at all.
+    """
+    from foxlight_model_preservation import sovereign_listing
+
+    real = sovereign_listing.ListingReader
+
+    class _NoPointers:
+        def get_pointer(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            return None
+
+        def close(self) -> None:
+            pass
+
+    class LocalReader(real):  # type: ignore[misc, valid-type]
+        def __init__(self, staging, *, rendezvous=None, settings=None, peers=()):  # type: ignore[no-untyped-def]
+            super().__init__(
+                staging,
+                rendezvous=rendezvous if rendezvous is not None else _NoPointers(),
+                settings={
+                    **(settings or {}),
+                    "listen_interfaces": "127.0.0.1:0",
+                    "enable_dht": False,
+                },
+                peers=peers,
+            )
+
+    monkeypatch.setattr(sovereign_listing, "ListingReader", LocalReader)

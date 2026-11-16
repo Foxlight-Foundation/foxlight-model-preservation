@@ -236,6 +236,31 @@ def held_manifest(store: Path, manifest_id: str) -> PMFManifest | Manifest | Non
     return None
 
 
+def read_held_manifest(
+    manifest_id: str, raw: bytes
+) -> tuple[PMFManifest | Manifest, tuple[str, ...]]:
+    """Read a held copy's signed manifest, wherever it came from (a mirror, or
+    a computer's listing). Its identity is the hash of its payload, so it is
+    exactly that copy; the key IDs that signed it are recorded, not trusted."""
+    if len(raw) > MAX_METADATA_BYTES:
+        raise PreservationError("manifest exceeds size limit")
+    envelope = Envelope.model_validate_json(
+        canonical_bytes(strict_json(raw, maximum_bytes=MAX_METADATA_BYTES))
+    )
+    payload = decode_base64(envelope.payload)
+    if digest(payload) != manifest_id:
+        raise PreservationError("held_manifest_mismatch")
+    signers = tuple(signature.keyid for signature in envelope.signatures)
+    if envelope.payloadType == PMF_TYPE:
+        return load_pmf(payload), signers
+    if envelope.payloadType == BUNDLE_TYPE:
+        return (
+            Manifest.model_validate_json(canonical_bytes(strict_json(payload))),
+            signers,
+        )
+    raise PreservationError("held_manifest_unsupported")
+
+
 def fetch_held_manifest(
     manifest_id: str,
     sources: Iterable[str],
@@ -267,22 +292,7 @@ def fetch_held_manifest(
                     if time.monotonic() > stop:
                         raise PreservationError("held manifest too slow")
                     chunks.append(chunk)
-            raw = b"".join(chunks)
-            envelope = Envelope.model_validate_json(
-                canonical_bytes(strict_json(raw, maximum_bytes=MAX_METADATA_BYTES))
-            )
-            payload = decode_base64(envelope.payload)
-            if digest(payload) != manifest_id:
-                raise PreservationError("held_manifest_mismatch")
-            signers = tuple(signature.keyid for signature in envelope.signatures)
-            if envelope.payloadType == PMF_TYPE:
-                return load_pmf(payload), signers
-            if envelope.payloadType == BUNDLE_TYPE:
-                return (
-                    Manifest.model_validate_json(canonical_bytes(strict_json(payload))),
-                    signers,
-                )
-            raise PreservationError("held_manifest_unsupported")
+            return read_held_manifest(manifest_id, b"".join(chunks))
         except (OSError, ValueError, PreservationError) as error:
             last = error
     raise PreservationError("held_copy_unavailable") from last
