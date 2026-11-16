@@ -32,6 +32,7 @@ from .nostr import DEFAULT_RELAYS, find_cards, publish_card
 from .operations import OperationControl
 from .pirateface_seed import issue_torrents, seeded
 from .signing import create_key, load_key, public_record
+from .sovereign_torrents import listed
 from .storage import atomic_bytes, read_metadata
 from .transfer import TransferPolicy
 
@@ -189,15 +190,18 @@ class Announcer:
                             store_holdings(self.ledger.path / "public", serving),
                         ),
                     )
-                # The Pirate Face torrents it seeds, so the swarm stays
-                # findable from mirrors.
+                # The torrents it shares (Sovereign's own per-file ones and
+                # Pirate Face ones), so their swarms stay findable from mirrors.
                 with contextlib.suppress(PreservationError, OSError, ValueError):
                     atomic_bytes(
                         root,
                         "torrents.json",
                         issue_torrents(
                             mirror_key(self.ledger),
-                            seeded(self.ledger.read(), serving),
+                            [
+                                *seeded(self.ledger.read(), serving),
+                                *listed(self.ledger, serving),
+                            ],
                         ),
                     )
         return card

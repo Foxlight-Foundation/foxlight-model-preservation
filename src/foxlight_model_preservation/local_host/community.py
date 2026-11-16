@@ -111,6 +111,7 @@ from ..signing import (
     load_key,
     public_record,
 )
+from ..sovereign_torrents import listed
 from ..storage import atomic_bytes, directory, manifest_path, read_metadata
 from ..transfer import MirrorHTTPError, TransferPolicy, response
 from .library import Library
@@ -196,6 +197,10 @@ class CommunityPolicy(Record):
     # chosen: a sharer from before this choice existed was told the router is
     # never changed, so nothing is forwarded until they choose it.
     open_router_port: bool | None = None
+    # The owner agreed to the consent that says shared models also go out over
+    # BitTorrent, one file at a time. Someone who agreed before it said so
+    # isn't shared that way until they agree to it.
+    bittorrent_consent: bool = False
 
     @field_validator("public_url")
     @classmethod
@@ -592,8 +597,11 @@ class CommunityMirror:
             if body.get("consent") is not True:
                 raise PreservationError("community_consent_required")
             changes["consent_expires"] = int(time.time()) + CONSENT_SECONDS
+            # The consent agreed to now includes sharing over BitTorrent.
+            changes["bittorrent_consent"] = True
         elif body.get("enabled") is False:
             changes["consent_expires"] = None
+            changes["bittorrent_consent"] = False
         elif "consent" in body:
             raise PreservationError("invalid_control")
         try:
@@ -920,19 +928,29 @@ class CommunityMirror:
         run_mirror(ledger, resume=True, control=control, observe=record)
 
     def _apply_pirate_face(self, ledger: MirrorLedger, policy: CommunityPolicy) -> bool:
-        """Match the mirror's Pirate Face seeding to the choice; True if changed."""
+        """Match the mirror's BitTorrent sharing to the choice; True if changed.
+
+        Sharing shares every shared file as Sovereign's own per-file torrent
+        (when the BitTorrent component is installed), and also seeds Pirate
+        Face torrents when the owner turned that on.
+        """
         native = ledger.read().native_policy
-        current = bool(native and native.pirate_face)
-        wanted = (
-            policy.seed_pirate_face
-            and self.consented(policy)
-            and rendezvous_available()
+        consented = self.consented(policy) and rendezvous_available()
+        current = (
+            bool(native and native.pirate_face),
+            bool(native and native.file_torrents),
         )
-        if current == wanted or (native is None and not wanted):
+        wanted = (
+            bool(policy.seed_pirate_face and consented),
+            consented and policy.bittorrent_consent,
+        )
+        if current == wanted or (native is None and not any(wanted)):
             return False
-        configure_native(ledger, pirate_face=wanted, max_active=4)
+        configure_native(
+            ledger, pirate_face=wanted[0], file_torrents=wanted[1], max_active=4
+        )
         # The pool otherwise downloads nothing; lookups need a small allowance.
-        ingress = PIRATE_FACE_INGRESS if wanted else 1
+        ingress = PIRATE_FACE_INGRESS if wanted[0] else 1
         ledger.update(lambda state: state.model_copy(update={"ingress_daily": ingress}))
         return True
 
@@ -1403,11 +1421,13 @@ class CommunityMirror:
                     self._mirror_key(),
                     store_holdings(self._mirror() / "public", held),
                 )
-            # The Pirate Face torrents it seeds, when that is turned on.
+            # The torrents it shares: Sovereign's own per-file ones, and Pirate
+            # Face ones when that is turned on.
             with contextlib.suppress(PreservationError, OSError, ValueError):
+                pool = MirrorLedger(self._mirror())
                 torrents = issue_torrents(
                     self._mirror_key(),
-                    seeded(MirrorLedger(self._mirror()).read(), held),
+                    [*seeded(pool.read(), held), *listed(pool, held)],
                 )
         try:
             with directory(self._mirror()) as root:
@@ -1757,12 +1777,16 @@ class CommunityMirror:
             "seeding": 0,
             "differs": 0,
         }
+        # Files shared as Sovereign's own per-file torrents (one swarm each).
+        torrent_files = 0
         try:
             state = MirrorLedger(path).read()
         except FileNotFoundError:
             pass  # Not created yet, or being created by the mirror thread.
         else:
             pirate_face = self.pirate_face_status(state)
+            with contextlib.suppress(PreservationError, OSError, ValueError):
+                torrent_files = len(listed(MirrorLedger(path), self.held()))
             usage = {
                 "uploaded_today_bytes": state.egress_day_used,
                 "uploaded_this_month_bytes": state.egress_month_used,
@@ -1785,6 +1809,7 @@ class CommunityMirror:
             "last_error": self.last_error,
             "bucket": self._bucket_summary(),
             "pirate_face": pirate_face,
+            "torrent_files": torrent_files,
             "bucket_providers": [
                 {
                     "id": key,

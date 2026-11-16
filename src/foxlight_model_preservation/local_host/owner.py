@@ -2342,7 +2342,9 @@ class LocalOwner:
         except OperationError:
             raise
         except (OSError, ValueError) as error:
-            if swarm is None or not swarm.has(file.path, file.size_bytes):
+            if swarm is None or not swarm.has(
+                file.path, file.size_bytes, file.object_id.removeprefix("sha256:")
+            ):
                 raise
             # A mirror that sent part of the file and gave up leaves those
             # bytes behind; the swarm writes its own whole copy, so they go.
@@ -2851,7 +2853,38 @@ class LocalOwner:
     def _swarm_receiver(
         self, plan: dict[str, JsonValue], work: Path
     ) -> SwarmReceiver | None:
-        """The swarm as a source for this save, when chosen and available."""
+        """The swarms for this save, when chosen and available.
+
+        Sovereign's own per-file swarms come first; a Pirate Face torrent for
+        the same copy stays a fallback for any file they can't deliver.
+        """
+        from ..sovereign_torrents import FileSwarmReceiver, SwarmSources
+
+        sources: list[object] = []
+        file_swarms = plan.get("file_swarms")
+        if isinstance(file_swarms, dict) and self.pirate_face_enabled("swarm"):
+            # By SHA-256: two members may hold different files at one path.
+            files: dict[str, tuple[str, int]] = {}
+            for row in cast(list[list[JsonValue]], plan.get("files") or []):
+                sha256 = str(row[4]).removeprefix("sha256:")
+                infohash = file_swarms.get(sha256)
+                if isinstance(infohash, str):
+                    files[sha256] = (infohash, cast(int, row[3]))
+            if files:
+                sources.append(FileSwarmReceiver(files, work / ".files"))
+        pirate = self._pirate_face_receiver(plan, work)
+        if pirate is not None:
+            sources.append(pirate)
+        if not sources:
+            return None
+        if len(sources) == 1:
+            return cast(SwarmReceiver, sources[0])
+        return cast(SwarmReceiver, SwarmSources(sources))
+
+    def _pirate_face_receiver(
+        self, plan: dict[str, JsonValue], work: Path
+    ) -> SwarmReceiver | None:
+        """The copy's Pirate Face torrent as a source, when chosen and available."""
         recorded = plan.get("swarm")
         if not isinstance(recorded, dict) or not self.pirate_face_enabled("swarm"):
             return None
@@ -3184,20 +3217,26 @@ class LocalOwner:
         # Hugging Face and the mirrors, used only with swarm downloads on;
         # every file is still checked against this copy's signed fingerprints.
         swarm: dict[str, JsonValue] = {}
-        if repository and revision:
-            listed = [
-                item
-                for item in self.community.directory.torrents(
-                    manifest_id, policy=self._held_policy
-                )
-                if item["source"] == "pirateface"
-            ]
-            if listed:
-                swarm = {
-                    "repository": repository,
-                    "revision": revision,
-                    "swarm": {"infohash": listed[0]["infohash"]},
-                }
+        torrents = self.community.directory.torrents(
+            manifest_id, policy=self._held_policy
+        )
+        listed = [item for item in torrents if item["source"] == "pirateface"]
+        if repository and revision and listed:
+            swarm = {
+                "repository": repository,
+                "revision": revision,
+                "swarm": {"infohash": listed[0]["infohash"]},
+            }
+        # Sovereign's own per-file swarms: one per file of this copy.
+        wanted = {
+            (file.object_id or "").removeprefix("sha256:") for file in selected.values()
+        }
+        files: dict[str, JsonValue] = {}
+        for item in torrents:
+            if item["source"] == "sovereign" and item.get("object") in wanted:
+                files.setdefault(item["object"], item["infohash"])
+        if files:
+            swarm["file_swarms"] = files
         return self._plan(
             {
                 "kind": "receive",

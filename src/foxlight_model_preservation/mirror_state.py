@@ -67,8 +67,12 @@ def encode_state(state: MirrorState) -> bytes:
     if state.native_policy is None and not state.native_models:
         value.pop("native_policy")
         value.pop("native_models")
-    elif state.native_policy is not None and not state.native_policy.pirate_face:
-        value["native_policy"].pop("pirate_face")
+    elif state.native_policy is not None:
+        # Switches added later are written only when on, so a mirror that never
+        # used them keeps the same state identity.
+        for name in ("pirate_face", "file_torrents", "map_ports"):
+            if not getattr(state.native_policy, name):
+                value["native_policy"].pop(name)
     if not state.pirate_face:
         value.pop("pirate_face")
     from .signing import canonical_bytes
@@ -439,6 +443,39 @@ class MirrorLedger:
 
         self.update(charge)
         return accepted
+
+    def record_sent(self, count: int, *, now: int | None = None) -> None:
+        """Count bytes that were already uploaded, whatever the allowance.
+
+        Reserving refuses what would exceed a total, or arrives while serving
+        is paused; bytes that already went out are counted all the same, so
+        the day's and month's usage never under-report what was sent.
+        """
+        if count <= 0:
+            return
+        instant = int(time.time()) if now is None else now
+
+        def count_sent(state: MirrorState) -> MirrorState:
+            moment = datetime.fromtimestamp(max(instant, state.clock_floor), UTC)
+            day, month = moment.strftime("%Y-%m-%d"), moment.strftime("%Y-%m")
+            return state.model_copy(
+                update={
+                    "clock_floor": max(instant, state.clock_floor),
+                    "day": day,
+                    "month": month,
+                    "ingress_used": state.ingress_used if day == state.day else 0,
+                    "egress_day_used": (
+                        state.egress_day_used if day == state.day else 0
+                    )
+                    + count,
+                    "egress_month_used": (
+                        state.egress_month_used if month == state.month else 0
+                    )
+                    + count,
+                }
+            )
+
+        self.update(count_sent)
 
 
 def serving_hour(state: MirrorState, hour: int) -> bool:
