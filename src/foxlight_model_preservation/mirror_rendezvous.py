@@ -21,6 +21,9 @@ import time
 from importlib import import_module
 from typing import Protocol, cast
 
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
 from .models import PreservationError
 from .operations import OperationControl
 
@@ -28,6 +31,7 @@ RENDEZVOUS_KEY = hashlib.sha1(  # noqa: S324 - BitTorrent DHT keys are SHA-1
     b"sovereign.mirror-rendezvous.v1"
 ).digest()
 MAX_ADDRESSES = 256
+MAX_POINTER_BYTES = 900  # BEP 44 values are at most 1,000 bytes bencoded
 DHT_ALERTS = 1024 | 262144  # libtorrent dht_notification | dht_operation_notification
 # libtorrent port_mapping_notification | status_notification (external address).
 ROUTER_ALERTS = 4 | 64
@@ -40,6 +44,10 @@ class _Alert(Protocol):
 class _DhtSession(Protocol):
     def dht_announce(self, info_hash: object, port: int, flags: int) -> None: ...
     def dht_get_peers(self, info_hash: object) -> None: ...
+    def dht_put_mutable_item(
+        self, secret: bytes, public: bytes, value: bytes, salt: bytes
+    ) -> None: ...
+    def dht_get_mutable_item(self, public: bytes, salt: bytes) -> None: ...
     def add_dht_node(self, node: tuple[str, int]) -> None: ...
     def wait_for_alert(self, milliseconds: int) -> object: ...
     def pop_alerts(self) -> list[object]: ...
@@ -63,6 +71,11 @@ class _PortAlert(Protocol):
     external_address: object
 
     def message(self) -> str: ...
+
+
+class _ItemAlert(Protocol):
+    item: object
+    authoritative: bool
 
 
 class _Binding(Protocol):
@@ -303,6 +316,71 @@ class Rendezvous:
                 break
         return tuple(found)[:MAX_ADDRESSES]
 
+    def put_pointer(
+        self,
+        secret: bytes,
+        public: bytes,
+        salt: bytes,
+        value: bytes,
+        *,
+        seconds: float = 10.0,
+        control: OperationControl | None = None,
+    ) -> bool:
+        """Store a signed mutable item (BEP 44) under ``public`` and ``salt``.
+
+        libtorrent fetches the current item first and signs the new one with a
+        higher sequence number. ``secret`` is the expanded 64-byte Ed25519
+        secret it signs with. Returns False if the DHT did not start in time;
+        the put itself completes in the background.
+        """
+        if len(secret) != 64 or len(public) != 32 or len(value) > MAX_POINTER_BYTES:
+            raise PreservationError("invalid DHT pointer")
+        if not self.ready(seconds=seconds, control=control):
+            return False
+        with self._lock:
+            self.session.dht_put_mutable_item(secret, public, value, salt)
+        return True
+
+    def get_pointer(
+        self,
+        public: bytes,
+        salt: bytes,
+        *,
+        seconds: float = 20.0,
+        control: OperationControl | None = None,
+    ) -> bytes | None:
+        """The newest value stored under ``public`` and ``salt``, or None.
+
+        libtorrent checks each item's signature against ``public`` before
+        reporting it; the signature is checked again here, so nothing but the
+        key's owner can set what this returns.
+        """
+        if len(public) != 32:
+            raise PreservationError("invalid DHT pointer key")
+        active = control or OperationControl()
+        end = time.monotonic() + seconds
+        if not self.ready(seconds=seconds, control=active):
+            return None
+        best: tuple[int, bytes] | None = None
+        with self._lock:
+            self.session.dht_get_mutable_item(public, salt)
+            while time.monotonic() < end:
+                active.checkpoint()
+                self.session.wait_for_alert(250)
+                done = False
+                for alert in self.session.pop_alerts():
+                    if type(alert).__name__ != "dht_mutable_item_alert":
+                        self._note(alert)
+                        continue
+                    found = _verified_item(cast(_ItemAlert, alert), public, salt)
+                    if found is not None and (best is None or found[0] > best[0]):
+                        best = found
+                    if bool(cast(_ItemAlert, alert).authoritative):
+                        done = True
+                if done:
+                    break
+        return None if best is None else best[1]
+
     def close(self) -> None:
         """Stop participating in the DHT now, not when this object is collected.
 
@@ -312,6 +390,36 @@ class Rendezvous:
         with self._lock:
             self.session.apply_settings({"enable_dht": False})
             self.session.pause()
+
+
+def _bencoded(value: bytes) -> bytes:
+    return str(len(value)).encode() + b":" + value
+
+
+def _verified_item(
+    alert: _ItemAlert, public: bytes, salt: bytes
+) -> tuple[int, bytes] | None:
+    """(sequence, value) of a mutable item whose signature ``public`` made."""
+    try:
+        item = alert.item
+    except RuntimeError:
+        return None  # an empty reply: nothing is stored there
+    if not isinstance(item, dict):
+        return None
+    item = cast(dict[str, object], item)
+    value, signature, seq = item.get("value"), item.get("signature"), item.get("seq")
+    if item.get("key") != public or item.get("salt") != salt:
+        return None
+    if not isinstance(value, bytes) or not isinstance(signature, bytes):
+        return None
+    if not isinstance(seq, int) or isinstance(seq, bool) or seq < 0:
+        return None
+    signed = b"4:salt" + _bencoded(salt) + b"3:seqi%de1:v" % seq + _bencoded(value)
+    try:
+        Ed25519PublicKey.from_public_bytes(public).verify(signature, signed)
+    except (InvalidSignature, ValueError):
+        return None
+    return seq, value
 
 
 def _url(host: str, port: int) -> str | None:

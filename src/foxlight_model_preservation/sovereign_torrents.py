@@ -38,6 +38,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from .models import PreservationError
 from .operations import OperationCancelled, OperationControl
+from .sovereign_listing import Listing, current_listing
 from .storage import object_path
 from .torrent_binding import torrent_engine
 
@@ -221,6 +222,8 @@ class FileSharer:
         home.mkdir(parents=True, exist_ok=True, mode=0o700)
         self._lock = threading.RLock()
         self._handles: dict[str, Any] = {}
+        # This computer's own signed listing, shared beside its files.
+        self._listing: tuple[str, Any] | None = None
         # Payload bytes uploaded by files no longer shared in this session.
         self._earlier = 0
         self.session = engine.session(
@@ -271,12 +274,44 @@ class FileSharer:
         with self._lock:
             return frozenset(self._handles)
 
+    def share_listing(self, listing: Listing | None) -> None:
+        """Share this listing generation (replacing the one before), or none."""
+        with self._lock:
+            current = self._listing[0] if self._listing else None
+            wanted = listing.infohash_v2 if listing else None
+            if current == wanted:
+                return
+            if self._listing is not None:
+                handle = self._listing[1]
+                self._earlier += int(handle.status().total_payload_upload)
+                self.session.remove_torrent(handle)
+                self._listing = None
+            if listing is not None:
+                info, _v1, _v2 = _parse(listing.data)
+                flags = self._engine.torrent_flags
+                handle = self.session.add_torrent(
+                    {
+                        "ti": info,
+                        "save_path": str(listing.folder),
+                        "flags": flags.upload_mode | flags.seed_mode,
+                    }
+                )
+                self._listing = (listing.infohash_v2, handle)
+
+    def listing(self) -> str | None:
+        """The v2 infohash of the listing this session shares, if any."""
+        with self._lock:
+            return self._listing[0] if self._listing else None
+
+    def _all(self) -> list[Any]:
+        listing = [self._listing[1]] if self._listing else []
+        return [*self._handles.values(), *listing]
+
     def uploaded(self) -> int:
-        """Model bytes uploaded since this session began (for upload totals)."""
+        """Bytes uploaded since this session began (for upload totals)."""
         with self._lock:
             return self._earlier + sum(
-                int(handle.status().total_payload_upload)
-                for handle in self._handles.values()
+                int(handle.status().total_payload_upload) for handle in self._all()
             )
 
     def set_upload_rate(self, rate: int) -> None:
@@ -297,15 +332,16 @@ class FileSharer:
     def connect(self, peer: tuple[str, int]) -> None:
         """Connect every shared file to a known peer (a lab network, or tests)."""
         with self._lock:
-            for handle in self._handles.values():
+            for handle in self._all():
                 handle.connect_peer(peer)
 
     def close(self) -> None:
         """Stop sharing everything now, not when this object is collected."""
         with self._lock:
-            for handle in self._handles.values():
+            for handle in self._all():
                 self.session.remove_torrent(handle)
             self._handles.clear()
+            self._listing = None
             self.session.pause()
 
 
@@ -435,6 +471,8 @@ class FileSharing:
                 sharer.share(torrent, store / object_path(sha256))
             else:
                 missing.append(sha256)
+        # The signed listing the owner's app published in this mirror's root.
+        sharer.share_listing(current_listing(self.ledger.path))
         if missing and (self._build is None or not self._build.is_alive()):
             sha256 = missing[0]
             self._build = threading.Thread(
@@ -524,6 +562,7 @@ class FileSharing:
         return {
             "unavailable": self.unavailable,
             "files": len(self.sharer.shared()) if self.sharer else 0,
+            "listing": bool(self.sharer and self.sharer.listing()),
             "uploaded_bytes": self.sharer.uploaded() if self.sharer else 0,
             "paused": self.paused,
         }
