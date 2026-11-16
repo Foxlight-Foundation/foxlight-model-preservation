@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Downloading to a drive formatted exFAT (common for external drives) no
+  longer makes the app flash "Sovereign on this computer isn't responding".
+  Progress read the download's size on every refresh, and on exFAT under macOS
+  that waits for the download's own writes, a second or two each time, until
+  the window gave up. Progress now uses the size last read in the background.
+
 - Sovereign's own torrents, one per stored file: the same file gives the same
   torrent on every computer (name = its SHA-256 alone, piece size from
   its size alone, BitTorrent hybrid v1 + v2), so everyone holding it joins one
