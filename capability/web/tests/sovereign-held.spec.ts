@@ -73,3 +73,51 @@ test('a mirror discovery that ends while the search changes never leaves Browse 
   await expect(page.getByText('Looking for models that community mirrors keep…')).toHaveCount(0);
   await expect(page.getByText('Your search words also go to huggingface.co. You can turn this off in Settings.')).toBeVisible();
 });
+
+test('copies kept by computers sharing over BitTorrent say so, and need swarm downloads to keep',async({page})=>{
+  const homeOnly={...held,manifest:'a'.repeat(64),name:'Home-only model',mirrors:[],mirror_count:0,computers:2};
+  const both={...held,name:'Widely kept model',mirror_count:1,mirrors:['https://one.example'],computers:1};
+  await page.route('**/api/library*',r=>r.fulfill({json:{host_kind:'sovereign',hub_search:false,copies:[],jobs:[],next_offset:null}}));
+  await page.route('**/api/desktop-search',r=>r.fulfill({json:{catalog_id:'c'.repeat(64),results:[],total:0,next_offset:null}}));
+  await page.route('**/api/desktop-source-read',r=>r.fulfill({json:{sources:[]}}));
+  await page.route('**/api/desktop-source-search',r=>r.fulfill({json:{results:[],total:0,next_offset:null}}));
+  await page.route('**/api/desktop-copy-search',r=>r.fulfill({json:{results:[],total:0,stored_total:0,next_offset:null}}));
+  await page.route('**/api/desktop-held-refresh',r=>r.fulfill({json:{mirrors:1,listings:2}}));
+  await page.route('**/api/desktop-held-search',r=>r.fulfill({json:{source:'mirrors',results:[both,homeOnly]}}));
+  let swarm=false;
+  await page.route('**/api/desktop-plan',r=>swarm?r.fulfill({json:{plan_id:'p'.repeat(64),kind:'receive',origin:'mirror',name:homeOnly.name,size_bytes:5_000_000,file_count:3,details:{license:'apache-2.0',origin_check:'unconfirmed',mirrors:[],computers:2},members:['gone-org/rare-model'],required_free_bytes:1,free_bytes:10**12,expires_at:2000000000}}):r.fulfill({status:409,json:{error:'held_copy_needs_swarm'}}));
+  await page.goto('/');
+  await page.getByPlaceholder('Search by name or use').fill('model');
+  await expect(page.getByRole('article',{name:'Widely kept model'}).getByText('Kept by 1 mirror and 1 computer over BitTorrent',{exact:true})).toBeVisible();
+  const home=page.getByRole('article',{name:'Home-only model'});
+  await expect(home.getByText('Kept by 2 computers over BitTorrent',{exact:true})).toBeVisible();
+  await home.getByRole('button',{name:'Keep a copy'}).click();
+  await expect(page.getByText('Turn on swarm downloads in Settings to keep it from them.',{exact:false})).toBeVisible();
+  // With swarm downloads on, the review says where the copy comes from.
+  swarm=true;
+  await home.getByRole('button',{name:'Keep a copy'}).click();
+  await expect(page.getByText('This copy comes from 2 computers sharing it over BitTorrent.',{exact:false})).toBeVisible();
+});
+
+test('turning swarm downloads on looks for computers’ listings again',async({page})=>{
+  const state={swarm:false};let refreshes=0;
+  await page.route('**/api/library*',r=>r.fulfill({json:{host_kind:'sovereign',hub_search:false,pirate_face_swarm:state.swarm,library:{path:null,system:true,available:true,private:true,free_bytes:40e9,previous:[],elsewhere_copies:0,elsewhere_bytes:0,move:null},copies:[],jobs:[],next_offset:null}}));
+  await page.route('**/api/desktop-search',r=>r.fulfill({json:{catalog_id:'c'.repeat(64),results:[],total:0,next_offset:null}}));
+  await page.route('**/api/desktop-source-read',r=>r.fulfill({json:{sources:[]}}));
+  await page.route('**/api/desktop-source-search',r=>r.fulfill({json:{results:[],total:0,next_offset:null}}));
+  await page.route('**/api/desktop-copy-search',r=>r.fulfill({json:{results:[],total:0,stored_total:0,next_offset:null}}));
+  await page.route('**/api/desktop-backup-read',r=>r.fulfill({json:{destinations:[],next_offset:null}}));
+  await page.route('**/api/desktop-held-refresh',r=>{refreshes++;return r.fulfill({json:{mirrors:0,listings:state.swarm?1:0}});});
+  await page.route('**/api/desktop-held-search',r=>r.fulfill({json:{source:'mirrors',results:state.swarm?[{...held,mirrors:[],mirror_count:0,computers:1}]:[]}}));
+  await page.route('**/api/desktop-pirate-face-swarm',r=>{state.swarm=r.request().postDataJSON().enabled;return r.fulfill({json:{}});});
+  await page.goto('/');
+  await page.getByPlaceholder('Search by name or use').fill('rare');
+  await expect.poll(()=>refreshes).toBe(1);
+  await page.getByRole('button',{name:'Settings',exact:true}).first().click();
+  await page.getByRole('article',{name:'Swarm downloads'}).getByRole('switch',{name:'Swarm downloads'}).click();
+  await expect.poll(()=>state.swarm).toBe(true);
+  await page.getByRole('button',{name:'Find',exact:true}).first().click();
+  await page.getByPlaceholder('Search by name or use').fill('rare');
+  await expect.poll(()=>refreshes).toBe(2);
+  await expect(page.getByRole('article',{name:held.name}).getByText('Kept by 1 computer over BitTorrent',{exact:true})).toBeVisible();
+});

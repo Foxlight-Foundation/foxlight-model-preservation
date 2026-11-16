@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Find reads the listings of computers that share over BitTorrent with no
+  address anyone can reach. With swarm downloads on, each Find refresh reads
+  up to four due listings (named by listing cards, through each key's DHT
+  pointer; receive only, with the listing torrent's metadata checked before
+  anything downloads), and keeps only what that key signed: its holdings, its
+  torrent list, and the manifests of copies its holdings name (each hashing to
+  its identity), within 128 MiB, re-read every six hours. Their copies appear
+  in Find with how many computers keep them (`computers`), and a copy only
+  computers keep is saved from its file swarms using the listing's signed
+  manifest (`held_copy_needs_swarm` until swarm downloads are on).
+
 - Listing cards: how people learn of computers that share over BitTorrent with
   no address anyone can reach. A listing card is signed by the mirror key it
   names (whose DHT pointer leads to that computer's listing), says which copies

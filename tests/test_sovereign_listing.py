@@ -601,3 +601,23 @@ def test_a_late_reply_to_an_abandoned_lookup_never_ends_the_next_one() -> None:
     node.session = Session()  # type: ignore[assignment]
     node.open_port = None
     assert node.get_pointer(public, LISTING_SALT, seconds=2) == value
+
+
+def test_a_listing_file_is_accepted_only_exactly_as_its_torrent_describes(
+    tmp_path: Path,
+) -> None:
+    from foxlight_model_preservation.sovereign_listing import _check_files, _read_files
+
+    files = {**DOCUMENTS, f"manifests/{'a' * 64}.json": b"m" * 300_000}
+    listing = publish_listing(tmp_path / "mirror", files)
+    info, _v1, _v2 = read_listing(listing.data)
+    entries = _check_files(info)
+    folder = listing.folder
+    assert _read_files(folder, info, entries) == files
+    # Full size but not yet written (a gap of zeros): not accepted yet.
+    target = folder / "sovereign-listing" / f"manifests/{'a' * 64}.json"
+    target.write_bytes(b"m" * 200_000 + bytes(100_000))
+    assert _read_files(folder, info, entries) is None
+    # Short: not accepted either.
+    target.write_bytes(b"m" * 1000)
+    assert _read_files(folder, info, entries) is None

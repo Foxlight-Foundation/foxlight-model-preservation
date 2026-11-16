@@ -25,6 +25,8 @@ import ipaddress
 import math
 import os
 import random
+import secrets
+import shutil
 import threading
 import time
 import uuid
@@ -55,6 +57,7 @@ from .mirror_cards import verify_card as _verify_card
 from .mirror_holdings import (
     HOLDINGS_PATH,
     MAX_HOLDINGS_BYTES,
+    Holding,
     MirrorHoldings,
     verify_holdings,
 )
@@ -104,6 +107,10 @@ MAX_LISTINGS = 512
 MAX_RELAYED_LISTINGS = 32
 # Kept well within what a metadata read accepts, however large each card is.
 MAX_LISTINGS_BYTES = 2 * 1024 * 1024
+# Listings read from other computers (holdings, torrents, manifests), kept on
+# disk within this budget; a listing is read again after this long.
+LISTING_COPIES_BYTES = 128 * 1024**2
+LISTING_REREAD_SECONDS = 6 * 3600
 # Cached signed object coverage, across every kept mirror.
 OBJECTS_CACHE_BYTES = 64 * 1024**2
 # Kept mirror holdings (what each mirror says it keeps), pruned the same way.
@@ -437,6 +444,8 @@ class MirrorDirectory:
 
     def __init__(self, path: Path, *, rng: random.Random | None = None) -> None:
         self.path = path
+        # When each computer's listing was last asked for (in this process).
+        self._tried: dict[str, int] = {}
         self._rng = rng or random.SystemRandom()
         key = path.absolute()
         with _LOCKS_GUARD:
@@ -734,6 +743,18 @@ class MirrorDirectory:
                 if entry.manifest == manifest:
                     key = (entry.infohash, entry.source, entry.object or "")
                     counts[key] = counts.get(key, 0) + 1
+        # And the torrents in listings read from computers sharing them.
+        for card, _held, folder in self._read_listings(instant):
+            try:
+                with directory(folder) as root:
+                    data = read_metadata(root, "torrents.json")
+                listed = verify_torrents(data, card.mirror_key, now=instant)
+            except (OSError, ValueError, PreservationError):
+                continue
+            for entry in listed.entries:
+                if entry.manifest == manifest:
+                    key = (entry.infohash, entry.source, entry.object or "")
+                    counts[key] = counts.get(key, 0) + 1
         ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
         return [
             {
@@ -782,34 +803,53 @@ class MirrorDirectory:
         terms = query.casefold().split()
         found: dict[str, dict[str, JsonValue]] = {}
         mirrors: dict[str, list[str]] = {}
+
+        def matches(entry: Holding) -> bool:
+            text = " ".join(
+                filter(
+                    None,
+                    (
+                        entry.name,
+                        entry.origin_repository,
+                        entry.format,
+                        entry.licence,
+                        *entry.workloads,
+                    ),
+                )
+            ).casefold()
+            return all(term in text for term in terms)
+
         for addresses, _score, held in self._live_holdings(policy, instant):
             for entry in held.entries:
-                text = " ".join(
-                    filter(
-                        None,
-                        (
-                            entry.name,
-                            entry.origin_repository,
-                            entry.format,
-                            entry.licence,
-                            *entry.workloads,
-                        ),
-                    )
-                ).casefold()
-                if not all(term in text for term in terms):
+                if not matches(entry):
                     continue
                 found.setdefault(entry.manifest, entry.model_dump(mode="json"))
                 listed = mirrors.setdefault(entry.manifest, [])
                 listed.extend(address for address in addresses if address not in listed)
+        # Computers sharing over BitTorrent, from the listings read from them.
+        computers: dict[str, int] = {}
+        for _card, held, _folder in self._read_listings(instant):
+            for entry in held.entries:
+                if not matches(entry):
+                    continue
+                found.setdefault(entry.manifest, entry.model_dump(mode="json"))
+                mirrors.setdefault(entry.manifest, [])
+                computers[entry.manifest] = computers.get(entry.manifest, 0) + 1
         rows = [
             {
                 **row,
                 "mirrors": cast(JsonValue, mirrors[key][:8]),
                 "mirror_count": len(mirrors[key]),
+                "computers": computers.get(key, 0),
             }
             for key, row in found.items()
         ]
-        rows.sort(key=lambda row: (-cast(int, row["mirror_count"]), str(row["name"])))
+        rows.sort(
+            key=lambda row: (
+                -(cast(int, row["mirror_count"]) + cast(int, row["computers"])),
+                str(row["name"]),
+            )
+        )
         return rows[:limit]
 
     def holders(
@@ -1242,6 +1282,146 @@ class MirrorDirectory:
             )
         return added
 
+    def listings_to_read(
+        self, limit: int, *, now: int | None = None
+    ) -> list[ListingCard]:
+        """Live listing cards whose listings are worth reading now: never read
+        first, then the longest ago; one read recently waits its turn."""
+        instant = int(time.time()) if now is None else now
+        due: list[tuple[int, ListingCard]] = []
+        for raw in self.listing_cards(now=instant):
+            card = verify_listing_card(raw, now=instant)
+            read_at = self._listing_read_at(card.mirror_key.key_id)
+            tried = self._tried.get(card.mirror_key.key_id, -(10**12))
+            last = max(read_at, tried)
+            if instant - last >= LISTING_REREAD_SECONDS:
+                due.append((last, card))
+        due.sort(key=lambda item: item[0])
+        return [card for _last, card in due[:limit]]
+
+    def _listing_read_at(self, key_id: str) -> int:
+        try:
+            with directory(self.path / "listing-copies" / key_id) as root:
+                return int(read_metadata(root, "read-at").decode())
+        except (OSError, ValueError, PreservationError):
+            return -(10**12)
+
+    def note_listing_tried(self, card: ListingCard, *, now: int | None = None) -> None:
+        """Remember an attempt (successful or not) so a silent computer isn't
+        asked again every round."""
+        self._tried[card.mirror_key.key_id] = int(time.time()) if now is None else now
+
+    def keep_listing(
+        self, card: ListingCard, files: dict[str, bytes], *, now: int | None = None
+    ) -> bool:
+        """Keep a listing read from the computer ``card`` names, only what its
+        key signed: its holdings (required), its torrent list, and the signed
+        manifests of copies the holdings name (each must hash to its ID)."""
+        from .pirateface_seed import verify_torrents
+
+        instant = int(time.time()) if now is None else now
+        holdings = files.get("holdings.json")
+        if holdings is None:
+            return False
+        try:
+            held = verify_holdings(holdings, card.mirror_key, now=instant)
+        except (ValueError, PreservationError):
+            return False
+        kept: dict[str, bytes] = {"holdings.json": holdings}
+        torrents = files.get("torrents.json")
+        if torrents is not None:
+            with contextlib.suppress(ValueError, PreservationError):
+                verify_torrents(torrents, card.mirror_key, now=instant)
+                kept["torrents.json"] = torrents
+        named = {entry.manifest for entry in held.entries}
+        for name, data in files.items():
+            manifest_id = name.removeprefix("manifests/").removesuffix(".json")
+            if name == f"manifests/{manifest_id}.json" and manifest_id in named:
+                if _manifest_identity(data) == manifest_id:
+                    kept[name] = data
+        key_id = card.mirror_key.key_id
+        base = self.path / "listing-copies"
+        with self._exclusive():
+            base.mkdir(parents=True, exist_ok=True, mode=0o700)
+            build = base / (".build-" + secrets.token_hex(8))
+            try:
+                for name, data in kept.items():
+                    target = build / name
+                    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                    target.write_bytes(data)
+                (build / "read-at").write_bytes(str(instant).encode())
+                shutil.rmtree(base / key_id, ignore_errors=True)
+                os.replace(build, base / key_id)
+            finally:
+                shutil.rmtree(build, ignore_errors=True)
+            self._prune_listing_copies(base, instant)
+        self._tried[key_id] = instant
+        return True
+
+    def _prune_listing_copies(self, base: Path, instant: int) -> None:
+        """Drop copies of listings whose card lapsed, then the least recently
+        read ones until the rest fit the budget."""
+        live = {
+            verify_listing_card(raw, now=instant).mirror_key.key_id
+            for raw in self.listing_cards(now=instant)
+        }
+        sizes: list[tuple[int, int, Path]] = []
+        for entry in base.iterdir():
+            if entry.name.startswith("."):
+                continue
+            if entry.name not in live:
+                shutil.rmtree(entry, ignore_errors=True)
+                continue
+            size = sum(
+                item.stat().st_size for item in entry.rglob("*") if item.is_file()
+            )
+            sizes.append((self._listing_read_at(entry.name), size, entry))
+        total = sum(size for _read, size, _entry in sizes)
+        for _read, size, entry in sorted(sizes, key=lambda item: item[0]):
+            if total <= LISTING_COPIES_BYTES:
+                break
+            shutil.rmtree(entry, ignore_errors=True)
+            total -= size
+
+    def _read_listings(
+        self, instant: int
+    ) -> Iterator[tuple[ListingCard, MirrorHoldings, Path]]:
+        """Each live listing card's kept listing, with its verified holdings."""
+        for raw in self.listing_cards(now=instant):
+            card = verify_listing_card(raw, now=instant)
+            folder = self.path / "listing-copies" / card.mirror_key.key_id
+            try:
+                with directory(folder) as root:
+                    data = read_metadata(root, "holdings.json")
+                held = verify_holdings(data, card.mirror_key, now=instant)
+            except (OSError, ValueError, PreservationError):
+                continue
+            yield card, held, folder
+
+    def listed_manifest(self, manifest: str, *, now: int | None = None) -> bytes | None:
+        """A copy's signed manifest from a kept listing, or None. It hashes to
+        the copy's identity, so it is exactly the copy listed."""
+        instant = int(time.time()) if now is None else now
+        for _card, held, folder in self._read_listings(instant):
+            if not any(entry.manifest == manifest for entry in held.entries):
+                continue
+            try:
+                with directory(folder / "manifests") as root:
+                    data = read_metadata(root, manifest + ".json")
+            except (OSError, PreservationError):
+                continue
+            if _manifest_identity(data) == manifest:
+                return data
+        return None
+
+    def listing_computers(self, manifest: str, *, now: int | None = None) -> int:
+        """How many computers' listings name a copy."""
+        instant = int(time.time()) if now is None else now
+        return sum(
+            any(entry.manifest == manifest for entry in held.entries)
+            for _card, held, _folder in self._read_listings(instant)
+        )
+
     def listing_cards(self, *, now: int | None = None) -> list[bytes]:
         """Live listing cards, most recently seen first."""
         instant = int(time.time()) if now is None else now
@@ -1262,6 +1442,19 @@ def _listing(envelope: Envelope) -> ListingCard | None:
         return ListingCard.model_validate_json(
             canonical_bytes(strict_json(decode_base64(envelope.payload)))
         )
+    except (ValueError, PreservationError):
+        return None
+
+
+def _manifest_identity(data: bytes) -> str | None:
+    """The identity (payload digest) of a signed manifest envelope, or None."""
+    if len(data) > MAX_METADATA_BYTES:
+        return None
+    try:
+        envelope = Envelope.model_validate_json(
+            canonical_bytes(strict_json(data, maximum_bytes=MAX_METADATA_BYTES))
+        )
+        return digest(decode_base64(envelope.payload))
     except (ValueError, PreservationError):
         return None
 
