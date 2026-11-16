@@ -318,10 +318,17 @@ class FileSharer:
 
     def put_pointer(
         self, secret: bytes, public: bytes, salt: bytes, value: bytes
-    ) -> None:
-        """Store a signed mutable DHT item (BEP 44) from this session."""
+    ) -> bool:
+        """Store a signed mutable DHT item (BEP 44) from this session.
+
+        False while the session's DHT hasn't started: libtorrent silently
+        drops requests made before then, so the caller asks again later.
+        """
         with self._lock:
+            if not self.session.is_dht_running():
+                return False
             self.session.dht_put_mutable_item(secret, public, value, salt)
+            return True
 
     def listing(self) -> str | None:
         """The v2 infohash of the current listing this session shares, if any."""
@@ -532,9 +539,10 @@ class FileSharing:
             return
         try:
             secret, public = dht_keys(self.listing_key())
-            sharer.put_pointer(
+            if not sharer.put_pointer(
                 secret, public, LISTING_SALT, pointer_value(listing.infohash_v2)
-            )
+            ):
+                return  # the DHT is still starting: try again next tick
         except (PreservationError, OSError, RuntimeError, ValueError):
             return
         self._pointed = (listing.infohash_v2, now)

@@ -471,3 +471,68 @@ def test_a_bucket_is_never_sent_documents_for_copies_it_does_not_hold(
         )
     finally:
         owner.close()
+
+
+def test_overlapping_publications_never_delete_the_current_listing(
+    tmp_path: Path,
+) -> None:
+    import threading
+
+    errors: list[BaseException] = []
+
+    def publish(tag: str) -> None:
+        try:
+            for index in range(15):
+                publish_listing(
+                    tmp_path, {**DOCUMENTS, "objects.json": f"{tag}{index}".encode()}
+                )
+        except BaseException as error:  # noqa: BLE001 - reported below
+            errors.append(error)
+
+    workers = [threading.Thread(target=publish, args=(tag,)) for tag in "abc"]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join()
+    assert errors == []
+    current = current_listing(tmp_path)
+    assert current is not None and current.folder.is_dir()
+    kept = {entry.name for entry in (tmp_path / "listing").iterdir() if entry.is_dir()}
+    assert current.infohash_v2 in kept and len(kept) <= 2
+
+
+class _Pointing:
+    """A sharing session whose DHT starts when the test says."""
+
+    def __init__(self) -> None:
+        self.running = False
+        self.puts: list[bytes] = []
+
+    def put_pointer(self, secret: bytes, public: bytes, salt: bytes, value: bytes):  # type: ignore[no-untyped-def]
+        if not self.running:
+            return False
+        self.puts.append(value)
+        return True
+
+
+def test_the_pointer_is_stored_once_the_dht_has_started(
+    tmp_path: Path, capture
+) -> None:
+    from test_mirror import cycle, mirror
+
+    from foxlight_model_preservation.sovereign_torrents import FileSharing
+
+    ledger, _ = mirror(tmp_path, capture)
+    cycle(ledger)
+    key = Ed25519PrivateKey.generate()
+    sharing = FileSharing(ledger, listing_key=lambda: key)
+    listing = publish_listing(ledger.path, dict(DOCUMENTS))
+    session = _Pointing()
+    sharing._point(session, listing)  # type: ignore[arg-type]
+    assert session.puts == []
+    # Still starting: the next tick asks again rather than waiting 30 minutes.
+    session.running = True
+    sharing._point(session, listing)  # type: ignore[arg-type]
+    assert session.puts == [pointer_value(listing.infohash_v2)]
+    sharing._point(session, listing)  # type: ignore[arg-type]
+    assert len(session.puts) == 1  # stored; renewed only later

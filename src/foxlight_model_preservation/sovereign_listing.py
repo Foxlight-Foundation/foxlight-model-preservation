@@ -24,6 +24,7 @@ import os
 import re
 import secrets
 import shutil
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -151,6 +152,19 @@ def unchanged_listing(root: Path, subject: str, now: float | None = None) -> boo
     return recorded == subject and 0 <= age < RENEW_SECONDS
 
 
+_LOCKS: dict[Path, threading.Lock] = {}
+_LOCKS_GUARD = threading.Lock()
+
+
+def _lock(root: Path) -> threading.Lock:
+    """One lock per mirror root: publishing, pruning and withdrawing a listing
+    never overlap (two announcements could otherwise delete each other's
+    current generation)."""
+    key = root.resolve()
+    with _LOCKS_GUARD:
+        return _LOCKS.setdefault(key, threading.Lock())
+
+
 def publish_listing(
     root: Path,
     files: dict[str, bytes],
@@ -162,6 +176,13 @@ def publish_listing(
     ``subject`` records what it describes, for :func:`unchanged_listing`."""
     if not files:
         raise PreservationError("an empty listing is not published")
+    with _lock(root):
+        return _publish(root, files, subject, now)
+
+
+def _publish(
+    root: Path, files: dict[str, bytes], subject: str | None, now: float | None
+) -> Listing:
     base = root / LISTING_DIRECTORY
     base.mkdir(mode=0o700, parents=True, exist_ok=True)
     build = base / ("build-" + secrets.token_hex(8))
@@ -287,5 +308,6 @@ def withdraw_listing(root: Path) -> None:
     """Stop offering any listing from ``root``: its sharing session drops it
     on its next tick, and the DHT pointer lapses once it is no longer renewed."""
     base = root / LISTING_DIRECTORY
-    if base.exists():
-        shutil.rmtree(base, ignore_errors=True)
+    with _lock(root):
+        if base.exists():
+            shutil.rmtree(base, ignore_errors=True)
