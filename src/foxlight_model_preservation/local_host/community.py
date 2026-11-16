@@ -1402,7 +1402,7 @@ class CommunityMirror:
         The document is served at /.well-known/sovereign/peers.json and read on
         every request, so updating it needs no restart.
         """
-        held = self.held()
+        local = held = self.held()
         addresses = self.addresses()
         bucket = self.bucket()
         if bucket is not None and bucket.synced:
@@ -1423,28 +1423,9 @@ class CommunityMirror:
         objects = holdings = torrents = None
         # A computer sharing files over BitTorrent publishes the same signed
         # documents in its listing, so it can be found with no address at all.
-        sharing_files = bool(held) and self._files_shared()
+        sharing_files = bool(local) and self._files_shared()
         if card is not None or sharing_files:
-            # Optional: a coverage problem must never stop the card renewing.
-            with contextlib.suppress(PreservationError, OSError):
-                objects = issue_objects(
-                    self._mirror_key(), served_hashes(self._mirror() / "public")
-                )
-            # What this mirror keeps, by name, so others can find it in Find.
-            # It lists exactly the copies the card covers.
-            with contextlib.suppress(PreservationError, OSError):
-                holdings = issue_holdings(
-                    self._mirror_key(),
-                    store_holdings(self._mirror() / "public", held),
-                )
-            # The torrents it shares: Sovereign's own per-file ones, and Pirate
-            # Face ones when that is turned on.
-            with contextlib.suppress(PreservationError, OSError, ValueError):
-                pool = MirrorLedger(self._mirror())
-                torrents = issue_torrents(
-                    self._mirror_key(),
-                    [*seeded(pool.read(), held), *listed(pool, held)],
-                )
+            objects, holdings, torrents = self._documents(held)
         try:
             with directory(self._mirror()) as root:
                 atomic_bytes(root, "peers.json", document)
@@ -1456,6 +1437,10 @@ class CommunityMirror:
                     atomic_bytes(root, "torrents.json", torrents)
         except FileNotFoundError:
             pass  # No mirror yet; the next sync creates it and announces.
+        if sharing_files and local != held:
+            # The card covers only what the bucket holds; the listing covers
+            # everything this computer shares over BitTorrent.
+            objects, holdings, torrents = self._documents(local)
         self._publish_listing(
             {
                 "objects.json": objects,
@@ -1464,7 +1449,7 @@ class CommunityMirror:
             }
             if sharing_files
             else None,
-            held,
+            local,
         )
         # Only a document carrying this mirror's card is worth replacing the
         # bucket's copy with; a transient empty one would hide the bucket.
@@ -1483,6 +1468,33 @@ class CommunityMirror:
             except (ValueError, OSError):
                 pass  # The next round publishes it again.
         return card
+
+    def _documents(
+        self, held: frozenset[str]
+    ) -> tuple[bytes | None, bytes | None, bytes | None]:
+        """This mirror's signed object coverage, holdings and torrents for the
+        copies ``held``. Each is optional: a problem with one never stops the
+        card renewing."""
+        objects = holdings = torrents = None
+        with contextlib.suppress(PreservationError, OSError):
+            objects = issue_objects(
+                self._mirror_key(), served_hashes(self._mirror() / "public")
+            )
+        # What this mirror keeps, by name, so others can find it in Find.
+        with contextlib.suppress(PreservationError, OSError):
+            holdings = issue_holdings(
+                self._mirror_key(),
+                store_holdings(self._mirror() / "public", held),
+            )
+        # The torrents it shares: Sovereign's own per-file ones, and Pirate
+        # Face ones when that is turned on.
+        with contextlib.suppress(PreservationError, OSError, ValueError):
+            pool = MirrorLedger(self._mirror())
+            torrents = issue_torrents(
+                self._mirror_key(),
+                [*seeded(pool.read(), held), *listed(pool, held)],
+            )
+        return objects, holdings, torrents
 
     def _publish_listing(
         self, documents: dict[str, bytes | None] | None, held: frozenset[str]

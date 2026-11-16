@@ -312,3 +312,56 @@ def test_a_listing_is_rebuilt_only_when_what_it_describes_changes_or_ages(
     # A listing whose files are gone is never treated as current.
     (tmp_path / "listing" / "current").unlink()
     assert not unchanged_listing(tmp_path, "subject", now=1_000_000 + 60)
+
+
+def test_the_listing_covers_every_shared_copy_even_when_the_card_covers_fewer(
+    tmp_path: Path, capture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With only a partly synced bucket to name, the card covers what the
+    bucket holds; the listing still covers everything shared over BitTorrent."""
+    from types import SimpleNamespace
+
+    from test_local_backups import saved
+    from test_local_community import enable, served, wait_for
+    from test_local_community import free_port as free
+
+    from foxlight_model_preservation.local_host.owner import LocalOwner
+    from foxlight_model_preservation.mirror_holdings import verify_holdings
+    from foxlight_model_preservation.signing import public_record
+
+    port = free()
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        saved(owner, tmp_path, capture)
+        enable(owner, port)
+        identity = wait_for(
+            lambda: next(
+                (
+                    row["public_manifest_id"]
+                    for row in owner.control("community-read", {})["copies"]
+                    if row["status"] == "sharing"
+                ),
+                None,
+            )
+        )
+        wait_for(lambda: served(port, identity) == 200)
+        community = owner.community
+        assert community.addresses() == ()
+        # A bucket that holds some other copy, not this one, yet.
+        bucket = SimpleNamespace(
+            synced=("0" * 64,),
+            target=SimpleNamespace(public_url="https://bucket.example.org/m/"),
+        )
+        monkeypatch.setattr(community, "bucket", lambda: bucket)
+        assert community.announce() is None  # nothing the bucket holds is shared
+        key = public_record(community._mirror_key())
+        root = community._mirror()
+        served_holdings = verify_holdings((root / "holdings.json").read_bytes(), key)
+        assert served_holdings.entries == ()
+        listing = wait_for(lambda: current_listing(root), seconds=10)
+        inner = listing.folder / "sovereign-listing"
+        listed = verify_holdings((inner / "holdings.json").read_bytes(), key)
+        assert [entry.manifest for entry in listed.entries] == [identity]
+        assert (inner / "manifests" / f"{identity}.json").exists()
+    finally:
+        owner.close()
