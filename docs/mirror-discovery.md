@@ -80,8 +80,16 @@ daily so its signatures never lapse; the generation it replaced is kept for
 readers still fetching it. Turning sharing off withdraws the listing, and the
 pointer lapses.
 
-Anyone who knows a contributor's mirror key can find its listing this way.
-Spreading those keys, and Find reading listings, come next.
+People learn those keys from **listing cards**. A listing card is signed by
+the mirror key it names, carries a coverage filter of the copies it probably
+holds, expires within 14 days, and grants nothing. The app publishes its own
+listing card to Nostr relays (topic `sovereign-listing-v1`, replaceable slot
+`listing:<key id>`, under the existing Nostr choice) and in its own peers
+document, which a connected cloud bucket serves to anyone. Mirrors keep the
+listing cards they learn, from relays and from crawled peers documents, and
+relay up to 32 of them in their own peers documents after their mirror cards.
+Older apps skip them there, since they aren't mirror cards. Find reading
+listings comes next.
 
 ## Nostr relays
 

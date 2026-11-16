@@ -76,6 +76,7 @@ from ..mirror_cards import (
     base_url,
     build_peers,
     issue_card,
+    issue_listing_card,
     verify_card,
 )
 from ..mirror_directory import MirrorDirectory
@@ -100,7 +101,7 @@ from ..models import (
     Record,
     TrustProfile,
 )
-from ..nostr import DEFAULT_RELAYS, find_cards, publish_card
+from ..nostr import DEFAULT_RELAYS, LISTING_TOPIC, find_cards, publish_card
 from ..operations import OperationControl, OperationError, failure_code
 from ..pirateface_seed import issue_torrents, seeded
 from ..signing import (
@@ -112,7 +113,9 @@ from ..signing import (
     public_record,
 )
 from ..sovereign_listing import (
+    current_listing,
     listing_files,
+    listing_manifests,
     publish_listing,
     unchanged_listing,
     withdraw_listing,
@@ -454,6 +457,8 @@ class CommunityMirror:
         self.failures: dict[str, str] = {}
         self.directory = MirrorDirectory(home / "mirror-directory")
         self.rendezvous: Rendezvous | None = None
+        # This computer's current listing card, while it shares over BitTorrent.
+        self.listing_card: bytes | None = None
         # Connecting, disconnecting and sync progress replace bucket.json; this
         # keeps a long sync from writing over a bucket connected meanwhile.
         self._bucket_lock = threading.Lock()
@@ -1432,7 +1437,6 @@ class CommunityMirror:
             if addresses and held
             else None
         )
-        document = build_peers(card, self.directory.gossip())
         # Object coverage lets catalog saves find files here by hash. It is
         # signed by the same mirror key and served beside the peers document.
         objects = holdings = torrents = None
@@ -1441,17 +1445,6 @@ class CommunityMirror:
         sharing_files = bool(local) and self._files_shared()
         if card is not None or sharing_files:
             objects, holdings, torrents = self._documents(held)
-        try:
-            with directory(self._mirror()) as root:
-                atomic_bytes(root, "peers.json", document)
-                if objects is not None:
-                    atomic_bytes(root, "objects.json", objects)
-                if holdings is not None:
-                    atomic_bytes(root, "holdings.json", holdings)
-                if torrents is not None:
-                    atomic_bytes(root, "torrents.json", torrents)
-        except FileNotFoundError:
-            pass  # No mirror yet; the next sync creates it and announces.
         # The card (and the bucket's copy of these documents) covers only what
         # the bucket holds when that is its only address; the listing covers
         # everything this computer shares over BitTorrent.
@@ -1472,6 +1465,22 @@ class CommunityMirror:
             else None,
             local,
         )
+        # Then the listing card for the generation just published, which this
+        # computer's peers document (and Nostr, when published there) carries.
+        self.listing_card = self._issue_listing_card()
+        own = (self.listing_card,) if self.listing_card is not None else ()
+        document = build_peers(card, (*own, *self.directory.gossip()))
+        try:
+            with directory(self._mirror()) as root:
+                atomic_bytes(root, "peers.json", document)
+                if objects is not None:
+                    atomic_bytes(root, "objects.json", objects)
+                if holdings is not None:
+                    atomic_bytes(root, "holdings.json", holdings)
+                if torrents is not None:
+                    atomic_bytes(root, "torrents.json", torrents)
+        except FileNotFoundError:
+            pass  # No mirror yet; the next sync creates it and announces.
         # Only a document carrying this mirror's card is worth replacing the
         # bucket's copy with; a transient empty one would hide the bucket.
         if bucket is not None and bucket.synced and card is not None:
@@ -1489,6 +1498,21 @@ class CommunityMirror:
             except (ValueError, OSError):
                 pass  # The next round publishes it again.
         return card
+
+    def _issue_listing_card(self) -> bytes | None:
+        """A fresh listing card for the listing being shared, or None."""
+        if not self._files_shared():
+            return None
+        listing = current_listing(self._mirror())
+        if listing is None:
+            return None
+        manifests = listing_manifests(listing)
+        if not manifests:
+            return None
+        try:
+            return issue_listing_card(self._mirror_key(), manifests)
+        except (PreservationError, OSError, ValueError):
+            return None
 
     def _documents(
         self, held: frozenset[str]
@@ -1630,12 +1654,25 @@ class CommunityMirror:
             # Cards found on relays are verified like any other; relays only
             # see this mirror's address, which its card publishes anyway.
             self.directory.ingest(find_cards(relays, relay_policy, control=control))
+            # Computers sharing over BitTorrent, possibly with no address.
+            self.directory.ingest_listings(
+                find_cards(relays, relay_policy, control=control, topic=LISTING_TOPIC)
+            )
         self.directory.crawl(seeds, policy, control=control)
         self.directory.spot_check(self.held(), policy, control=control)
         self.sync_bucket(control)
         card = self.announce()
         if card is not None and relays:
             publish_card(card, self._nostr_key(), relays, relay_policy, control=control)
+        if self.listing_card is not None and relays:
+            # Relays carry it to people who can't reach this computer at all.
+            publish_card(
+                self.listing_card,
+                self._nostr_key(),
+                relays,
+                relay_policy,
+                control=control,
+            )
 
     def _files_shared(self) -> bool:
         """Whether this mirror shares its files over BitTorrent (the consent)."""
@@ -1795,10 +1832,18 @@ class CommunityMirror:
                 nostr_reasons.append("address_invalid")
             if not own and not bucket_live:
                 nostr_reasons.append("no_reachable_address")
+        # With no address, the mirror card isn't published, but while models
+        # are shared over BitTorrent the listing card is (by the same choice).
+        nostr_listing = (
+            nostr_reasons == ["no_reachable_address"]
+            and self._files_shared()
+            and current_listing(self._mirror()) is not None
+        )
         return {
             "dht_available": available,
             "dht_announcing": not dht_reasons,
             "nostr_publishing": not nostr_reasons,
+            "nostr_listing": nostr_listing,
             "announce_reasons": {"dht": dht_reasons, "nostr": nostr_reasons},
             "announce_review_required": review,
             "address_invalid": address_invalid,

@@ -28,7 +28,7 @@ from .mirror_objects import MAX_OBJECTS_BYTES, issue_objects, served_hashes
 from .mirror_rendezvous import Rendezvous, rendezvous_available
 from .mirror_state import MirrorLedger
 from .models import MAX_METADATA_BYTES, PreservationError
-from .nostr import DEFAULT_RELAYS, find_cards, publish_card
+from .nostr import DEFAULT_RELAYS, LISTING_TOPIC, find_cards, publish_card
 from .operations import OperationControl
 from .pirateface_seed import issue_torrents, seeded
 from .signing import create_key, load_key, public_record
@@ -46,7 +46,9 @@ GOSSIP_RESERVATION = 72 * 1024**2
 # The remainder covers HTTP response headers; DHT datagrams are not counted.
 CRAWL_DOCUMENTS = 8
 SPOT_CHECKS = 2
-RELAY_FIND_BYTES = 12 * 1024**2
+RELAY_FIND_BYTES = 10 * 1024**2
+# Listing cards (computers sharing over BitTorrent), read from the same relays.
+LISTING_FIND_BYTES = 2 * 1024**2
 RELAY_PUBLISH_BYTES = 6 * 1024**2
 ROUND_BODY_BYTES = (
     CRAWL_DOCUMENTS * (MAX_PEERS_BYTES + 1)
@@ -56,6 +58,7 @@ ROUND_BODY_BYTES = (
     + CRAWL_DOCUMENTS * (MAX_HOLDINGS_BYTES + 1)
     + SPOT_CHECKS * 2 * (MAX_METADATA_BYTES + 1)
     + RELAY_FIND_BYTES
+    + LISTING_FIND_BYTES
     + RELAY_PUBLISH_BYTES
 )
 MAX_SEEDS = 32
@@ -240,6 +243,17 @@ class Announcer:
                     relay_policy,
                     control=control,
                     max_bytes=RELAY_FIND_BYTES,
+                )
+            )
+            # Relayed onward in this mirror's peers document, so people who
+            # never ask a relay still learn of computers with no address.
+            self.directory.ingest_listings(
+                find_cards(
+                    relays,
+                    relay_policy,
+                    control=control,
+                    max_bytes=LISTING_FIND_BYTES,
+                    topic=LISTING_TOPIC,
                 )
             )
         self.directory.crawl(

@@ -659,7 +659,9 @@ def test_reachable_mirror_publishes_its_card_to_the_chosen_relays(
     monkeypatch.setattr(
         module,
         "find_cards",
-        lambda relays, policy, control=None: queried.append(tuple(relays)) or [],
+        lambda relays, policy, control=None, topic=None: (
+            queried.append(tuple(relays)) or []
+        ),
     )
     port = free_port()
     relays = ["wss://relay.one.example", "wss://relay.two.example"]
@@ -969,7 +971,9 @@ def test_a_consent_given_before_the_disclosure_announces_nothing_until_reviewed(
     monkeypatch.setattr(
         module,
         "find_cards",
-        lambda relays, policy, control=None: queried.append(tuple(relays)) or [],
+        lambda relays, policy, control=None, topic=None: (
+            queried.append(tuple(relays)) or []
+        ),
     )
     monkeypatch.setattr(module, "rendezvous_available", lambda: True)
 

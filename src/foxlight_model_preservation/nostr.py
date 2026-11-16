@@ -25,13 +25,17 @@ from collections.abc import Iterable
 from typing import cast
 from urllib.parse import urlsplit
 
-from .mirror_cards import verify_card
+from .mirror_cards import LISTING_CARD_TYPE, verify_card, verify_listing_card
 from .models import PreservationError
 from .operations import OperationControl
+from .signing import Envelope
 from .transfer import PinnedConnection, TransferPolicy
 
 EVENT_KIND = 30471  # Parameterized replaceable: one current card per mirror key.
 TOPIC = "sovereign-mirror-v1"
+# Listing cards: computers that share over BitTorrent, possibly with no address.
+# A separate topic, so apps that only know mirror cards never receive them.
+LISTING_TOPIC = "sovereign-listing-v1"
 MAX_MESSAGE_BYTES = 1024 * 1024
 HANDSHAKE_BYTES = 16 * 1024 + 2  # Upgrade headers read before refusing.
 # One message plus its frame headers and any interleaved control frames.
@@ -188,13 +192,14 @@ def _event_id(event: dict[str, object]) -> str:
 def card_event(
     card: bytes, secret: bytes, *, now: int | None = None
 ) -> dict[str, object]:
-    """Wrap a signed mirror card in a replaceable Nostr event for its mirror key."""
-    parsed = verify_card(card, now=now)
+    """Wrap a signed mirror or listing card in a replaceable Nostr event for its
+    mirror key (one current card of each kind per key)."""
+    slot, topic = _slot(card, now)
     event: dict[str, object] = {
         "pubkey": public_key(secret).hex(),
         "created_at": int(time.time()) if now is None else now,
         "kind": EVENT_KIND,
-        "tags": [["d", parsed.mirror_key.key_id], ["t", TOPIC]],
+        "tags": [["d", slot], ["t", topic]],
         "content": card.decode("utf-8"),
     }
     event["id"] = _event_id(event)
@@ -202,8 +207,18 @@ def card_event(
     return event
 
 
-def card_from_event(event: object, *, now: int | None = None) -> bytes | None:
-    """Return the verified mirror card an event carries, or None."""
+def _slot(card: bytes, now: int | None) -> tuple[str, str]:
+    """The replaceable slot and topic for a card: its key, and its kind."""
+    if Envelope.model_validate_json(card).payloadType == LISTING_CARD_TYPE:
+        listing = verify_listing_card(card, now=now)
+        return "listing:" + listing.mirror_key.key_id, LISTING_TOPIC
+    return verify_card(card, now=now).mirror_key.key_id, TOPIC
+
+
+def card_from_event(
+    event: object, *, now: int | None = None, topic: str = TOPIC
+) -> bytes | None:
+    """Return the verified card of ``topic``'s kind an event carries, or None."""
     if not isinstance(event, dict):
         return None
     source = cast(dict[str, object], event)
@@ -225,9 +240,9 @@ def card_from_event(event: object, *, now: int | None = None) -> bytes | None:
         ):
             return None
         card = str(fields["content"]).encode("utf-8")
-        parsed = verify_card(card, now=now)
+        slot, kind = _slot(card, now)
         # The replaceable slot must name the card's own mirror key.
-        if ["d", parsed.mirror_key.key_id] not in cast(list[object], fields["tags"]):
+        if kind != topic or ["d", slot] not in cast(list[object], fields["tags"]):
             return None
         return card
     except (KeyError, ValueError, TypeError, PreservationError):
@@ -455,8 +470,10 @@ def find_cards(
     *,
     control: OperationControl | None = None,
     max_bytes: int | None = None,
+    topic: str = TOPIC,
 ) -> list[bytes]:
-    """Ask relays for current mirror cards; return every one that verifies.
+    """Ask relays for current mirror cards (or, with ``LISTING_TOPIC``,
+    listing cards); return every one that verifies.
 
     ``max_bytes`` optionally bounds everything read from all relays together
     (handshakes included); reading stops once another message might not fit.
@@ -481,7 +498,7 @@ def find_cards(
                 [
                     "REQ",
                     subscription,
-                    {"kinds": [EVENT_KIND], "#t": [TOPIC], "limit": MAX_EVENTS},
+                    {"kinds": [EVENT_KIND], "#t": [topic], "limit": MAX_EVENTS},
                 ]
             )
             received = 0
@@ -497,7 +514,7 @@ def find_cards(
                     break
                 if message[0] == "EVENT" and len(message) >= 3:
                     received += 1
-                    card = card_from_event(message[2])
+                    card = card_from_event(message[2], topic=topic)
                     if card is not None:
                         cards[card] = None
             relay.send(["CLOSE", subscription])

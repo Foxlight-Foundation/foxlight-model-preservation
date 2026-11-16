@@ -311,3 +311,17 @@ def withdraw_listing(root: Path) -> None:
     with _lock(root):
         if base.exists():
             shutil.rmtree(base, ignore_errors=True)
+
+
+def listing_manifests(listing: Listing) -> frozenset[str]:
+    """The copies a listing generation carries signed manifests for."""
+    folder = listing.folder / LISTING_NAME / "manifests"
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return frozenset()
+    return frozenset(
+        name.removesuffix(".json")
+        for name in names
+        if _MANIFEST.fullmatch("manifests/" + name)
+    )

@@ -255,3 +255,115 @@ def read_peers(data: bytes, *, now: int | None = None) -> list[bytes]:
             continue
         result.append(raw)
     return result
+
+
+LISTING_CARD_TYPE = "application/vnd.sovereign.listing-card.v1+json"
+
+
+class ListingCard(Record):
+    """A computer that shares over BitTorrent but may have no address at all.
+
+    It names the mirror key whose DHT pointer (BEP 44, salt
+    ``sovereign.listing.v1``) leads to that computer's signed listing, and which
+    copies it probably holds. Like a mirror card it is signed by the key it
+    names, expires, and grants no trust: everything it leads to is verified.
+    Older apps skip it wherever mirror cards travel (it isn't one).
+    """
+
+    schema_version: Literal["sovereign.listing-card.v1"] = "sovereign.listing-card.v1"
+    mirror_key: TrustedKey
+    coverage: str = Field(min_length=4, max_length=200_000)
+    coverage_count: int = Field(ge=0, le=1_000_000)
+    issued_at: int = Field(ge=0)
+    expires_at: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def bounded_lifetime(self) -> Self:
+        """Short-lived like mirror cards: one that stops renewing lapses."""
+        if not self.issued_at < self.expires_at <= self.issued_at + MAX_CARD_SECONDS:
+            raise PreservationError("listing card lifetime must be at most 14 days")
+        try:
+            raw = base64.b64decode(self.coverage, validate=True)
+        except ValueError as error:
+            raise PreservationError("listing card coverage is not base64") from error
+        if len(raw) < 128:
+            raise PreservationError("listing card coverage filter is too small")
+        return self
+
+    def covers(self, manifest_id: str) -> bool:
+        """Whether this computer probably holds a manifest (no false negatives)."""
+        array = base64.b64decode(self.coverage)
+        bits = len(array) * 8
+        return all(
+            array[position // 8] & (1 << (position % 8))
+            for position in filter_positions(manifest_id, bits, FILTER_HASHES)
+        )
+
+
+def issue_listing_card(
+    key: Ed25519PrivateKey,
+    manifest_ids: set[str] | frozenset[str],
+    *,
+    lifetime: int = 7 * 86400,
+    now: int | None = None,
+) -> bytes:
+    """Sign a fresh listing card for this computer with its own mirror key."""
+    issued = int(time.time()) if now is None else now
+    coverage, count = coverage_filter(manifest_ids)
+    card = ListingCard(
+        mirror_key=public_record(key),
+        coverage=coverage,
+        coverage_count=count,
+        issued_at=issued,
+        expires_at=issued + lifetime,
+    )
+    envelope = encode_record(sign_record(card, (key,), LISTING_CARD_TYPE))
+    if len(envelope) > MAX_METADATA_BYTES:
+        raise PreservationError("listing card exceeds size limit")
+    return envelope
+
+
+def verify_listing_card(data: bytes, *, now: int | None = None) -> ListingCard:
+    """Check a listing card's own signature and freshness; grant it nothing."""
+    envelope = Envelope.model_validate_json(canonical_bytes(strict_json(data)))
+    if envelope.payloadType != LISTING_CARD_TYPE:
+        raise PreservationError("not a listing card")
+    payload = decode_base64(envelope.payload)
+    claimed = ListingCard.model_validate_json(canonical_bytes(strict_json(payload)))
+    verify_payload(
+        data,
+        TrustProfile(
+            schema_version="foxlight.model-preservation.trust.v1",
+            keys=(claimed.mirror_key,),
+            threshold=1,
+            as_of="listing-card-self-signature",
+        ),
+        digest(payload),
+        LISTING_CARD_TYPE,
+    )
+    instant = int(time.time()) if now is None else now
+    if claimed.issued_at > instant + CLOCK_SKEW:
+        raise PreservationError("listing card is issued in the future")
+    if claimed.expires_at <= instant:
+        raise PreservationError("listing card has expired")
+    return claimed
+
+
+def read_listing_cards(data: bytes, *, now: int | None = None) -> list[bytes]:
+    """Every listing card a peers document relays that verifies; skip the rest."""
+    if len(data) > MAX_PEERS_BYTES:
+        raise PreservationError("peers document exceeds size limit")
+    document = PeersDocument.model_validate_json(
+        canonical_bytes(strict_json(data, maximum_bytes=MAX_PEERS_BYTES))
+    )
+    result: list[bytes] = []
+    for envelope in document.peers:
+        if envelope.payloadType != LISTING_CARD_TYPE:
+            continue
+        raw = encode_record(envelope)
+        try:
+            verify_listing_card(raw, now=now)
+        except (ValueError, PreservationError):
+            continue
+        result.append(raw)
+    return result
