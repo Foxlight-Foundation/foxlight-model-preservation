@@ -3013,6 +3013,7 @@ class LocalOwner:
             self._open_check()
             # Bounded discovery from the seed mirrors, expanding to the mirrors
             # they know, so community holdings are findable without sharing.
+            started = time.monotonic()
             with contextlib.suppress(OSError, ValueError, http.client.HTTPException):
                 self.community.directory.crawl(
                     load_seeds()[:4],
@@ -3024,7 +3025,13 @@ class LocalOwner:
             # Computers that share over BitTorrent, maybe with no address:
             # their listings are read through the DHT and the swarm, which
             # shows this computer's address, so only with swarm downloads on.
-            read = self._read_listings() if self.pirate_face_enabled("swarm") else 0
+            # Both phases share one budget, inside the window's own limit.
+            left = self._refresh_seconds - (time.monotonic() - started)
+            read = (
+                self._read_listings(min(self._listing_seconds, left))
+                if self.pirate_face_enabled("swarm") and left > 5
+                else 0
+            )
             return {
                 "mirrors": len(self.community.directory.read().mirrors),
                 "listings": read,
@@ -3229,11 +3236,13 @@ class LocalOwner:
             return "differs"
         return "matches" if results and set(results) == {"matches"} else "unconfirmed"
 
-    # Listings read per refresh, and the time they may take together.
+    # Listings read per refresh, and the time they may take together; the
+    # whole refresh (crawl, then listings) stays within the window's limit.
     _listings_per_refresh = 4
     _listing_seconds = 60.0
+    _refresh_seconds = 80.0
 
-    def _read_listings(self) -> int:
+    def _read_listings(self, seconds: float) -> int:
         """Read a few computers' listings that are due; return how many."""
         store = self.community.directory
         due = store.listings_to_read(self._listings_per_refresh)
@@ -3244,7 +3253,7 @@ class LocalOwner:
         except (PreservationError, OSError, RuntimeError):
             return 0  # no BitTorrent component: listings stay unread
         read = 0
-        deadline = time.monotonic() + self._listing_seconds
+        deadline = time.monotonic() + seconds
         try:
             for card in due:
                 left = deadline - time.monotonic()
@@ -3274,18 +3283,22 @@ class LocalOwner:
             manifest_id, policy=self._held_policy
         )
         listed = self.community.directory.listed_manifest(manifest_id)
-        if holders:
+        try:
+            if not holders:
+                raise PreservationError("held_copy_unavailable")
             manifest, signers = fetch_held_manifest(
                 manifest_id, holders, self._held_policy
             )
-        elif listed is not None:
-            # Only computers sharing over BitTorrent keep it: their listing
-            # carries its signed manifest, and its files come from swarms.
+        except PreservationError:
+            if listed is None:
+                raise
+            # No mirror answered (or none keeps it): computers sharing it
+            # over BitTorrent do, and their listing carries its signed
+            # manifest; its files come from swarms.
             if not self.pirate_face_enabled("swarm"):
-                raise PreservationError("held_copy_needs_swarm")
+                raise PreservationError("held_copy_needs_swarm") from None
             manifest, signers = read_held_manifest(manifest_id, listed)
-        else:
-            raise PreservationError("held_copy_unavailable")
+            holders = []
         described = holding(manifest_id, manifest)
         repository, revision = described.origin_repository, described.origin_revision
         check = self._origin_check(manifest)

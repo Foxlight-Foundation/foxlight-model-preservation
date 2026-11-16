@@ -191,6 +191,12 @@ def test_saving_a_copy_only_computers_keep_needs_swarm_downloads(
         receiver.control("pirate-face-swarm", {"enabled": True})
         plan = receiver.control("plan", body)
         assert plan["origin"] == "mirror" and plan["holders"] == []
+        # A mirror that lists it but doesn't answer: the listing still serves.
+        monkeypatch.setattr(
+            store, "holders", lambda *_a, **_k: ["https://unreachable.invalid"]
+        )
+        plan = receiver.control("plan", body)
+        assert plan["holders"] == []
         assert plan["source"].startswith("computers sharing it over BitTorrent")
         assert plan["details"]["computers"] == 1
     finally:
@@ -240,3 +246,27 @@ def test_refreshing_reads_due_listings_only_with_swarm_downloads_on(
         receiver.close()
         owner.close()
         router.close()
+
+
+def test_a_refresh_reads_listings_only_within_the_time_left(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    owner = LocalOwner(tmp_path / "owner")
+    try:
+        monkeypatch.setattr(
+            "foxlight_model_preservation.local_host.owner.load_seeds", lambda: ()
+        )
+        owner.control("pirate-face-swarm", {"enabled": True})
+        given: list[float] = []
+        monkeypatch.setattr(
+            owner, "_read_listings", lambda seconds: given.append(seconds) or 0
+        )
+        owner.control("held-refresh", {})
+        assert len(given) == 1 and 0 < given[0] <= owner._listing_seconds
+        # With the shared budget spent by discovery, listings wait for the
+        # next refresh rather than run past the window's own limit.
+        monkeypatch.setattr(owner, "_refresh_seconds", 0.0)
+        owner.control("held-refresh", {})
+        assert len(given) == 1
+    finally:
+        owner.close()
