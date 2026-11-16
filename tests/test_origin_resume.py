@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import io
+import os
 import time
+from pathlib import Path
 
 import pytest
 from test_catalog_mirror_fallback import _save, _seeds, _store
@@ -294,3 +296,43 @@ def test_an_empty_kept_buffer_goes_back_to_downloading(tmp_path, monkeypatch):
     assert "resuming" in stages
     assert stages[-1] == "downloading"
     assert (tmp_path / "model.bin").read_bytes() == DATA
+
+
+def test_progress_never_waits_for_a_slow_drive_to_size_the_download(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """On exFAT under macOS, sizing a file being written waits for the write
+    (seconds at a time); the window's progress requests must not."""
+    import threading
+
+    from foxlight_model_preservation.local_host import owner as module
+
+    buffer = tmp_path / "file.partial"
+    buffer.write_bytes(b"x" * 1000)
+    release = threading.Event()
+    reads: list[Path] = []
+
+    def slow(path: Path) -> int:
+        reads.append(path)
+        release.wait(10)
+        return os.stat(path).st_size
+
+    monkeypatch.setattr(module, "_size", slow)
+    sizes = module._BufferSizes()
+    started = time.monotonic()
+    # First sight: waits only briefly, then answers with nothing known yet.
+    assert sizes.size(buffer) == 0
+    # Asking again while the read is still waiting neither blocks nor piles up.
+    assert sizes.size(buffer) == 0
+    assert time.monotonic() - started < 2 and len(reads) == 1
+    release.set()
+    end = time.monotonic() + 5
+    while sizes.size(buffer) != 1000 and time.monotonic() < end:
+        time.sleep(0.01)
+    assert sizes.size(buffer) == 1000
+    # As the download grows, later requests catch up.
+    buffer.write_bytes(b"x" * 2500)
+    end = time.monotonic() + 5
+    while sizes.size(buffer) != 2500 and time.monotonic() < end:
+        time.sleep(0.01)
+    assert sizes.size(buffer) == 2500
