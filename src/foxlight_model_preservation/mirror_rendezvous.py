@@ -76,6 +76,8 @@ class _PortAlert(Protocol):
 class _ItemAlert(Protocol):
     item: object
     authoritative: bool
+    key: object
+    salt: object
 
 
 class _Binding(Protocol):
@@ -372,10 +374,13 @@ class Rendezvous:
                     if type(alert).__name__ != "dht_mutable_item_alert":
                         self._note(alert)
                         continue
-                    found = _verified_item(cast(_ItemAlert, alert), public, salt)
+                    reply = cast(_ItemAlert, alert)
+                    if not _answers(reply, public, salt):
+                        continue  # a late reply to an earlier, abandoned lookup
+                    found = _verified_item(reply, public, salt)
                     if found is not None and (best is None or found[0] > best[0]):
                         best = found
-                    if bool(cast(_ItemAlert, alert).authoritative):
+                    if bool(reply.authoritative):
                         done = True
                 if done:
                     break
@@ -394,6 +399,18 @@ class Rendezvous:
 
 def _bencoded(value: bytes) -> bytes:
     return str(len(value)).encode() + b":" + value
+
+
+def _answers(alert: _ItemAlert, public: bytes, salt: bytes) -> bool:
+    """Whether this reply is for the item looked up (key and salt), even when
+    it is empty; libtorrent reports both on every reply."""
+    try:
+        key, found = alert.key, alert.salt
+    except RuntimeError:
+        return False
+    if isinstance(found, str):
+        found = found.encode("latin-1", errors="replace")
+    return bytes(cast(bytes, key)) == public and found == salt
 
 
 def _verified_item(

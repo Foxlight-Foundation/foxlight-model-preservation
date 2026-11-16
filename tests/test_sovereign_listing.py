@@ -536,3 +536,68 @@ def test_the_pointer_is_stored_once_the_dht_has_started(
     assert session.puts == [pointer_value(listing.infohash_v2)]
     sharing._point(session, listing)  # type: ignore[arg-type]
     assert len(session.puts) == 1  # stored; renewed only later
+
+
+def test_a_late_reply_to_an_abandoned_lookup_never_ends_the_next_one() -> None:
+    import threading
+
+    key = Ed25519PrivateKey.generate()
+    _secret, public = dht_keys(key)
+    value = pointer_value("f" * 64)
+    signed = b"4:salt%d:%s3:seqi3e1:v%d:%s" % (
+        len(LISTING_SALT),
+        LISTING_SALT,
+        len(value),
+        value,
+    )
+
+    class dht_mutable_item_alert:  # noqa: N801 - libtorrent's alert name
+        def __init__(self, key: bytes, salt: str, item: object, final: bool) -> None:
+            self.key, self.salt, self.authoritative = key, salt, final
+            self._item = item
+
+        @property
+        def item(self) -> object:
+            if self._item is None:
+                raise RuntimeError("empty reply")
+            return self._item
+
+    stranger = dht_keys(Ed25519PrivateKey.generate())[1]
+    batches = [
+        # An earlier lookup's final, empty answer arrives first...
+        [dht_mutable_item_alert(stranger, LISTING_SALT.decode(), None, True)],
+        # ...then this lookup's own answer.
+        [
+            dht_mutable_item_alert(
+                public,
+                LISTING_SALT.decode(),
+                {
+                    "key": public,
+                    "salt": LISTING_SALT,
+                    "seq": 3,
+                    "value": value,
+                    "signature": key.sign(signed),
+                },
+                True,
+            )
+        ],
+    ]
+
+    class Session:
+        def is_dht_running(self) -> bool:
+            return True
+
+        def dht_get_mutable_item(self, public: bytes, salt: bytes) -> None:
+            pass
+
+        def wait_for_alert(self, milliseconds: int) -> None:
+            pass
+
+        def pop_alerts(self) -> list[object]:
+            return batches.pop(0) if batches else []
+
+    node = Rendezvous.__new__(Rendezvous)
+    node._lock = threading.RLock()  # type: ignore[attr-defined]
+    node.session = Session()  # type: ignore[assignment]
+    node.open_port = None
+    assert node.get_pointer(public, LISTING_SALT, seconds=2) == value
