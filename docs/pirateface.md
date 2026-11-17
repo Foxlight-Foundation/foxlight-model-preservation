@@ -115,9 +115,16 @@ compatibility, not public reachability, PirateFace operator independence,
 cross-seeding eligibility, custody durability or anonymity.
 
 Sovereign's exported archive torrents use content-addressed archive paths;
-PirateFace repository torrents use original repository paths. They cannot be
-assumed interchangeable or submitted as the same swarm. This adapter does not
-submit listings or public weights, automatically receive a swarm, translate
-layouts for cross-seeding, or add a Library/Guided screen. All existing sharing
-controls remain explicitly opt-in. I2P/I2PSnark is a separate evaluation; this
-adapter provides no protected transport or clearnet fallback policy.
+PirateFace repository torrents use original repository paths. This
+command-line adapter does not treat them as interchangeable or submit them as
+the same swarm. It does not submit listings or public weights, automatically
+receive a swarm, translate layouts for cross-seeding, or add a Library/Guided
+screen. Sharing stays explicitly opt-in. I2P/I2PSnark is a
+separate evaluation; this adapter provides no protected transport or clearnet
+fallback policy.
+
+These limits describe this adapter only. The Library app separately offers
+Pirate Face search, swarm downloads and, inside **Help keep models available**,
+an off-by-default choice to share matching Pirate Face torrents from a mirror's
+stored files; see [Pirate Face as a source](sovereign-desktop.md#pirate-face-as-a-source)
+and [Mirrors seeding on Pirate Face](sovereign-desktop.md#mirrors-seeding-on-pirate-face).

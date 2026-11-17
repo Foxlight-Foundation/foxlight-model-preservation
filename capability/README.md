@@ -16,9 +16,13 @@ decision. See [source following and trust](../docs/sovereign-desktop.md#follow-i
 shell bundles both public packages and Python. See the [independent desktop
 guide](../docs/sovereign-desktop.md) for behavior and native distribution
 limits. The existing `foxlight-preservation-library` launcher and managed entry
-point retain their Core adapter. Neither mode starts sharing on launch.
+point retain their Core adapter. Neither mode starts sharing on launch, except
+that Sovereign resumes the standing **Help keep models available** sharing
+(with its router port mapping and announcements, as chosen) while that one-year
+consent holds.
 
-The current source also adds independent **Backups** and **Sharing** areas,
+The current source also adds independent backup folders (now under **Settings →
+Storage → Backup folders**) and a **Sharing** area,
 complete kit readback, offline HTTP sharing-file review and separately confirmed
 finite HTTP mirror sessions. See [current independent app behavior](../docs/sovereign-desktop.md#backup-folders-and-public-sharing).
 These source changes are separate from publishing or replacing a signed app.
@@ -374,9 +378,11 @@ unconstrained tool install. [Verify the release](../docs/releases.md) before
 executing its installer. These are public software artifacts for a development
 cohort; the compatible Core remains a separately installed pinned source preview.
 
-The independent desktop profile pairs Library 0.22 with core 0.26. It includes
+The independent desktop profile pairs Library 0.33 with core 0.37. It includes
 Horizon model discovery, complete companion recovery, remembered backup folders,
-separate public-copy and HTTP sharing reviews, and recipient sharing files.
+separate public-copy and HTTP sharing reviews, recipient sharing files, and
+**Help keep models available** with BitTorrent sharing (see [what becomes
+public](../docs/getting-started.md#what-becomes-public-and-how-to-turn-it-off)).
 Find can review alternate addresses from followed sources for the exact signed
 copy while keeping model-key acceptance separate. Native Mac/Linux package
 publication is a separate delivery from these Python installation archives.

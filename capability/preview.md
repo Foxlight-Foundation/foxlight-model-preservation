@@ -14,9 +14,10 @@ For independent source following and private recovery without Skulk, use the
 and `foxlight-sovereign`. The commands below select the separate Core-backed
 mode; installing the public Library does not configure Core automatically.
 
-The independent Library 0.22 / core 0.26 profile includes Horizon backups,
-public-copy review, explicit finite HTTP sharing, recipient files and reviewed
-exact-copy alternatives from followed sources. It retains all original model
+The independent Library 0.33 / core 0.37 profile includes Horizon backups,
+public-copy review, explicit finite HTTP sharing, recipient files, **Help keep
+models available** and reviewed exact-copy alternatives from followed sources.
+It retains all original model
 cards, companions, signed evidence and separate trust decisions.
 
 The optional Core-backed preview pins verified Core revision

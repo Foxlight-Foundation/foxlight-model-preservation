@@ -33,10 +33,16 @@ install, find, preserve, send a kit and recover on another computer.
 
 Choose **Browse public models** to find something useful, or **Open a recovery kit**
 to recover a copy you already have. **Library** keeps your saved copies searchable.
-**Backups** remembers storage folders; **Sharing** offers explicit, finite public
-sharing and a one-file recipient handoff. Opening or installing the app starts no
-model download, inference or sharing. A model's trust checks remain separate from
-software signing, and an unfamiliar capture key still needs explicit review.
+**Settings → Storage → Backup folders** remembers backup drives; **Sharing**
+offers a one-hour public copy with a one-file recipient handoff, and the standing
+**Help keep models available** choice. Installing or opening the app starts no
+model download, inference or sharing until you turn on **Help keep models
+available**. That consent lasts a year; while it holds, opening the app resumes
+sharing, the router port mapping you allowed and the public announcements you
+chose. Find also searches Hugging Face unless you turn it off. See
+[what becomes public](docs/getting-started.md#what-becomes-public-and-how-to-turn-it-off).
+A model's trust checks remain separate from software signing, and an unfamiliar
+capture key still needs explicit review.
 
 The [independent Library](docs/sovereign-desktop.md) also supports signed catalog
 browsing, independent source following and offline search. The public Library
