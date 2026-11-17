@@ -89,3 +89,16 @@ test('Pirate Face search works on its own, without Hugging Face search',async({p
   await expect.poll(()=>searches[0]).toBe('rare');
   await expect(page.getByRole('article',{name:'gone-org/rare-model'})).toBeVisible();
 });
+
+test('the search line names the sources that need the internet',async({page})=>{
+  const state={pf:false,swarm:false};
+  await common(page,state);
+  await page.route('**/api/desktop-pirate-face-consent',r=>{state.pf=true;return r.fulfill({json:{pirate_face_search:true}});});
+  await page.route('**/api/desktop-pirate-face-search',r=>r.fulfill({json:{source:'pirateface',results:[]}}));
+  await page.goto('/');
+  const meta=page.locator('#sovereign-search-meta');
+  await expect(meta).toContainText('Hugging Face needs the internet');
+  await expect(meta).not.toContainText('works offline');
+  await page.getByRole('switch',{name:'Pirate Face'}).click();
+  await expect(meta).toContainText('Hugging Face and Pirate Face need the internet');
+});

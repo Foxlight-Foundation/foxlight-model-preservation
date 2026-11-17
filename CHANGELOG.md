@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- The Library's Find search line no longer says search works offline while
+  Hugging Face or Pirate Face search is on; it names the source that needs the
+  internet.
 - Sharing now says plainly that sharing over BitTorrent lists the shared models
   on the public BitTorrent DHT under this computer's key, whatever the
   "Announce on the BitTorrent DHT" choice (which covers only announcing the
