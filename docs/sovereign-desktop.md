@@ -91,33 +91,58 @@ then launch `foxlight-sovereign` with both public packages installed,
 or open the self-contained Mac app built below. First launch opens **Find**. Once you have saved copies, reopening starts
 in **Library**.
 Choose **Browse public models** to request metadata from the optional built-in
-Foxlight registry preset. No bootstrap file or account is needed. Search uses the
-accepted signed catalog on this device and continues to work offline. Updating
-listings is an explicit action, separate from model downloads.
+Foxlight registry preset. No bootstrap file or account is needed. Searching the
+registry listings uses the accepted signed catalog on this device and continues
+to work offline. Updating listings is an explicit action, separate from model
+downloads. The first-launch screen contacts nothing.
 
-Find starts with **Ready to review**: matching listings with a complete supported
-signed file selection, including required companions. **All signed listings**
+Search in Find is not entirely local, though. Unless turned off, the same search
+words go to Hugging Face (see [Hugging Face as a source](#hugging-face-as-a-source)),
+and the first time Find shows its model list in a session it reads community
+mirrors' signed lists (see [Community mirror holdings](#community-mirror-holdings)).
+**Also search: Hugging Face / Pirate Face** switches sit beside the search box;
+the same choices are under **Settings → Search sources and privacy**.
+
+Find shows only listings with a complete supported signed file selection,
+including required companions. **Also show listings Sovereign can't save yet**
 keeps incomplete or unsupported selections inspectable with their explanation.
-The count distinguishes all matching versions from those ready for review. This
-is a preservation-format check, not a host reachability test or a claim that the
-model runs on this device. Download review still checks freshness, storage and
-connection permissions. Searching and changing filters start no connections.
+This is a preservation-format check, not a host reachability test or a claim
+that the model runs on this device. Saving still checks freshness, storage and
+connection permissions. Changing filters starts no connections.
 
-
-Choose **Review download & preserve** for a supported selection. The review
-includes the exact card, full selected companion repositories, total object
-bytes, verified file count, publication freshness and connection disclosure.
-When the exact selection contains its card-selected image projector, the review
-explicitly says that image companion is included. Confirming starts a
-finite, private background job. Each file must match its original signed size
+Choose **Keep a copy** for a supported selection. **Review before saving**
+includes the exact card, full selected companion repositories, download size,
+free working space, verified file count, publication freshness and connection
+disclosure. When the exact selection contains its card-selected image projector,
+the review explicitly says that image companion is included. **Keep a copy** at
+the bottom of the review is the confirmation and starts a finite, private
+background job. Licence terms with conditions, a copy whose origin couldn't be
+confirmed, or a historical selection each ask for their own tick first. Each file must match its original signed size
 and SHA-256. The original model card, all properties and signed publication proof
 are retained in the PMF capture. No model code or runtime is executed.
 
 **Library** contains complete saved PMF copies. **Save recovery kit** prepares a
 kit and opens a download/save dialog. **Restore files** verifies the copy and
 writes a fresh private folder, including all captured members and source
-documents. **Activity** retains outcomes and provides the completed kit download
-or **Open restored folder** action after the original view closes.
+documents. **Remove from Library** deletes one saved copy and its files after an
+explicit confirmation; recovery kits and backups on other drives are kept, and
+a model shared through **Help keep models available** stops being shared unless
+another saved copy provides it. **Activity** retains outcomes and provides the
+completed kit download or **Open restored folder** action after the original
+view closes.
+
+A running save shows a ring per stage (for example Download, Check & sign and
+Store), the active stage's percentage, bytes, speed and estimated time left, and
+**Stop**. A save interrupted earlier picks up where it stopped when it is
+started again: it first re-reads the part already downloaded (shown as
+"Checking the part downloaded earlier", with its own **Stop**), then downloads
+only the rest. **Remove from Activity** removes one finished entry (for a kit
+export, also the kit file Sovereign kept for it); **Clear finished** removes all
+finished entries after a second click. Neither deletes a saved copy. After a
+save of a model whose licence is on the sharing list, while sharing is off,
+Activity asks once **Help keep this model available?**: **Review sharing**
+opens the sharing review for that model, **Not now** is never asked again, and
+neither answer shares anything.
 
 **Open recovery kit** works without the original Core or registry. Its review
 shows the exact archive and capture-key fingerprints. A kit's self-signature
@@ -165,16 +190,18 @@ flow nor following/searching a source starts sharing, seeding or model execution
 
 **Settings** gathers every choice in one place:
 
-- **Storage:** where model copies are kept, and backup folders.
-- **Search sources and privacy:** Hugging Face search, the Hugging Face token,
-  Pirate Face search and swarm downloads, each with a plain on/off.
+- **Storage:** where model copies are kept (**Library location**), and
+  **Backup folders**.
+- **Search sources and privacy:** Hugging Face search (on by default), the
+  Hugging Face token, Pirate Face search and swarm downloads (both off by
+  default), each a switch that says where data goes.
 - **Sharing:** a link to **Help keep models available** and its options, which
   stay together under Sharing.
-- **Appearance:** light or dark.
+- **Appearance:** **Theme**, light or dark.
 
-Find keeps its in-context prompts (for example "Also search Hugging Face?" once
-it has been turned off) and links here;
-the Library page says where copies are kept, with a link to change it.
+Find has the same Hugging Face and Pirate Face switches beside its search box
+(**Also search**), and asks before the first swarm download; the Library page
+says where copies are kept, with a link to change it.
 
 ## Where model copies are kept
 
@@ -367,7 +394,8 @@ long-lived mirror of its backups. There is one choice, not a step per model:
     advice: operators are responsible for the terms that apply where they run a
     mirror.
 - **No hour limit.** Turning the switch on records one standing consent for a
-  year; serving then resumes after a restart or reboot with no further step.
+  year; serving, the router port mapping (if allowed) and the chosen
+  announcements then resume whenever the app opens, with no further step.
   Turning it off revokes that consent at once.
 - **Upload limits are opt-in.** A new setup has no daily or monthly upload
   limit: uploads are counted and shown, but never stopped. **Limit uploads**
@@ -392,7 +420,8 @@ download review lists each licence with:
   acceptable use policy applies; attribution 'Built with Llama' required";
 - a link to its full text, which is also carried in the bundle.
 
-**Keep a copy** stays disabled until you tick **I accept these terms**. Sovereign records the acceptance
+**Keep a copy** stays disabled until you tick the acceptance under **Terms to
+accept** ("I accept the …", naming each licence). Sovereign records the acceptance
 (`terms-acceptance/<job>.json`: the licences, the definition version and when)
 before any byte is fetched; the job links it to the copy it creates. Plain
 permissive, attribution and copyleft licences are listed but need no tick. This
@@ -416,13 +445,26 @@ If you agreed to sharing before the consent mentioned BitTorrent, nothing is
 shared that way until you agree to it: the panel asks, under **Review sharing
 over BitTorrent**.
 
+BitTorrent sharing runs a libtorrent session with the public BitTorrent DHT
+turned on, whatever **Announce on the BitTorrent DHT** says: that choice covers
+only announcing the mirror's own address (below). Each shared file's swarm is
+announced on the DHT, so anyone looking up a file finds this computer among its
+peers. The session also publishes this computer's signed **listing** as a small
+torrent (its holdings, torrent list, object coverage and the signed manifests of
+the shared copies) and stores a signed pointer to it in the DHT under the mirror
+key (BEP 44). Anyone who knows that key can therefore look up which models this
+computer shares. See [listings for computers nobody can
+reach](mirror-discovery.md#listings-for-computers-nobody-can-reach).
+
 The mirror serves HTTP on a fixed port (8743 by default) on every network
 interface. Sovereign says plainly whether this computer has a public address or
 sits behind a router, and asks no outside service. While sharing, it asks the
-router to forward that port to this computer (UPnP / NAT-PMP), as the sharing
-consent says; **Ask my router to open port …** turns this off and leaves the
-router exactly as it is. Someone who started sharing before this choice existed
-isn't forwarded until they choose it under **Change what’s shared**. When the router agrees, the mirror publishes the
+router to forward that port, and the BitTorrent sharing session's port, to this
+computer (UPnP / NAT-PMP), as the sharing consent says. **Ask my router to open
+port …**, shown only when no public address is entered and on by default, turns
+this off and leaves the router exactly as it is. Someone who started sharing
+before this choice existed isn't forwarded until they choose it under **Change
+what’s shared**. When the router agrees, the mirror publishes the
 router's outside address and forwarded port. A router that refuses, or an
 internet provider that shares one public address among customers (carrier-grade
 NAT), is reported as such, and the mirror stays reachable from its own network
@@ -434,8 +476,15 @@ HTTP is not anonymous or encrypted: recipients see this computer's address.
 Setup also asks, before you consent, whether to **announce on the BitTorrent
 DHT** and **publish to Nostr relays**. Both are on by default and each says
 plainly what it reveals: this computer's address, published publicly as a
-Sovereign mirror, which is not anonymous. The consent line names the
-announcements that are on. While sharing, the status says in plain sentences
+Sovereign mirror, which is not anonymous. Nostr publishing sends the mirror's
+signed card (its address, and the cloud storage address if any) when the
+computer can be reached. While models are shared over BitTorrent, it also
+publishes a signed **listing card** naming this computer's mirror key and the
+copies it probably holds, even when the computer has no reachable address, so
+anyone can read which models it shares. Relays see the address of whoever
+publishes and whoever reads; the sheet lists the default relays. The consent
+line names the announcements that are on. While sharing, the status says in
+plain sentences
 whether each announcement is happening and, if not, why: it is turned off,
 nothing is shared yet, there is no reachable address, an `https://` address
 cannot be carried by the DHT, or this copy of Sovereign lacks the DHT
@@ -461,17 +510,22 @@ to their own public address, so a failure is not proof either.
 **Turning the switch on also announces this mirror on the public BitTorrent
 DHT.** Mac and Linux apps built from Library releases after 0.23 bundle the DHT
 binding (libtorrent 2.0; not supported on macOS 13). When the mirror is
-reachable (this computer has a public address, or you declared a plain
-`http://` public URL) and the `announce_dht` mirror setting is on (the default),
-it joins the public BitTorrent mainline DHT every 15 minutes, announces its HTTP
-port under Sovereign's one well-known rendezvous key and looks up other mirrors
-there. That publishes this computer's public IP address and mirror port, and
-the fact that it runs a Sovereign mirror, to DHT nodes and to anyone who looks
-the key up. Joining also relays a small amount of DHT traffic for others. The
-DHT carries only addresses; every card and byte is still verified. Nothing
-about this is anonymous or hidden. A mirror behind a router with no declared
-public URL does not join the DHT. Turn `announce_dht` off, or turn the switch
-off, to leave it. See [mirror discovery](mirror-discovery.md) for the protocol.
+reachable (this computer has a public address, the router forwarded its port,
+or you declared a plain `http://` public URL) and the `announce_dht` mirror
+setting is on (the default), it announces its HTTP port under Sovereign's one
+well-known rendezvous key every 15 minutes and looks up other mirrors there.
+That publishes this computer's public IP address and mirror port, and the fact
+that it runs a Sovereign mirror, to DHT nodes and to anyone who looks the key
+up. Joining also relays a small amount of DHT traffic for others. The DHT
+carries only addresses; every card and byte is still verified. Nothing about
+this is anonymous or hidden.
+
+A mirror nobody can reach makes no rendezvous announcement, and turning
+`announce_dht` off stops it. Neither keeps this computer off the DHT while it
+shares over BitTorrent: the sharing session takes part in the DHT and stores
+the listing pointer described above whatever this choice says. Turning **Help
+keep models available** off ends that session too. See [mirror
+discovery](mirror-discovery.md) for the protocol.
 
 ### Open a sharing file without Skulk
 
@@ -584,10 +638,15 @@ revision the listing pins. The registry listing and Skulk are unchanged.
 
 Mirrors publish `/.well-known/sovereign/holdings.json`, a signed list of the
 copies they keep (`sovereign.mirror-holdings.v1`). Sovereign reads these lists
-from the starter mirror and the mirrors it names, only after **Browse public
-models** or Hugging Face search was chosen, keeps a list only when the mirror
-card's own key signed it, and searches them on the device. A held copy is saved
-by its manifest's content address: the file list is exactly the listed copy,
+from the starter mirror and the mirrors it names once per session, when Find
+first shows its model list (never on the first-launch screen). Those mirrors see
+this computer's address; search words are not sent. It keeps a list only when
+the mirror card's own key signed it, and searches them on the device. With swarm
+downloads on, the same refresh also reads the listings of computers that share
+over BitTorrent with no reachable address, which joins the public DHT and each
+listing's swarm (see [Find reads
+listings](mirror-discovery.md#listings-for-computers-nobody-can-reach)). A held
+copy is saved by its manifest's content address: the file list is exactly the listed copy,
 whoever signed it. Its claimed origin is checked against Hugging Face and the
 result (matches, differs, unconfirmed) is recorded in the copy, which is
 repacked under the owner's key. A list grants no trust.
@@ -595,9 +654,10 @@ repacked under the owner's key. A list grants no trust.
 ### Pirate Face as a source
 
 Pirate Face (pirateface.co) lists community torrents of Hugging Face models and
-hosts no files. Searching it is a one-time choice in Find, because search words
-go to pirateface.co. Sovereign uses only the interfaces Pirate Face documents or
-its own client uses: the plain-text search `/s/<words>`, one model's entry
+hosts no files. Searching it is off by default and is a switch (**Also search:
+Pirate Face**) in Find and under **Settings → Search sources and privacy**,
+because search words go to pirateface.co. Sovereign uses only the interfaces
+Pirate Face documents or its own client uses: the plain-text search `/s/<words>`, one model's entry
 `/api/torrents?repo=`, that entry's `.torrent` file and `/api/rescue`. A torrent
 file is accepted only when its v1 infohash is the one the entry names; its
 paths must be safe, and a Pirate Face web-seed URL names the exact commit.
@@ -608,8 +668,10 @@ kept from the swarm: only files Pirate Face recorded a Hugging Face SHA-256 for
 are offered, each file is checked against it, and the save needs the same
 acknowledgement as an unconfirmed mirror copy, which the copy records.
 
-Swarm downloads are a separate one-time choice, because peers in a public swarm
-can see this computer's address. A swarm receive is download-only: the session
+Swarm downloads are a separate choice, off by default: the **Swarm downloads**
+switch under **Settings → Search sources and privacy**, also offered once in
+Find before the first swarm save. Peers in a public swarm can see this
+computer's address. A swarm receive is download-only: the session
 never unchokes a peer, so nothing is uploaded, and it ends with the save. With
 swarm downloads on, a Hub save also uses a listed torrent of the same commit as
 its last source, after Hugging Face and community mirrors. **Ask Pirate Face to
@@ -637,14 +699,19 @@ listing the model, a torrent that already passed its check keeps seeding.
 Turning the choice on or off restarts serving briefly. Peers in the public
 swarm see this computer's address.
 
-Mirrors list the torrents they seed, after the check, at
+Mirrors list the torrents they share at
 `/.well-known/sovereign/torrents.json` (`sovereign.mirror-torrents.v1`,
-signed by the mirror card's key: manifest, v1 infohash, source). It is separate
-from holdings, which earlier releases read with strict fields. The standalone
-mirror chooses this with `model-preserve mirror transports --pirate-face`;
-using it raises the mirror ledger to v7, which earlier releases refuse. Ledgers
-without it encode exactly as before, and lookup results never change the
-restart identity.
+signed by the mirror card's key). Each entry names the manifest, the v1
+infohash and a source: `"source":"pirateface"` for a Pirate Face torrent that
+passed its check, or `"source":"sovereign"` for one of Sovereign's own per-file
+torrents, which also names the file's SHA-256 (`object`). It is separate from
+holdings, which earlier releases read with strict fields. The standalone mirror
+chooses Pirate Face sharing with `model-preserve mirror transports
+--pirate-face`; using it raises the mirror ledger to v7. Per-file BitTorrent
+sharing or router port mapping, which desktop sharing turns on with its
+consent, raise it to v8. Earlier releases refuse a ledger newer than they know.
+Ledgers without these choices encode exactly as before, and lookup results
+never change the restart identity.
 
 The command-line `model-preserve pirateface` adapter ([PirateFace
 interoperability](pirateface.md)) is separate and unchanged.
@@ -679,12 +746,14 @@ inventing transcription or audio understanding. A declared video soundtrack
 adds audio output to video generation without creating a separate music feature.
 Explicit portable input/output declarations take precedence over these fallbacks.
 
-Updating contacts `registry.foxlight.ai`. Search terms are not sent. Direct
+Updating contacts `registry.foxlight.ai`. Search terms are not sent there. Direct
 model downloads contact the pinned Hugging Face repository/revision and its
 HTTPS CDNs. Each redirect is independently checked for credential-free HTTPS
 and public destination addresses. Suppliers can see the client's address and
-requested files. There is no automatic seeding, public listener, peer joining,
-router installation or telemetry. The local view uses a private loopback ticket,
+requested files. Saving a model starts no sharing, public listener, router port
+mapping or telemetry, and joins a public swarm only with swarm downloads on;
+only the separate **Help keep models available** consent shares, maps router
+ports or announces anything. The local view uses a private loopback ticket,
 Host/Origin checks and bounded same-origin controls.
 
 A private process lock fences the owner. Jobs and immutable review bindings are

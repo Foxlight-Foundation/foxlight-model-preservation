@@ -230,7 +230,10 @@ Sovereign; it does not install Skulk. Run these commands in a terminal:
 Open **Sovereign** from the application menu, or run `sovereign`. Future versions
 arrive through normal apt upgrades; each new version still requires its own
 reviewed public release. Opening or updating the app starts no model download,
-router, inference or sharing.
+router port mapping, inference or sharing until you turn on **Help keep models
+available**. That consent lasts one year; while it holds, opening the app
+resumes sharing, the router port mapping you allowed and the announcements you
+chose (see [what becomes public](getting-started.md#what-becomes-public-and-how-to-turn-it-off)).
 
 The binary keyring SHA-256 above binds the bootstrap to the reviewed Foxlight
 Foundation APT Archive Signing key, fingerprint

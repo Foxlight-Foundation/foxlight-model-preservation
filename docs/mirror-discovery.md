@@ -53,10 +53,16 @@ Announcing is part of the explicit mirror role. It needs the optional
 is reachable and `announce_dht` is on (the default). Joining the DHT shows this
 computer's address to DHT nodes and relays a little DHT traffic for others.
 Local service discovery stays off. The app's mirror also asks the home router
-to forward its HTTP port (UPnP / NAT-PMP) while sharing, unless the owner turns
-that off; it then announces the forwarded port. Mirrors run from the command
-line never configure a router. An IPFS DHT rendezvous can follow the same
-pattern later.
+to forward its HTTP port and its BitTorrent sharing port (UPnP / NAT-PMP) while
+sharing, unless the owner turns that off or declares a public address; it then
+announces the forwarded HTTP port. Mirrors run from the command line never
+configure a router. An IPFS DHT rendezvous can follow the same pattern later.
+
+`announce_dht` governs only this rendezvous announcement. An app that shares
+its files over BitTorrent runs a sharing session with the DHT on regardless:
+each shared file's swarm is announced there, and the session stores the
+listing pointer described below. Its address and the models it shares are
+therefore public whatever `announce_dht` says.
 
 ## Listings for computers nobody can reach
 
@@ -112,10 +118,15 @@ relay can drop or delay cards, but it cannot forge or alter one: each event's
 BIP340 signature and id are checked, then the card inside is verified with its
 own mirror key, and the `d` tag must name that key.
 
-The app's mirror publishes when it is reachable and `publish_nostr` is on (the
-default), to its `nostr_relays` list, which defaults to five public relays and
-accepts only `wss://` URLs. It also reads cards from those relays. Relays see
-the network address of the publishing mirror and of each querying client. The
+The app's mirror publishes when `publish_nostr` is on (the default), to its
+`nostr_relays` list, which defaults to five public relays and accepts only
+`wss://` URLs. It publishes its mirror card when it has a reachable address (a
+declared public URL, a public address, a router-forwarded port, or a synced
+cloud bucket). While it shares files over BitTorrent it also publishes its
+listing card, even with no reachable address, so anyone reading the relays
+learns which copies that key probably holds. It also reads cards and listing
+cards from those relays. Relays see the network address of the publishing
+mirror and of each querying client. The
 secp256k1 key used for these events is separate from every other key and signs
 nothing but public announcements.
 
@@ -271,8 +282,11 @@ HTTP and private-address choices the user made for that receive, and record each
 mirror's outcome. Seeds are contacted only as the fallback stage, after the
 approved and known mirrors failed. The approved mirrors are still checked against the reviewed
 plan; discovered mirrors are never part of it and never change the accepted
-keys. An app receive never contacts the DHT or Nostr relays; only the
-explicitly enabled community mirror does.
+keys. An app receive never contacts Nostr relays, and contacts the DHT only
+with **Swarm downloads** on: then Find joins the DHT (and each listing's swarm)
+to read the listings of computers that share over BitTorrent, and a save can
+use public swarms. Otherwise only the explicitly enabled community mirror
+contacts the DHT or Nostr relays.
 
 A registry receive (saving from **Find**) downloads from the original upstream
 files first. If the origin fails for a file, the app fetches that file by the
@@ -305,10 +319,13 @@ the upload allowance, so a claim can be checked cheaply.
 
 When **Help keep models available** is on, the app's mirror:
 
-- publishes a card when it is reachable: either at an address the owner declares
-  (`public_url`, for a port forward or a domain) or because the computer has a
-  public address. A computer behind a router publishes no card, because nobody
-  could reach it;
+- publishes a card when it is reachable: at an address the owner declares
+  (`public_url`, for a port forward or a domain), because the computer has a
+  public address, or because the router agreed to forward its port. A computer
+  nobody can reach publishes no mirror card;
+- while it shares files over BitTorrent (one swarm per file, from a DHT-enabled
+  session), publishes its signed listing with a DHT pointer and, under the
+  Nostr choice, its listing card, even with no reachable address;
 - serves its peers document, rewritten without a restart;
 - every 15 minutes, announces on the DHT rendezvous, looks up other mirrors there,
   crawls known mirrors over public routes only (never private addresses),

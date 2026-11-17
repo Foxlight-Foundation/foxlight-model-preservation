@@ -3,8 +3,12 @@
 The public Mac recipe builds Sovereign for Apple silicon, macOS 13 or newer.
 The app bundles Python and the independent Library, including populated model
 discovery, private preservation and recovery. Recipients do not install Python,
-uv, Skulk, a managed SDK or a source checkout. It starts no sharing, router or
-automatic model download. Linux/APT distribution is a separate delivery.
+uv, Skulk, a managed SDK or a source checkout. It starts no sharing, router
+port mapping or automatic model download until you turn on **Help keep models
+available**; that consent lasts one year, and while it holds, opening the app
+resumes sharing, the router port mapping you allowed and the announcements you
+chose. Intel Macs are not supported. Linux/APT distribution is a separate
+delivery.
 
 The build recipe and its CI produce an **ad hoc candidate**. The separate
 [native release workflow](../.github/workflows/macos-release.yml) can verify and
