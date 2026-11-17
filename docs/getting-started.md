@@ -253,7 +253,8 @@ checks every byte, so nobody has to trust your computer.
      asks again.
 
 Last comes one consent line that names what you chose, for example: "Keep
-sharing these models from this computer until I turn it off, and announce it
+sharing these models from this computer until I turn it off, and share them
+over BitTorrent, listed on the BitTorrent DHT, and announce this computer
 publicly on the BitTorrent DHT and 5 Nostr relays, and ask my router to open
 port 8743." **Start sharing** is available once you tick it.
 
