@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.37.1
+
 - The Library's Find search line no longer says search works offline while
   Hugging Face or Pirate Face search is on; it names the source that needs the
   internet.

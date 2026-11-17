@@ -6,6 +6,10 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+## 0.33.1
+
+- Requires core 0.37.1.
+
 - Find's search line no longer says search works offline while Hugging Face or
   Pirate Face search is on; it names the source that needs the internet.
 - Sharing now says plainly that sharing over BitTorrent lists the shared models
