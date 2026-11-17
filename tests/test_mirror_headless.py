@@ -2229,6 +2229,16 @@ def test_quickstart_shares_over_bittorrent_and_posts_to_nostr_by_default(
     assert restart_allowed(state)
     assert "BitTorrent:      not shared" in off.stderr
     assert "NO MONTHLY UPLOAD CAP" not in off.stderr
+    # Quickstart states the whole policy at every start: dropping the opt-outs
+    # (as a container does once SOVEREIGN_MIRROR_NOSTR=off is removed) turns
+    # each default back on, custom relays included.
+    on = cli(*base, "--nostr-relay", "wss://relay.example")
+    assert on.returncode == 0, on.stderr
+    state = MirrorLedger(target).read()
+    assert state.announce is not None and state.announce.nostr
+    assert state.announce.relays == ("wss://relay.example",)
+    assert state.native_policy is not None
+    assert state.native_policy.file_torrents and state.native_policy.pirate_face
 
 
 def test_bittorrent_sharing_stays_off_without_the_component(
