@@ -28,10 +28,10 @@ test('Pirate Face search is a choice, and a model on both shows once with its se
   await expect.poll(()=>calls.find(call=>call.startsWith('search:'))).toBe('search:qwen');
   const hub=page.getByRole('article',{name:'Qwen/Qwen-Test'});
   await expect(hub).toHaveCount(1);
-  await expect(hub.getByText('118 seeds on Pirate Face')).toBeVisible();
+  await expect(hub.getByText('118 computers sharing on Pirate Face')).toBeVisible();
   const pirate=page.getByRole('region',{name:'Results from Pirate Face'});
   await expect(pirate.getByRole('article',{name:'gone-org/rare-model'})).toBeVisible();
-  await expect(pirate.getByText('3 seeds on Pirate Face')).toBeVisible();
+  await expect(pirate.getByText('3 computers sharing on Pirate Face')).toBeVisible();
 });
 
 test('a rescued model needs swarm downloads, then an origin acknowledgement',async({page})=>{

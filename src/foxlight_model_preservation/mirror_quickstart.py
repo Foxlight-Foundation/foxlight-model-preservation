@@ -27,6 +27,7 @@ from .mirror import (
 )
 from .mirror_announce import DISCLOSURE, dht_port
 from .mirror_models import AnnouncePolicy, SourceGrant, Terms, upgrade_profile
+from .mirror_native import set_sharing
 from .mirror_state import (
     HEADROOM,
     MirrorLedger,
@@ -35,6 +36,7 @@ from .mirror_state import (
     policy_id,
 )
 from .models import Digest, PreservationError, Record, TrustProfile
+from .nostr import DEFAULT_RELAYS
 from .signing import canonical_bytes, load_trust, strict_json
 
 COLLECTION_VERSION = "sovereign.mirror-collection.v1"
@@ -154,6 +156,10 @@ class QuickstartSettings:
     max_bytes: int | None = None
     # The operator's choice; never a publisher's. Off: withdrawal is advisory.
     follow_withdrawals: bool = False
+    # Share held files over BitTorrent: Sovereign's own per-file swarms, and
+    # matching Pirate Face torrents. None leaves the mirror's choice as it is.
+    share_files: bool | None = None
+    pirate_face: bool | None = None
 
 
 def model_limit(
@@ -205,12 +211,7 @@ def review(
             "listener binds every interface: it is directly reachable without "
             "the reverse proxy"
         )
-    if settings.egress_daily is None and settings.egress_monthly is None:
-        warnings.append(
-            "uploads are not capped: serving can use a lot of bandwidth, and "
-            "on metered hosting that costs money. Set --egress-daily and "
-            "--egress-monthly to cap it"
-        )
+    uncapped = settings.egress_monthly is None
     expires = int(time.time()) + settings.resume_seconds
     limit = model_limit(collection, settings)
     collection_lines = (
@@ -265,6 +266,28 @@ def review(
             if announce
             else "none (this mirror is not announced)"
         ),
+        *(
+            [
+                "Nostr relays:    "
+                + ", ".join(
+                    relay.removeprefix("wss://")
+                    for relay in (announce.relays or DEFAULT_RELAYS)
+                )
+            ]
+            if announce and announce.nostr
+            else []
+        ),
+        "BitTorrent:      "
+        + (
+            "shared"
+            + (" in Sovereign's own swarms" if settings.share_files else "")
+            + (" and" if settings.share_files and settings.pirate_face else "")
+            + (" on Pirate Face" if settings.pirate_face else "")
+            if settings.share_files or settings.pirate_face
+            else "not shared"
+            if settings.share_files is not None
+            else "unchanged"
+        ),
         "Restart grant:   unattended serving until "
         + time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(expires)),
         "",
@@ -285,6 +308,30 @@ def review(
             if announce
             else []
         ),
+        *(
+            [
+                "  - The model files are shared on public BitTorrent swarms; peers",
+                "    in them see this server's address.",
+            ]
+            if settings.share_files or settings.pirate_face
+            else []
+        ),
+        *(
+            [
+                "  - They are listed on the BitTorrent DHT under this mirror's key,",
+                "    so anyone can look up which models it shares.",
+            ]
+            if settings.share_files
+            else []
+        ),
+        *(
+            [
+                "  - Each held model is looked up on Pirate Face (pirateface.co),",
+                "    which then knows this server holds it.",
+            ]
+            if settings.pirate_face
+            else []
+        ),
         "Not exposed: private keys, the ledger, partial or unverified bytes",
         "  and models you block.",
         *(
@@ -302,6 +349,8 @@ def review(
     ]
     if warnings:
         lines += ["", "Warnings:", *("  ! " + item for item in warnings)]
+    if uncapped:
+        lines += ["", *UNCAPPED_WARNING]
     summary: dict[str, JsonValue] = {
         "collection": collection.title if collection is not None else None,
         "source_id": source["source_id"] if source is not None else None,
@@ -321,11 +370,26 @@ def review(
         "port": settings.port,
         "announce": announce.model_dump(mode="json") if announce else None,
         "follow_withdrawals": settings.follow_withdrawals,
+        "share_files": settings.share_files,
+        "pirate_face": settings.pirate_face,
         "restart_expires": expires,
         "warnings": list(warnings),
+        "uploads_uncapped": uncapped,
         "anonymous": False,
     }
     return "\n".join(lines), summary
+
+
+UNCAPPED_WARNING = (
+    "!" * 74,
+    "! NO MONTHLY UPLOAD CAP. This mirror will upload as much as people ask",
+    "! for, over the web and BitTorrent. If your hosting bills for traffic,",
+    "! that can cost a lot of money. To set a cap, run:",
+    "!   model-preserve mirror config --dir DIR --egress-monthly 1T",
+    "! or in Docker's mirror.env set SOVEREIGN_MIRROR_EGRESS_MONTHLY=1T.",
+    "! Leave it uncapped only if your traffic is free or you accept the cost.",
+    "!" * 74,
+)
 
 
 def _cap_text(value: int | None) -> str:
@@ -483,6 +547,17 @@ def apply_quickstart(
                 follow(ledger, document, collection.expected_bootstrap_id, grant)
             elif source_id is not None:
                 apply_source_grant(ledger, source_id, grant)
+        if settings.share_files is not None or settings.pirate_face is not None:
+            native = ledger.read().native_policy
+            set_sharing(
+                ledger,
+                file_torrents=bool(native and native.file_torrents)
+                if settings.share_files is None
+                else settings.share_files,
+                pirate_face=bool(native and native.pirate_face)
+                if settings.pirate_face is None
+                else settings.pirate_face,
+            )
         changed = previous is None or policy_id(ledger.read()) != policy_id(previous)
         expires = int(time.time()) + settings.resume_seconds
         grant_restart(ledger, expires)

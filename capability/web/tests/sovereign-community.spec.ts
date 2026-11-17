@@ -510,12 +510,12 @@ test('seeding on Pirate Face is off until chosen, disclosed, and reported plainl
  await page.route('**/api/desktop-community-configure',r=>{configured=r.request().postDataJSON();on=configured?.enabled!==false;if(typeof configured?.seed_pirate_face==='boolean')seeding=configured.seed_pirate_face;return r.fulfill({json:current()});});
  await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();
  await page.getByRole('region',{name:'Help keep models available'}).getByRole('button',{name:'Turn on',exact:true}).click();
- const seed=page.getByRole('checkbox',{name:/Also seed on Pirate Face/});
+ const seed=page.getByRole('checkbox',{name:/Also share on Pirate Face/});
  await expect(seed).not.toBeChecked();
  await expect(page.getByText('straight from those files: no second copy',{exact:false})).toBeVisible();
  await expect(page.getByText('Peers in the public BitTorrent swarm see this computer’s address',{exact:false})).toBeVisible();
  await seed.check();
- await page.getByRole('checkbox',{name:/, and seed matching Pirate Face torrents, and ask my router to open port 8743\.$/}).check();
+ await page.getByRole('checkbox',{name:/, and share matching Pirate Face torrents, and ask my router to open port 8743\.$/}).check();
  await seed.scrollIntoViewIfNeeded();
  await page.screenshot({path:info.outputPath('community-sheet-pirate-face.png')});
  await sent(page,page.getByRole('button',{name:'Start sharing',exact:true}),'desktop-community-configure');
@@ -524,7 +524,7 @@ test('seeding on Pirate Face is off until chosen, disclosed, and reported plainl
  await expect(panel.getByText('Seeding 1 of 2 matching torrents · 2 of 3 looked-up models listed · 1 listed with different files, not seeded')).toBeVisible();
  // Changing something else never resends the choice.
  await panel.getByRole('button',{name:'Change what’s shared'}).click();
- await expect(page.getByRole('checkbox',{name:/Also seed on Pirate Face/})).toBeChecked();
+ await expect(page.getByRole('checkbox',{name:/Also share on Pirate Face/})).toBeChecked();
  await page.getByRole('checkbox',{name:/Keep sharing these models/}).check();
  await sent(page,page.getByRole('button',{name:'Save changes',exact:true}),'desktop-community-configure');
  expect(configured).not.toHaveProperty('seed_pirate_face');
@@ -534,7 +534,7 @@ test('a core without BitTorrent shows Pirate Face seeding but cannot turn it on'
  await page.route('**/api/desktop-community-read',r=>r.fulfill({json:view(false,{pirate_face:{available:false,on:false,checked:0,listed:0,matched:0,seeding:0,differs:0}})}));
  await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();
  await page.getByRole('region',{name:'Help keep models available'}).getByRole('button',{name:'Turn on',exact:true}).click();
- await expect(page.getByRole('checkbox',{name:/Also seed on Pirate Face/})).toBeDisabled();
+ await expect(page.getByRole('checkbox',{name:/Also share on Pirate Face/})).toBeDisabled();
  await expect(page.getByText('so this can’t be turned on',{exact:false})).toBeVisible();
 });
 

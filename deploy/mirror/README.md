@@ -78,14 +78,38 @@ paused), the reason is logged and the container idles; run
 `docker compose exec mirror model-preserve mirror resume --dir /data/mirror`
 or fix the collection, then restart.
 
-Upload caps are opt-in. With `SOVEREIGN_MIRROR_EGRESS_DAILY` and
-`SOVEREIGN_MIRROR_EGRESS_MONTHLY` unset, a new mirror has no upload cap: uploads
-are counted but never refused. Uncapped serving can use a lot of bandwidth, and
-on metered hosting that costs money, so set both (for example `50G` and `1T`) if
-your provider bills for traffic. An existing mirror keeps the caps it already
-has; set a value to `none` to remove one. The disk budget
+**Set an upload cap if your hosting bills for traffic.** There is none by
+default: with `SOVEREIGN_MIRROR_EGRESS_MONTHLY` and
+`SOVEREIGN_MIRROR_EGRESS_DAILY` empty, a new mirror uploads as much as people
+ask for, over the web and BitTorrent, and that can cost a lot of money. They
+are the first settings in `mirror.env.example`; set `1T` (or whatever you can
+afford) before you consent. While there is no monthly cap, the review printed
+at every start ends with a boxed warning, the mirror logs a
+`mirror_upload_notice` each time its uploads pass another TiB in a month, and
+`docker compose exec mirror model-preserve mirror status --dir /data/mirror`
+shows this month's uploads. An existing mirror keeps the caps it already has;
+set a value to `none` to remove one. The disk budget
 (`SOVEREIGN_MIRROR_BUDGET`) and the daily download budget
 (`SOVEREIGN_MIRROR_INGRESS_DAILY`) always stay bounded.
+
+The mirror announces and shares by default; the review says so before you
+consent, and each part has an off switch in `mirror.env`:
+
+- **Nostr** (`SOVEREIGN_MIRROR_NOSTR=off` to stop): it posts its signed card to
+  public Nostr relays so Sovereign apps can find it. Relays see the server's
+  address, which the card publishes anyway. `SOVEREIGN_MIRROR_NOSTR_RELAYS`
+  (comma-separated `wss://` URLs) replaces the default five relays.
+- **BitTorrent** (`SOVEREIGN_MIRROR_BITTORRENT=off`): it shares its files in
+  Sovereign's own per-file swarms, with its listing on the BitTorrent DHT under
+  the mirror's key, so anyone can look up which models it shares.
+- **Pirate Face** (`SOVEREIGN_MIRROR_PIRATE_FACE=off`): it looks each held
+  model up on pirateface.co and shares a matching torrent from the stored
+  files after checking every piece.
+
+BitTorrent peers see the server's address. `compose.yaml` publishes the
+sharing port (`SOVEREIGN_MIRROR_TORRENT_PORT`, 6881 TCP and UDP by default);
+allow it in the host's firewall. Pirate Face torrents use ports the system
+picks, so behind Docker they connect outward only.
 
 The collection directory must hold `collection.json` and any source file it
 names with `"file"`; alternatively embed the source with `"inline"`.

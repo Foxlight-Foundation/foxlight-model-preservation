@@ -76,12 +76,12 @@ from ..mirror_cards import (
     base_url,
     build_peers,
     issue_card,
-    issue_listing_card,
     verify_card,
 )
 from ..mirror_directory import MirrorDirectory
 from ..mirror_holdings import issue_holdings, store_holdings
 from ..mirror_intake import retain_local
+from ..mirror_listing import mirror_listing_card, publish_mirror_listing
 from ..mirror_models import (
     HeldModel,
     MirrorObservation,
@@ -114,11 +114,6 @@ from ..signing import (
 )
 from ..sovereign_listing import (
     current_listing,
-    listing_files,
-    listing_manifests,
-    publish_listing,
-    unchanged_listing,
-    withdraw_listing,
 )
 from ..sovereign_torrents import listed
 from ..storage import atomic_bytes, directory, manifest_path, read_metadata
@@ -1503,16 +1498,7 @@ class CommunityMirror:
         """A fresh listing card for the listing being shared, or None."""
         if not self._files_shared():
             return None
-        listing = current_listing(self._mirror())
-        if listing is None:
-            return None
-        manifests = listing_manifests(listing)
-        if not manifests:
-            return None
-        try:
-            return issue_listing_card(self._mirror_key(), manifests)
-        except (PreservationError, OSError, ValueError):
-            return None
+        return mirror_listing_card(self._mirror(), self._mirror_key())
 
     def _documents(
         self, held: frozenset[str]
@@ -1544,40 +1530,9 @@ class CommunityMirror:
     def _publish_listing(
         self, documents: dict[str, bytes | None] | None, held: frozenset[str]
     ) -> None:
-        """Write this computer's listing for its file-sharing session to seed,
+        """Write this computer's listing for its file-sharing session to share,
         or withdraw it when files aren't shared. Never stops a round."""
-        root = self._mirror()
-        if documents is None:
-            withdraw_listing(root)
-            return
-        present = {name: data for name, data in documents.items() if data is not None}
-        if "holdings.json" not in present:
-            return  # nothing worth listing could be described
-        # The copies the listing can actually describe: a copy counts as
-        # shared a moment before its manifest is readable in the public store.
-        manifests: dict[str, bytes] = {}
-        for manifest_id in sorted(held):
-            with contextlib.suppress(OSError, PreservationError):
-                with directory(root / "public") as public:
-                    manifests[manifest_id] = read_metadata(
-                        public, manifest_path(manifest_id)
-                    )
-        if not manifests:
-            return  # nothing it could describe yet; a later round publishes it
-        try:
-            pool = MirrorLedger(root)
-            entries: list[JsonValue] = [
-                [entry.manifest, entry.infohash, entry.source, entry.object or ""]
-                for entry in [*seeded(pool.read(), held), *listed(pool, held)]
-            ]
-        except (PreservationError, OSError, ValueError):
-            return
-        described: list[JsonValue] = list(sorted(manifests))
-        subject = digest(identity_json([described, sorted(entries, key=str)]))
-        if unchanged_listing(root, subject):
-            return
-        with contextlib.suppress(PreservationError, OSError, RuntimeError):
-            publish_listing(root, listing_files(present, manifests), subject)
+        publish_mirror_listing(self._mirror(), documents, held)
 
     def _nostr_key(self) -> bytes:
         with directory(self.path, create=True) as root:

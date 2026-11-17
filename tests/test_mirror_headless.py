@@ -283,9 +283,20 @@ def test_announce_options_need_url_and_public_disclosure_consent(tmp_path, captu
     plain = cli(*base, "--public-url", "http://m.example/")
     assert plain.returncode == 0
     assert json.loads(plain.stdout)["warnings"]
-    assert ledger.read().announce == AnnouncePolicy(public_url="http://m.example")
-    on = cli(*base, "--announce-nostr", "--confirm-public-announcement")
+    # Nostr is on by default once there is a public URL, with no extra
+    # confirmation: serving already publishes the address.
+    assert ledger.read().announce == AnnouncePolicy(
+        public_url="http://m.example", nostr=True
+    )
+    off = cli(*base, "--no-announce-nostr")
+    assert off.returncode == 0 and not ledger.read().announce.nostr
+    on = cli(*base, "--announce-nostr")
     assert on.returncode == 0 and ledger.read().announce.nostr
+    relays = cli(*base, "--nostr-relay", "wss://relay.example")
+    assert relays.returncode == 0
+    assert ledger.read().announce.relays == ("wss://relay.example",)
+    bad = cli(*base, "--nostr-relay", "https://relay.example")
+    assert bad.returncode == 1 and "wss://" in bad.stderr
     assert cli(*base, "--contact", "ops@m.example").returncode == 0
     announce = ledger.read().announce
     assert announce.contact == "ops@m.example" and announce.nostr
@@ -1511,7 +1522,9 @@ def test_quickstart_sets_up_follow_and_grant_from_one_file(tmp_path, capture):
     assert not receipt["network_started"] and receipt["mirror_key"]
     state = MirrorLedger(target).read()
     assert state.name == "Quick" and state.bind == "127.0.0.1"
-    assert state.announce == AnnouncePolicy(public_url="https://quick.example")
+    assert state.announce == AnnouncePolicy(
+        public_url="https://quick.example", nostr=True
+    )
     (grant,) = state.sources.values()
     assert grant.trust == capture.trust and grant.terms == TERMS
     assert grant.max_bytes == derived_model_limit(2 * 1024**3)
@@ -1574,13 +1587,64 @@ def test_interactive_consent_prompt(tmp_path, capture, monkeypatch):
         consent_public_serving=False,
         run_after=False,
     )
-    monkeypatch.setattr(sys, "stdin", Terminal("no\n"))
+    # First the monthly upload cap is offered (Enter keeps no cap), then the
+    # consent prompt.
+    monkeypatch.setattr(sys, "stdin", Terminal("\nno\n"))
     with pytest.raises(PreservationError, match="consent"):
         run_mirror_command(arguments, OperationControl())
     assert not (tmp_path / "mirror").exists()
-    monkeypatch.setattr(sys, "stdin", Terminal("serve\n"))
+    monkeypatch.setattr(sys, "stdin", Terminal("\nserve\n"))
     assert run_mirror_command(arguments, OperationControl())["consented"]
-    assert restart_allowed(MirrorLedger(tmp_path / "mirror").read())
+    state = MirrorLedger(tmp_path / "mirror").read()
+    assert restart_allowed(state) and state.egress_monthly is None
+
+
+def test_interactive_quickstart_offers_a_monthly_upload_cap(
+    tmp_path, capture, monkeypatch, capsys
+):
+    import io
+
+    from foxlight_model_preservation.mirror_cli import (
+        MirrorArguments,
+        run_mirror_command,
+    )
+
+    path = collection(tmp_path, capture)
+
+    class Terminal(io.StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    arguments = MirrorArguments(
+        mirror_action="quickstart",
+        mirror_dir=tmp_path / "mirror",
+        collection=path,
+        mirror_name="Capped",
+        disk_bytes=None,
+        ingress_daily=None,
+        egress_daily=None,
+        egress_monthly=None,
+        mirror_bind=None,
+        mirror_port=None,
+        public_url=None,
+        contact=None,
+        announce_nostr=None,
+        announce_dht=None,
+        confirm_public_announcement=False,
+        resume_for=86400,
+        model_max_bytes=None,
+        plan_only=False,
+        consent_public_serving=False,
+        run_after=False,
+    )
+    # A size that doesn't parse is asked again; then the cap is reviewed.
+    monkeypatch.setattr(sys, "stdin", Terminal("lots\n1T\nserve\n"))
+    receipt = run_mirror_command(arguments, OperationControl())
+    assert receipt["consented"]
+    assert MirrorLedger(tmp_path / "mirror").read().egress_monthly == 1024**4
+    review = capsys.readouterr().err
+    assert "Enter a size such as 500G or 1T" in review
+    assert "NO MONTHLY UPLOAD CAP" not in review
 
 
 def _granted_quickstart_mirror(tmp_path: Path, capture: Capture) -> Path:
@@ -1854,7 +1918,15 @@ def test_container_without_consent_is_plan_only(tmp_path):
     setup, run = log.read_text().splitlines()
     assert "--yes-i-consent-to-public-serving" in setup and "--run" not in setup
     assert "--bind 127.0.0.1" in setup
-    assert run.split() == ["mirror", "run", "--dir", str(tmp_path / "data"), "--resume"]
+    assert run.split() == [
+        "mirror",
+        "run",
+        "--dir",
+        str(tmp_path / "data"),
+        "--resume",
+        "--torrent-port",
+        "6881",
+    ]
     # A refused setup is reported and idles: it never starts serving or loops.
     log.unlink()
     stub.write_text(f'#!/bin/sh\necho "$@" >> "{log}"\nexit 1\n')
@@ -2094,3 +2166,230 @@ def test_deploy_files_default_to_this_release_image():
         text = (deploy / name).read_text()
         tags = set(re.findall(re.escape(image) + r"([0-9][0-9A-Za-z.\-]*)", text))
         assert tags == {version}, (name, tags, version)
+
+
+# Server mirrors announce and share by default ------------------------------------
+
+
+def test_quickstart_shares_over_bittorrent_and_posts_to_nostr_by_default(
+    tmp_path, capture
+):
+    path = collection(tmp_path, capture)
+    target = tmp_path / "mirror"
+    base = (
+        "mirror",
+        "quickstart",
+        "--dir",
+        str(target),
+        "--collection",
+        str(path),
+        "--disk-bytes",
+        "2G",
+        "--public-url",
+        "https://share.example",
+        "--yes-i-consent-to-public-serving",
+    )
+    result = cli(*base)
+    assert result.returncode == 0, result.stderr
+    state = MirrorLedger(target).read()
+    assert state.announce is not None and state.announce.nostr
+    assert state.native_policy is not None
+    assert state.native_policy.file_torrents and state.native_policy.pirate_face
+    assert not state.native_policy.map_ports  # a server never asks a router
+    # Sharing is set before the grant, so the grant covers it.
+    assert restart_allowed(state)
+    review_text = result.stderr
+    assert "Nostr relays:    relay.damus.io" in review_text
+    assert "Sovereign's own swarms and on Pirate Face" in review_text
+    assert "listed on the BitTorrent DHT" in review_text
+    assert "looked up on Pirate Face" in review_text
+    assert "NO MONTHLY UPLOAD CAP" in review_text
+    assert "--egress-monthly 1T" in review_text
+    review_summary = json.loads(result.stdout)["review"]
+    assert review_summary["uploads_uncapped"] is True
+    # Repeating it (as the container does at every start) keeps the grant.
+    again = cli(*base)
+    assert again.returncode == 0, again.stderr
+    assert not json.loads(again.stdout)["policy_changed"]
+    # Each part can be turned off; the review says so.
+    off = cli(
+        *base,
+        "--no-announce-nostr",
+        "--no-file-torrents",
+        "--no-pirate-face",
+        "--egress-monthly",
+        "1T",
+    )
+    assert off.returncode == 0, off.stderr
+    state = MirrorLedger(target).read()
+    assert state.announce is not None and not state.announce.nostr
+    assert state.native_policy is not None
+    assert not state.native_policy.file_torrents
+    assert not state.native_policy.pirate_face
+    assert restart_allowed(state)
+    assert "BitTorrent:      not shared" in off.stderr
+    assert "NO MONTHLY UPLOAD CAP" not in off.stderr
+
+
+def test_bittorrent_sharing_stays_off_without_the_component(
+    tmp_path, capture, monkeypatch
+):
+    from foxlight_model_preservation import mirror_cli
+    from foxlight_model_preservation.mirror_cli import (
+        MirrorArguments,
+        run_mirror_command,
+    )
+
+    monkeypatch.setattr(mirror_cli, "sharing_available", lambda: False)
+    arguments = MirrorArguments(
+        mirror_action="quickstart",
+        mirror_dir=tmp_path / "mirror",
+        collection=collection(tmp_path, capture),
+        mirror_name="Plain",
+        disk_bytes=None,
+        ingress_daily=None,
+        egress_daily=None,
+        egress_monthly=None,
+        mirror_bind=None,
+        mirror_port=None,
+        public_url=None,
+        contact=None,
+        announce_nostr=None,
+        announce_dht=None,
+        confirm_public_announcement=False,
+        resume_for=86400,
+        model_max_bytes=None,
+        plan_only=False,
+        consent_public_serving=True,
+        run_after=False,
+    )
+    receipt = run_mirror_command(arguments, OperationControl())
+    warnings = receipt["review"]["warnings"]
+    assert any("BitTorrent component" in str(item) for item in warnings)
+    assert MirrorLedger(tmp_path / "mirror").read().native_policy is None
+    # Asking for it explicitly is refused rather than silently ignored.
+    arguments.share_files = True
+    with pytest.raises(PreservationError, match="bittorrent"):
+        run_mirror_command(arguments, OperationControl())
+
+
+def test_config_changes_one_sharing_choice_and_keeps_other_transports(
+    tmp_path, capture
+):
+    from foxlight_model_preservation.mirror_native import configure
+
+    ledger, _ = mirror(tmp_path, capture)
+    configure(ledger, torrent=True, file_torrents=True, pirate_face=True)
+    base = ("mirror", "config", "--dir", str(ledger.path))
+    result = cli(*base, "--no-pirate-face")
+    assert result.returncode == 0, result.stderr
+    receipt = json.loads(result.stdout)
+    assert "bittorrent" in receipt["configured"]
+    native = ledger.read().native_policy
+    assert native is not None and native.torrent and native.file_torrents
+    assert not native.pirate_face
+    # Unchanged unless given.
+    assert cli(*base, "--name", "Renamed").returncode == 0
+    native = ledger.read().native_policy
+    assert native is not None and native.file_torrents and not native.pirate_face
+    status = json.loads(cli("mirror", "status", "--dir", str(ledger.path)).stdout)
+    assert status["bittorrent"] == {"file_torrents": True, "pirate_face": False}
+    assert status["uploads"]["monthly_cap"] == ledger.read().egress_monthly
+    assert status["uploads"]["hint"] is None
+    uncapped = cli(*base, "--egress-monthly", "none")
+    assert uncapped.returncode == 0, uncapped.stderr
+    warnings = json.loads(uncapped.stdout)["warnings"]
+    assert any("monthly upload cap" in str(item) for item in warnings)
+    status = json.loads(cli("mirror", "status", "--dir", str(ledger.path)).stdout)
+    assert status["uploads"]["monthly_cap"] is None
+    assert "--egress-monthly" in status["uploads"]["hint"]
+
+
+def test_a_server_sharing_files_publishes_its_listing_and_listing_card(
+    tmp_path, capture
+):
+    from foxlight_model_preservation.mirror_cards import (
+        read_listing_cards,
+        verify_listing_card,
+    )
+    from foxlight_model_preservation.mirror_native import set_sharing
+    from foxlight_model_preservation.sovereign_listing import current_listing
+
+    ledger, _ = mirror(tmp_path, capture)
+    cycle(ledger)
+    configure_mirror(
+        ledger, {"announce": AnnouncePolicy(public_url="https://mirror.example")}
+    )
+    assert set_sharing(ledger, file_torrents=True, pirate_face=False)
+    # Serving links the verified copy into the public store the listing reads.
+    public_selection(ledger, OperationControl())
+    announcer = Announcer(ledger)
+    card = announcer.publish(frozenset({capture.identity}))
+    assert card is not None and announcer.listing_card is not None
+    listing = verify_listing_card(announcer.listing_card)
+    # One key signs the card, the listing card and the listing's DHT pointer.
+    assert listing.mirror_key.key_id == verify_card(card).mirror_key.key_id
+    assert listing.covers(capture.identity)
+    peers = (ledger.path / "peers.json").read_bytes()
+    assert read_listing_cards(peers) == [announcer.listing_card]
+    assert current_listing(ledger.path) is not None
+    # Turned off: the listing is withdrawn and no listing card is issued.
+    assert set_sharing(ledger, file_torrents=False, pirate_face=False)
+    announcer.publish(frozenset({capture.identity}))
+    assert announcer.listing_card is None
+    assert current_listing(ledger.path) is None
+    assert read_listing_cards((ledger.path / "peers.json").read_bytes()) == []
+
+
+def test_custom_relays_keep_released_identity_when_unset(tmp_path, capture):
+    ledger, _ = mirror(tmp_path, capture)
+    configure_mirror(
+        ledger,
+        {"announce": AnnouncePolicy(public_url="https://m.example", nostr=True)},
+    )
+    assert b"relays" not in encode_state(ledger.read())
+    with pytest.raises(ValueError, match="wss://"):
+        AnnouncePolicy(public_url="https://m.example", relays=("ws://r.example",))
+    with pytest.raises(ValueError, match="repeat"):
+        AnnouncePolicy(
+            public_url="https://m.example",
+            relays=("wss://r.example", "wss://r.example"),
+        )
+
+
+def test_an_uncapped_mirror_is_told_each_further_terabyte_a_month(tmp_path, capture):
+    from foxlight_model_preservation.mirror import TERABYTE, UploadNotices
+
+    ledger, _ = mirror(tmp_path, capture)
+    month = time.strftime("%Y-%m", time.gmtime())
+    told: list[dict[str, object]] = []
+    notices = UploadNotices(told.append)
+
+    def used(amount: int, cap: int | None = None) -> None:
+        ledger.update(
+            lambda state: state.model_copy(
+                update={
+                    "schema_version": "foxlight.mirror-state.v6",
+                    "month": month,
+                    "egress_month_used": amount,
+                    "egress_monthly": cap,
+                }
+            )
+        )
+
+    used(TERABYTE - 1)
+    notices.check(ledger, now=0)
+    assert told == []
+    used(TERABYTE + 5)
+    notices.check(ledger, now=30)  # checked at most once a minute
+    assert told == []
+    notices.check(ledger, now=61)
+    assert len(told) == 1 and "1 TiB" in str(told[0]["message"])
+    notices.check(ledger, now=200)
+    assert len(told) == 1  # once per terabyte
+    used(2 * TERABYTE)
+    notices.check(ledger, now=300)
+    assert len(told) == 2
+    used(5 * TERABYTE, cap=10 * TERABYTE)
+    notices.check(ledger, now=400)
+    assert len(told) == 2  # a capped mirror is not told

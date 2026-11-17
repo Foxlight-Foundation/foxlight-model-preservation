@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+- Server mirrors announce and share by default (foxlight-docs#767). With a
+  public URL, `mirror quickstart`, `init` and the Docker image post the mirror
+  card to Nostr relays (`--no-announce-nostr` / `SOVEREIGN_MIRROR_NOSTR=off`;
+  `--nostr-relay` / `SOVEREIGN_MIRROR_NOSTR_RELAYS` replace the default
+  relays) with no extra confirmation, since serving already publishes the
+  address; DHT announcing stays opt-in. They also share held files over
+  BitTorrent in Sovereign's own per-file swarms, with the mirror's listing,
+  its DHT pointer and a listing card in the peers document and on Nostr
+  (`--no-file-torrents` / `SOVEREIGN_MIRROR_BITTORRENT=off`), and share
+  matching Pirate Face torrents (`--no-pirate-face` /
+  `SOVEREIGN_MIRROR_PIRATE_FACE=off`). The review discloses each. Without the
+  BitTorrent component, sharing stays off with a warning. `mirror config`
+  changes one choice and keeps other enrolled transports; `mirror transports`
+  gains `--file-torrents`; `mirror run --torrent-port` fixes the sharing port,
+  which the Docker image publishes (6881 TCP and UDP). The container re-runs
+  quickstart at each start, so an existing Docker mirror picks the defaults up
+  on upgrade; a command-line mirror keeps its policy until changed.
+- Still no default upload cap, now hard to miss: the review ends with a boxed
+  NO MONTHLY UPLOAD CAP warning giving the exact command, an interactive
+  quickstart asks for a monthly cap, `mirror status` reports `uploads` against
+  the caps (and `nostr` and `bittorrent` state), an uncapped running mirror
+  logs a `mirror_upload_notice` for each further TiB uploaded in a month, and
+  the cap settings come first in `mirror.env.example`.
+- The desktop switch is now **Also share on Pirate Face**, and Find counts the
+  computers sharing a Pirate Face torrent; users no longer see "seed".
+
 - Install docs point at the public 0.37.1 cohort: core 0.37.1, Library 0.33.1,
   Mac build 21, Linux revision 16 (guided setup 0.1.14, graphical setup 0.1.16)
   and `sovereign-mirror:0.37.1`.

@@ -16,6 +16,10 @@ services:
       - "80:80"
       - "443:443"
       - "443:443/udp"
+      # BitTorrent sharing (the mirror shares Caddy's network namespace).
+      # Set SOVEREIGN_MIRROR_BITTORRENT=off and remove these to share nothing.
+      - "${SOVEREIGN_MIRROR_TORRENT_PORT:-6881}:${SOVEREIGN_MIRROR_TORRENT_PORT:-6881}/tcp"
+      - "${SOVEREIGN_MIRROR_TORRENT_PORT:-6881}:${SOVEREIGN_MIRROR_TORRENT_PORT:-6881}/udp"
     environment:
       SOVEREIGN_MIRROR_DOMAIN: ${SOVEREIGN_MIRROR_DOMAIN:?set SOVEREIGN_MIRROR_DOMAIN}
     volumes:
@@ -42,8 +46,9 @@ services:
       SOVEREIGN_MIRROR_CONTACT: ${SOVEREIGN_MIRROR_CONTACT:-}
       SOVEREIGN_MIRROR_BUDGET: ${SOVEREIGN_MIRROR_BUDGET:-100G}
       SOVEREIGN_MIRROR_INGRESS_DAILY: ${SOVEREIGN_MIRROR_INGRESS_DAILY:-50G}
-      # Upload caps are opt-in: empty means no cap on a new mirror, and an
-      # existing mirror keeps the caps it has. "none" removes them.
+      # Upload caps: empty means no cap on a new mirror (uploads over the web
+      # and BitTorrent are unlimited, which costs money on metered hosting),
+      # and an existing mirror keeps the caps it has. "none" removes them.
       SOVEREIGN_MIRROR_EGRESS_DAILY: ${SOVEREIGN_MIRROR_EGRESS_DAILY:-}
       SOVEREIGN_MIRROR_EGRESS_MONTHLY: ${SOVEREIGN_MIRROR_EGRESS_MONTHLY:-}
       # Catalog withdrawal is advisory unless you choose "on"; empty keeps it.
@@ -58,6 +63,12 @@ services:
       SOVEREIGN_MIRROR_STARTER_ACCEPT_TERMS: ${SOVEREIGN_MIRROR_STARTER_ACCEPT_TERMS:-}
       SOVEREIGN_MIRROR_STARTER_MIRROR: ${SOVEREIGN_MIRROR_STARTER_MIRROR:-}
       SOVEREIGN_MIRROR_CONSENT: ${SOVEREIGN_MIRROR_CONSENT:-}
+      # Nostr and BitTorrent sharing are on unless set to "off".
+      SOVEREIGN_MIRROR_NOSTR: ${SOVEREIGN_MIRROR_NOSTR:-}
+      SOVEREIGN_MIRROR_NOSTR_RELAYS: ${SOVEREIGN_MIRROR_NOSTR_RELAYS:-}
+      SOVEREIGN_MIRROR_BITTORRENT: ${SOVEREIGN_MIRROR_BITTORRENT:-}
+      SOVEREIGN_MIRROR_PIRATE_FACE: ${SOVEREIGN_MIRROR_PIRATE_FACE:-}
+      SOVEREIGN_MIRROR_TORRENT_PORT: ${SOVEREIGN_MIRROR_TORRENT_PORT:-6881}
     volumes:
       # A directory holding collection.json and any source file it names,
       # and/or a signed starter list.

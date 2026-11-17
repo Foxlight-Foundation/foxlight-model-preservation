@@ -19,7 +19,7 @@ from pydantic import JsonValue
 from .archives import ArchiveManifest, archive_objects, verify_archive_manifest
 from .discovery import follow_source, list_sources, refresh_source, search_sources
 from .discovery_models import MAX_SOURCES
-from .mirror_announce import Announcer, remove_peers
+from .mirror_announce import Announcer, mirror_key, remove_peers
 from .mirror_cards import PEERS_PATH
 from .mirror_holdings import HOLDINGS_PATH
 from .mirror_models import (
@@ -46,6 +46,7 @@ from .mirror_state import (
     withdrawal_withholds,
 )
 from .models import PreservationError
+from .nostr import DEFAULT_RELAYS
 from .operations import OperationCancelled, OperationControl, failure_code
 from .pirateface_seed import TORRENTS_PATH
 from .seed import SeedHandler, SeedServer
@@ -187,9 +188,38 @@ def plan(ledger: MirrorLedger) -> dict[str, JsonValue]:
                         "candidate_keys_are_not_accepted": True,
                     }
                 )
+    moment = time.gmtime()
+    today, month = time.strftime("%Y-%m-%d", moment), time.strftime("%Y-%m", moment)
+    native = state.native_policy
+    announce = state.announce
     return {
         "policy_id": policy_id(state),
         "disk_bytes_used": ledger.usage(),
+        # What this mirror has uploaded (reserved) against its caps; a cap of
+        # None is no cap. Over the web and BitTorrent alike.
+        "uploads": {
+            "today_bytes": state.egress_day_used if state.day == today else 0,
+            "month_bytes": state.egress_month_used if state.month == month else 0,
+            "daily_cap": state.egress_daily,
+            "monthly_cap": state.egress_monthly,
+            "hint": "no monthly upload cap; set one with mirror config "
+            "--egress-monthly 1T"
+            if state.egress_monthly is None
+            else None,
+        },
+        "nostr": {
+            "on": bool(announce and announce.nostr),
+            "relays": list(announce.relays or DEFAULT_RELAYS)
+            if announce and announce.nostr
+            else [],
+            "hint": "turn off with mirror config --no-announce-nostr"
+            if announce and announce.nostr
+            else None,
+        },
+        "bittorrent": {
+            "file_torrents": bool(native and native.file_torrents),
+            "pirate_face": bool(native and native.pirate_face),
+        },
         "state": state.model_dump(mode="json"),
         "candidates": candidates,
         "candidate_limit": 1000,
@@ -1412,6 +1442,55 @@ class MirrorServer(SeedServer):
         return self.ledger.read().egress_month_used
 
 
+TERABYTE = 1024**4
+NOTICE_SECONDS = 60.0
+
+
+class UploadNotices:
+    """Tell the owner of an uncapped mirror each time this month's uploads
+    pass another terabyte, so a bill on metered hosting is never a surprise.
+
+    Checked at most once a minute; nothing is sent while a monthly cap is set.
+    """
+
+    def __init__(self, notice: Callable[[dict[str, JsonValue]], None] | None) -> None:
+        self.notice = notice
+        self._checked = float("-inf")
+        self._told: tuple[str, int] | None = None
+
+    def check(self, ledger: MirrorLedger, now: float | None = None) -> None:
+        """Send a notice when an uncapped month's uploads pass another TB."""
+        if self.notice is None:
+            return
+        instant = time.monotonic() if now is None else now
+        if instant - self._checked < NOTICE_SECONDS:
+            return
+        self._checked = instant
+        state = ledger.read()
+        month = time.strftime("%Y-%m", time.gmtime())
+        used = state.egress_month_used if state.month == month else 0
+        terabytes = used // TERABYTE
+        if state.egress_monthly is not None or terabytes < 1:
+            return
+        if self._told is not None and self._told >= (month, terabytes):
+            return
+        self._told = (month, terabytes)
+        self.notice(
+            {
+                "event": "mirror_upload_notice",
+                "month": month,
+                "uploaded_bytes": used,
+                "message": (
+                    f"This mirror has uploaded over {terabytes} TiB this month "
+                    "and has no monthly upload cap. On hosting that bills for "
+                    "traffic this can cost a lot. To cap it: model-preserve "
+                    "mirror config --dir DIR --egress-monthly 1T (Docker: set "
+                    "SOVEREIGN_MIRROR_EGRESS_MONTHLY=1T in mirror.env)."
+                ),
+            }
+        )
+
+
 def run_mirror(
     ledger: MirrorLedger,
     *,
@@ -1426,6 +1505,8 @@ def run_mirror(
     expected_policy_id: str | None = None,
     native_peer_runner: PeerSessionRunner | None = None,
     listing_key: Callable[[], Ed25519PrivateKey] | None = None,
+    torrent_port: int | None = None,
+    notice: Callable[[dict[str, JsonValue]], None] | None = None,
 ) -> dict[str, JsonValue]:
     """Own selected mirror transports until stop, pause/leave or grant expiry.
 
@@ -1446,8 +1527,15 @@ def run_mirror(
     dedicated process owner; ordinary callers retain the standalone supervisor.
     The adapter does not bypass profile, trust, upload or session permission.
     Listing_key, when given, is the key a mirror sharing files over BitTorrent
-    signs its listing's DHT pointer with (the embedding app's mirror key).
+    signs its listing's DHT pointer with (the embedding app's mirror key);
+    otherwise it is this mirror's own card key, which signs its listing card.
+    Torrent_port fixes the port Sovereign's per-file sharing listens on (a
+    container publishes it); by default the system picks one. Notice, when
+    given, receives owner-facing notices, such as each further terabyte an
+    uncapped mirror uploads in a month; it must return promptly.
     """
+    if torrent_port is not None and not 1 <= torrent_port <= 65535:
+        raise PreservationError("BitTorrent port must be between 1 and 65535")
     if public == resume or not 1 <= seconds <= 86400:
         raise PreservationError(
             "choose explicit finite public run or separately granted resume"
@@ -1592,8 +1680,14 @@ def run_mirror(
             ledger,
             authorized,
             peer_runner=native_peer_runner,
-            listing_key=listing_key,
+            file_settings={
+                "listen_interfaces": f"0.0.0.0:{torrent_port},[::]:{torrent_port}"
+            }
+            if torrent_port is not None
+            else None,
+            listing_key=listing_key or (lambda: mirror_key(ledger)),
         )
+        uploads = UploadNotices(notice)
         if web is not None:
             web.start()
         background.start()
@@ -1608,6 +1702,7 @@ def run_mirror(
                 if not authorized(ledger.read()):
                     break
                 native.tick()
+                uploads.check(ledger)
                 if observe is not None and time.monotonic() >= next_observation:
                     observe(
                         MirrorObservation(

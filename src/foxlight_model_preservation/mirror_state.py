@@ -51,6 +51,9 @@ def encode_state(state: MirrorState) -> bytes:
             held.pop("withdrawal", None)
     if state.announce is None:
         value.pop("announce")
+    elif not state.announce.relays:
+        # Added later: omitted at its default, so identity is unchanged.
+        value["announce"].pop("relays")
     if not state.follow_withdrawals:
         value.pop("follow_withdrawals")
     if state.intake is None:

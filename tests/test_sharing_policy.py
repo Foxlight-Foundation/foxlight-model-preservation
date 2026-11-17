@@ -624,7 +624,8 @@ def test_quickstart_is_uncapped_when_new_and_keeps_an_existing_mirrors_caps(
     first = cli(*base)
     assert first.returncode == 0, first.stderr
     assert "Upload cap:      none" in first.stderr
-    assert "can use a lot of bandwidth" in first.stderr
+    assert "NO MONTHLY UPLOAD CAP" in first.stderr
+    assert "--egress-monthly 1T" in first.stderr
     state = MirrorLedger(target).read()
     assert state.egress_daily is None and state.egress_monthly is None
     assert state.ingress_daily == 50 * 1024**3 and state.disk_bytes == 2 * 1024**3

@@ -6,7 +6,19 @@
 # serves nothing. With it, each start re-applies the reviewed collection and
 # policy, imports any opted-in starter models it does not hold yet, renews the
 # restart grant and serves until stopped or the grant ends.
+#
+# By default the mirror posts its card to Nostr relays and shares its files
+# over BitTorrent (Sovereign's own swarms and Pirate Face). Each can be turned
+# off: SOVEREIGN_MIRROR_NOSTR, SOVEREIGN_MIRROR_BITTORRENT and
+# SOVEREIGN_MIRROR_PIRATE_FACE set to "off".
 set -eu
+
+off() {
+  case "$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')" in
+    off | no | false | 0) return 0 ;;
+    *) return 1 ;;
+  esac
+}
 
 dir="${SOVEREIGN_MIRROR_DIR:-/data/mirror}"
 collection="${SOVEREIGN_MIRROR_COLLECTION:-/config/collection.json}"
@@ -77,6 +89,30 @@ if [ -n "${SOVEREIGN_MIRROR_CONTACT:-}" ]; then
   set -- "$@" --contact "$SOVEREIGN_MIRROR_CONTACT"
 fi
 
+# Nostr: on by default (relays see this server's address, which its card
+# publishes anyway). Comma-separated wss:// relays replace the default five.
+if off "${SOVEREIGN_MIRROR_NOSTR:-}"; then
+  set -- "$@" --no-announce-nostr
+elif [ -n "${SOVEREIGN_MIRROR_NOSTR_RELAYS:-}" ]; then
+  old_ifs=$IFS
+  IFS=,
+  for relay in $SOVEREIGN_MIRROR_NOSTR_RELAYS; do
+    relay=$(printf '%s' "$relay" | tr -d '[:space:]')
+    if [ -n "$relay" ]; then
+      set -- "$@" --nostr-relay "$relay"
+    fi
+  done
+  IFS=$old_ifs
+fi
+
+# BitTorrent: Sovereign's own per-file swarms and Pirate Face, on by default.
+if off "${SOVEREIGN_MIRROR_BITTORRENT:-}"; then
+  set -- "$@" --no-file-torrents
+fi
+if off "${SOVEREIGN_MIRROR_PIRATE_FACE:-}"; then
+  set -- "$@" --no-pirate-face
+fi
+
 idle() {
   # Stay up so the message remains in the container logs and an operator can
   # `docker compose exec mirror model-preserve mirror ...`; restarting the
@@ -107,4 +143,6 @@ fi
 
 # Serve under the grant just recorded. A clean stop (grant expiry) exits 0 and
 # the restart policy renews the grant through the setup above.
-exec model-preserve mirror run --dir "$dir" --resume
+# BitTorrent listens on the port compose.yaml publishes.
+exec model-preserve mirror run --dir "$dir" --resume \
+  --torrent-port "${SOVEREIGN_MIRROR_TORRENT_PORT:-6881}"

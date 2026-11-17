@@ -6,6 +6,11 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- **Also seed on Pirate Face** is now **Also share on Pirate Face**, and Find
+  shows how many computers are sharing a model on Pirate Face rather than its
+  "seeds". Core's server mirrors now announce on Nostr and share over
+  BitTorrent by default (the desktop is unchanged).
+
 - Install docs point at the public 0.37.1 cohort: core 0.37.1, Library 0.33.1,
   Mac build 21, Linux revision 16 (guided setup 0.1.14, graphical setup 0.1.16)
   and `sovereign-mirror:0.37.1`.

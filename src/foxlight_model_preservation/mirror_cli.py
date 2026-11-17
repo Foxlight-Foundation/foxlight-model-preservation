@@ -42,7 +42,13 @@ from .mirror_models import (
     Terms,
     upgrade_profile,
 )
-from .mirror_native import configure, export_reference, write_reference
+from .mirror_native import (
+    configure,
+    export_reference,
+    set_sharing,
+    sharing_available,
+    write_reference,
+)
 from .mirror_prune import prune
 from .mirror_quickstart import (
     CONSENT_FLAG,
@@ -106,6 +112,11 @@ class MirrorArguments(argparse.Namespace):
     contact: str | None
     announce_nostr: bool | None
     announce_dht: bool | None
+    # Defaults keep programmatic callers that predate these choices working.
+    nostr_relays: list[str] | None = None
+    share_files: bool | None = None
+    share_pirate_face: bool | None = None
+    torrent_port: int | None = None
     confirm_public_announcement: bool
     collection: Path | None
     # Defaults keep programmatic callers that predate the starter list working.
@@ -146,6 +157,8 @@ class MirrorArguments(argparse.Namespace):
     ipfs_binary: str | None
     ipfs_sha256: str | None
     torrent: bool
+    pirate_face: bool = False
+    file_torrents: bool = False
     bootstrap: list[str]
     allow_private_peers: bool
     max_active: int
@@ -195,6 +208,11 @@ BUDGETS = (
 UPLOAD_CAPS = (
     ("egress-daily", "optional upload cap per UTC day"),
     ("egress-monthly", "optional upload cap per UTC month"),
+)
+UNCAPPED_NOTE = (
+    "no monthly upload cap: this mirror uploads as much as people ask for, "
+    "over the web and BitTorrent; on hosting that bills for traffic that can "
+    "cost a lot. Cap it with --egress-monthly 1T"
 )
 CAP_HELP = (
     'a size such as 50G, or "none" for no cap (the default for a new mirror; '
@@ -247,7 +265,55 @@ def _policy_arguments(command: argparse.ArgumentParser, *, config: bool) -> None
         dest="announce_nostr",
         action="store_true",
         default=None,
-        help="also publish the mirror card to public Nostr relays",
+        help="publish the mirror card to public Nostr relays (the default "
+        "whenever there is a public URL"
+        + ("; an existing mirror keeps its choice unless given)" if config else ")"),
+    )
+    nostr.add_argument(
+        "--no-announce-nostr",
+        dest="announce_nostr",
+        action="store_false",
+        help="don't publish the mirror card to Nostr relays",
+    )
+    command.add_argument(
+        "--nostr-relay",
+        dest="nostr_relays",
+        action="append",
+        default=None,
+        help="wss:// relay to use instead of the default five (repeat for "
+        "more, at most 8)",
+    )
+    files = command.add_mutually_exclusive_group()
+    files.add_argument(
+        "--file-torrents",
+        dest="share_files",
+        action="store_true",
+        default=None,
+        help="share held files over BitTorrent in Sovereign's own per-file "
+        "swarms, with this mirror's listing (the default"
+        + ("; unchanged unless given)" if config else ")"),
+    )
+    files.add_argument(
+        "--no-file-torrents",
+        dest="share_files",
+        action="store_false",
+        help="don't share held files in Sovereign's own swarms",
+    )
+    pirate = command.add_mutually_exclusive_group()
+    pirate.add_argument(
+        "--pirate-face",
+        dest="share_pirate_face",
+        action="store_true",
+        default=None,
+        help="also share each held model's matching Pirate Face torrent from "
+        "the stored files, looked up on pirateface.co (the default"
+        + ("; unchanged unless given)" if config else ")"),
+    )
+    pirate.add_argument(
+        "--no-pirate-face",
+        dest="share_pirate_face",
+        action="store_false",
+        help="don't look up or share Pirate Face torrents",
     )
     dht = command.add_mutually_exclusive_group()
     dht.add_argument(
@@ -258,9 +324,6 @@ def _policy_arguments(command: argparse.ArgumentParser, *, config: bool) -> None
         help="also announce a plain-HTTP public URL on the BitTorrent DHT",
     )
     if config:
-        nostr.add_argument(
-            "--no-announce-nostr", dest="announce_nostr", action="store_false"
-        )
         dht.add_argument("--no-announce-dht", dest="announce_dht", action="store_false")
         command.add_argument(
             "--clear-public-url",
@@ -270,7 +333,9 @@ def _policy_arguments(command: argparse.ArgumentParser, *, config: bool) -> None
     command.add_argument(
         "--confirm-public-announcement",
         action="store_true",
-        help="acknowledge that Nostr/DHT announcing publishes this address",
+        help="acknowledge that DHT announcing publishes this address and "
+        "port on the public DHT (Nostr needs no extra confirmation: serving "
+        "already publishes the address)",
     )
 
 
@@ -348,8 +413,13 @@ def register_mirror_commands(
             command.add_argument(
                 "--pirate-face",
                 action="store_true",
-                help="also seed each held copy's matching Pirate Face torrent "
+                help="also share each held copy's matching Pirate Face torrent "
                 "from the stored files (looked up on pirateface.co)",
+            )
+            command.add_argument(
+                "--file-torrents",
+                action="store_true",
+                help="share every held file in Sovereign's own per-file swarms",
             )
             command.add_argument("--bootstrap", action="append", default=[])
             command.add_argument("--allow-private-peers", action="store_true")
@@ -534,6 +604,14 @@ def register_mirror_commands(
                 help="require the separate standing resume grant",
             )
             command.add_argument("--seconds", type=int, default=3600)
+        if name in ("run", "quickstart"):
+            command.add_argument(
+                "--torrent-port",
+                type=int,
+                default=None,
+                help="port BitTorrent sharing listens on (default: any free "
+                "port); a container publishes this one",
+            )
             command.add_argument(
                 "--observe",
                 dest="observe_mirror",
@@ -775,28 +853,107 @@ def _announce(
             raise PreservationError("clearing the public URL takes no other announce")
         return None
     url = base_url(arguments.public_url) if arguments.public_url else None
+    relays = getattr(arguments, "nostr_relays", None)
     if current is None and url is None:
-        if arguments.contact or arguments.announce_nostr or arguments.announce_dht:
+        if (
+            arguments.contact
+            or arguments.announce_nostr
+            or arguments.announce_dht
+            or relays
+        ):
             raise PreservationError("announcement options need --public-url")
         return None
     previous = current or AnnouncePolicy(public_url=url or "")
+    # Nostr is on by default for a new announcement: serving already
+    # publishes the address, and relays only make the mirror findable.
     nostr = (
-        previous.nostr if arguments.announce_nostr is None else arguments.announce_nostr
+        (previous.nostr if current is not None else True)
+        if arguments.announce_nostr is None
+        else arguments.announce_nostr
     )
     dht = previous.dht if arguments.announce_dht is None else arguments.announce_dht
-    newly_public = (nostr and not previous.nostr) or (dht and not previous.dht)
-    if current is None:
-        newly_public = nostr or dht
-    if newly_public and not arguments.confirm_public_announcement:
+    newly_dht = dht and (current is None or not previous.dht)
+    contact = arguments.contact if arguments.contact else previous.contact
+    if newly_dht and not arguments.confirm_public_announcement:
         raise PreservationError(
             DISCLOSURE + " Add --confirm-public-announcement to proceed."
         )
     return AnnouncePolicy(
         public_url=url or previous.public_url,
-        contact=arguments.contact if arguments.contact else previous.contact,
+        contact=contact,
         nostr=nostr,
         dht=dht,
+        relays=tuple(relays) if relays is not None else previous.relays,
     )
+
+
+def _sharing(
+    arguments: MirrorArguments, *, default: bool, warnings: list[JsonValue]
+) -> tuple[bool | None, bool | None]:
+    """The BitTorrent sharing choices: on by default for a new setup.
+
+    ``default`` is False for ``config``, where an unset flag keeps the
+    mirror's choice (None). Without the optional BitTorrent component a
+    default stays off with a warning; an explicit request is refused.
+    """
+    files = getattr(arguments, "share_files", None)
+    pirate = getattr(arguments, "share_pirate_face", None)
+    if default:
+        files = True if files is None else files
+        pirate = True if pirate is None else pirate
+    if (files or pirate) and not sharing_available():
+        if getattr(arguments, "share_files", None) or getattr(
+            arguments, "share_pirate_face", None
+        ):
+            raise PreservationError(
+                "BitTorrent sharing needs the optional bittorrent dependency"
+            )
+        warnings.append(
+            "BitTorrent sharing is off: this installation doesn't include the "
+            "BitTorrent component (install the bittorrent extra to turn it on)"
+        )
+        return (False if files is not None else None), (
+            False if pirate is not None else None
+        )
+    return files, pirate
+
+
+def _notice(event: dict[str, JsonValue]) -> None:
+    """Print an owner-facing notice where the operator's logs will show it."""
+    print(json.dumps(event), file=sys.stderr, flush=True)
+
+
+def _ask_cap(arguments: MirrorArguments, monthly: int | None) -> int | None:
+    """Offer a monthly upload cap at an interactive quickstart with none."""
+    if (
+        monthly is not None
+        or arguments.egress_monthly is not None
+        or arguments.plan_only
+        or arguments.consent_public_serving
+        or not sys.stdin.isatty()
+    ):
+        return monthly
+    print(
+        "\nThis mirror has no monthly upload cap: it will upload as much as "
+        "people ask for.\nIf your hosting bills for traffic, set a cap now. "
+        "Monthly upload cap (for example 1T; press Enter for no cap): ",
+        end="",
+        file=sys.stderr,
+        flush=True,
+    )
+    while True:
+        answer = sys.stdin.readline().strip()
+        if not answer or answer.casefold() in UNCAPPED:
+            return None
+        try:
+            return parse_size(answer)
+        except ValueError:
+            print(
+                "Enter a size such as 500G or 1T, or press Enter for no cap: ",
+                end="",
+                file=sys.stderr,
+                flush=True,
+            )
 
 
 def _warnings(announce: AnnouncePolicy | None) -> list[JsonValue]:
@@ -893,12 +1050,17 @@ def _quickstart(
         if arguments.egress_monthly is not None or existing is None
         else existing.egress_monthly,
     )
+    monthly = _ask_cap(arguments, monthly)
+    notes: list[JsonValue] = []
+    share_files, pirate_face = _sharing(arguments, default=True, warnings=notes)
     settings = QuickstartSettings(
         name=arguments.mirror_name or default_name(),
         disk_bytes=arguments.disk_bytes or BUDGETS[0][1],
         ingress_daily=arguments.ingress_daily or BUDGETS[1][1],
         egress_daily=daily,
         egress_monthly=monthly,
+        share_files=share_files,
+        pirate_face=pirate_face,
         bind=arguments.mirror_bind or "127.0.0.1",
         port=8080 if arguments.mirror_port is None else arguments.mirror_port,
         announce=announce,
@@ -910,6 +1072,13 @@ def _quickstart(
         else existing is not None and existing.follow_withdrawals,
     )
     text, summary = review(collection, document, settings)
+    if notes:
+        text += "\n" + "\n".join(f"  ! {note}" for note in notes)
+        earlier = summary["warnings"]
+        summary["warnings"] = [
+            *(earlier if isinstance(earlier, list) else []),
+            *notes,
+        ]
     if starter is not None:
         starter_text, starter_summary = _starter_review(
             arguments, existing, starter, settings.disk_bytes
@@ -969,7 +1138,12 @@ def _quickstart(
             grant_restart(ledger, expires)
     if arguments.run_after:
         result["run"] = run_mirror(
-            ledger, resume=True, control=control, prepared=_prepared
+            ledger,
+            resume=True,
+            control=control,
+            prepared=_prepared,
+            torrent_port=arguments.torrent_port,
+            notice=_notice,
         )
     return result
 
@@ -1051,10 +1225,17 @@ def run_mirror_command(
             refresh_seconds=arguments.refresh_seconds,
             announce=announce,
         )
+        warnings = _warnings(announce)
+        share_files, pirate_face = _sharing(arguments, default=True, warnings=warnings)
+        set_sharing(
+            ledger, file_torrents=bool(share_files), pirate_face=bool(pirate_face)
+        )
+        if ledger.read().egress_monthly is None:
+            warnings.append(UNCAPPED_NOTE)
         return {
             "initialized": True,
             "network_started": False,
-            "warnings": _warnings(announce),
+            "warnings": warnings,
             "policy": plan(ledger),
         }
     if action == "quickstart":
@@ -1090,6 +1271,8 @@ def run_mirror_command(
         if announce != before.announce:
             changes["announce"] = announce
         intake = _intake(arguments, before.intake)
+        warnings = _warnings(announce)
+        share_files, pirate_face = _sharing(arguments, default=False, warnings=warnings)
         # Preflight: settings, caps and the intake policy validate together
         # before anything is written; a later refusal restores the ledger.
         MirrorState.model_validate(
@@ -1102,6 +1285,19 @@ def run_mirror_command(
             if intake != before.intake:
                 after = configure_intake(ledger, intake)
                 changes["intake"] = True
+            if share_files is not None or pirate_face is not None:
+                native = after.native_policy
+                if set_sharing(
+                    ledger,
+                    file_torrents=bool(native and native.file_torrents)
+                    if share_files is None
+                    else share_files,
+                    pirate_face=bool(native and native.pirate_face)
+                    if pirate_face is None
+                    else pirate_face,
+                ):
+                    changes["bittorrent"] = True
+                    after = ledger.read()
         except BaseException:
             if ledger.read() != before:
                 restored = before
@@ -1113,7 +1309,10 @@ def run_mirror_command(
             "network_started": False,
             "restart_grant_invalidated": before.restart is not None
             and after.restart is None,
-            "warnings": _warnings(after.announce),
+            "warnings": [
+                *warnings,
+                *([UNCAPPED_NOTE] if after.egress_monthly is None else []),
+            ],
             "policy": plan(ledger),
         }
     if action in ("plan", "status"):
@@ -1222,6 +1421,8 @@ def run_mirror_command(
             control=control,
             prepared=_prepared,
             observe=_observation if arguments.observe_mirror else None,
+            torrent_port=arguments.torrent_port,
+            notice=_notice,
         )
     if action == "transports":
         configure(
@@ -1236,6 +1437,7 @@ def run_mirror_command(
             session_bytes=arguments.session_bytes,
             upload_rate=arguments.upload_rate,
             pirate_face=arguments.pirate_face,
+            file_torrents=arguments.file_torrents,
         )
         return {
             "configured": True,
