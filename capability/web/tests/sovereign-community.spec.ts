@@ -80,7 +80,7 @@ test('one switch shares every eligible backup after a single standing consent',a
  // Asking the router to open the port is part of sharing, on unless turned off.
  await expect(page.getByRole('switch',{name:'Ask my router to open port 8743'})).toBeChecked();
  await expect(page.getByText('(UPnP / NAT-PMP)',{exact:false})).toBeVisible();
- await page.getByRole('checkbox',{name:'Keep sharing these models from this computer until I turn it off, and announce it publicly on the BitTorrent DHT and 2 Nostr relays, and ask my router to open port 8743.'}).check();
+ await page.getByRole('checkbox',{name:'Keep sharing these models from this computer until I turn it off, and share them over BitTorrent, listed on the BitTorrent DHT, and announce this computer publicly on the BitTorrent DHT and 2 Nostr relays, and ask my router to open port 8743.'}).check();
  await sent(page,start,'desktop-community-configure');
  const copyleft=familyIds('copyleft');
  const chosen=new Set([...defaults.filter(item=>!copyleft.includes(item)&&item!=='llama4'),'grok2-community']);
@@ -238,7 +238,8 @@ test('each public announcement is disclosed before consent and named in it',asyn
  await expect(dht).toBeChecked();await expect(nostr).toBeChecked();
  await expect(page.getByText('public IP address and mirror port on the public BitTorrent DHT as a Sovereign mirror',{exact:false})).toBeVisible();
  await expect(page.getByText('relay.one.example, relay.two.example',{exact:false})).toBeVisible();
- await expect(page.getByText('it isn’t anonymous',{exact:false})).toHaveCount(2);
+ // Both announcements say so, and so does the BitTorrent listing under What others can see.
+ await expect(page.getByText('it isn’t anonymous',{exact:false})).toHaveCount(3);
  await dht.scrollIntoViewIfNeeded();
  await page.screenshot({path:info.outputPath('community-sheet-announcements.png')});
  const start=page.getByRole('button',{name:'Start sharing',exact:true});
@@ -250,10 +251,10 @@ test('each public announcement is disclosed before consent and named in it',asyn
  await field.fill('https://models.example.org');
  await expect(page.getByText('Plain http:// isn’t encrypted',{exact:false})).toHaveCount(0);
  await dht.uncheck();
- const consent=page.getByRole('checkbox',{name:'Keep sharing these models from this computer until I turn it off, and announce it publicly on 2 Nostr relays.'});
+ const consent=page.getByRole('checkbox',{name:'Keep sharing these models from this computer until I turn it off, and share them over BitTorrent, listed on the BitTorrent DHT, and announce this computer publicly on 2 Nostr relays.'});
  await consent.check();
  await nostr.uncheck();
- await expect(page.getByRole('checkbox',{name:'Keep sharing these models from this computer until I turn it off, without announcing it publicly.'})).toBeChecked();
+ await expect(page.getByRole('checkbox',{name:'Keep sharing these models from this computer until I turn it off, and share them over BitTorrent, listed on the BitTorrent DHT, without announcing this computer’s address.'})).toBeChecked();
  await sent(page,start,'desktop-community-configure');
  expect(configured).toEqual({enabled:true,consent:true,share:'eligible',licenses:defaults,public_url:'https://models.example.org',announce_dht:false,publish_nostr:false,announce_disclosure:1});
  expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
@@ -287,7 +288,7 @@ test('reasons the mirror is not announced are spelled out',async({page})=>{
  await page.route('**/api/desktop-community-read',r=>r.fulfill({json:view(true,{dht_available:false,announce_reasons:{dht:['dht_unavailable','nothing_shared'],nostr:['no_reachable_address']}})}));
  await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();
  const findable=page.getByRole('region',{name:'Help keep models available'}).getByRole('list',{name:'How people find this mirror'});
- await expect(findable).toContainText('Not announced on the BitTorrent DHT: this copy of Sovereign doesn’t include the BitTorrent component and nothing is being shared yet.');
+ await expect(findable).toContainText('This computer’s address isn’t announced on the BitTorrent DHT as a mirror: this copy of Sovereign doesn’t include the BitTorrent component and nothing is being shared yet.');
  await expect(findable).toContainText('no public address is set and there’s no cloud storage');
  // Behind a router with no address of its own, cloud storage is the way to reach people anywhere.
  await expect(page.getByText('Cloud storage below lets people anywhere download',{exact:false})).toBeVisible();
@@ -303,7 +304,7 @@ test('a consent given before the disclosure announces nothing until the owner ch
  // Sharing itself carries on; only the announcements wait.
  await expect(panel.getByText('Sharing 1 model',{exact:true})).toBeVisible();
  const findable=panel.getByRole('list',{name:'How people find this mirror'});
- await expect(findable).toContainText('Not announced on the BitTorrent DHT: waiting for your review.');
+ await expect(findable).toContainText('This computer’s address isn’t announced on the BitTorrent DHT as a mirror: waiting for your review.');
  await expect(findable).toContainText('Not published to Nostr relays: waiting for your review.');
  await expect(panel.getByText('isn’t announced on the BitTorrent DHT or Nostr relays until you choose',{exact:false})).toBeVisible();
  await panel.getByRole('button',{name:'Choose how people find this computer',exact:true}).click();
@@ -318,7 +319,7 @@ test('a consent given before the disclosure announces nothing until the owner ch
  expect(configured).toEqual({public_url:null,announce_dht:false,publish_nostr:true,announce_disclosure:1});
  await expect(page.locator('#sovereign-main')).not.toHaveAttribute('inert','');
  await expect(panel.getByRole('button',{name:'Choose how people find this computer'})).toHaveCount(0);
- await expect(findable).toContainText('Not announced on the BitTorrent DHT: you turned it off.');
+ await expect(findable).toContainText('This computer’s address isn’t announced on the BitTorrent DHT as a mirror: you turned it off.');
  await expect(findable).toContainText('Published to 2 Nostr relays.');
  expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
 });
@@ -327,7 +328,7 @@ test('an unusable saved address and a slow address are explained, not fatal',asy
  await page.route('**/api/desktop-community-read',r=>r.fulfill({json:view(true,{address_invalid:true,announce_reasons:{dht:['address_invalid'],nostr:['address_invalid','no_reachable_address']}})}));
  await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();
  const panel=page.getByRole('region',{name:'Help keep models available'});
- await expect(panel.getByRole('list',{name:'How people find this mirror'})).toContainText('Not announced on the BitTorrent DHT: the public address saved earlier has a port that can’t be used, so it was set aside; set it again.');
+ await expect(panel.getByRole('list',{name:'How people find this mirror'})).toContainText('This computer’s address isn’t announced on the BitTorrent DHT as a mirror: the public address saved earlier has a port that can’t be used, so it was set aside; set it again.');
  await page.unroute('**/api/desktop-community-read');
  await page.route('**/api/desktop-community-read',r=>r.fulfill({json:view(true,{policy:{...policy,enabled:true,consent_expires:2000000000,public_url:'https://models.example.org'}})}));
  await page.route('**/api/desktop-community-check-address',r=>r.fulfill({json:{address:'https://models.example.org',outcome:'too_slow',http_status:null}}));
@@ -542,8 +543,20 @@ test('sharing explains BitTorrent and says how many files it shares that way',as
  await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();
  const panel=page.getByRole('region',{name:'Help keep models available'});
  await expect(panel.getByText('Sharing 3 files, so people can download even when this computer can’t be reached directly',{exact:true})).toBeVisible();
+ await expect(panel.getByRole('list',{name:'How people find this mirror'})).toContainText('The models shared over BitTorrent are listed on the BitTorrent DHT under this computer’s key. Anyone can look up which ones they are');
  await panel.getByRole('button',{name:'Change what’s shared',exact:true}).click();
  await expect(page.getByText('Shared models are also shared over BitTorrent, one file at a time',{exact:false})).toBeVisible();
+ await expect(page.getByText('so anyone can look up which models it shares, whatever you choose under How people find this computer',{exact:false})).toBeVisible();
+ await expect(page.getByText('Sharing over BitTorrent uses the DHT either way',{exact:false})).toBeVisible();
+});
+
+test('without the BitTorrent component the consent promises no BitTorrent listing',async({page})=>{
+ await page.route('**/api/desktop-community-read',r=>r.fulfill({json:view(true,{dht_available:false})}));
+ await page.goto('/');await page.getByRole('button',{name:'Sharing',exact:true}).click();
+ const panel=page.getByRole('region',{name:'Help keep models available'});
+ await expect(panel.getByRole('list',{name:'How people find this mirror'})).not.toContainText('listed on the BitTorrent DHT');
+ await panel.getByRole('button',{name:'Change what’s shared',exact:true}).click();
+ await expect(page.getByRole('checkbox',{name:/^Keep sharing these models from this computer until I turn it off, and announce this computer publicly on/})).toBeVisible();
 });
 
 test('a computer nobody can reach says its listing card is published to Nostr',async({page})=>{

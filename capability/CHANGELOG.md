@@ -6,6 +6,15 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Sharing now says plainly that sharing over BitTorrent lists the shared models
+  on the public BitTorrent DHT under this computer's key, whatever the
+  "Announce on the BitTorrent DHT" choice (which covers only announcing the
+  mirror's address). The consent line, the "What others can see" step, the
+  "Review sharing over BitTorrent" prompt and the sharing status all say so;
+  the status no longer reads "Not announced on the BitTorrent DHT" while the
+  listing is there. Hugging Face errors name the current controls ("Also
+  search: Hugging Face", Settings → Search sources and privacy).
+
 - Install docs point at the public 0.37 cohort: core 0.37.0, Library 0.33.0,
   Mac build 20, Linux revision 15 (guided setup 0.1.13, graphical setup 0.1.15)
   and `sovereign-mirror:0.37.0`.
