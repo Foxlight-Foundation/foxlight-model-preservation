@@ -1442,6 +1442,11 @@ class MirrorServer(SeedServer):
         return self.ledger.read().egress_month_used
 
 
+def files_shared(state: MirrorState) -> bool:
+    """Whether a mirror shares its files in Sovereign's own swarms."""
+    return state.native_policy is not None and state.native_policy.file_torrents
+
+
 TERABYTE = 1024**4
 NOTICE_SECONDS = 60.0
 
@@ -1628,6 +1633,16 @@ def run_mirror(
                     lambda current: current.model_copy(update={"last_error": code})
                 )
 
+        def list_files(serving: frozenset[str]) -> None:
+            # Best effort, like announcing: never stops retained service.
+            try:
+                announcer.share_listing(serving)
+            except (ValueError, OSError) as failure:
+                code = "announce_" + failure_code(failure)
+                ledger.update(
+                    lambda current: current.model_copy(update={"last_error": code})
+                )
+
         def worker() -> None:
             while not stop.is_set():
                 try:
@@ -1664,6 +1679,18 @@ def run_mirror(
                                 error.append(failure)
                                 return
                         announce(serving)
+                    elif listing_key is None and files_shared(ledger.read()):
+                        # Native-only: no listener and no card, but files
+                        # shared over BitTorrent are still listed under the
+                        # mirror's key, from the same verified selection.
+                        _allowed, owners = public_selection(ledger, active.fork())
+                        list_files(
+                            frozenset(
+                                identity
+                                for identities in owners.values()
+                                for identity in identities
+                            )
+                        )
                     if failed is not None:
                         # Status records the reconcile failure, not the announce.
                         raise failed
