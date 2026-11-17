@@ -15,7 +15,7 @@ called native build provenance or a GitHub-built Python release.
 
 [`macos-release.yml`](.github/workflows/macos-release.yml) accepts only the final
 DMG/ZIP named and SHA-256 pinned in
-[`0.1.0-build20.json`](desktop/macos/releases/0.1.0-build20.json). That reviewed
+[`0.1.0-build21.json`](desktop/macos/releases/0.1.0-build21.json). That reviewed
 record separates binary source, published public Python inputs, Developer ID
 certificate, complete app CodeDirectory and Apple submission identities. No
 signing key, Keychain prompt or Apple credential enters this workflow. Changing
@@ -23,9 +23,9 @@ the files requires a new reviewed manifest and distinct release identity.
 
 After this lane is reviewed and merged:
 
-1. Create the record's native tag `sovereign-macos-v0.1.0-build20` at the binary recipe
-   `4621a70ce4d800bdad19977e7c6ea7b0e271d731`.
-   Create `sovereign-macos-publisher-v0.1.0-build20` at the reviewed publisher
+1. Create the record's native tag `sovereign-macos-v0.1.0-build21` at the binary recipe
+   `6664007f94f388ce992935be7a2353f10d14bd5d`.
+   Create `sovereign-macos-publisher-v0.1.0-build21` at the reviewed publisher
    commit on `main`. Never replace either tag. The separate publisher tag allows
    repairing publication tooling without changing the native release identity
    or its exact container hashes. The binary source remains the manifest's
@@ -38,7 +38,7 @@ After this lane is reviewed and merged:
    untrusted staging for verification, never a manual public release. Do not
    upload local raw logs, private producer details, credentials or inventories.
 3. Dispatch `macos-release.yml` **at the publisher tag**, `mode=rehearse`, confirmation
-   `verify Sovereign 0.1.0 build 20`. Intake checks a closed two-file inventory and
+   `verify Sovereign 0.1.0 build 21`. Intake checks a closed two-file inventory and
    reviewed hashes. A fresh Apple silicon runner validates both containers,
    Apple Developer ID certificate, complete app CodeDirectory, stapled tickets,
    Gatekeeper and signed build receipts before running actual offline CLI PMF
