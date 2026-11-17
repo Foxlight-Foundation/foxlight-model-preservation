@@ -1528,7 +1528,9 @@ def run_mirror(
     The adapter does not bypass profile, trust, upload or session permission.
     Listing_key, when given, is the key a mirror sharing files over BitTorrent
     signs its listing's DHT pointer with (the embedding app's mirror key);
-    otherwise it is this mirror's own card key, which signs its listing card.
+    otherwise it is this mirror's own card key, which signs its listing card,
+    and the mirror publishes its listing even with no public URL (an embedding
+    app that passes its own key publishes its listing itself).
     Torrent_port fixes the port Sovereign's per-file sharing listens on (a
     container publishes it); by default the system picks one. Notice, when
     given, receives owner-facing notices, such as each further terabyte an
@@ -1604,13 +1606,19 @@ def run_mirror(
             else None
         )
         error: list[BaseException] = []
-        announcer = Announcer(ledger)
+        # An embedding app signing with its own key publishes its own listing.
+        announcer = Announcer(ledger, lists=listing_key is None)
 
         def announce(serving: frozenset[str]) -> None:
             # Announcement is best effort and never stops retained service.
-            if ledger.read().announce is None:
-                return
             try:
+                if ledger.read().announce is None:
+                    # No address to announce, but files shared over
+                    # BitTorrent are still listed under the mirror's key. An
+                    # embedding app that signs with its own key (listing_key)
+                    # publishes its listing itself.
+                    announcer.share_listing(serving)
+                    return
                 announcer.round(serving, active.fork())
             except OperationCancelled:
                 raise

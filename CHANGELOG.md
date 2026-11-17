@@ -18,7 +18,10 @@
   gains `--file-torrents`; `mirror run --torrent-port` fixes the sharing port,
   which the Docker image publishes (6881 TCP and UDP). The container re-runs
   quickstart at each start, so an existing Docker mirror picks the defaults up
-  on upgrade; a command-line mirror keeps its policy until changed.
+  on upgrade; a command-line mirror keeps its policy until changed. A mirror
+  with no public URL still publishes its listing (no listing card), and
+  `mirror init` refuses an unavailable sharing request before creating
+  anything.
 - Still no default upload cap, now hard to miss: the review ends with a boxed
   NO MONTHLY UPLOAD CAP warning giving the exact command, an interactive
   quickstart asks for a monthly cap, `mirror status` reports `uploads` against

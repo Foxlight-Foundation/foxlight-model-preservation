@@ -2393,3 +2393,104 @@ def test_an_uncapped_mirror_is_told_each_further_terabyte_a_month(tmp_path, capt
     used(5 * TERABYTE, cap=10 * TERABYTE)
     notices.check(ledger, now=400)
     assert len(told) == 2  # a capped mirror is not told
+
+
+def test_a_mirror_with_no_public_url_still_lists_what_it_shares(tmp_path, capture):
+    from foxlight_model_preservation.mirror_native import set_sharing
+    from foxlight_model_preservation.sovereign_listing import (
+        current_listing,
+        listing_manifests,
+    )
+
+    ledger, _ = mirror(tmp_path, capture)
+    cycle(ledger)
+    assert ledger.read().announce is None
+    assert set_sharing(ledger, file_torrents=True, pirate_face=False)
+    public_selection(ledger, OperationControl())
+    announcer = Announcer(ledger)
+    announcer.share_listing(frozenset({capture.identity}))
+    listing = current_listing(ledger.path)
+    assert listing is not None
+    assert capture.identity in listing_manifests(listing)
+    # No address means no card, so no listing card either.
+    assert announcer.listing_card is None
+    assert not (ledger.path / "peers.json").exists()
+    # A passing gap in what is served keeps the listing; turning sharing off
+    # withdraws it.
+    announcer.share_listing(frozenset())
+    assert current_listing(ledger.path) is not None
+    assert set_sharing(ledger, file_torrents=False, pirate_face=False)
+    announcer.share_listing(frozenset({capture.identity}))
+    assert current_listing(ledger.path) is None
+
+
+def test_init_refuses_unavailable_sharing_before_creating_anything(
+    tmp_path, monkeypatch
+):
+    from foxlight_model_preservation import mirror_cli
+    from foxlight_model_preservation.mirror_cli import (
+        MirrorArguments,
+        run_mirror_command,
+    )
+
+    monkeypatch.setattr(mirror_cli, "sharing_available", lambda: False)
+    target = tmp_path / "mirror"
+
+    def arguments(**changes: object) -> MirrorArguments:
+        values: dict[str, object] = {
+            "mirror_action": "init",
+            "mirror_dir": target,
+            "mirror_name": "Init",
+            # The defaults `mirror init` gives these.
+            "disk_bytes": 100 * 1024**3,
+            "ingress_daily": 50 * 1024**3,
+            "egress_daily": None,
+            "egress_monthly": None,
+            "mirror_bind": "127.0.0.1",
+            "mirror_port": 8080,
+            "serve_start": 0,
+            "serve_end": 0,
+            "refresh_seconds": 21600,
+            "public_url": None,
+            "contact": None,
+            "announce_nostr": None,
+            "announce_dht": None,
+            "confirm_public_announcement": False,
+            **changes,
+        }
+        return MirrorArguments(**values)
+
+    with pytest.raises(PreservationError, match="bittorrent"):
+        run_mirror_command(arguments(share_files=True), OperationControl())
+    assert not target.exists()
+    with pytest.raises(PreservationError, match="bittorrent"):
+        run_mirror_command(arguments(share_pirate_face=True), OperationControl())
+    assert not target.exists()
+    # The default stays off with a warning and the mirror is created.
+    receipt = run_mirror_command(arguments(), OperationControl())
+    assert receipt["initialized"]
+    assert any("BitTorrent component" in str(item) for item in receipt["warnings"])
+    assert MirrorLedger(target).read().native_policy is None
+
+
+def test_an_embedding_app_keeps_its_own_listing(tmp_path, capture):
+    from foxlight_model_preservation.mirror_native import set_sharing
+    from foxlight_model_preservation.sovereign_listing import (
+        current_listing,
+        publish_listing,
+    )
+
+    ledger, _ = mirror(tmp_path, capture)
+    cycle(ledger)
+    assert set_sharing(ledger, file_torrents=True, pirate_face=False)
+    public_selection(ledger, OperationControl())
+    own = publish_listing(ledger.path, {"holdings.json": b"the app's own"}, "app")
+    announcer = Announcer(ledger, lists=False)
+    announcer.share_listing(frozenset({capture.identity}))
+    configure_mirror(
+        ledger, {"announce": AnnouncePolicy(public_url="https://mirror.example")}
+    )
+    assert announcer.publish(frozenset({capture.identity})) is not None
+    assert announcer.listing_card is None
+    current = current_listing(ledger.path)
+    assert current is not None and current.infohash_v2 == own.infohash_v2

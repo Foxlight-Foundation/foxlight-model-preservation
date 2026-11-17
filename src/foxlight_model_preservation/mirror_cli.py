@@ -1211,6 +1211,10 @@ def run_mirror_command(
     action = arguments.mirror_action
     if action == "init":
         announce = _announce(arguments, None)
+        # Resolved (and an unavailable explicit request refused) before
+        # anything is created, so a refusal leaves no half-set-up mirror.
+        warnings = _warnings(announce)
+        share_files, pirate_face = _sharing(arguments, default=True, warnings=warnings)
         ledger = MirrorLedger.initialize(
             arguments.mirror_dir,
             name=arguments.mirror_name or default_name(),
@@ -1225,8 +1229,6 @@ def run_mirror_command(
             refresh_seconds=arguments.refresh_seconds,
             announce=announce,
         )
-        warnings = _warnings(announce)
-        share_files, pirate_face = _sharing(arguments, default=True, warnings=warnings)
         set_sharing(
             ledger, file_torrents=bool(share_files), pirate_face=bool(pirate_face)
         )

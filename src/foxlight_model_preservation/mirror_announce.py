@@ -137,8 +137,11 @@ def catalog_mirrors(ledger: MirrorLedger) -> tuple[str, ...]:
 class Announcer:
     """Own one announcing mirror's directory, card and optional rendezvous."""
 
-    def __init__(self, ledger: MirrorLedger) -> None:
+    def __init__(self, ledger: MirrorLedger, *, lists: bool = True) -> None:
+        """``lists`` is False when an embedding app publishes the listing for
+        this mirror's files with its own key; this announcer then leaves it."""
         self.ledger = ledger
+        self.lists = lists
         self.directory = MirrorDirectory(ledger.path / DIRECTORY)
         self.rendezvous: Rendezvous | None = None
         # The listing card for the listing this mirror shares, when it shares
@@ -155,6 +158,52 @@ class Announcer:
         if len(secret) != 32:
             raise PreservationError("mirror nostr key is invalid")
         return secret
+
+    def _documents(self, serving: frozenset[str]) -> dict[str, bytes | None]:
+        """The signed object coverage, holdings and torrents documents for
+        ``serving``. Each is optional: a problem with one never stops the card
+        renewing or the listing being shared."""
+        documents: dict[str, bytes | None] = dict.fromkeys(LISTING_DOCUMENTS)
+        key = mirror_key(self.ledger)
+        # Signed by the same key: lets catalog saves find files by hash.
+        with contextlib.suppress(PreservationError, OSError):
+            documents["objects.json"] = issue_objects(
+                key, served_hashes(self.ledger.path / "public")
+            )
+        # What this mirror keeps, by name, so Find can search it.
+        with contextlib.suppress(PreservationError, OSError):
+            documents["holdings.json"] = issue_holdings(
+                key, store_holdings(self.ledger.path / "public", serving)
+            )
+        # The torrents it shares (Sovereign's own per-file ones and Pirate
+        # Face ones), so their swarms stay findable from mirrors.
+        with contextlib.suppress(PreservationError, OSError, ValueError):
+            documents["torrents.json"] = issue_torrents(
+                key,
+                [
+                    *seeded(self.ledger.read(), serving),
+                    *listed(self.ledger, serving),
+                ],
+            )
+        return documents
+
+    def share_listing(self, serving: frozenset[str]) -> None:
+        """Keep the listing in step for a mirror with no public URL.
+
+        A mirror sharing its files over BitTorrent lists them under its key
+        (the listing its session shares, and the DHT pointer to it) whether
+        or not it announces an address; without one there is no card, so the
+        listing card is not issued. Withdrawn when files aren't shared; kept
+        as it is while nothing is served.
+        """
+        self.listing_card = None
+        if not self.lists:
+            return
+        native = self.ledger.read().native_policy
+        if native is None or not native.file_torrents:
+            publish_mirror_listing(self.ledger.path, None, serving)
+        elif serving:
+            publish_mirror_listing(self.ledger.path, self._documents(serving), serving)
 
     def publish(self, serving: frozenset[str]) -> bytes | None:
         """Write the peers document: this mirror's fresh card, then checked peers.
@@ -190,35 +239,18 @@ class Announcer:
             else None
         )
         native = state.native_policy
-        sharing_files = native is not None and native.file_torrents
-        documents: dict[str, bytes | None] = dict.fromkeys(LISTING_DOCUMENTS)
-        if card is not None:
-            key = mirror_key(self.ledger)
-            # Signed by the same key: lets catalog saves find files by hash.
-            # Optional, so a coverage problem never stops the card renewing.
-            with contextlib.suppress(PreservationError, OSError):
-                documents["objects.json"] = issue_objects(
-                    key, served_hashes(self.ledger.path / "public")
-                )
-            # What this mirror keeps, by name, so Find can search it.
-            with contextlib.suppress(PreservationError, OSError):
-                documents["holdings.json"] = issue_holdings(
-                    key, store_holdings(self.ledger.path / "public", serving)
-                )
-            # The torrents it shares (Sovereign's own per-file ones and
-            # Pirate Face ones), so their swarms stay findable from mirrors.
-            with contextlib.suppress(PreservationError, OSError, ValueError):
-                documents["torrents.json"] = issue_torrents(
-                    key,
-                    [
-                        *seeded(self.ledger.read(), serving),
-                        *listed(self.ledger, serving),
-                    ],
-                )
+        sharing_files = self.lists and native is not None and native.file_torrents
+        documents: dict[str, bytes | None] = (
+            self._documents(serving)
+            if card is not None
+            else dict.fromkeys(LISTING_DOCUMENTS)
+        )
         # The listing its BitTorrent session shares, then its listing card.
         # Withdrawn when files aren't shared; kept as it is while nothing is
         # served, so a passing gap doesn't rebuild it.
-        if not sharing_files:
+        if not self.lists:
+            pass  # the embedding app publishes it
+        elif not sharing_files:
             publish_mirror_listing(self.ledger.path, None, serving)
         elif card is not None:
             publish_mirror_listing(self.ledger.path, documents, serving)
