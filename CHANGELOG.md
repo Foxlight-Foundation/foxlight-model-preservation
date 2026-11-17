@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Pin Sovereign Mac build 21 and Linux revision 16 to the authenticated
+  Library 0.33.1 installation archive (sha256 b8ce486e…, source 838b505d; its
+  desktop lock carries core 0.37.1 and libtorrent 2.0.14). Native signing,
+  notarization, apt publication and qualification remain separate gates.
+
 ## 0.37.1
 
 - The Library's Find search line no longer says search works offline while

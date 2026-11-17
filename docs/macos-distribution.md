@@ -17,12 +17,14 @@ rebuilding or signing them. Developer ID signing, Apple notarization and an
 installed-app journey remain separate checks. A locally passing Gatekeeper
 check does not establish clean-host acceptance, model compatibility or anonymity.
 
-The build20 recipe pairs the authenticated public core 0.37 / Library 0.33 cohort,
-which shares model files over BitTorrent once you turn sharing on (one
+The build21 recipe pairs the authenticated public core 0.37.1 / Library 0.33.1 cohort,
+which says plainly that sharing over BitTorrent lists the shared models on
+the public BitTorrent DHT, and whose Find search line names the sources that
+need the internet. Build 20 paired core 0.37 / Library 0.33, which shared model files over BitTorrent once you turn sharing on (one
 swarm per file, an optional router port mapping, and a signed listing other
-computers find through the DHT and Nostr), lets Find save from those
-listings, asks once after a save whether to help keep that model available,
-and stops the app briefly reporting it isn't responding while a slow drive
+computers find through the DHT and Nostr), let Find save from those
+listings, asked once after a save whether to help keep that model available,
+and stopped the app briefly reporting it isn't responding while a slow drive
 is busy. Build 19 paired core 0.36 / Library 0.32, which saved a model with one copy of disk space instead of three (downloads
 moved into place, and mirror and swarm fallbacks kept to it) and carried a UX
 pass: the app's own dropdowns, switches and spinners, and spacing fixes. Build 18 paired core 0.35 / Library 0.31, which added mirrors seeding matching Pirate Face torrents
