@@ -46,7 +46,13 @@ from .storage import (
     read_metadata,
     writer_lock,
 )
-from .torrent_binding import TorrentHandle, TorrentSession, torrent_engine, torrent_path
+from .torrent_binding import (
+    TorrentHandle,
+    TorrentSession,
+    listen_interfaces,
+    torrent_engine,
+    torrent_path,
+)
 
 
 @final
@@ -328,7 +334,9 @@ class TorrentSeeder:
         active.checkpoint()
         session = engine.session(
             {
-                "listen_interfaces": f"{address}:{policy.listen_port}",
+                "listen_interfaces": listen_interfaces(
+                    address, port=policy.listen_port
+                ),
                 "enable_dht": policy.public_swarm,
                 "enable_lsd": False,
                 "enable_upnp": False,

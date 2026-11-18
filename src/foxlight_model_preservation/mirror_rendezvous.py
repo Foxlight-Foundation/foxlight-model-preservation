@@ -26,6 +26,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from .models import PreservationError
 from .operations import OperationControl
+from .torrent_binding import listen_interfaces
 
 RENDEZVOUS_KEY = hashlib.sha1(  # noqa: S324 - BitTorrent DHT keys are SHA-1
     b"sovereign.mirror-rendezvous.v1"
@@ -128,7 +129,7 @@ class Rendezvous:
         if open_port is not None and not 1 <= open_port <= 65535:
             raise PreservationError("invalid mirror port")
         settings: dict[str, str | int | bool] = {
-            "listen_interfaces": f"{interface}:0",
+            "listen_interfaces": listen_interfaces(interface),
             # Off only for a session that just opens the router port for an
             # owner who chose not to announce on the DHT.
             "enable_dht": dht,

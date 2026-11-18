@@ -37,7 +37,7 @@ from . import safefs
 from .models import PreservationError
 from .operations import OperationControl
 from .storage import atomic_bytes, directory, read_metadata
-from .torrent_binding import torrent_engine
+from .torrent_binding import listen_interfaces, torrent_engine
 
 LISTING_DIRECTORY = "listing"
 LISTING_NAME = "sovereign-listing"
@@ -378,7 +378,10 @@ class ListingReader:
         if self._session is None:
             self._session = engine.session(
                 {
-                    "listen_interfaces": "0.0.0.0:0,[::]:0",
+                    "listen_interfaces": listen_interfaces(
+                        "0.0.0.0",  # noqa: S104 - the consented public swarm
+                        "[::]",
+                    ),
                     "enable_dht": True,
                     "enable_lsd": False,
                     "enable_upnp": False,
