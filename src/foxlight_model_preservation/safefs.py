@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import sys
 from pathlib import Path
 
 PRIVATE_DIRECTORY = 0o700
@@ -177,3 +178,7 @@ def private(handle: int) -> bool:
 def identity(info: os.stat_result) -> tuple[int, int]:
     """The (device, file) pair that names one file or folder while it exists."""
     return (info.st_dev, info.st_ino)
+
+
+if sys.platform == "win32":  # the same calls, on the NT handle-relative API
+    from ._winfs import *  # noqa: F403
