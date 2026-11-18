@@ -7,7 +7,6 @@ weights, private cards, receiver policy or signing keys.
 
 from __future__ import annotations
 
-import os
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -25,6 +24,7 @@ from tuf.api.metadata import (
     Timestamp,  # pyright: ignore[reportPrivateImportUsage]
 )
 
+from . import safefs
 from .discovery import parse_discovery_role, validate_catalog_target
 from .discovery_models import MAX_ROLE_BYTES, DiscoveryCatalogTarget
 from .models import PreservationError
@@ -132,7 +132,7 @@ def publish_catalog(
         ):
             published_roots = [
                 int(match[1])
-                for filename in os.listdir(metadata_dir)
+                for filename in safefs.list_dir(metadata_dir)
                 if (match := re.fullmatch(r"([1-9][0-9]{0,15})\.root\.json", filename))
             ]
         previous_root: Metadata[Root] | None = None

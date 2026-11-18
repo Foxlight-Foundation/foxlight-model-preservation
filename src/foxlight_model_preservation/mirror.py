@@ -16,6 +16,7 @@ from typing import cast
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from pydantic import JsonValue
 
+from . import safefs
 from .archives import ArchiveManifest, archive_objects, verify_archive_manifest
 from .discovery import follow_source, list_sources, refresh_source, search_sources
 from .discovery_models import MAX_SOURCES
@@ -1215,7 +1216,7 @@ def _link(source: int, target: int, path: str) -> None:
         info = os.fstat(stream.fileno())
         existing = None
         try:
-            existing = os.stat(name, dir_fd=parent, follow_symlinks=False)
+            existing = safefs.stat_at(parent, name)
         except FileNotFoundError:
             pass
         if existing and (existing.st_dev, existing.st_ino) == (
@@ -1225,19 +1226,13 @@ def _link(source: int, target: int, path: str) -> None:
             return
         temporary = ".link-" + os.urandom(16).hex()
         with parent_directory(source, path) as (original, original_name):
-            os.link(
-                original_name,
-                temporary,
-                src_dir_fd=original,
-                dst_dir_fd=parent,
-                follow_symlinks=False,
-            )
+            safefs.link_at(original, original_name, parent, temporary)
         try:
-            os.replace(temporary, name, src_dir_fd=parent, dst_dir_fd=parent)
+            safefs.replace_at(parent, temporary, parent, name)
             os.fsync(parent)
         finally:
             try:
-                os.unlink(temporary, dir_fd=parent)
+                safefs.unlink_at(parent, temporary)
             except FileNotFoundError:
                 pass
 
@@ -1297,7 +1292,7 @@ def public_selection(
                     parent,
                     _name,
                 ):
-                    for name in os.listdir(parent):
+                    for name in safefs.list_dir(parent):
                         path = prefix + "/" + name
                         if "/" + path not in allowed:
                             # Only our exact content-addressed public files are retired.
@@ -1307,7 +1302,7 @@ def public_selection(
                                 else r"[0-9a-f]{64}",
                                 name,
                             ):
-                                os.unlink(name, dir_fd=parent)
+                                safefs.unlink_at(parent, name)
                     os.fsync(parent)
             except FileNotFoundError:
                 pass

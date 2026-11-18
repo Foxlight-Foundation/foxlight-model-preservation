@@ -13,11 +13,11 @@ anyone, and nothing is seeded after the save.
 from __future__ import annotations
 
 import hashlib
-import os
 import time
 from pathlib import Path
 from typing import Any, cast
 
+from . import safefs
 from .models import PreservationError
 from .operations import OperationControl
 from .pirateface_find import SwarmTorrent
@@ -102,7 +102,7 @@ class SwarmReceiver:
         native = cast(Any, engine).torrent_info(engine.bdecode(self.swarm.data))
         if str(native.info_hashes().v1) != self.swarm.infohash:
             raise PreservationError("pirate_face_torrent_differs")
-        os.makedirs(self.staging, mode=0o700, exist_ok=True)
+        safefs.make_dir(self.staging, parents=True, exist_ok=True)
         session = cast(Any, engine).session(
             {
                 **(self._settings or {}),

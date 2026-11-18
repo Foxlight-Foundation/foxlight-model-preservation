@@ -40,6 +40,7 @@ from tuf.api.metadata import (
 from tuf.ngclient import Updater, UpdaterConfig
 from tuf.ngclient.fetcher import FetcherInterface
 
+from . import safefs
 from .archives import ArchiveManifest
 from .discovery_models import (
     MAX_CATALOG_BYTES,
@@ -218,7 +219,7 @@ def _cache(
             and (info.st_dev, info.st_ino) != expected_directory
         ):
             raise PreservationError("discovery directory identity changed")
-        if info.st_uid != os.getuid() or info.st_mode & 0o077:
+        if not safefs.private(root):
             raise PreservationError("discovery cache must be an owner-only directory")
         yield root
 
@@ -232,7 +233,7 @@ def _name(source_id: str) -> str:
 def _identities(root: int) -> list[str]:
     return sorted(
         name[:-5]
-        for name in os.listdir(root)
+        for name in safefs.list_dir(root)
         if re.fullmatch(r"[0-9a-f]{64}\.json", name)
     )
 

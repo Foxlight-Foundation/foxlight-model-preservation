@@ -33,6 +33,7 @@ from typing import Any, cast
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from . import safefs
 from .models import PreservationError
 from .operations import OperationControl
 from .storage import atomic_bytes, directory, read_metadata
@@ -194,12 +195,12 @@ def _publish(
     root: Path, files: dict[str, bytes], subject: str | None, now: float | None
 ) -> Listing:
     base = root / LISTING_DIRECTORY
-    base.mkdir(mode=0o700, parents=True, exist_ok=True)
+    safefs.make_dir(base, parents=True, exist_ok=True)
     build = base / ("build-" + secrets.token_hex(8))
     try:
         for path, data in files.items():
             target = build / LISTING_NAME / path
-            target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            safefs.make_dir(target.parent, parents=True, exist_ok=True)
             target.write_bytes(data)
         torrent = _create(build, files)
         _info, v1, v2 = read_listing(torrent)

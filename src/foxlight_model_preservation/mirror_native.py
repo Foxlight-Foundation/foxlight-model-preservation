@@ -6,7 +6,6 @@ import contextlib
 import hashlib
 import os
 import secrets
-import shutil
 import stat
 import tempfile
 import threading
@@ -16,6 +15,7 @@ from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
+from . import safefs
 from .handoffs import Handoff, peer_contacts
 from .mirror_models import MirrorState, NativeModel, NativePolicy, at_least
 from .mirror_state import (
@@ -161,9 +161,9 @@ def configure(
     with ledger.service_lock(), ledger.child("scratch") as scratch:
         old = ledger.read().native_policy
         if old is None:
-            os.mkdir("native", 0o700, dir_fd=scratch)
+            safefs.mkdir_at(scratch, "native")
             os.fsync(scratch)
-        info = os.stat("native", dir_fd=scratch, follow_symlinks=False)
+        info = safefs.stat_at(scratch, "native")
         identity = info.st_dev, info.st_ino
         if not stat.S_ISDIR(info.st_mode) or (old and old.identity != identity):
             raise PreservationError("native mirror directory identity changed")
@@ -242,7 +242,7 @@ def native_area(ledger: MirrorLedger, manifest: str | None = None) -> Generator[
     if policy is None:
         raise PreservationError("native transports are not configured")
     with ledger.child("scratch") as scratch:
-        fd = os.open("native", os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=scratch)
+        fd = safefs.open_dir_at(scratch, "native")
         child: int | None = None
         try:
             info = os.fstat(fd)
@@ -252,15 +252,13 @@ def native_area(ledger: MirrorLedger, manifest: str | None = None) -> Generator[
                 record = state.native_models.get(manifest)
                 if record is None or record.identity is None:
                     raise PreservationError("unknown native model custody")
-                child = os.open(
-                    _model_name(manifest, record.custody_name),
-                    os.O_DIRECTORY | os.O_NOFOLLOW,
-                    dir_fd=fd,
+                child = safefs.open_dir_at(
+                    fd, _model_name(manifest, record.custody_name)
                 )
                 info = os.fstat(child)
                 if (info.st_dev, info.st_ino) != record.identity:
                     raise PreservationError("native model directory identity changed")
-            if info.st_uid != os.getuid() or info.st_mode & 0o077:
+            if not safefs.private(child if child is not None else fd):
                 raise PreservationError("native custody must remain owner-only")
             yield child if child is not None else fd
         finally:
@@ -330,8 +328,8 @@ def _prepare(ledger: MirrorLedger, manifest: str, control: OperationControl) -> 
             disk_reservation=required,
         )
         with native_area(ledger) as area:
-            os.mkdir(name, 0o700, dir_fd=area)
-            info = os.stat(name, dir_fd=area, follow_symlinks=False)
+            safefs.mkdir_at(area, name)
+            info = safefs.stat_at(area, name)
             os.fsync(area)
         _record(
             ledger,
@@ -868,12 +866,7 @@ def write_reference(destination: Path, data: bytes) -> None:
         ) as temporary:
             with directory(Path(temporary)) as staging:
                 atomic_bytes(staging, "reference", data)
-            os.link(
-                Path(temporary) / "reference",
-                destination.name,
-                dst_dir_fd=root,
-                follow_symlinks=False,
-            )
+                safefs.link_at(staging, "reference", root, destination.name)
             os.fsync(root)
 
 
@@ -897,19 +890,18 @@ def prune_native(
         for name in pending_custody:
             _model_name(manifest, name)
             try:
-                fd = os.open(name, os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+                fd = safefs.open_dir_at(parent, name)
             except FileNotFoundError:
                 continue
             try:
-                info = os.fstat(fd)
-                if info.st_uid != os.getuid() or info.st_mode & 0o077 or os.listdir(fd):
+                if not safefs.private(fd) or safefs.list_dir(fd):
                     raise PreservationError("unreceipted native custody is not empty")
             finally:
                 os.close(fd)
         if expected is not None:
             name = _model_name(manifest, custody_name)
             try:
-                info = os.stat(name, dir_fd=parent, follow_symlinks=False)
+                info = safefs.stat_at(parent, name)
             except FileNotFoundError:
                 pass
             else:
@@ -922,10 +914,10 @@ def prune_native(
                     != expected
                 ):
                     raise PreservationError("native prune custody changed")
-                shutil.rmtree(name, dir_fd=parent)
+                safefs.remove_tree_at(parent, name)
         for name in pending_custody:
             try:
-                os.rmdir(name, dir_fd=parent)
+                safefs.rmdir_at(parent, name)
             except FileNotFoundError:
                 pass
         os.fsync(parent)

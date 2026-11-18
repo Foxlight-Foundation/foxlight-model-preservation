@@ -36,6 +36,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+from . import safefs
 from .models import PreservationError
 from .operations import OperationCancelled, OperationControl
 from .sovereign_listing import (
@@ -161,7 +162,7 @@ def build_torrent(
         folder = Path(tempfile.mkdtemp(prefix="sovereign-torrent-"))
     else:
         folder = scratch / ("build-" + secrets.token_hex(8))
-        folder.mkdir(parents=True, mode=0o700)
+        safefs.make_dir(folder, parents=True)
     try:
         os.symlink(source.resolve(), folder / name)
         stopped: list[BaseException] = []
@@ -201,7 +202,7 @@ class TorrentCache:
 
     def put(self, torrent: FileTorrent) -> None:
         """Keep a built torrent (written whole, then renamed into place)."""
-        self.path.mkdir(parents=True, exist_ok=True, mode=0o700)
+        safefs.make_dir(self.path, parents=True, exist_ok=True)
         pending = self.path / (torrent.sha256 + ".torrent." + secrets.token_hex(4))
         pending.write_bytes(torrent.data)
         os.replace(pending, self.path / (torrent.sha256 + ".torrent"))
@@ -230,7 +231,7 @@ class FileSharer:
         engine = cast(Any, torrent_engine())
         self._engine = engine
         self._home = home
-        home.mkdir(parents=True, exist_ok=True, mode=0o700)
+        safefs.make_dir(home, parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._handles: dict[str, Any] = {}
         # This computer's own signed listing, shared beside its files.
@@ -735,7 +736,7 @@ class FileSwarmReceiver:
         from .swarm import RECEIVE_ONLY, no_unchoke_bypass
 
         engine = cast(Any, torrent_engine())
-        self.staging.mkdir(parents=True, exist_ok=True, mode=0o700)
+        safefs.make_dir(self.staging, parents=True, exist_ok=True)
         self._session = engine.session(
             {
                 "listen_interfaces": "0.0.0.0:0,[::]:0",

@@ -22,6 +22,7 @@ from urllib.parse import urlsplit
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from . import safefs
 from .discovery import list_sources, search_sources
 from .mirror_cards import MAX_PEERS_BYTES, base_url, build_peers, issue_card
 from .mirror_directory import MirrorDirectory
@@ -355,7 +356,7 @@ def remove_peers(ledger: MirrorLedger) -> None:
     """Withdraw this mirror's published peers document (its card lapses)."""
     with ledger.root() as root:
         try:
-            os.unlink("peers.json", dir_fd=root)
+            safefs.unlink_at(root, "peers.json")
             os.fsync(root)
         except FileNotFoundError:
             pass

@@ -31,6 +31,7 @@ from pydantic import (
     model_validator,
 )
 
+from . import safefs
 from .mirror_cards import CLOCK_SKEW, MAX_CARD_SECONDS
 from .mirror_holdings import held_manifest, holding
 from .mirror_models import MirrorState, NativePolicy, PirateFaceSeed
@@ -421,9 +422,7 @@ def seed(
         raise PreservationError("pirate_face_not_matched")
     home = ledger.path / TORRENTS_DIRECTORY
     with directory(home) as root:
-        descriptor = os.open(
-            record.infohash + ".torrent", os.O_RDONLY | os.O_NOFOLLOW, dir_fd=root
-        )
+        descriptor = safefs.open_at(root, record.infohash + ".torrent", os.O_RDONLY)
         with os.fdopen(descriptor, "rb") as stream:
             data = stream.read(MAX_TORRENT_BYTES + 1)
     swarm = parse_torrent(data, record.infohash, record.repository)

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import base64
 import contextlib
-import fcntl
 import http.client
 import os
 import re
@@ -27,7 +26,7 @@ from urllib.parse import urlsplit
 
 from pydantic import Field, JsonValue
 
-from .. import hub, pirateface_find, sovereign_listing
+from .. import hub, pirateface_find, safefs, sovereign_listing
 from ..archives import ArchiveManifest, published_archive_manifest, verify_archive
 from ..cards import ArtifactFile, ModelCardEnvelope, identity_json
 from ..kits import export_kit, import_kit, inspect_kit, read_kit_envelope
@@ -756,7 +755,7 @@ class LocalOwner:
                 if not (folder / "uploads").is_dir():
                     continue
                 with directory(folder / "uploads") as source:
-                    for name in sorted(os.listdir(source)):
+                    for name in sorted(safefs.list_dir(source)):
                         if re.fullmatch(r"[0-9a-f]{32}\.json", name):
                             uploads.append(self._upload(name[:-5]))
             jobs = metadata_page(
@@ -888,7 +887,7 @@ class LocalOwner:
             return sorted(
                 (
                     name
-                    for name in os.listdir(root)
+                    for name in safefs.list_dir(root)
                     if re.fullmatch(r"[0-9]{20}-[0-9a-f]{64}\.json", name)
                     and name[21:85] not in current
                 ),
@@ -1074,9 +1073,9 @@ class LocalOwner:
                 encode_record(job),
             )
             with directory(self.home / "history/receipts", create=True) as root:
-                for name in os.listdir(root):
+                for name in safefs.list_dir(root):
                     if name.endswith("-" + job.job_id + ".json"):
-                        os.unlink(name, dir_fd=root)
+                        safefs.unlink_at(root, name)
             self._remove_job_files(job)
             removed.add(job.job_id)
         if removed:
@@ -1131,7 +1130,7 @@ class LocalOwner:
                 self.sharing.remove_work(job.job_id)
         with contextlib.suppress(OSError):
             with directory(self.home / "job-sources", create=True) as root:
-                os.unlink(job.job_id + ".json", dir_fd=root)
+                safefs.unlink_at(root, job.job_id + ".json")
         self._progress.pop(job.job_id, None)
 
     def _remove_copy(self, body: dict[str, JsonValue]) -> dict[str, JsonValue]:
@@ -1192,7 +1191,7 @@ class LocalOwner:
             if job.job_id == identifier:
                 return job
         with directory(self.home / "history/receipts", create=True) as root:
-            for name in os.listdir(root):
+            for name in safefs.list_dir(root):
                 if re.fullmatch(r"[0-9]{20}-" + identifier + r"\.json", name):
                     result = Job.model_validate_json(read_metadata(root, name))
                     if result.job_id != identifier:
@@ -1811,7 +1810,7 @@ class LocalOwner:
                         if self._exists_regular(root, name)
                     ]
                     for name in names:
-                        os.unlink(name, dir_fd=root)
+                        safefs.unlink_at(root, name)
                     os.fsync(root)
                 return {"removed": True}
             if action == "upload-create" and set(body) == {"size_bytes"}:
@@ -1823,7 +1822,7 @@ class LocalOwner:
                     if (
                         sum(
                             bool(re.fullmatch(r"[0-9a-f]{32}\.json", name))
-                            for name in os.listdir(root)
+                            for name in safefs.list_dir(root)
                         )
                         >= 8
                     ):
@@ -1844,7 +1843,7 @@ class LocalOwner:
     @staticmethod
     def _exists_regular(root: int, name: str) -> bool:
         try:
-            value = os.stat(name, dir_fd=root, follow_symlinks=False)
+            value = safefs.stat_at(root, name)
         except FileNotFoundError:
             return False
         if not stat.S_ISREG(value.st_mode):
@@ -2471,10 +2470,10 @@ class LocalOwner:
             if os.stat(folder).st_dev != os.stat(existing).st_dev:
                 return None
             lock = held.enter_context(open(folder / (key + ".lock"), "a+b"))
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            safefs.lock(lock.fileno())
         except (BlockingIOError, OSError, PreservationError):
             return None  # Another save is downloading it: resume within this job.
-        held.callback(fcntl.flock, lock.fileno(), fcntl.LOCK_UN)
+        held.callback(safefs.unlock, lock.fileno())
         return folder / (key + ".partial")
 
     def _save_from_mirrors(
@@ -3824,9 +3823,9 @@ class LocalOwner:
             job = self._job(job_id)
             if job.kind != "kit_export" or job.state != "succeeded":
                 raise PreservationError("kit_not_ready")
-            descriptor = os.open(
+            descriptor = safefs.open_path(
                 self.library.find("kits/" + job_id + ".foxkit"),
-                os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                os.O_RDONLY | safefs.NONBLOCK,
             )
             if not stat.S_ISREG(os.fstat(descriptor).st_mode):
                 os.close(descriptor)
@@ -3893,9 +3892,9 @@ class LocalOwner:
                 or not self._handoff_ready(job)
             ):
                 raise PreservationError("sharing_not_ready")
-            descriptor = os.open(
+            descriptor = safefs.open_path(
                 self.home / "sharing/handoffs" / (job_id + ".foxhandoff"),
-                os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                os.O_RDONLY | safefs.NONBLOCK,
             )
             if not stat.S_ISREG(os.fstat(descriptor).st_mode):
                 os.close(descriptor)

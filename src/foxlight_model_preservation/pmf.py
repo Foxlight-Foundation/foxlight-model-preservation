@@ -15,6 +15,7 @@ from pathlib import Path
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from . import safefs
 from .models import MAX_METADATA_BYTES, FileIdentity, PreservationError, TrustProfile
 from .operations import OperationControl
 from .pmf_models import PMF_TYPE, PMFManifest, pmf_objects, require_pmf_features
@@ -93,39 +94,31 @@ def new_pmf_tree(destination: Path, control: OperationControl) -> Generator[int]
     """Publish a complete new directory, refusing existing names and symlinks."""
     with directory(destination.parent) as parent:
         pending = ".pmf-" + uuid.uuid4().hex
-        os.mkdir(pending, mode=0o700, dir_fd=parent)
+        safefs.mkdir_at(parent, pending)
         try:
-            descriptor = os.open(
-                pending, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent
-            )
+            descriptor = safefs.open_dir_at(parent, pending)
             try:
                 yield descriptor
                 os.fsync(descriptor)
             finally:
                 os.close(descriptor)
             control.phase("publishing")
-            os.mkdir(destination.name, mode=0o700, dir_fd=parent)
-            reservation = os.stat(
-                destination.name, dir_fd=parent, follow_symlinks=False
-            )
+            safefs.mkdir_at(parent, destination.name)
+            reservation = safefs.stat_at(parent, destination.name)
             try:
-                os.rename(
-                    pending, destination.name, src_dir_fd=parent, dst_dir_fd=parent
-                )
+                safefs.rename_at(parent, pending, parent, destination.name)
             except BaseException:
-                current = os.stat(
-                    destination.name, dir_fd=parent, follow_symlinks=False
-                )
+                current = safefs.stat_at(parent, destination.name)
                 if (current.st_dev, current.st_ino) == (
                     reservation.st_dev,
                     reservation.st_ino,
                 ):
-                    os.rmdir(destination.name, dir_fd=parent)
+                    safefs.rmdir_at(parent, destination.name)
                 raise
             os.fsync(parent)
             control.mark_committed()
         finally:
-            shutil.rmtree(pending, dir_fd=parent, ignore_errors=True)
+            safefs.remove_tree_at(parent, pending, ignore_errors=True)
 
 
 def sign_pmf_manifest(

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import errno
-import fcntl
 import hashlib
 import os
 import shutil
@@ -16,6 +15,7 @@ from typing import BinaryIO
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from . import safefs
 from .models import (
     MAX_METADATA_BYTES,
     FileIdentity,
@@ -63,8 +63,8 @@ def _require_digest(value: str) -> None:
 def directory(path: Path, *, create: bool = False) -> Generator[int]:
     """Pin an explicitly selected directory; nested paths never follow symlinks."""
     if create:
-        path.mkdir(parents=True, exist_ok=True, mode=0o700)
-    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        safefs.make_dir(path, parents=True, exist_ok=True)
+    descriptor = safefs.open_dir(path)
     try:
         yield descriptor
     finally:
@@ -82,13 +82,11 @@ def parent_directory(
         for part in parts[:-1]:
             if create:
                 try:
-                    os.mkdir(part, mode=0o700, dir_fd=descriptor)
+                    safefs.mkdir_at(descriptor, part)
                     os.fsync(descriptor)
                 except FileExistsError:
                     pass
-            child = os.open(
-                part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=descriptor
-            )
+            child = safefs.open_dir_at(descriptor, part)
             os.close(descriptor)
             descriptor = child
         yield descriptor, parts[-1]
@@ -100,12 +98,8 @@ def parent_directory(
 def open_file(root: int, path: str, *, write: bool = False) -> Generator[BinaryIO]:
     """Open only a regular file under a pinned root, rejecting every symlink."""
     with parent_directory(root, path, create=write) as (parent, name):
-        flags = (
-            os.O_NOFOLLOW
-            | os.O_NONBLOCK
-            | (os.O_RDWR | os.O_CREAT if write else os.O_RDONLY)
-        )
-        descriptor = os.open(name, flags, 0o600, dir_fd=parent)
+        flags = safefs.NONBLOCK | (os.O_RDWR | os.O_CREAT if write else os.O_RDONLY)
+        descriptor = safefs.open_at(parent, name, flags)
         try:
             if not stat.S_ISREG(os.fstat(descriptor).st_mode):
                 raise PreservationError("only regular files can be preserved")
@@ -126,13 +120,13 @@ def writer_lock(root: int) -> Generator[None]:
     """Fence concurrent writers; kernel releases the lock after a process crash."""
     with open_file(root, ".write.lock", write=True) as stream:
         try:
-            fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            safefs.lock(stream.fileno())
         except BlockingIOError as error:
             raise PreservationError("another writer owns this destination") from error
         try:
             yield
         finally:
-            fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+            safefs.unlock(stream.fileno())
 
 
 def publish_envelope(root: int, manifest_id: str, envelope: bytes) -> None:
@@ -178,22 +172,19 @@ def atomic_bytes(root: int, path: str, data: bytes) -> None:
     """Durably publish exact bytes by same-directory replacement after fsync."""
     with parent_directory(root, path, create=True) as (parent, name):
         temporary = ".pending-" + uuid.uuid4().hex
-        descriptor = os.open(
-            temporary,
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-            0o600,
-            dir_fd=parent,
+        descriptor = safefs.open_at(
+            parent, temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL
         )
         try:
             with os.fdopen(descriptor, "wb") as stream:
                 stream.write(data)
                 stream.flush()
                 os.fsync(stream.fileno())
-            os.replace(temporary, name, src_dir_fd=parent, dst_dir_fd=parent)
+            safefs.replace_at(parent, temporary, parent, name)
             os.fsync(parent)
         finally:
             try:
-                os.unlink(temporary, dir_fd=parent)
+                safefs.unlink_at(parent, temporary)
             except FileNotFoundError:
                 pass
 
@@ -501,16 +492,14 @@ def copy_verified_object(
                 name,
             ):
                 control.checkpoint()
-                os.replace(
-                    pending_name, name, src_dir_fd=pending_parent, dst_dir_fd=parent
-                )
+                safefs.replace_at(pending_parent, pending_name, parent, name)
                 os.fsync(parent)
         if not moved:
             verify_object(target, file, control=control)
     finally:
         try:
             with parent_directory(target, pending) as (parent, name):
-                os.unlink(name, dir_fd=parent)
+                safefs.unlink_at(parent, name)
                 os.fsync(parent)
         except FileNotFoundError:
             pass
@@ -529,13 +518,13 @@ def _move_object(
             parent_directory(source, source_path) as (source_parent, source_name),
             parent_directory(target, pending, create=True) as (parent, name),
         ):
-            info = os.stat(source_name, dir_fd=source_parent, follow_symlinks=False)
+            info = safefs.stat_at(source_parent, source_name)
             if not stat.S_ISREG(info.st_mode) or info.st_size != file.size:
                 raise PreservationError("file length differs from signed size")
-            os.rename(source_name, name, src_dir_fd=source_parent, dst_dir_fd=parent)
+            safefs.rename_at(source_parent, source_name, parent, name)
             # Its data must be durable before anything naming it is published,
             # as a copy's is (the scratch writer may never have synced it).
-            moved = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent)
+            moved = safefs.open_at(parent, name, os.O_RDONLY)
             try:
                 os.fsync(moved)
             finally:
@@ -558,13 +547,7 @@ def _link_object(source: int, source_path: str, target: int, pending: str) -> bo
             parent_directory(source, source_path) as (source_parent, source_name),
             parent_directory(target, pending, create=True) as (parent, name),
         ):
-            os.link(
-                source_name,
-                name,
-                src_dir_fd=source_parent,
-                dst_dir_fd=parent,
-                follow_symlinks=False,
-            )
+            safefs.link_at(source_parent, source_name, parent, name)
             return True
     except OSError:
         return False
@@ -714,7 +697,7 @@ def _restore(
     manifest = verify_store_contents(store, manifest_id, trust, control)
     control.phase("copying")
     parent.mkdir(parents=True, exist_ok=True)
-    pending.mkdir(mode=0o700)
+    safefs.make_dir(pending)
     try:
         with directory(store) as source, directory(pending) as target:
             for member in manifest.members:
@@ -739,25 +722,26 @@ def _restore(
         # reservation with the complete tree. Readers never see a partial tree.
         control.phase("publishing")
         with directory(parent) as parent_descriptor:
-            os.mkdir(destination.name, mode=0o700, dir_fd=parent_descriptor)
-            reservation = os.stat(destination.name, dir_fd=parent_descriptor)
+            safefs.mkdir_at(parent_descriptor, destination.name)
+            reservation = safefs.stat_at(
+                parent_descriptor, destination.name, follow=True
+            )
             try:
-                os.rename(
-                    pending.name,
-                    destination.name,
-                    src_dir_fd=parent_descriptor,
-                    dst_dir_fd=parent_descriptor,
+                safefs.rename_at(
+                    parent_descriptor, pending.name, parent_descriptor, destination.name
                 )
                 os.fsync(parent_descriptor)
                 control.mark_committed()
             except BaseException:
-                current = os.stat(destination.name, dir_fd=parent_descriptor)
+                current = safefs.stat_at(
+                    parent_descriptor, destination.name, follow=True
+                )
                 if (current.st_dev, current.st_ino) == (
                     reservation.st_dev,
                     reservation.st_ino,
                 ):
                     try:
-                        os.rmdir(destination.name, dir_fd=parent_descriptor)
+                        safefs.rmdir_at(parent_descriptor, destination.name)
                     except OSError:
                         pass
                 raise

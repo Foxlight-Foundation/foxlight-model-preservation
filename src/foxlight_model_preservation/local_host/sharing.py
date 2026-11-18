@@ -21,6 +21,7 @@ from typing import Literal, cast
 
 from pydantic import Field, JsonValue
 
+from .. import safefs
 from ..assurance import load_retained_card
 from ..cards import identity_json
 from ..handoffs import Handoff
@@ -112,7 +113,7 @@ class Sharing:
         with directory(self.home / "sharing/copies", create=True) as root:
             rows = [
                 PublicCopy.model_validate_json(read_metadata(root, name))
-                for name in sorted(os.listdir(root))
+                for name in sorted(safefs.list_dir(root))
                 if len(name) == 69 and name.endswith(".json")
             ]
         selected = metadata_page(
@@ -566,7 +567,7 @@ class Sharing:
             return False  # Its library drive is unplugged: nothing to inspect.
         try:
             with directory(folder) as root:
-                value = os.stat(identifier, dir_fd=root, follow_symlinks=False)
+                value = safefs.stat_at(root, identifier)
                 return stat.S_ISDIR(value.st_mode)
         except FileNotFoundError:
             return False
@@ -578,7 +579,7 @@ class Sharing:
         if not shutil.rmtree.avoids_symlink_attacks:
             raise PreservationError("safe_temporary_cleanup_unavailable")
         with directory(self._work_root(identifier)) as root:
-            shutil.rmtree(identifier, dir_fd=root)
+            safefs.remove_tree_at(root, identifier)
             os.fsync(root)
 
     def session_plan(

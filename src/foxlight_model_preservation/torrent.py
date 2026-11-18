@@ -14,6 +14,7 @@ from urllib.parse import urlsplit
 
 from pydantic import Field
 
+from . import safefs
 from .archives import (
     ArchiveManifest,
     archive_objects,
@@ -245,16 +246,11 @@ def _export_torrent(
                 parent_identity.st_ino,
             ):
                 raise PreservationError("torrent export parent changed")
-            os.mkdir(destination.name, mode=0o700, dir_fd=parent_fd)
+            safefs.mkdir_at(parent_fd, destination.name)
             try:
-                os.rename(
-                    pending.name,
-                    destination.name,
-                    src_dir_fd=parent_fd,
-                    dst_dir_fd=parent_fd,
-                )
+                safefs.rename_at(parent_fd, pending.name, parent_fd, destination.name)
             except BaseException:
-                os.rmdir(destination.name, dir_fd=parent_fd)
+                safefs.rmdir_at(parent_fd, destination.name)
                 raise
             os.fsync(parent_fd)
             active.mark_committed()

@@ -32,6 +32,7 @@ from typing import Literal
 
 from pydantic import Field, JsonValue
 
+from .. import safefs
 from ..cards import identity_json
 from ..models import Digest, PreservationError, Record
 from ..operations import OperationControl
@@ -282,7 +283,7 @@ class Library:
         if info is not None:
             if not os.path.isdir(chosen) or os.path.islink(chosen):
                 raise PreservationError("library_folder_not_empty")
-            if info.st_uid != os.getuid():
+            if not safefs.path_owned(chosen, follow=False):
                 raise PreservationError("library_folder_not_yours")
             entries = os.listdir(chosen)
             if MARKER in entries:
@@ -297,7 +298,7 @@ class Library:
                 raise PreservationError("library_folder_not_empty")
             free = shutil.disk_usage(chosen).free
         else:
-            if os.stat(parent).st_uid != os.getuid() and not os.access(parent, os.W_OK):
+            if not safefs.path_owned(parent) and not os.access(parent, os.W_OK):
                 raise PreservationError("library_folder_not_yours")
             free = shutil.disk_usage(parent).free
         value: dict[str, JsonValue] = {
@@ -336,14 +337,14 @@ class Library:
             owner = self.owner_id()
             if value["identity"] is None:
                 try:
-                    os.mkdir(path, mode=0o700)
+                    safefs.make_dir(path)
                 except FileExistsError as error:
                     raise PreservationError("library_folder_changed") from error
             elif list(_identity(path)) != value["identity"]:
                 raise PreservationError("library_folder_changed")
             with directory(path) as target:
                 if value["reattach"] is not True:
-                    if os.listdir(target):
+                    if safefs.list_dir(target):
                         raise PreservationError("library_folder_not_empty")
                     atomic_bytes(
                         target, MARKER, encode_record(LibraryMarker(owner_id=owner))
@@ -428,7 +429,7 @@ def move_tree(
         raise PreservationError("library_folder_inside_sovereign")
     if os.path.lexists(staging):
         shutil.rmtree(staging)
-    os.mkdir(staging, mode=0o700)
+    safefs.make_dir(staging)
     expected: dict[Path, str] = {}
 
     def unreadable(error: OSError) -> None:
@@ -444,7 +445,7 @@ def move_tree(
         for name in folders:
             if os.path.islink(Path(folder) / name):
                 raise PreservationError("library_move_unsupported_file")
-            os.mkdir(staging / relative / name, mode=0o700)
+            safefs.make_dir(staging / relative / name)
         for name in files:
             original = Path(folder) / name
             info = os.lstat(original)
@@ -486,7 +487,7 @@ def move_tree(
         if _hash(target, control) != value:
             raise PreservationError("library_move_verification_failed")
     for folder, _folders, _files in os.walk(staging):
-        descriptor = os.open(folder, os.O_RDONLY | os.O_DIRECTORY)
+        descriptor = safefs.open_dir(folder, follow=True)
         try:
             os.fsync(descriptor)
         finally:

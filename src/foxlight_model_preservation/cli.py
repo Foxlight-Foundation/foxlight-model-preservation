@@ -16,6 +16,7 @@ from pathlib import Path
 from pydantic import JsonValue
 from tuf.api.exceptions import RepositoryError
 
+from . import safefs
 from .assurance import inspect_member_evidence, retain_card
 from .cards import create_card, identity_json, load_card
 from .discovery_cli import DiscoveryArguments, register_commands, run_command
@@ -943,11 +944,8 @@ def _save_invitation_trust(destination: Path, trust: TrustProfile) -> None:
     # becomes visible under the final name atomically, never as a partial file.
     with directory(destination.parent) as parent:
         pending = ".invitation-trust-" + uuid.uuid4().hex
-        descriptor = os.open(
-            pending,
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-            0o600,
-            dir_fd=parent,
+        descriptor = safefs.open_at(
+            parent, pending, os.O_WRONLY | os.O_CREAT | os.O_EXCL
         )
         try:
             with os.fdopen(descriptor, "wb") as output:
@@ -955,13 +953,7 @@ def _save_invitation_trust(destination: Path, trust: TrustProfile) -> None:
                 output.flush()
                 os.fsync(output.fileno())
             try:
-                os.link(
-                    pending,
-                    destination.name,
-                    src_dir_fd=parent,
-                    dst_dir_fd=parent,
-                    follow_symlinks=False,
-                )
+                safefs.link_at(parent, pending, parent, destination.name)
             except FileExistsError:
                 if load_trust(read_metadata(parent, destination.name)) != trust:
                     raise PreservationError(
@@ -969,7 +961,7 @@ def _save_invitation_trust(destination: Path, trust: TrustProfile) -> None:
                     ) from None
             os.fsync(parent)
         finally:
-            os.unlink(pending, dir_fd=parent)
+            safefs.unlink_at(parent, pending)
 
 
 def _invitation_commands(

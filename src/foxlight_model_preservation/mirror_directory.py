@@ -19,7 +19,6 @@ seeds or publishes, and by default never contacts the DHT or Nostr relays.
 from __future__ import annotations
 
 import contextlib
-import fcntl
 import http.client
 import ipaddress
 import math
@@ -40,6 +39,7 @@ from urllib.parse import urlsplit
 
 from pydantic import Field, JsonValue, field_validator
 
+from . import safefs
 from .archives import ArchiveManifest
 from .ledger import CreditCarry, TransferBudget, receipt_path
 from .mirror_cards import (
@@ -373,20 +373,20 @@ def _prune_objects(root: int, keep: set[str], budget: int | None = None) -> None
     """Drop coverage of mirrors no longer kept, then the oldest past the budget."""
     budget = OBJECTS_CACHE_BYTES if budget is None else budget
     entries: list[tuple[float, int, str]] = []
-    for name in os.listdir(root):
+    for name in safefs.list_dir(root):
         if name not in keep:
             with contextlib.suppress(FileNotFoundError):
-                os.unlink(name, dir_fd=root)
+                safefs.unlink_at(root, name)
             continue
         with contextlib.suppress(FileNotFoundError):
-            info = os.stat(name, dir_fd=root, follow_symlinks=False)
+            info = safefs.stat_at(root, name)
             entries.append((info.st_mtime, info.st_size, name))
     total = sum(size for _mtime, size, _name in entries)
     for _mtime, size, name in sorted(entries):
         if total <= budget:
             break
         with contextlib.suppress(FileNotFoundError):
-            os.unlink(name, dir_fd=root)
+            safefs.unlink_at(root, name)
         total -= size
 
 
@@ -465,11 +465,11 @@ class MirrorDirectory:
     def _exclusive(self) -> Generator[int]:
         with self._lock, directory(self.path, create=True) as root:
             with open_file(root, ".directory.lock", write=True) as stream:
-                fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+                safefs.lock(stream.fileno(), wait=True)
                 try:
                     yield root
                 finally:
-                    fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+                    safefs.unlock(stream.fileno())
 
     def _update(
         self, change: Callable[[dict[str, SeenMirror]], None], *, now: int
@@ -1342,12 +1342,12 @@ class MirrorDirectory:
         key_id = card.mirror_key.key_id
         base = self.path / "listing-copies"
         with self._exclusive():
-            base.mkdir(parents=True, exist_ok=True, mode=0o700)
+            safefs.make_dir(base, parents=True, exist_ok=True)
             build = base / (".build-" + secrets.token_hex(8))
             try:
                 for name, data in kept.items():
                     target = build / name
-                    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                    safefs.make_dir(target.parent, parents=True, exist_ok=True)
                     target.write_bytes(data)
                 (build / "read-at").write_bytes(str(instant).encode())
                 shutil.rmtree(base / key_id, ignore_errors=True)
@@ -1653,11 +1653,8 @@ def _claim(destination: Path, path: str, data: bytes) -> bytes:
     with directory(destination, create=True) as root:
         with parent_directory(root, path, create=True) as (parent, name):
             temporary = ".pending-" + uuid.uuid4().hex
-            descriptor = os.open(
-                temporary,
-                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                0o600,
-                dir_fd=parent,
+            descriptor = safefs.open_at(
+                parent, temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL
             )
             try:
                 with os.fdopen(descriptor, "wb") as stream:
@@ -1665,13 +1662,13 @@ def _claim(destination: Path, path: str, data: bytes) -> bytes:
                     stream.flush()
                     os.fsync(stream.fileno())
                 try:
-                    os.link(temporary, name, src_dir_fd=parent, dst_dir_fd=parent)
+                    safefs.link_at(parent, temporary, parent, name)
                 except FileExistsError:
                     pass
                 os.fsync(parent)
             finally:
                 try:
-                    os.unlink(temporary, dir_fd=parent)
+                    safefs.unlink_at(parent, temporary)
                 except FileNotFoundError:
                     pass
         return read_metadata(root, path)

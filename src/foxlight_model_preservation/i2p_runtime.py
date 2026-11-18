@@ -17,6 +17,7 @@ from typing import cast
 
 from pydantic import JsonValue
 
+from . import safefs
 from .i2p_models import I2PContact, I2PProfile, I2PRuntime, I2PStatus
 from .models import PreservationError, canonical_path
 from .operations import OperationControl
@@ -237,9 +238,9 @@ def owned_snark(
     control.checkpoint()
     canonical_path(profile.absolute().as_posix().lstrip("/"))
     node = profile.absolute() / "node"
-    node.mkdir(mode=0o700, exist_ok=True)
+    safefs.make_dir(node, exist_ok=True)
     data = profile.absolute() / "downloads"
-    data.mkdir(mode=0o700, exist_ok=True)
+    safefs.make_dir(data, exist_ok=True)
     with directory(data):
         pass
     with directory(node) as native_root, writer_lock(native_root):
@@ -272,7 +273,7 @@ def owned_snark(
             # A new private token binds readiness to this live invocation.
             for name in ("status.json", "status.pending"):
                 try:
-                    os.unlink(name, dir_fd=local)
+                    safefs.unlink_at(local, name)
                 except FileNotFoundError:
                     pass
         environment = {
