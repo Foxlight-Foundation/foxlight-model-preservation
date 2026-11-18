@@ -1,9 +1,10 @@
 """Secrets in the operating system's keychain, never in files or arguments.
 
 macOS uses the Keychain through ``security -i`` (the secret is read from
-stdin, hex-encoded, so it never appears in a process argument list); other
-systems use the Secret Service through ``secret-tool``. Failures never carry
-the secret: subprocess errors are not chained and tool output is not shown.
+stdin, hex-encoded, so it never appears in a process argument list); Windows
+uses Credential Manager in-process (``_wincred``); other systems use the
+Secret Service through ``secret-tool``. Failures never carry the secret:
+errors are not chained and tool output is not shown.
 """
 
 from __future__ import annotations
@@ -11,16 +12,43 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import sys
+from collections.abc import Callable
 from pathlib import Path
+from types import ModuleType
+from typing import TypeVar
 
 from .models import PreservationError
 
+_T = TypeVar("_T")
 _NAME = re.compile(r"[A-Za-z0-9._-]{1,128}")
 
 
 def _check(service: str, account: str, error: str) -> None:
     if not _NAME.fullmatch(service) or not _NAME.fullmatch(account):
         raise PreservationError(error)
+
+
+def system() -> str:
+    """``Darwin``, ``Windows`` or another ``uname`` system name."""
+    return "Windows" if sys.platform == "win32" else os.uname().sysname
+
+
+def _target(service: str, account: str, keychain: Path | None, error: str) -> str:
+    # A keychain file is a macOS idea; Windows has one store per user.
+    if keychain is not None:
+        raise PreservationError(error)
+    return f"{service}:{account}"
+
+
+def _windows(error: str, call: Callable[[ModuleType], _T]) -> _T:
+    from . import _wincred  # noqa: PLC0415 - Windows only
+
+    try:
+        return call(_wincred)
+    except (OSError, ValueError):
+        # Neither error carries the secret, but match the tools: no detail.
+        raise PreservationError(error) from None
 
 
 def _keychain_arg(path: Path) -> str:
@@ -41,7 +69,10 @@ def save_secret(  # noqa: PLR0913
 ) -> None:
     """Store one secret; ``error`` is the code raised on any failure."""
     _check(service, account, error)
-    if os.uname().sysname == "Darwin":
+    if system() == "Windows":
+        target = _target(service, account, keychain, error)
+        _windows(error, lambda cred: cred.write(target, account, secret, label))
+    elif system() == "Darwin":
         run(
             ["/usr/bin/security", "-i"],
             f"add-generic-password -U -s {service} -a {account} "
@@ -72,7 +103,13 @@ def load_secret(
 ) -> str:
     """Read one secret back; a missing entry raises ``error``."""
     _check(service, account, error)
-    if os.uname().sysname == "Darwin":
+    if system() == "Windows":
+        target = _target(service, account, keychain, error)
+        found: str | None = _windows(error, lambda cred: cred.read(target))
+        if found is None:
+            raise PreservationError(error)
+        raw = found
+    elif system() == "Darwin":
         raw = run(
             [
                 "/usr/bin/security",
@@ -115,7 +152,15 @@ def delete_secret(
     still stored.
     """
     _check(service, account, error)
-    if os.uname().sysname == "Darwin":
+    if system() == "Windows":
+        target = _target(service, account, keychain, error)
+        try:
+            _windows(error, lambda cred: cred.delete(target))  # absent: removed
+        except PreservationError:
+            if strict:
+                raise
+        return
+    if system() == "Darwin":
         command = [
             "/usr/bin/security",
             "delete-generic-password",
@@ -134,7 +179,7 @@ def delete_secret(
             pass  # Already absent, or the keychain is unavailable; nothing to leak.
         return
     returncode = _status(command, error)
-    darwin = os.uname().sysname == "Darwin"
+    darwin = system() == "Darwin"
     if returncode != 0 and not (darwin and returncode == _MAC_NOT_FOUND):
         raise PreservationError(error)
 
