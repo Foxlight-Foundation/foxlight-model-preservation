@@ -752,6 +752,10 @@ _DIRECTORY_READ = FILE_GENERIC_READ | FILE_TRAVERSE
 
 
 def open_dir(path: Path | str, *, follow: bool = False) -> int:
+    """Pin the folder at ``path``; a final link is refused unless ``follow``.
+
+    Opened for writing when allowed, so ``os.fsync`` can flush its entries.
+    """
     flags = FILE_FLAG_BACKUP_SEMANTICS | (0 if follow else FILE_FLAG_OPEN_REPARSE_POINT)
     try:
         # Write access lets os.fsync flush the folder's entries.
@@ -769,6 +773,7 @@ def open_dir(path: Path | str, *, follow: bool = False) -> int:
 
 
 def open_dir_at(parent: int, name: str) -> int:
+    """Pin the folder ``name`` inside ``parent``, never through a link."""
     try:
         handle, _created = _nt_open(
             parent, name, _DIRECTORY_WRITE, FILE_OPEN, FILE_DIRECTORY_FILE
@@ -787,6 +792,11 @@ _own_new_objects()
 def make_dir(
     path: Path | str, *, parents: bool = False, exist_ok: bool = False
 ) -> None:
+    """Create the private folder ``path`` (and missing parents with ``parents``).
+
+    The folder gets a protected access list for this user and SYSTEM only.
+    Missing parents get the default access, as on POSIX.
+    """
     target = Path(path)
     if parents and not target.parent.exists():
         # As on POSIX, missing parents get the default access; the folder
@@ -805,6 +815,7 @@ def make_dir(
 
 
 def mkdir_at(parent: int, name: str, mode: int = 0o700) -> None:
+    """Create the folder ``name`` inside ``parent`` (private unless ``mode`` says)."""
     security = _private_descriptor() if not mode & 0o077 else _owner_descriptor()
     handle, _created = _nt_open(
         parent,
@@ -818,6 +829,7 @@ def mkdir_at(parent: int, name: str, mode: int = 0o700) -> None:
 
 
 def list_dir(handle: int) -> list[str]:
+    """The names in a pinned folder, in no particular order."""
     native = _handle(handle)
     buffer = ctypes.create_string_buffer(64 * 1024)
     names: list[str] = []
@@ -877,6 +889,12 @@ def _nt_disposition(flags: int) -> int:
 
 
 def open_at(parent: int, name: str, flags: int, mode: int = 0o600) -> int:
+    """Open ``name`` inside ``parent`` with ``os.O_*`` flags, never via a link.
+
+    A link, a folder or an alias of another name refuses. A new file is owned
+    by this user and takes its access from the private folder it is in;
+    ``mode`` is not used on Windows.
+    """
     del mode  # access comes from the private folder the file is created in
     access, runtime = _file_access(flags)
     disposition = _nt_disposition(flags)
@@ -893,6 +911,7 @@ def open_at(parent: int, name: str, flags: int, mode: int = 0o600) -> int:
 
 
 def open_path(path: Path | str, flags: int, mode: int = 0o600) -> int:
+    """Open ``path`` with ``os.O_*`` flags; a final link is refused."""
     del mode
     access, runtime = _file_access(flags)
     create, exclusive, truncate = (
@@ -918,6 +937,11 @@ def open_path(path: Path | str, flags: int, mode: int = 0o600) -> int:
 
 
 def stat_at(parent: int, name: str, *, follow: bool = False) -> os.stat_result:
+    """Stat ``name`` inside ``parent``; any link is described as a link.
+
+    Junctions and other reparse points report ``S_IFLNK`` too, so the stores
+    never take one for a plain file or folder.
+    """
     if follow:
         # Let the system resolve a final link from here.
         _check_name(name)
@@ -1011,6 +1035,22 @@ def _name_information(flags: int, root: int, name: str) -> ctypes.Array[ctypes.c
     return data
 
 
+def _open_to_change(parent: int, name: str, access: int, options: int) -> int:
+    """Open for a rename, link or delete, waiting out another program's brief hold."""
+    deadline = time.monotonic() + RETRY_SECONDS
+    delay = 0.01
+    while True:
+        try:
+            handle, _created = _nt_open(parent, name, access, FILE_OPEN, options)
+        except PermissionError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(delay)
+            delay = min(delay * 2, 0.2)
+        else:
+            return handle
+
+
 def _delete(handle: int, name: str) -> None:
     def action() -> int:
         data = ctypes.create_string_buffer(4)
@@ -1030,7 +1070,8 @@ def _delete(handle: int, name: str) -> None:
 
 
 def unlink_at(parent: int, name: str) -> None:
-    handle, _created = _nt_open(parent, name, DELETE, FILE_OPEN, 0)
+    """Remove the file or link ``name`` from ``parent`` (POSIX semantics)."""
+    handle = _open_to_change(parent, name, DELETE, 0)
     try:
         attributes, _tag = _attributes(handle)
         if (
@@ -1044,7 +1085,8 @@ def unlink_at(parent: int, name: str) -> None:
 
 
 def rmdir_at(parent: int, name: str) -> None:
-    handle, _created = _nt_open(parent, name, DELETE, FILE_OPEN, FILE_DIRECTORY_FILE)
+    """Remove the empty folder ``name`` from ``parent``."""
+    handle = _open_to_change(parent, name, DELETE, FILE_DIRECTORY_FILE)
     try:
         attributes, _tag = _attributes(handle)
         if attributes & FILE_ATTRIBUTE_REPARSE_POINT:
@@ -1057,8 +1099,14 @@ def rmdir_at(parent: int, name: str) -> None:
 def replace_at(
     source_parent: int, source: str, target_parent: int, target: str
 ) -> None:
+    """Rename between pinned folders, atomically replacing ``target``.
+
+    A file another handle has open is replaced too (POSIX semantics); a brief
+    hold by another program is waited out for up to two seconds. A folder
+    renamed over an empty folder takes its place, as on POSIX.
+    """
     _check_name(target)
-    handle, _created = _nt_open(source_parent, source, DELETE, FILE_OPEN, 0)
+    handle = _open_to_change(source_parent, source, DELETE, 0)
     try:
         root = _handle(target_parent)
         directory = bool(_attributes(handle)[0] & FILE_ATTRIBUTE_DIRECTORY)
@@ -1097,10 +1145,15 @@ def replace_at(
 
 def rename_at(source_parent: int, source: str, target_parent: int, target: str) -> None:
     # os.rename on POSIX replaces an existing target, as replace does.
+    """Rename between pinned folders (``os.rename`` semantics on POSIX: replaces)."""
     replace_at(source_parent, source, target_parent, target)
 
 
 def link_at(source_parent: int, source: str, target_parent: int, target: str) -> None:
+    """Hard-link ``source`` as ``target``; a link is linked, never followed.
+
+    Refuses where the drive has no hard links (FAT, exFAT); callers copy.
+    """
     _check_name(target)
     handle, _created = _nt_open(
         source_parent, source, 0, FILE_OPEN, FILE_NON_DIRECTORY_FILE
@@ -1123,10 +1176,12 @@ def link_at(source_parent: int, source: str, target_parent: int, target: str) ->
 
 
 def link_path(source: Path | str, target: Path | str) -> None:
+    """Hard-link ``source`` as ``target`` by path; a link is linked, not followed."""
     os.link(source, target, follow_symlinks=False)
 
 
 def readlink_at(parent: int, name: str) -> str:
+    """The target of the link ``name`` inside ``parent``."""
     handle, _created = _nt_open(parent, name, FILE_GENERIC_READ, FILE_OPEN, 0)
     try:
         buffer = ctypes.create_string_buffer(16 * 1024)
@@ -1165,6 +1220,10 @@ def readlink_at(parent: int, name: str) -> str:
 
 
 def remove_tree_at(parent: int, name: str, *, ignore_errors: bool = False) -> None:
+    """Remove the folder ``name`` inside ``parent`` and everything in it.
+
+    Links inside are removed, never followed.
+    """
     try:
         _remove_tree(parent, name, ignore_errors=ignore_errors)
     except OSError:
@@ -1173,8 +1232,8 @@ def remove_tree_at(parent: int, name: str, *, ignore_errors: bool = False) -> No
 
 
 def _remove_tree(parent: int, name: str, *, ignore_errors: bool) -> None:
-    handle, _created = _nt_open(
-        parent, name, DELETE | FILE_LIST_DIRECTORY | FILE_TRAVERSE, FILE_OPEN, 0
+    handle = _open_to_change(
+        parent, name, DELETE | FILE_LIST_DIRECTORY | FILE_TRAVERSE, 0
     )
     try:
         attributes, _tag = _attributes(handle)
@@ -1210,6 +1269,11 @@ def _region() -> OVERLAPPED:
 
 
 def lock(handle: int, *, wait: bool = False) -> None:
+    """Take the exclusive writer lock on an open file.
+
+    Without ``wait``, raises ``BlockingIOError`` when another holder has it.
+    Windows releases the lock if this process dies.
+    """
     flags = 0x2 | (0 if wait else 0x1)  # EXCLUSIVE | FAIL_IMMEDIATELY
     region = _region()
     if not kernel32.LockFileEx(_handle(handle), flags, 0, 1, 0, ctypes.byref(region)):
@@ -1220,6 +1284,7 @@ def lock(handle: int, *, wait: bool = False) -> None:
 
 
 def unlock(handle: int) -> None:
+    """Release the lock from :func:`lock`."""
     region = _region()
     if not kernel32.UnlockFileEx(_handle(handle), 0, 1, 0, ctypes.byref(region)):
         error = ctypes.get_last_error()
@@ -1230,10 +1295,15 @@ def unlock(handle: int) -> None:
 
 
 def owned(handle: int) -> bool:
+    """Whether this user owns the open file or folder.
+
+    On a drive with no owners (FAT, exFAT) everything is the user's.
+    """
     return _owned_handle(_handle(handle))
 
 
 def path_owned(path: Path | str, *, follow: bool = True) -> bool:
+    """Whether this user owns ``path`` (a final link is followed by default)."""
     flags = FILE_FLAG_BACKUP_SEMANTICS | (0 if follow else FILE_FLAG_OPEN_REPARSE_POINT)
     handle = _win32_open(path, READ_CONTROL, OPEN_EXISTING, flags, None)
     try:
@@ -1243,4 +1313,9 @@ def path_owned(path: Path | str, *, follow: bool = True) -> bool:
 
 
 def private(handle: int) -> bool:
+    """Whether only this user and SYSTEM can reach the open file or folder.
+
+    The access list must be protected, grant no one else, and the owner must
+    be this user. Nothing on a drive without access lists is private.
+    """
     return _private_handle(_handle(handle))

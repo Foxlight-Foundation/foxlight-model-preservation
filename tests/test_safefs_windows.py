@@ -187,3 +187,24 @@ def test_written_bytes_are_exact(tmp_path: Path) -> None:
         os.fsync(fd)  # a folder's entries can be flushed
     finally:
         os.close(fd)
+
+
+def test_a_delete_waits_out_another_programs_brief_hold(tmp_path: Path) -> None:
+    folder = tmp_path / "objects"
+    safefs.make_dir(folder)
+    (folder / "file").write_bytes(b"old")
+    reader = subprocess.Popen(  # noqa: S603 - this interpreter, fixed script
+        [sys.executable, "-c", READER, str(folder / "file"), "0.5"],
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    assert reader.stdout is not None
+    assert reader.stdout.readline().strip() == "OPEN"
+    fd = safefs.open_dir(folder)
+    try:
+        # Opening the file to delete it is refused while the reader holds it.
+        safefs.unlink_at(fd, "file")
+    finally:
+        os.close(fd)
+        reader.wait()
+    assert not (folder / "file").exists()
