@@ -151,12 +151,14 @@ def listen_interfaces(*hosts: str, port: int = 0) -> str:
 def _free_port() -> int:
     """A port free for both TCP and UDP (BitTorrent and uTP) right now."""
     for _attempt in range(32):
+        # Probing on loopback is enough to find a free port; the probe never
+        # listens, and libtorrent opens the real sockets.
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as tcp:
-            tcp.bind(("", 0))
+            tcp.bind(("127.0.0.1", 0))
             port = int(tcp.getsockname()[1])
             try:
                 with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
-                    udp.bind(("", port))
+                    udp.bind(("127.0.0.1", port))
             except OSError:
                 continue
             return port
