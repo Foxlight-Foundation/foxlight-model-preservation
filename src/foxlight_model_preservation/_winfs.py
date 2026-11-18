@@ -144,6 +144,7 @@ TRANSIENT = (
 )
 RETRY_SECONDS = 2.0
 
+ERROR_INVALID_PARAMETER = 87
 ERROR_ALREADY_EXISTS = 183
 ERROR_NO_MORE_FILES = 18
 ERROR_LOCK_VIOLATION = 33
@@ -429,12 +430,23 @@ def _close(handle: int) -> None:
 
 
 def _attributes(handle: int) -> tuple[int, int]:
+    """(attributes, reparse tag) of an open handle."""
     info = FILE_ATTRIBUTE_TAG_INFO()
-    if not kernel32.GetFileInformationByHandleEx(
-        handle, FILE_ATTRIBUTE_TAG_INFO_CLASS, ctypes.byref(info), ctypes.sizeof(info)
+    if kernel32.GetFileInformationByHandleEx(
+        handle,
+        FILE_ATTRIBUTE_TAG_INFO_CLASS,
+        ctypes.byref(info),
+        ctypes.sizeof(info),
     ):
+        return info.FileAttributes, info.ReparseTag
+    error = ctypes.get_last_error()
+    if error != ERROR_INVALID_PARAMETER:
+        raise ctypes.WinError(error)
+    # FAT and exFAT have no reparse points and refuse the tag query.
+    basic = ctypes.create_string_buffer(40)  # FILE_BASIC_INFO
+    if not kernel32.GetFileInformationByHandleEx(handle, 0, basic, len(basic)):
         raise ctypes.WinError(ctypes.get_last_error())
-    return info.FileAttributes, info.ReparseTag
+    return ctypes.c_ulong.from_buffer(basic, 32).value, 0
 
 
 def _final_name(handle: int) -> str:
