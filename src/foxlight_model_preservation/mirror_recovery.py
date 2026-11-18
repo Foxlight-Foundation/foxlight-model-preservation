@@ -14,6 +14,7 @@ from pathlib import Path
 
 from pydantic import TypeAdapter
 
+from . import safefs
 from .archives import ArchiveManifest, archive_objects
 from .kits import KitInspection, export_kit
 from .mirror import selection_envelope, selection_manifest
@@ -67,7 +68,7 @@ def _capture(
             ledger, store, manifest_id, held, pending=not complete
         )
         manifest = selection_manifest(envelope, manifest_id, held)
-    return _SelectedCapture(held, manifest, envelope, (info.st_dev, info.st_ino))
+    return _SelectedCapture(held, manifest, envelope, safefs.identity(info))
 
 
 def inspect_selection(ledger: MirrorLedger, manifest_id: str) -> ArchiveManifest:
@@ -117,7 +118,7 @@ def recover_selection(
             raise PreservationError("selection exceeds its accepted byte limit")
         with ledger.child("store") as store, writer_lock(store):
             info = os.fstat(store)
-            if (info.st_dev, info.st_ino) != selected.store_identity:
+            if safefs.identity(info) != selected.store_identity:
                 raise PreservationError("mirror store directory identity changed")
             active.phase("checking")
             for file in files:

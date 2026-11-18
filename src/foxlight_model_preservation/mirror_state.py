@@ -166,10 +166,10 @@ def reenroll(path: Path) -> None:
             state, _legacy = decode_state(stream.read(MAX_STATE + 1))
         identities: dict[str, tuple[int, int]] = {}
         for name in DIRECTORIES:
-            info = safefs.stat_at(root, name)
+            info = os.fstat(root) if name == "." else safefs.stat_at(root, name)
             if not stat.S_ISDIR(info.st_mode):
                 raise PreservationError("mirror directories must be owner-only")
-            identities[name] = (info.st_dev, info.st_ino)
+            identities[name] = safefs.identity(info)
         moved = state.model_copy(update={"identity": identities})
         atomic_bytes(root, "mirror.json", encode_state(moved))
 
@@ -199,8 +199,8 @@ class MirrorLedger:
             for name in DIRECTORIES:
                 if name != ".":
                     safefs.mkdir_at(root, name)
-                info = safefs.stat_at(root, name)
-                identities[name] = (info.st_dev, info.st_ino)
+                info = os.fstat(root) if name == "." else safefs.stat_at(root, name)
+                identities[name] = safefs.identity(info)
             fields = dict(
                 config,
                 identity=identities,
@@ -226,7 +226,8 @@ class MirrorLedger:
                 # One handle answers both questions, so nothing can be swapped
                 # in between them.
                 try:
-                    fd = safefs.open_dir_at(root, name)
+                    # "." is the mirror root itself, already pinned.
+                    fd = os.dup(root) if name == "." else safefs.open_dir_at(root, name)
                 except FileNotFoundError:
                     raise
                 except OSError as error:  # a symlink or not a directory
@@ -240,7 +241,7 @@ class MirrorLedger:
                 finally:
                     os.close(fd)
                 expected = getattr(self, "_identity", {}).get(name)
-                if expected and (info.st_dev, info.st_ino) != expected:
+                if expected and safefs.identity(info) != expected:
                     raise PreservationError("mirror directory identity changed")
             yield root
 
@@ -253,7 +254,7 @@ class MirrorLedger:
             fd = safefs.open_dir_at(root, name)
             try:
                 info = os.fstat(fd)
-                if (info.st_dev, info.st_ino) != self._identity[name]:
+                if safefs.identity(info) != self._identity[name]:
                     raise PreservationError("mirror directory identity changed")
                 yield fd
             finally:
@@ -272,8 +273,8 @@ class MirrorLedger:
             for name, expected in state.identity.items():
                 if name not in DIRECTORIES:
                     raise PreservationError("unknown mirror directory identity")
-                info = safefs.stat_at(root, name)
-                if (info.st_dev, info.st_ino) != expected:
+                info = os.fstat(root) if name == "." else safefs.stat_at(root, name)
+                if safefs.identity(info) != expected:
                     raise PreservationError("mirror directory identity changed")
             if set(state.identity) != set(DIRECTORIES):
                 raise PreservationError("incomplete mirror directory identities")
@@ -361,10 +362,7 @@ class MirrorLedger:
                             continue
                         try:
                             pinned = os.fstat(child)
-                            if (pinned.st_dev, pinned.st_ino) != (
-                                info.st_dev,
-                                info.st_ino,
-                            ):
+                            if safefs.identity(pinned) != safefs.identity(info):
                                 raise PreservationError(
                                     "mirror inventory directory changed"
                                 )
@@ -372,7 +370,7 @@ class MirrorLedger:
                         finally:
                             os.close(child)
                     elif stat.S_ISREG(info.st_mode):
-                        identity = info.st_dev, info.st_ino
+                        identity = safefs.identity(info)
                         if identity not in seen:
                             total += info.st_size
                             seen.add(identity)

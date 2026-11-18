@@ -1,6 +1,7 @@
 """Actual byte copying, safe publication, and new-machine materialization."""
 
 import shutil
+import sys
 from pathlib import Path
 
 import pytest
@@ -106,6 +107,7 @@ def test_expected_origin_hash_and_source_destination(capture: Capture) -> None:
     assert (capture.store / manifest_path(capture.identity)).exists()
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows has no FIFOs")
 def test_non_regular_source_never_blocks(capture: Capture, tmp_path: Path) -> None:
     import os
 

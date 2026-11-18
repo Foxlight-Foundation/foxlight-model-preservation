@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import re
-import shutil
 from collections.abc import Mapping
 from pathlib import Path
 from typing import cast
 
+from . import safefs
 from .archives import ArchiveManifest, archive_objects, verify_archive_manifest
 from .models import (
     MAX_FILES,
@@ -223,7 +223,7 @@ def import_candidate(
             )
         active.phase("copying")
         with new_pmf_tree(destination, active) as target:
-            if shutil.disk_usage(target).free < required + 16 * 1024**2:
+            if safefs.free_bytes(target) < required + 16 * 1024**2:
                 raise PreservationError("insufficient space for a complete archive")
             for member in manifest.members:
                 with directory(sources[member.member_id]) as source:

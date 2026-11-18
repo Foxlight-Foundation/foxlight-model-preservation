@@ -5,7 +5,6 @@ from __future__ import annotations
 import http.client
 import ipaddress
 import os
-import shutil
 import socket
 import ssl
 import time
@@ -680,7 +679,7 @@ def fetch(
             pinned = os.fstat(target)
             if (
                 expected_directory is not None
-                and (pinned.st_dev, pinned.st_ino) != expected_directory
+                and safefs.identity(pinned) != expected_directory
             ):
                 raise PreservationError("destination directory identity changed")
             with writer_lock(target):
@@ -735,10 +734,7 @@ def fetch(
                     target, files, active, include_partials=True
                 )
                 additional = sum(file.size for file in missing) - partial
-                if (
-                    missing
-                    and shutil.disk_usage(target).free < additional + 16 * CHUNK_SIZE
-                ):
+                if missing and safefs.free_bytes(target) < additional + 16 * CHUNK_SIZE:
                     raise PreservationError("destination has insufficient free space")
                 for file in missing:
                     complete = False

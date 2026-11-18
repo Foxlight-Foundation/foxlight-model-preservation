@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import os
-import shutil
 import time
 from pathlib import Path
 
+from . import safefs
 from .archives import ArchiveManifest, archive_objects, verify_archive_manifest
 from .mirror import record_model, require_terms, verify_retained
 from .mirror_models import HeldModel, MirrorState, SourceGrant, at_least
@@ -136,7 +136,7 @@ def retain_local(
                 )
                 if (
                     ledger.usage() + additional + HEADROOM > state.disk_bytes
-                    or shutil.disk_usage(target).free < physical + HEADROOM
+                    or safefs.free_bytes(target) < physical + HEADROOM
                 ):
                     raise PreservationError("mirror disk admission budget exhausted")
                 active.checkpoint()

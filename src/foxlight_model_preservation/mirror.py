@@ -5,7 +5,6 @@ from __future__ import annotations
 import http.server
 import os
 import re
-import shutil
 import socket
 import threading
 import time
@@ -1163,7 +1162,7 @@ def reconcile(ledger: MirrorLedger, control: OperationControl) -> None:
                 )
                 usage = ledger.usage()
                 if usage + additional + HEADROOM > ledger.read().disk_bytes or (
-                    shutil.disk_usage(ledger.path).free < additional + HEADROOM
+                    safefs.free_bytes(ledger.path) < additional + HEADROOM
                 ):
                     raise MirrorBudgetDeferred("mirror disk admission budget exhausted")
                 if ledger.read().models.get(identity) != held:
@@ -1219,10 +1218,7 @@ def _link(source: int, target: int, path: str) -> None:
             existing = safefs.stat_at(parent, name)
         except FileNotFoundError:
             pass
-        if existing and (existing.st_dev, existing.st_ino) == (
-            info.st_dev,
-            info.st_ino,
-        ):
+        if existing and safefs.identity(existing) == safefs.identity(info):
             return
         temporary = ".link-" + os.urandom(16).hex()
         with parent_directory(source, path) as (original, original_name):

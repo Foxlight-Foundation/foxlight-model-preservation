@@ -216,7 +216,7 @@ def _cache(
         info = os.fstat(root)
         if (
             expected_directory is not None
-            and (info.st_dev, info.st_ino) != expected_directory
+            and safefs.identity(info) != expected_directory
         ):
             raise PreservationError("discovery directory identity changed")
         if not safefs.private(root):

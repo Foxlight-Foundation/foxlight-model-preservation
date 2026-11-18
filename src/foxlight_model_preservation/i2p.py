@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import base64
 import os
-import shutil
 import tempfile
 import time
 import uuid
@@ -360,7 +359,7 @@ def _transfer_locked(
     safefs.make_dir(data, exist_ok=True)
     with directory(data):
         pass
-    if shutil.disk_usage(data).free < 2 * offer.kit.size + 16 * 1024**2:
+    if safefs.free_bytes(data) < 2 * offer.kit.size + 16 * 1024**2:
         raise PreservationError(
             "insufficient disk space for I2P kit and verified archive"
         )

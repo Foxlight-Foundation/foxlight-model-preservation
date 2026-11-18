@@ -7,7 +7,6 @@ Profiles and their signed source records survive as exact opaque objects.
 from __future__ import annotations
 
 import os
-import shutil
 import uuid
 from collections.abc import Generator, Mapping
 from contextlib import contextmanager
@@ -85,7 +84,7 @@ def check_pmf_space(
             if restoring
             else sum(file.size for file in _unique_objects(manifest))
         )
-    if shutil.disk_usage(target).free < required + 16 * CHUNK_SIZE:
+    if safefs.free_bytes(target) < required + 16 * CHUNK_SIZE:
         raise PreservationError("insufficient space for complete PMF archive")
 
 
@@ -109,10 +108,7 @@ def new_pmf_tree(destination: Path, control: OperationControl) -> Generator[int]
                 safefs.rename_at(parent, pending, parent, destination.name)
             except BaseException:
                 current = safefs.stat_at(parent, destination.name)
-                if (current.st_dev, current.st_ino) == (
-                    reservation.st_dev,
-                    reservation.st_ino,
-                ):
+                if safefs.identity(current) == safefs.identity(reservation):
                     safefs.rmdir_at(parent, destination.name)
                 raise
             os.fsync(parent)

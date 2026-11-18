@@ -241,10 +241,7 @@ def _export_torrent(
                 atomic_bytes(root, "torrent.json", encode_record(result))
             active.phase("publishing")
             current = parent.stat()
-            if (current.st_dev, current.st_ino) != (
-                parent_identity.st_dev,
-                parent_identity.st_ino,
-            ):
+            if safefs.identity(current) != safefs.identity(parent_identity):
                 raise PreservationError("torrent export parent changed")
             safefs.mkdir_at(parent_fd, destination.name)
             try:

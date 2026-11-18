@@ -164,7 +164,7 @@ def configure(
             safefs.mkdir_at(scratch, "native")
             os.fsync(scratch)
         info = safefs.stat_at(scratch, "native")
-        identity = info.st_dev, info.st_ino
+        identity = safefs.identity(info)
         if not stat.S_ISDIR(info.st_mode) or (old and old.identity != identity):
             raise PreservationError("native mirror directory identity changed")
         policy = template.model_copy(
@@ -246,7 +246,7 @@ def native_area(ledger: MirrorLedger, manifest: str | None = None) -> Generator[
         child: int | None = None
         try:
             info = os.fstat(fd)
-            if (info.st_dev, info.st_ino) != policy.identity:
+            if safefs.identity(info) != policy.identity:
                 raise PreservationError("native mirror directory identity changed")
             if manifest is not None:
                 record = state.native_models.get(manifest)
@@ -256,7 +256,7 @@ def native_area(ledger: MirrorLedger, manifest: str | None = None) -> Generator[
                     fd, _model_name(manifest, record.custody_name)
                 )
                 info = os.fstat(child)
-                if (info.st_dev, info.st_ino) != record.identity:
+                if safefs.identity(info) != record.identity:
                     raise PreservationError("native model directory identity changed")
             if not safefs.private(child if child is not None else fd):
                 raise PreservationError("native custody must remain owner-only")
@@ -334,7 +334,7 @@ def _prepare(ledger: MirrorLedger, manifest: str, control: OperationControl) -> 
         _record(
             ledger,
             manifest,
-            identity=(info.st_dev, info.st_ino),
+            identity=safefs.identity(info),
             custody_name=name,
             pending_custody=previous,
         )
@@ -378,12 +378,11 @@ def _ipfs(
             allow_private_peers=policy.allow_private_peers,
         )
         info = repo.stat()
-        _record(ledger, manifest, ipfs_identity=(info.st_dev, info.st_ino))
+        _record(ledger, manifest, ipfs_identity=safefs.identity(info))
     info = repo.lstat()
     if (
         not stat.S_ISDIR(info.st_mode)
-        or (info.st_dev, info.st_ino)
-        != ledger.read().native_models[manifest].ipfs_identity
+        or safefs.identity(info) != ledger.read().native_models[manifest].ipfs_identity
         or read_profile(repo).mode != "mirror"
         or read_profile(repo).allow_private_peers != policy.allow_private_peers
     ):
@@ -905,14 +904,7 @@ def prune_native(
             except FileNotFoundError:
                 pass
             else:
-                if (
-                    not stat.S_ISDIR(info.st_mode)
-                    or (
-                        info.st_dev,
-                        info.st_ino,
-                    )
-                    != expected
-                ):
+                if not stat.S_ISDIR(info.st_mode) or safefs.identity(info) != expected:
                     raise PreservationError("native prune custody changed")
                 safefs.remove_tree_at(parent, name)
         for name in pending_custody:

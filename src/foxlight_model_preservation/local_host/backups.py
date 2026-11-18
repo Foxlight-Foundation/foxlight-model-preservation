@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import threading
 import time
 import uuid
@@ -47,7 +46,7 @@ class BackupDestination(Record):
 
 def _identity(descriptor: int) -> tuple[int, int]:
     value = os.fstat(descriptor)
-    return value.st_dev, value.st_ino
+    return safefs.identity(value)
 
 
 @contextmanager
@@ -123,10 +122,10 @@ class Backups:
                 with _child(source, chosen.name) as target:
                     self._empty_private(target)
                     identity: tuple[int, int] | None = _identity(target)
-                    free = shutil.disk_usage(target).free
+                    free = safefs.free_bytes(target)
             except FileNotFoundError:
                 identity = None
-                free = shutil.disk_usage(source).free
+                free = safefs.free_bytes(source)
         with directory(self.home) as owner:
             owner_device = os.fstat(owner).st_dev
         value: dict[str, JsonValue] = {

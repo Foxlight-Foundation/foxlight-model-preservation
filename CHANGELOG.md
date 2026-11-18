@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- Windows side of the storage seam (foxlight-docs#768). On Windows, `safefs`
+  opens every path inside a store one component at a time with `NtCreateFile`
+  relative to a pinned folder handle, opening any link (symbolic link,
+  junction, cloud placeholder) as itself and refusing it. Names must be one
+  plain component (no path, stream or trailing dot), and an opened entry must
+  have exactly the requested name, so case and 8.3 short-name aliases find
+  nothing. Renames, links and deletes use POSIX semantics, so a file another
+  handle has open can still be replaced; a brief hold by another program
+  (Defender, the indexer) is retried for up to two seconds. Private folders
+  get a protected access list for the user and SYSTEM only, and everything the
+  process creates is owned by the user, even when it runs elevated. Writer
+  locks are `LockFileEx` on a byte past the end of the file. exFAT and FAT32
+  drives work without owners, access lists or hard links: nothing there is
+  private, and files there belong to whoever uses the drive. The POSIX calls
+  moved to `_posixfs`, unchanged. A Windows CI job runs the seam's tests.
+  `model-preserve` now starts on Windows; the rest of the suite follows in the
+  next steps.
 - First step toward Windows (foxlight-docs#768): every filesystem call the
   stores' safety rests on (opening relative to a pinned folder without
   following links, renames and links between pinned folders, folder listing,

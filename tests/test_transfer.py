@@ -393,12 +393,7 @@ def test_cumulative_retry_budget(capture: Capture, tmp_path: Path) -> None:
 
 
 def test_disk_capacity_preflight(capture: Capture, tmp_path: Path, monkeypatch) -> None:
-    from types import SimpleNamespace
-
-    monkeypatch.setattr(
-        "foxlight_model_preservation.transfer.shutil.disk_usage",
-        lambda _: SimpleNamespace(free=0),
-    )
+    monkeypatch.setattr("foxlight_model_preservation.safefs.free_bytes", lambda _: 0)
     target = tmp_path / "target"
     with pytest.raises(PreservationError, match="free space"):
         fetch(capture.identity, capture.trust, (str(capture.store),), target)

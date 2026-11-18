@@ -494,20 +494,15 @@ def test_linked_pmf_admission_needs_space_only_for_documents(
     public_pmf: PublicPMF, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import os
-    import shutil
-    from collections import namedtuple
 
     from foxlight_model_preservation import pmf as pmf_module
     from foxlight_model_preservation.storage import CHUNK_SIZE
 
     documents = sum(item.size for item in public_pmf.manifest.documents)
     assert documents < public_pmf.manifest.total_bytes
-    usage = namedtuple("usage", "total used free")
-    real = shutil.disk_usage
     monkeypatch.setattr(
-        pmf_module.shutil,
-        "disk_usage",
-        lambda path: usage(real(path).total, 0, documents + 16 * CHUNK_SIZE),
+        "foxlight_model_preservation.safefs.free_bytes",
+        lambda _where: documents + 16 * CHUNK_SIZE,
     )
     target = tmp_path / "target"
     target.mkdir()

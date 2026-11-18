@@ -770,7 +770,7 @@ def same_volume(ledger: MirrorLedger, staging: Path) -> bool:
 
 
 def _free(path: Path) -> int:
-    return shutil.disk_usage(path).free
+    return safefs.free_bytes(path)
 
 
 def review_import(

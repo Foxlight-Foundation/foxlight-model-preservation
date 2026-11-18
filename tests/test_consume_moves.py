@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 from conftest import Capture
 
-from foxlight_model_preservation import storage
+from foxlight_model_preservation import safefs, storage
 from foxlight_model_preservation.archives import (
     published_archive_manifest,
     verify_archive,
@@ -152,15 +152,17 @@ def test_storing_refuses_a_changed_object_and_publishes_nothing(
 def test_another_drive_falls_back_to_a_checked_copy(
     tmp_path: Path, capture: Capture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    real = os.rename
+    real = safefs.rename_at
 
-    def cross_device(source, destination, *args, **kwargs):
+    def cross_device(
+        source_parent: int, source: str, target_parent: int, target: str
+    ) -> None:
         # The scratch files sit on "another drive": renaming them fails.
-        if str(source) in {"model.bin", "LICENSE"}:
+        if source in {"model.bin", "LICENSE"}:
             raise OSError(errno.EXDEV, "cross-device link")
-        return real(source, destination, *args, **kwargs)
+        real(source_parent, source, target_parent, target)
 
-    monkeypatch.setattr(storage.os, "rename", cross_device)
+    monkeypatch.setattr(safefs, "rename_at", cross_device)
     recipe, sources = _scratch(capture, tmp_path / "scratch")
     identity = pack(recipe, sources, tmp_path / "moved", (capture.key,), consume=True)
     assert (sources["weights"] / "model.bin").exists()  # copied, not moved

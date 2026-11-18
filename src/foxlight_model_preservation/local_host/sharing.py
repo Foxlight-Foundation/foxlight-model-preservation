@@ -447,7 +447,7 @@ class Sharing:
         data = self.library.private_root()
         linked = os.stat(store).st_dev == os.stat(data).st_dev
         needed = 8 * MAX_METADATA_BYTES if linked else size * 3
-        if shutil.disk_usage(data).free < needed + HEADROOM:
+        if safefs.free_bytes(data) < needed + HEADROOM:
             raise PreservationError("insufficient_space")
 
     def origin_manifest(

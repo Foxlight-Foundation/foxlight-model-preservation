@@ -472,7 +472,7 @@ def copy_verified_object(
             not moved and link and _link_object(source, source_path, target, pending)
         )
         placed = moved or linked
-        if not placed and shutil.disk_usage(target).free < file.size + 16 * CHUNK_SIZE:
+        if not placed and safefs.free_bytes(target) < file.size + 16 * CHUNK_SIZE:
             raise PreservationError("destination has insufficient free space")
         control.phase("copying")
         if not placed:
@@ -524,11 +524,7 @@ def _move_object(
             safefs.rename_at(source_parent, source_name, parent, name)
             # Its data must be durable before anything naming it is published,
             # as a copy's is (the scratch writer may never have synced it).
-            moved = safefs.open_at(parent, name, os.O_RDONLY)
-            try:
-                os.fsync(moved)
-            finally:
-                os.close(moved)
+            safefs.sync_at(parent, name)
             os.fsync(parent)
             os.fsync(source_parent)
             return True
@@ -736,10 +732,7 @@ def _restore(
                 current = safefs.stat_at(
                     parent_descriptor, destination.name, follow=True
                 )
-                if (current.st_dev, current.st_ino) == (
-                    reservation.st_dev,
-                    reservation.st_ino,
-                ):
+                if safefs.identity(current) == safefs.identity(reservation):
                     try:
                         safefs.rmdir_at(parent_descriptor, destination.name)
                     except OSError:

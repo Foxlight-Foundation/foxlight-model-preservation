@@ -79,7 +79,7 @@ class LibraryMarker(Record):
 
 def _identity(path: Path) -> tuple[int, int]:
     value = os.stat(path, follow_symlinks=False)
-    return value.st_dev, value.st_ino
+    return safefs.identity(value)
 
 
 # A drive that stops answering (a stalled network share, or a request macOS's
@@ -114,7 +114,7 @@ def free_space(
 
             def run() -> None:
                 try:
-                    value: int | None = shutil.disk_usage(path).free
+                    value: int | None = safefs.free_bytes(path)
                 except OSError:
                     value = None
                 with _probe_lock:
@@ -296,15 +296,15 @@ class Library:
                 reattach = True
             elif entries:
                 raise PreservationError("library_folder_not_empty")
-            free = shutil.disk_usage(chosen).free
+            free = safefs.free_bytes(chosen)
         else:
             if not safefs.path_owned(parent) and not os.access(parent, os.W_OK):
                 raise PreservationError("library_folder_not_yours")
-            free = shutil.disk_usage(parent).free
+            free = safefs.free_bytes(parent)
         value: dict[str, JsonValue] = {
             "path": str(chosen),
             "exists": info is not None,
-            "identity": [info.st_dev, info.st_ino] if info else None,
+            "identity": list(safefs.identity(info)) if info else None,
             "parent_identity": list(_identity(parent)),
             "reattach": reattach,
             "same_drive": (info.st_dev if info else _identity(parent)[0])
@@ -357,7 +357,7 @@ class Library:
                         raise PreservationError("library_folder_belongs_to_another")
             # Owner-only permissions are kept where the filesystem allows it;
             # some drive formats and network shares cannot hold them.
-            private = os.stat(path).st_mode & 0o077 == 0
+            private = safefs.path_private(path)
             location = LibraryLocation(
                 path=str(path), identity=_identity(path), private=private
             )

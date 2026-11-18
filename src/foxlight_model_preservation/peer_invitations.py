@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import stat
 from pathlib import Path
 from typing import Literal
@@ -224,7 +223,7 @@ def _fetch_peer_invitation(
             except FileNotFoundError:
                 pass
         if (
-            shutil.disk_usage(target).free
+            safefs.free_bytes(target)
             < sum(file.size for file in missing) + 16 * CHUNK_SIZE
         ):
             raise PreservationError("destination has insufficient free space")
@@ -290,10 +289,9 @@ def _fetch_peer_invitation(
         for file in files:
             verify_object(target, file, control=client.control)
         current = destination.lstat()
-        if not stat.S_ISDIR(current.st_mode) or (current.st_dev, current.st_ino) != (
-            pinned.st_dev,
-            pinned.st_ino,
-        ):
+        if not stat.S_ISDIR(current.st_mode) or safefs.identity(
+            current
+        ) != safefs.identity(pinned):
             raise PreservationError("peer destination changed")
         client.control.checkpoint()
         atomic_bytes(

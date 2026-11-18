@@ -224,13 +224,26 @@ def test_only_the_seam_makes_these_calls() -> None:
     package = Path(safefs.__file__).parent
     forbidden = re.compile(
         r"dir_fd=|O_NOFOLLOW|O_DIRECTORY|O_NONBLOCK|\bfcntl\b|getuid\(|"
+        r"st_mode & 0o077|mode & 0o077|"
         r"os\.listdir\((?:fd|root|parent|descriptor)\)"
     )
     offenders = [
         f"{path.relative_to(package)}:{number}"
         for path in package.rglob("*.py")
-        if path.name != "safefs.py"
+        if path.name not in {"safefs.py", "_posixfs.py", "_winfs.py"}
         for number, line in enumerate(path.read_text().splitlines(), 1)
         if forbidden.search(line)
     ]
     assert offenders == []
+
+
+def test_a_file_can_be_made_durable_by_name(tmp_path: Path) -> None:
+    safefs.make_dir(tmp_path / "s")
+    (tmp_path / "s" / "moved").write_bytes(b"data")
+    root = safefs.open_dir(tmp_path / "s")
+    try:
+        safefs.sync_at(root, "moved")
+        with pytest.raises(FileNotFoundError):
+            safefs.sync_at(root, "missing")
+    finally:
+        os.close(root)
