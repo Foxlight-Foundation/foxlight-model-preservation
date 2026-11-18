@@ -68,6 +68,7 @@ from .storage import (
     atomic_bytes,
     directory,
     object_path,
+    parent_directory,
     read_metadata,
     verify_object,
 )
@@ -512,7 +513,11 @@ def missing_objects(
                     continue
                 seen.add(file.sha256)
                 try:
-                    info = safefs.stat_at(root, object_path(file.sha256))
+                    with parent_directory(root, object_path(file.sha256)) as (
+                        parent,
+                        name,
+                    ):
+                        info = safefs.stat_at(parent, name)
                 except FileNotFoundError:
                     missing[file.sha256] = file
                     continue
