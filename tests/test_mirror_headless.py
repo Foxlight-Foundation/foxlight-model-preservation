@@ -2174,6 +2174,7 @@ def test_deploy_files_default_to_this_release_image():
 def test_quickstart_shares_over_bittorrent_and_posts_to_nostr_by_default(
     tmp_path, capture
 ):
+    pytest.importorskip("libtorrent", reason="optional native BitTorrent extra")
     path = collection(tmp_path, capture)
     target = tmp_path / "mirror"
     base = (
@@ -2286,6 +2287,7 @@ def test_bittorrent_sharing_stays_off_without_the_component(
 def test_config_changes_one_sharing_choice_and_keeps_other_transports(
     tmp_path, capture
 ):
+    pytest.importorskip("libtorrent", reason="optional native BitTorrent extra")
     from foxlight_model_preservation.mirror_native import configure
 
     ledger, _ = mirror(tmp_path, capture)
@@ -2318,6 +2320,7 @@ def test_config_changes_one_sharing_choice_and_keeps_other_transports(
 def test_a_server_sharing_files_publishes_its_listing_and_listing_card(
     tmp_path, capture
 ):
+    pytest.importorskip("libtorrent", reason="optional native BitTorrent extra")
     from foxlight_model_preservation.mirror_cards import (
         read_listing_cards,
         verify_listing_card,
@@ -2406,6 +2409,7 @@ def test_an_uncapped_mirror_is_told_each_further_terabyte_a_month(tmp_path, capt
 
 
 def test_a_mirror_with_no_public_url_still_lists_what_it_shares(tmp_path, capture):
+    pytest.importorskip("libtorrent", reason="optional native BitTorrent extra")
     from foxlight_model_preservation.mirror_native import set_sharing
     from foxlight_model_preservation.sovereign_listing import (
         current_listing,
@@ -2484,6 +2488,7 @@ def test_init_refuses_unavailable_sharing_before_creating_anything(
 
 
 def test_an_embedding_app_keeps_its_own_listing(tmp_path, capture):
+    pytest.importorskip("libtorrent", reason="optional native BitTorrent extra")
     from foxlight_model_preservation.mirror_native import set_sharing
     from foxlight_model_preservation.sovereign_listing import (
         current_listing,

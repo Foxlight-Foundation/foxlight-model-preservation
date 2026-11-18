@@ -268,6 +268,7 @@ def test_pirate_face_seeding_alone_is_a_serving_transport(
 def test_a_native_only_mirror_still_lists_the_files_it_shares(
     tmp_path, capture, monkeypatch
 ):
+    pytest.importorskip("libtorrent", reason="optional native BitTorrent extra")
     from foxlight_model_preservation.sovereign_listing import (
         current_listing,
         listing_manifests,
