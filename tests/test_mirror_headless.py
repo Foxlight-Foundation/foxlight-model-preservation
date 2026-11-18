@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pytest
 from conftest import Capture
+from platforms import posix_shell
 from test_discovery import Publisher
 from test_mirror import cycle, mirror
 
@@ -1872,6 +1873,7 @@ def test_restart_after_an_interrupted_init_refuses_clearly(tmp_path, capture):
 # Packaging ------------------------------------------------------------------------
 
 
+@posix_shell
 def test_container_without_consent_is_plan_only(tmp_path):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()

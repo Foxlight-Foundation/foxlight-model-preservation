@@ -5,6 +5,10 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from platforms import posix_shell
+
+pytestmark = posix_shell
+
 SCRIPT = Path(__file__).parents[1] / "deploy/mirror/entrypoint.sh"
 
 

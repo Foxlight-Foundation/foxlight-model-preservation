@@ -9,6 +9,9 @@ import sys
 from pathlib import Path
 
 import pytest
+from platforms import macos_only
+
+pytestmark = macos_only
 
 WRAPPER = Path(__file__).parents[1] / "scripts/macos_apple_https.sh"
 

@@ -10,6 +10,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from platforms import managed_peer_runtime
 from test_discovery import Publisher, follow
 
 from foxlight_model_preservation.discovery import (
@@ -37,6 +38,8 @@ from foxlight_model_preservation.peer_runtime import (
 )
 from foxlight_model_preservation.signing import canonical_bytes, digest, encode_record
 from foxlight_model_preservation.storage import atomic_bytes, directory
+
+pytestmark = managed_peer_runtime
 
 CID = "bafkreigh2akiscaildc6tvep3jhk5xb3wpymuc3g63wy2bmy3z2bl3rn44"
 NAME = "k51qzi5uqu5dl0ppxz7s1b5ou99zdf5ridzo2lvjti880d6t0tqyamyhwglmxf"

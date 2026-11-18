@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 from permissions import make_private
+from platforms import managed_peer_runtime
 
 from foxlight_model_preservation import peer_install, peer_runtime
 from foxlight_model_preservation.cli import argument_parser
@@ -29,6 +30,8 @@ from foxlight_model_preservation.peer_install import (
     runtime_plan,
 )
 from foxlight_model_preservation.storage import directory, writer_lock
+
+pytestmark = managed_peer_runtime
 
 
 @pytest.fixture
