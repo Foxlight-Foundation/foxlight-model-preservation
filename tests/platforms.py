@@ -10,6 +10,11 @@ WINDOWS = sys.platform == "win32"
 
 # The Docker entrypoint, Linux setup and test stubs are POSIX shell scripts.
 posix_shell = pytest.mark.skipif(WINDOWS, reason="runs a POSIX shell script")
+# Injects a race through POSIX directory-relative calls the Windows seam does
+# not make; tests/test_safefs_windows.py covers swaps there.
+posix_calls = pytest.mark.skipif(
+    WINDOWS, reason="injects a race through POSIX dir_fd calls"
+)
 # Linux and macOS packaging, recovery and signing tooling.
 linux_only = pytest.mark.skipif(WINDOWS, reason="Linux setup and packaging")
 macos_only = pytest.mark.skipif(WINDOWS, reason="macOS packaging and signing")

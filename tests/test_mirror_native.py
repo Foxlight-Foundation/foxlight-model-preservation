@@ -15,8 +15,10 @@ from pathlib import Path
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from platforms import posix_calls
 from test_mirror import cycle, mirror
 
+from foxlight_model_preservation import safefs
 from foxlight_model_preservation.handoffs import read_handoff
 from foxlight_model_preservation.mirror import configure_http, model_action, run_mirror
 from foxlight_model_preservation.mirror_intake import retain_local
@@ -98,7 +100,7 @@ def test_interrupted_custody_creation_retries_and_only_prunes_empty_intents(
     def failed_sync(fd):
         nonlocal interrupted
         info = os.fstat(fd)
-        if not interrupted and (info.st_dev, info.st_ino) == native_identity:
+        if not interrupted and safefs.identity(info) == native_identity:
             interrupted = True
             raise OSError("interrupted custody directory sync")
         return original(fd)
@@ -194,6 +196,7 @@ def test_one_slot_alternates_selected_transports_across_restart(
     assert abs(counts["ipfs"] - counts["torrent"]) <= 1
 
 
+@posix_calls
 @pytest.mark.parametrize("mutation", ["file", "directory", "replacement"])
 def test_inventory_handles_stage_retirement_and_refuses_replacement(
     tmp_path, capture, monkeypatch, mutation
