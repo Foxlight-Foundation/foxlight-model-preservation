@@ -1121,6 +1121,19 @@ def unlink_at(parent: int, name: str) -> None:
         _close(handle)
 
 
+def _await_gone(parent: int, name: str) -> None:
+    """Wait (bounded) until a deleted folder's name has left ``parent``.
+
+    Windows keeps a folder visible while another program (Defender, the
+    indexer) still has it open; POSIX callers expect it gone once removed.
+    """
+    deadline = time.monotonic() + 2.5 * RETRY_SECONDS
+    delay = 0.01
+    while name in list_dir(parent) and time.monotonic() < deadline:
+        time.sleep(delay)
+        delay = min(delay * 2, 0.2)
+
+
 def rmdir_at(parent: int, name: str) -> None:
     """Remove the empty folder ``name`` from ``parent``."""
     handle = _open_to_change(parent, name, DELETE, FILE_DIRECTORY_FILE)
@@ -1131,6 +1144,7 @@ def rmdir_at(parent: int, name: str) -> None:
         _delete(handle, name)
     finally:
         _close(handle)
+    _await_gone(parent, name)
 
 
 def replace_at(
@@ -1309,6 +1323,7 @@ def _remove_tree(parent: int, name: str, *, ignore_errors: bool) -> None:
                 _delete(_handle(descriptor), name)
             finally:
                 os.close(descriptor)
+            _await_gone(parent, name)
         else:
             _delete(handle, name)  # a file or a link: removed, never followed
     finally:
