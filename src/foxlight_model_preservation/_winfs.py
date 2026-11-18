@@ -1016,6 +1016,13 @@ def stat_at(parent: int, name: str, *, follow: bool = False) -> os.stat_result:
     return os.stat_result(values[:10], extra)
 
 
+def _plain_path(value: str) -> str:
+    """``C:\\x`` rather than ``\\\\?\\C:\\x``; ``\\\\server\\share`` for UNC."""
+    if value.startswith("\\\\?\\UNC\\"):
+        return "\\\\" + value[8:]
+    return value.removeprefix("\\\\?\\")
+
+
 class _pinned_path:  # noqa: N801 - used as a context manager
     """The path of a pinned folder, for the rare call that needs one."""
 
@@ -1031,7 +1038,7 @@ class _pinned_path:  # noqa: N801 - used as a context manager
             if length == 0:
                 raise ctypes.WinError(ctypes.get_last_error())
             if length < size:
-                return Path(buffer.value)
+                return Path(_plain_path(buffer.value))
             size = length + 1
 
     def __exit__(self, *_exc: object) -> None:

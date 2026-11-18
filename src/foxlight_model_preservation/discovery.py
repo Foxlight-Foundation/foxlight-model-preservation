@@ -37,7 +37,7 @@ from tuf.api.metadata import (
     Targets,  # pyright: ignore[reportPrivateImportUsage]
     Timestamp,  # pyright: ignore[reportPrivateImportUsage]
 )
-from tuf.ngclient import Updater, UpdaterConfig
+from tuf.ngclient import UpdaterConfig
 from tuf.ngclient.fetcher import FetcherInterface
 
 from . import safefs
@@ -78,6 +78,7 @@ from .transfer import (
     TransferPolicy,
     response,
 )
+from .tuf_client import TufUpdater
 
 T = TypeVar("T", Root, Timestamp, Snapshot, Targets)
 ROLES = ("timestamp", "snapshot", "targets")
@@ -909,7 +910,7 @@ def _refresh_source(
                 _stage_metadata(stage, state)
                 accepted = False
                 try:
-                    updater = Updater(
+                    updater = TufUpdater(
                         str(stage),
                         VIRTUAL_BASE + "metadata/",
                         target_base_url=VIRTUAL_BASE + "targets/",
