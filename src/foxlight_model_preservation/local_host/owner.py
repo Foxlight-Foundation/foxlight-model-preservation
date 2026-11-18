@@ -396,7 +396,8 @@ class LocalOwner:
     def _library_view(self) -> dict[str, JsonValue]:
         # The move's state first: a move seen as finished has already removed
         # what it moved, so the scan below can't count it as still elsewhere.
-        move = self._move
+        with self._lock:
+            move = None if self._move is None else dict(self._move)
         view = self.library.view()
         elsewhere: list[tuple[str, Path]] = []
         if view["available"]:
