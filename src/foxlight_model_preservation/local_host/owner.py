@@ -262,8 +262,7 @@ class LocalOwner:
         self._stack = ExitStack()
         try:
             self._root = self._stack.enter_context(directory(self.home, create=True))
-            mode = os.fstat(self._root).st_mode
-            if mode & 0o077:
+            if not safefs.private(self._root):
                 raise PreservationError("sovereign_owner_directory_must_be_private")
             self._stack.enter_context(writer_lock(self._root))
             self._identity = self._fingerprint()

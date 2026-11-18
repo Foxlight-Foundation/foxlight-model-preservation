@@ -24,6 +24,7 @@ __all__ = [
     "open_path",
     "owned",
     "path_owned",
+    "path_private",
     "private",
     "readlink_at",
     "remove_tree_at",
@@ -173,6 +174,11 @@ def owned(handle: int) -> bool:
 def path_owned(path: Path | str, *, follow: bool = True) -> bool:
     """Whether this user owns ``path`` (a final symlink is followed by default)."""
     return os.stat(path, follow_symlinks=follow).st_uid == os.getuid()
+
+
+def path_private(path: Path | str) -> bool:
+    """Whether nobody but the owner can reach ``path`` (a final link is followed)."""
+    return not os.stat(path).st_mode & 0o077
 
 
 def private(handle: int) -> bool:

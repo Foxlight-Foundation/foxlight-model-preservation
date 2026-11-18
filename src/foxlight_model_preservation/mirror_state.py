@@ -166,7 +166,7 @@ def reenroll(path: Path) -> None:
             state, _legacy = decode_state(stream.read(MAX_STATE + 1))
         identities: dict[str, tuple[int, int]] = {}
         for name in DIRECTORIES:
-            info = safefs.stat_at(root, name)
+            info = os.fstat(root) if name == "." else safefs.stat_at(root, name)
             if not stat.S_ISDIR(info.st_mode):
                 raise PreservationError("mirror directories must be owner-only")
             identities[name] = (info.st_dev, info.st_ino)
@@ -199,7 +199,7 @@ class MirrorLedger:
             for name in DIRECTORIES:
                 if name != ".":
                     safefs.mkdir_at(root, name)
-                info = safefs.stat_at(root, name)
+                info = os.fstat(root) if name == "." else safefs.stat_at(root, name)
                 identities[name] = (info.st_dev, info.st_ino)
             fields = dict(
                 config,
@@ -226,7 +226,8 @@ class MirrorLedger:
                 # One handle answers both questions, so nothing can be swapped
                 # in between them.
                 try:
-                    fd = safefs.open_dir_at(root, name)
+                    # "." is the mirror root itself, already pinned.
+                    fd = os.dup(root) if name == "." else safefs.open_dir_at(root, name)
                 except FileNotFoundError:
                     raise
                 except OSError as error:  # a symlink or not a directory

@@ -49,6 +49,7 @@ __all__ = [
     "open_path",
     "owned",
     "path_owned",
+    "path_private",
     "private",
     "readlink_at",
     "remove_tree_at",
@@ -661,6 +662,11 @@ def _private_descriptor() -> int:
     return _descriptor(f"O:{user}D:P(A;OICI;FA;;;{user})(A;OICI;FA;;;SY)")
 
 
+def _creation_descriptor(mode: int) -> int:
+    """Private when ``mode`` gives nobody else access, as on POSIX."""
+    return _private_descriptor() if not mode & 0o077 else _owner_descriptor()
+
+
 def _owner_descriptor() -> int:
     """Owned by this user; access inherited from the folder it is created in."""
     return _descriptor(f"O:{_user_sid()}")
@@ -820,7 +826,7 @@ def make_dir(
 
 def mkdir_at(parent: int, name: str, mode: int = 0o700) -> None:
     """Create the folder ``name`` inside ``parent`` (private unless ``mode`` says)."""
-    security = _private_descriptor() if not mode & 0o077 else _owner_descriptor()
+    security = _creation_descriptor(mode)
     handle, _created = _nt_open(
         parent,
         name,
@@ -901,10 +907,9 @@ def open_at(parent: int, name: str, flags: int, mode: int = 0o600) -> int:
     """Open ``name`` inside ``parent`` with ``os.O_*`` flags, never via a link.
 
     A link, a folder or an alias of another name refuses. A new file is owned
-    by this user and takes its access from the private folder it is in;
-    ``mode`` is not used on Windows.
+    by this user; when ``mode`` gives nobody else access (the default) it gets
+    the private access list (this user and SYSTEM only), as on POSIX.
     """
-    del mode  # access comes from the private folder the file is created in
     access, runtime = _file_access(flags)
     disposition = _nt_disposition(flags)
     handle, _created = _nt_open(
@@ -913,7 +918,7 @@ def open_at(parent: int, name: str, flags: int, mode: int = 0o600) -> int:
         access,
         disposition,
         FILE_NON_DIRECTORY_FILE,
-        security=_owner_descriptor() if flags & os.O_CREAT else None,
+        security=_creation_descriptor(mode) if flags & os.O_CREAT else None,
     )
     _plain(handle, name, directory=False)
     return _truncate(_wrap(handle, runtime), flags)
@@ -921,7 +926,6 @@ def open_at(parent: int, name: str, flags: int, mode: int = 0o600) -> int:
 
 def open_path(path: Path | str, flags: int, mode: int = 0o600) -> int:
     """Open ``path`` with ``os.O_*`` flags; a final link is refused."""
-    del mode
     access, runtime = _file_access(flags)
     create = flags & os.O_CREAT
     if create and flags & os.O_EXCL:
@@ -934,7 +938,7 @@ def open_path(path: Path | str, flags: int, mode: int = 0o600) -> int:
         access,
         disposition,
         FILE_FLAG_OPEN_REPARSE_POINT | FILE_ATTRIBUTE_NORMAL,
-        _owner_descriptor() if create else None,
+        _creation_descriptor(mode) if create else None,
     )
     _plain(handle, str(path), directory=False)
     return _truncate(_wrap(handle, runtime), flags)
@@ -1337,6 +1341,17 @@ def path_owned(path: Path | str, *, follow: bool = True) -> bool:
     handle = _win32_open(path, READ_CONTROL, OPEN_EXISTING, flags, None)
     try:
         return _owned_handle(handle)
+    finally:
+        _close(handle)
+
+
+def path_private(path: Path | str) -> bool:
+    """Whether only this user and SYSTEM can reach ``path`` (link followed)."""
+    handle = _win32_open(
+        path, READ_CONTROL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, None
+    )
+    try:
+        return _private_handle(handle)
     finally:
         _close(handle)
 

@@ -20,6 +20,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 )
 from pydantic import Field, JsonValue
 
+from . import safefs
 from .models import (
     MAX_METADATA_BYTES,
     Catalog,
@@ -130,7 +131,7 @@ def create_key(path: Path, password: bytes | None) -> TrustProfile:
     data = key.private_bytes(
         serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, encryption
     )
-    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    descriptor = safefs.open_path(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(descriptor, "wb") as stream:
         stream.write(data)
         stream.flush()
@@ -145,7 +146,7 @@ def create_key(path: Path, password: bytes | None) -> TrustProfile:
 
 def load_key(path: Path, password: bytes | None) -> Ed25519PrivateKey:
     """Load a locally supplied Ed25519 PEM without exposing key bytes in output."""
-    if path.stat().st_mode & 0o077:
+    if not safefs.path_private(path):
         raise PreservationError("private key must not be group/world accessible")
     key = serialization.load_pem_private_key(path.read_bytes(), password=password)
     if not isinstance(key, Ed25519PrivateKey):

@@ -224,6 +224,7 @@ def test_only_the_seam_makes_these_calls() -> None:
     package = Path(safefs.__file__).parent
     forbidden = re.compile(
         r"dir_fd=|O_NOFOLLOW|O_DIRECTORY|O_NONBLOCK|\bfcntl\b|getuid\(|"
+        r"st_mode & 0o077|mode & 0o077|"
         r"os\.listdir\((?:fd|root|parent|descriptor)\)"
     )
     offenders = [

@@ -357,7 +357,7 @@ class Library:
                         raise PreservationError("library_folder_belongs_to_another")
             # Owner-only permissions are kept where the filesystem allows it;
             # some drive formats and network shares cannot hold them.
-            private = os.stat(path).st_mode & 0o077 == 0
+            private = safefs.path_private(path)
             location = LibraryLocation(
                 path=str(path), identity=_identity(path), private=private
             )
