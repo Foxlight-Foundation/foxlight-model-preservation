@@ -208,3 +208,36 @@ def test_a_delete_waits_out_another_programs_brief_hold(tmp_path: Path) -> None:
         os.close(fd)
         reader.wait()
     assert not (folder / "file").exists()
+
+
+def test_truncating_an_alias_leaves_the_real_file_alone(store: Path) -> None:
+    listing = subprocess.run(  # noqa: S603
+        ["cmd", "/c", "dir", "/x", str(store)],  # noqa: S607
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    aliases = [
+        line.split()[-2]
+        for line in listing.splitlines()
+        if "model-weights-long-name" in line and "~" in line
+    ]
+    aliases.append("MODEL-WEIGHTS-LONG-NAME.SAFETENSORS")
+    root = safefs.open_dir(store)
+    try:
+        for alias in aliases:
+            for flags in (
+                os.O_WRONLY | os.O_TRUNC,
+                os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+            ):
+                with pytest.raises(FileNotFoundError):
+                    os.close(safefs.open_at(root, alias, flags))
+        # A truncating open of the real name still truncates.
+        fd = safefs.open_at(root, "junction-free", os.O_WRONLY | os.O_CREAT)
+        os.write(fd, b"12345")
+        os.close(fd)
+        os.close(safefs.open_at(root, "junction-free", os.O_WRONLY | os.O_TRUNC))
+        assert (store / "junction-free").read_bytes() == b""
+    finally:
+        os.close(root)
+    assert (store / "model-weights-long-name.safetensors").read_bytes() == b"weights"

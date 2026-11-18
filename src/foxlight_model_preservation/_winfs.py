@@ -81,7 +81,6 @@ SHARE_ALL = 0x7  # read | write | delete
 
 # NtCreateFile dispositions and options
 FILE_OPEN, FILE_CREATE, FILE_OPEN_IF = 1, 2, 3
-FILE_OVERWRITE, FILE_OVERWRITE_IF = 4, 5
 FILE_DIRECTORY_FILE = 0x00000001
 FILE_SYNCHRONOUS_IO_NONALERT = 0x00000020
 FILE_NON_DIRECTORY_FILE = 0x00000040
@@ -90,7 +89,7 @@ FILE_CREATED = 2
 
 # CreateFileW
 OPEN_EXISTING = 3
-CREATE_NEW, CREATE_ALWAYS, OPEN_ALWAYS, TRUNCATE_EXISTING = 1, 2, 4, 5
+CREATE_NEW, OPEN_ALWAYS = 1, 4
 FILE_FLAG_BACKUP_SEMANTICS = 0x02000000
 FILE_FLAG_OPEN_REPARSE_POINT = 0x00200000
 FILE_ATTRIBUTE_NORMAL = 0x80
@@ -881,16 +880,21 @@ def _file_access(flags: int) -> tuple[int, int]:
 
 
 def _nt_disposition(flags: int) -> int:
-    create, exclusive, truncate = (
-        flags & os.O_CREAT,
-        flags & os.O_EXCL,
-        flags & os.O_TRUNC,
-    )
-    if create and exclusive:
+    """Never truncate while opening: the entry is checked first (see _truncate)."""
+    if flags & os.O_CREAT and flags & os.O_EXCL:
         return FILE_CREATE
-    if create:
-        return FILE_OVERWRITE_IF if truncate else FILE_OPEN_IF
-    return FILE_OVERWRITE if truncate else FILE_OPEN
+    return FILE_OPEN_IF if flags & os.O_CREAT else FILE_OPEN
+
+
+def _truncate(descriptor: int, flags: int) -> int:
+    """Apply O_TRUNC through a handle already checked to be the requested file."""
+    if flags & os.O_TRUNC:
+        try:
+            os.ftruncate(descriptor, 0)
+        except BaseException:
+            os.close(descriptor)
+            raise
+    return descriptor
 
 
 def open_at(parent: int, name: str, flags: int, mode: int = 0o600) -> int:
@@ -912,24 +916,19 @@ def open_at(parent: int, name: str, flags: int, mode: int = 0o600) -> int:
         security=_owner_descriptor() if flags & os.O_CREAT else None,
     )
     _plain(handle, name, directory=False)
-    return _wrap(handle, runtime)
+    return _truncate(_wrap(handle, runtime), flags)
 
 
 def open_path(path: Path | str, flags: int, mode: int = 0o600) -> int:
     """Open ``path`` with ``os.O_*`` flags; a final link is refused."""
     del mode
     access, runtime = _file_access(flags)
-    create, exclusive, truncate = (
-        flags & os.O_CREAT,
-        flags & os.O_EXCL,
-        flags & os.O_TRUNC,
-    )
-    if create and exclusive:
+    create = flags & os.O_CREAT
+    if create and flags & os.O_EXCL:
         disposition = CREATE_NEW
-    elif create:
-        disposition = CREATE_ALWAYS if truncate else OPEN_ALWAYS
     else:
-        disposition = TRUNCATE_EXISTING if truncate else OPEN_EXISTING
+        # Never truncate while opening: a link is refused first.
+        disposition = OPEN_ALWAYS if create else OPEN_EXISTING
     handle = _win32_open(
         path,
         access,
@@ -938,7 +937,7 @@ def open_path(path: Path | str, flags: int, mode: int = 0o600) -> int:
         _owner_descriptor() if create else None,
     )
     _plain(handle, str(path), directory=False)
-    return _wrap(handle, runtime)
+    return _truncate(_wrap(handle, runtime), flags)
 
 
 def sync_at(parent: int, name: str) -> None:
