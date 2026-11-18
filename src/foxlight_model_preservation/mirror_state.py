@@ -273,7 +273,7 @@ class MirrorLedger:
             for name, expected in state.identity.items():
                 if name not in DIRECTORIES:
                     raise PreservationError("unknown mirror directory identity")
-                info = safefs.stat_at(root, name)
+                info = os.fstat(root) if name == "." else safefs.stat_at(root, name)
                 if safefs.identity(info) != expected:
                     raise PreservationError("mirror directory identity changed")
             if set(state.identity) != set(DIRECTORIES):
