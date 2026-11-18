@@ -29,6 +29,8 @@ __all__ = [
     "path_private",
     "private",
     "readlink_at",
+    "TREE_REMOVAL_SAFE",
+    "remove_tree",
     "remove_tree_at",
     "rename_at",
     "replace_at",
@@ -162,6 +164,16 @@ def remove_tree_at(parent: int, name: str, *, ignore_errors: bool = False) -> No
     Links inside are removed, never followed.
     """
     shutil.rmtree(_one(name), dir_fd=parent, ignore_errors=ignore_errors)
+
+
+# Whether remove_tree can't be steered out of the tree by a link (fd-based
+# rmtree); systems without it refuse removals that need it.
+TREE_REMOVAL_SAFE: bool = shutil.rmtree.avoids_symlink_attacks
+
+
+def remove_tree(path: Path | str) -> None:
+    """Remove the folder ``path`` and everything in it, never following a link."""
+    shutil.rmtree(path)
 
 
 def readlink_at(parent: int, name: str) -> str:

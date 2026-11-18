@@ -54,6 +54,8 @@ __all__ = [
     "path_private",
     "private",
     "readlink_at",
+    "TREE_REMOVAL_SAFE",
+    "remove_tree",
     "remove_tree_at",
     "rename_at",
     "replace_at",
@@ -1252,6 +1254,25 @@ def readlink_at(parent: int, name: str) -> str:
         return target.removeprefix("\\??\\")
     finally:
         _close(handle)
+
+
+# remove_tree never follows a link on Windows: every entry is opened as itself.
+TREE_REMOVAL_SAFE = True
+
+
+def remove_tree(path: Path | str) -> None:
+    """Remove the folder ``path`` and everything in it, never following a link.
+
+    A link at ``path`` itself is refused, as ``shutil.rmtree`` refuses it.
+    """
+    target = Path(path)
+    parent = open_dir(target.parent, follow=True)
+    try:
+        if stat.S_ISLNK(stat_at(parent, target.name).st_mode):
+            raise OSError(errno.ELOOP, "Cannot remove a tree through a link", str(path))
+        remove_tree_at(parent, target.name)
+    finally:
+        os.close(parent)
 
 
 def remove_tree_at(parent: int, name: str, *, ignore_errors: bool = False) -> None:
