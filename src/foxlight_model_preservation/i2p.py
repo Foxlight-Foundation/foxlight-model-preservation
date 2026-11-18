@@ -33,7 +33,7 @@ from .storage import (
     read_metadata,
     writer_lock,
 )
-from .torrent_binding import torrent_engine
+from .torrent_binding import torrent_engine, torrent_path
 
 
 def read_offer(data: bytes) -> I2POffer:
@@ -112,7 +112,7 @@ def check_metainfo(offer: I2POffer) -> bytes:
             not hashes.has_v1()
             or str(hashes.v1) != offer.infohash
             or inventory.num_files() != 1
-            or inventory.file_path(0) != offer.kit.path
+            or torrent_path(inventory, 0) != offer.kit.path
             or inventory.file_size(0) != offer.kit.size
         ):
             raise PreservationError("I2P torrent routing identity differs")

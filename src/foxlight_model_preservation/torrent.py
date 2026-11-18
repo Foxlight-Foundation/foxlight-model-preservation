@@ -46,7 +46,7 @@ from .storage import (
     read_metadata,
     writer_lock,
 )
-from .torrent_binding import TorrentHandle, TorrentSession, torrent_engine
+from .torrent_binding import TorrentHandle, TorrentSession, torrent_engine, torrent_path
 
 
 @final
@@ -306,7 +306,7 @@ class TorrentSeeder:
         if (
             files.num_files() != len(inventory)
             or {
-                files.file_path(index): files.file_size(index)
+                torrent_path(files, index): files.file_size(index)
                 for index in range(files.num_files())
             }
             != inventory

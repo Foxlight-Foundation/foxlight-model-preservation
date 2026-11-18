@@ -1,5 +1,6 @@
 """Typed foreign boundary to the optional, maintained libtorrent binding."""
 
+import os
 from collections.abc import Callable
 from importlib import import_module
 from typing import Protocol, cast
@@ -123,3 +124,12 @@ def torrent_engine() -> TorrentEngine:
             "this adapter requires the qualified libtorrent 2.0 line"
         )
     return engine
+
+
+def torrent_path(files: TorrentFiles, index: int) -> str:
+    """A torrent file's path with ``/`` separators, whatever the platform.
+
+    libtorrent reports paths with the platform's own separator (``\\`` on
+    Windows); signed selections and manifests always use ``/``.
+    """
+    return files.file_path(index).replace(os.sep, "/")
