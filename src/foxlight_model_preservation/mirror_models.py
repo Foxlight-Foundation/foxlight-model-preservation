@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Annotated, Literal, get_args
+from urllib.parse import urlsplit
 
 from pydantic import Field, field_validator, model_validator
 
@@ -69,7 +70,7 @@ class NativePolicy(Record):
     session_seconds: int = Field(default=3600, ge=1, le=86400)
     session_bytes: int = Field(default=64 * 1024**2, ge=1, le=2**53 - 1)
     upload_rate: int = Field(default=1024**2, ge=1024, le=100 * 1024**2)
-    # Also seed the matching Pirate Face torrent of each held copy (v7).
+    # Also share the matching Pirate Face torrent of each held copy (v7).
     pirate_face: bool = False
     # Share every held file as Sovereign's own per-file torrent (v7).
     file_torrents: bool = False
@@ -215,24 +216,41 @@ class HeldModel(Record):
 
 
 class AnnouncePolicy(Record):
-    """Explicit public announcement of this mirror's own reachable address.
+    """Public announcement of this mirror's own reachable address.
 
     A signed mirror card names ``public_url``; it is served in the mirror's own
-    peers document. Nostr publishing and DHT announcing are separate opt-ins
-    that copy the address to third-party relays or the public DHT. This is not
-    anonymous: the address, and the models it probably holds, are public.
+    peers document. Nostr publishing copies that card to third-party relays
+    (on by default for a mirror set up from the command line, which already
+    publishes its address), and DHT announcing tells the public DHT a plain
+    HTTP address (opt-in). This is not anonymous: the address, and the models
+    it probably holds, are public. ``relays`` replaces the default relays.
     """
 
     public_url: str = Field(min_length=8, max_length=2048)
     contact: str | None = Field(default=None, min_length=1, max_length=200)
     nostr: bool = False
     dht: bool = False
+    relays: tuple[str, ...] = Field(default=(), max_length=8)
 
     @model_validator(mode="after")
     def plain_url(self) -> AnnouncePolicy:
         """Accept only a credential-free HTTP(S) base URL without a trailing slash."""
         if base_url(self.public_url) != self.public_url:
             raise PreservationError("public URL must not end with a slash")
+        for relay in self.relays:
+            parsed = urlsplit(relay)
+            if (
+                parsed.scheme != "wss"
+                or not parsed.hostname
+                or parsed.username is not None
+                or parsed.password is not None
+                or parsed.query
+                or parsed.fragment
+                or len(relay) > 512
+            ):
+                raise PreservationError("relay must be a credential-free wss:// URL")
+        if len(set(self.relays)) != len(self.relays):
+            raise PreservationError("relays must not repeat")
         return self
 
 

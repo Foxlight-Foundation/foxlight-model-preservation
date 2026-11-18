@@ -121,7 +121,7 @@ def configure(
 ) -> MirrorState:
     """Enroll native public transports offline; invalidate standing restart consent.
 
-    ``pirate_face`` also seeds each held copy's matching Pirate Face torrent
+    ``pirate_face`` also shares each held copy's matching Pirate Face torrent
     from the stored objects, after looking it up on Pirate Face.
     ``file_torrents`` shares every held file as Sovereign's own per-file torrent
     (no rate limit; upload totals are reserved like other egress), and
@@ -185,6 +185,53 @@ def configure(
                 }
             )
         )
+
+
+def sharing_available() -> bool:
+    """Whether the optional BitTorrent component is installed (nothing starts)."""
+    try:
+        torrent_engine()
+    except PreservationError:
+        return False
+    return True
+
+
+def set_sharing(
+    ledger: MirrorLedger, *, file_torrents: bool, pirate_face: bool
+) -> bool:
+    """Turn a server mirror's BitTorrent sharing on or off; True if it changed.
+
+    ``file_torrents`` shares every held file in Sovereign's own per-file
+    swarms (with the mirror's listing); ``pirate_face`` also shares matching
+    Pirate Face torrents from the stored files. Other native transports an
+    operator enrolled with ``mirror transports`` are kept. A change clears the
+    restart grant, like any policy change; nothing starts here.
+    """
+    native = ledger.read().native_policy
+    if native is None:
+        if not (file_torrents or pirate_face):
+            return False
+        configure(ledger, file_torrents=file_torrents, pirate_face=pirate_face)
+        return True
+    if (native.file_torrents, native.pirate_face) == (file_torrents, pirate_face):
+        return False
+    if file_torrents or pirate_face:
+        torrent_engine()
+    with ledger.service_lock():
+        ledger.update(
+            lambda state: state.model_copy(
+                update={
+                    "native_policy": (state.native_policy or native).model_copy(
+                        update={
+                            "file_torrents": file_torrents,
+                            "pirate_face": pirate_face,
+                        }
+                    ),
+                    "restart": None,
+                }
+            )
+        )
+    return True
 
 
 @contextmanager

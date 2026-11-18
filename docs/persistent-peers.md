@@ -34,9 +34,9 @@ model-preserve mirror transports --dir /srv/sovereign/example \
 model-preserve mirror plan --dir /srv/sovereign/example
 ```
 
-Add `--pirate-face` to also seed each held copy's matching Pirate Face torrent
+Add `--pirate-face` to also share each held copy's matching Pirate Face torrent
 from the stored files, after a full piece check and with no second copy (see
-[Mirrors seeding on Pirate Face](sovereign-desktop.md#mirrors-seeding-on-pirate-face));
+[Mirrors sharing on Pirate Face](sovereign-desktop.md#mirrors-sharing-on-pirate-face));
 it needs the `bittorrent` extra and looks models up on pirateface.co.
 
 Omit either transport to select only the other. Omit both to disable native

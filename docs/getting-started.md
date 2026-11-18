@@ -230,7 +230,7 @@ checks every byte, so nobody has to trust your computer.
      are shared over BitTorrent, it also publishes a signed listing card saying
      which models this computer shares, even when it can't be reached directly.
      The relays see your computer's address when it publishes or reads.
-4. **Pirate Face:** **Also seed on Pirate Face**, off by default. Where a
+4. **Pirate Face:** **Also share on Pirate Face**, off by default. Where a
    shared model's Pirate Face torrent holds exactly the files you share, your
    computer shares that torrent too, from the same files. Nothing is
    downloaded, and people in that swarm see your computer's address.
@@ -289,7 +289,7 @@ it there.
 | BitTorrent sharing and its DHT listing | Anyone can look up which models your computer shares; people downloading see its address | Only after you agree to **Help keep models available** | **Turn off** under **Sharing → Help keep models available** |
 | DHT mirror announcement | Anyone can look up your computer's public address as a Sovereign mirror | Yes, inside the sharing consent | **Announce on the BitTorrent DHT** under **Change what's shared** |
 | Nostr cards and listing cards | Anyone can read your mirror's address, or which models your computer shares; relays see your address | Yes, inside the sharing consent | **Publish to Nostr relays** under **Change what's shared** |
-| Pirate Face sharing | People in that Pirate Face torrent's swarm see your computer's address | No | **Also seed on Pirate Face** under **Change what's shared** |
+| Pirate Face sharing | People in that Pirate Face torrent's swarm see your computer's address | No | **Also share on Pirate Face** under **Change what's shared** |
 | Router port mapping | Your router opens ports so people outside can reach this computer | Yes, inside the sharing consent, when no public address is entered | **Ask my router to open port …** under **Change what's shared** |
 | One-hour public copy | Anyone who can reach the address can download that copy and sees your computer's address | No | **Stop** in Activity; it also ends on its own after one hour |
 

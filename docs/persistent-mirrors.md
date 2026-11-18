@@ -91,12 +91,24 @@ powers of 1024 (`100G` is 100 × 1024³ bytes; `GiB`/`GB` spellings are the same
 
 Upload caps are opt-in. A new mirror from quickstart (or `init`) has no daily
 or monthly upload cap unless you pass `--egress-daily` and `--egress-monthly`:
-uploads are still counted and reported, but never refused. The review says so,
-and warns that uncapped serving can use a lot of bandwidth, which costs money
-on metered hosting. The disk budget is always bounded, and the daily download
-budget (`--ingress-daily`, 50G by default) protects your own connection. An
-existing mirror keeps the caps it already has when quickstart runs again
-without them; pass `none` (for example `--egress-daily none`) to remove one.
+uploads, over the web and BitTorrent alike, are still counted and reported, but
+never refused. **If your hosting bills for traffic, set a monthly cap**: an
+uncapped mirror can upload a great deal, and that costs money. To make that
+hard to miss:
+
+- the review ends with a boxed **NO MONTHLY UPLOAD CAP** warning that gives the
+  exact command (`mirror config --dir DIR --egress-monthly 1T`);
+- an interactive quickstart asks for a monthly cap (for example `1T`; press
+  Enter for none);
+- `mirror status` shows `uploads`: today's and this month's bytes beside the
+  caps, with the one-line way to add one while there is none;
+- while it runs, an uncapped mirror logs a `mirror_upload_notice` each time its
+  uploads pass another TiB in a month.
+
+The disk budget is always bounded, and the daily download budget
+(`--ingress-daily`, 50G by default) protects your own connection. An existing
+mirror keeps the caps it already has when quickstart runs again without them;
+pass `none` (for example `--egress-daily none`) to remove one.
 
 ### Add the starter collection
 
@@ -359,14 +371,42 @@ are outside it. Serving, withdrawal advisories and the card are renewed every cy
 verified retained copies, even when source refresh or intake fails on budget. See
 [mirror discovery](mirror-discovery.md) for how clients use cards.
 
-HTTPS is preferred; an `http://` URL is accepted with a warning. Two further
-choices are separate opt-ins, each needing `--confirm-public-announcement`
-because they publish the address beyond this mirror:
+HTTPS is preferred; an `http://` URL is accepted with a warning.
 
-- `--announce-nostr` publishes the card to public Nostr relays.
-- `--announce-dht` announces the address on the public BitTorrent DHT (needs the
-  `bittorrent` extra). The DHT can only express a plain-HTTP root URL, so an
-  HTTPS URL behind a proxy is not announced there.
+- **Nostr, on by default.** With a public URL, the card is also posted to
+  public Nostr relays every cycle, so Sovereign apps can find the mirror. The
+  relays see the server's address, which the card publishes anyway, so no
+  further confirmation is needed. `--no-announce-nostr` turns it off;
+  `--nostr-relay wss://...` (repeatable, at most 8) replaces the default five
+  relays. An existing announcement keeps its choice unless one is given.
+- **The DHT, opt-in.** `--announce-dht` announces the address on the public
+  BitTorrent DHT (needs the `bittorrent` extra) and needs
+  `--confirm-public-announcement`. The DHT can only express a plain-HTTP root
+  URL, so an HTTPS URL behind a proxy is not announced there.
+
+## Share over BitTorrent
+
+Quickstart and `init` also turn on BitTorrent sharing by default, when the
+`bittorrent` extra is installed (without it, sharing stays off and the review
+says so):
+
+- **Sovereign's own swarms** (`--file-torrents`): every held file is shared as
+  its deterministic per-file torrent, the same one every Sovereign computer
+  holding that file shares. The mirror also shares its listing (its signed
+  coverage, holdings, torrents and manifests) under a DHT pointer signed with
+  its mirror key, and a listing card naming that key, carried in its peers
+  document and on the same Nostr relays. Anyone can look up on the DHT which
+  models the mirror shares.
+- **Pirate Face** (`--pirate-face`): each held model is looked up on
+  pirateface.co, and a matching torrent is shared straight from the stored
+  files after every piece is checked (see [persistent peers](persistent-peers.md)).
+
+Peers in those swarms see the server's address, and uploads count toward the
+upload caps. `--no-file-torrents` and `--no-pirate-face` turn either part off
+(`mirror config` changes one without the other, and keeps transports enrolled
+with `mirror transports`). `mirror run --torrent-port PORT` fixes the port
+sharing listens on (by default the system picks one); open it in your firewall.
+A server never asks a router to forward a port.
 
 `mirror config --clear-public-url` stops announcing and removes the peers
 document; an already published card lapses when it expires. The desktop

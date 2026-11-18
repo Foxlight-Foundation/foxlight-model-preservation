@@ -679,10 +679,10 @@ rescue this** appears on a reviewed model Pirate Face doesn't list and sends
 only the model's name, only when clicked. Seed counts are Pirate Face's own
 observations and never rank or hide anything.
 
-### Mirrors seeding on Pirate Face
+### Mirrors sharing on Pirate Face
 
 **Help keep models available** has a separate, off-by-default choice: **Also
-seed on Pirate Face**. With it on, the mirror looks up each shared model's
+share on Pirate Face**. With it on, the mirror looks up each shared model's
 origin repository on Pirate Face (one lookup at a time, at most one every 30
 seconds; daily for a listed model, weekly otherwise, hourly after a failure).
 When every file of the listed torrent is held, by the SHA-256 Pirate Face

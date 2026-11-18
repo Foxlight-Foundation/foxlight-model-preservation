@@ -1,11 +1,14 @@
-"""Opt-in announcement for a standalone mirror: its card, peers and gossip.
+"""Announcement for a standalone mirror: its card, peers, listing and gossip.
 
 An announcing mirror signs a short-lived mirror card with its own mirror key
 (never a model or source key), naming its declared public URL and a coverage
 filter of the verified public selections it serves. It serves that card and
 the peers it has itself spot-checked at ``/.well-known/sovereign/peers.json``.
-Publishing the card to Nostr relays and announcing on the BitTorrent DHT are
-separate opt-ins. This is not anonymous: the mirror's address and the
+Publishing the card to Nostr relays is on by default for a mirror with a
+public URL (it publishes that address anyway); announcing on the BitTorrent
+DHT is a separate opt-in. A mirror sharing its files over BitTorrent also
+publishes its listing and a listing card, carried in its peers document and
+on the same relays. This is not anonymous: the mirror's address and the
 models it probably holds become public, and every peer it contacts sees its IP.
 Cards grant no trust; every byte is still verified against chosen model keys.
 """
@@ -23,6 +26,11 @@ from .discovery import list_sources, search_sources
 from .mirror_cards import MAX_PEERS_BYTES, base_url, build_peers, issue_card
 from .mirror_directory import MirrorDirectory
 from .mirror_holdings import MAX_HOLDINGS_BYTES, issue_holdings, store_holdings
+from .mirror_listing import (
+    LISTING_DOCUMENTS,
+    mirror_listing_card,
+    publish_mirror_listing,
+)
 from .mirror_models import AnnouncePolicy
 from .mirror_objects import MAX_OBJECTS_BYTES, issue_objects, served_hashes
 from .mirror_rendezvous import Rendezvous, rendezvous_available
@@ -67,10 +75,18 @@ NOSTR_FILE = "nostr-key"
 DIRECTORY = "mirror-directory"
 DISCLOSURE = (
     "Announcing publishes this mirror's public URL and a filter of the models it "
-    "probably holds. Nostr publishing copies that card to third-party relays; "
-    "DHT announcing tells the public BitTorrent DHT this address and port. "
+    "probably holds. Nostr publishing copies that card to third-party relays, "
+    "which see this server's address (the card publishes it anyway); DHT "
+    "announcing tells the public BitTorrent DHT this address and port. "
     "This is not anonymous: anyone can see and contact the address."
 )
+
+
+def relays_for(policy: AnnouncePolicy) -> tuple[str, ...]:
+    """The relays this mirror posts to and reads from: none when Nostr is off."""
+    if not policy.nostr:
+        return ()
+    return policy.relays or DEFAULT_RELAYS
 
 
 def mirror_key(ledger: MirrorLedger) -> Ed25519PrivateKey:
@@ -121,10 +137,16 @@ def catalog_mirrors(ledger: MirrorLedger) -> tuple[str, ...]:
 class Announcer:
     """Own one announcing mirror's directory, card and optional rendezvous."""
 
-    def __init__(self, ledger: MirrorLedger) -> None:
+    def __init__(self, ledger: MirrorLedger, *, lists: bool = True) -> None:
+        """``lists`` is False when an embedding app publishes the listing for
+        this mirror's files with its own key; this announcer then leaves it."""
         self.ledger = ledger
+        self.lists = lists
         self.directory = MirrorDirectory(ledger.path / DIRECTORY)
         self.rendezvous: Rendezvous | None = None
+        # The listing card for the listing this mirror shares, when it shares
+        # its files over BitTorrent.
+        self.listing_card: bytes | None = None
 
     def _nostr_key(self) -> bytes:
         with self.ledger.root() as root:
@@ -137,10 +159,58 @@ class Announcer:
             raise PreservationError("mirror nostr key is invalid")
         return secret
 
+    def _documents(self, serving: frozenset[str]) -> dict[str, bytes | None]:
+        """The signed object coverage, holdings and torrents documents for
+        ``serving``. Each is optional: a problem with one never stops the card
+        renewing or the listing being shared."""
+        documents: dict[str, bytes | None] = dict.fromkeys(LISTING_DOCUMENTS)
+        key = mirror_key(self.ledger)
+        # Signed by the same key: lets catalog saves find files by hash.
+        with contextlib.suppress(PreservationError, OSError):
+            documents["objects.json"] = issue_objects(
+                key, served_hashes(self.ledger.path / "public")
+            )
+        # What this mirror keeps, by name, so Find can search it.
+        with contextlib.suppress(PreservationError, OSError):
+            documents["holdings.json"] = issue_holdings(
+                key, store_holdings(self.ledger.path / "public", serving)
+            )
+        # The torrents it shares (Sovereign's own per-file ones and Pirate
+        # Face ones), so their swarms stay findable from mirrors.
+        with contextlib.suppress(PreservationError, OSError, ValueError):
+            documents["torrents.json"] = issue_torrents(
+                key,
+                [
+                    *seeded(self.ledger.read(), serving),
+                    *listed(self.ledger, serving),
+                ],
+            )
+        return documents
+
+    def share_listing(self, serving: frozenset[str]) -> None:
+        """Keep the listing in step for a mirror with no public URL.
+
+        A mirror sharing its files over BitTorrent lists them under its key
+        (the listing its session shares, and the DHT pointer to it) whether
+        or not it announces an address; without one there is no card, so the
+        listing card is not issued. Withdrawn when files aren't shared; kept
+        as it is while nothing is served.
+        """
+        self.listing_card = None
+        if not self.lists:
+            return
+        native = self.ledger.read().native_policy
+        if native is None or not native.file_torrents:
+            publish_mirror_listing(self.ledger.path, None, serving)
+        elif serving:
+            publish_mirror_listing(self.ledger.path, self._documents(serving), serving)
+
     def publish(self, serving: frozenset[str]) -> bytes | None:
         """Write the peers document: this mirror's fresh card, then checked peers.
 
         No card is issued while nothing is served; peers are still listed.
+        A mirror sharing its files over BitTorrent also publishes its listing
+        and a listing card for it, carried in the peers document.
         """
         state = self.ledger.read()
         policy = state.announce
@@ -168,45 +238,35 @@ class Announcer:
             if serving
             else None
         )
-        document = build_peers(card, self.directory.gossip())
+        native = state.native_policy
+        sharing_files = self.lists and native is not None and native.file_torrents
+        documents: dict[str, bytes | None] = (
+            self._documents(serving)
+            if card is not None
+            else dict.fromkeys(LISTING_DOCUMENTS)
+        )
+        # The listing its BitTorrent session shares, then its listing card.
+        # Withdrawn when files aren't shared; kept as it is while nothing is
+        # served, so a passing gap doesn't rebuild it.
+        if not self.lists:
+            pass  # the embedding app publishes it
+        elif not sharing_files:
+            publish_mirror_listing(self.ledger.path, None, serving)
+        elif card is not None:
+            publish_mirror_listing(self.ledger.path, documents, serving)
+        self.listing_card = (
+            mirror_listing_card(self.ledger.path, mirror_key(self.ledger))
+            if sharing_files and card is not None
+            else None
+        )
+        own = (self.listing_card,) if self.listing_card is not None else ()
+        document = build_peers(card, (*own, *self.directory.gossip()))
         with self.ledger.root() as root:
             atomic_bytes(root, "peers.json", document)
-            if card is not None:
-                # Signed by the same key: lets catalog saves find files by hash.
-                # Optional, so a coverage problem never stops the card renewing.
-                with contextlib.suppress(PreservationError, OSError):
-                    atomic_bytes(
-                        root,
-                        "objects.json",
-                        issue_objects(
-                            mirror_key(self.ledger),
-                            served_hashes(self.ledger.path / "public"),
-                        ),
-                    )
-                # What this mirror keeps, by name, so Find can search it.
-                with contextlib.suppress(PreservationError, OSError):
-                    atomic_bytes(
-                        root,
-                        "holdings.json",
-                        issue_holdings(
-                            mirror_key(self.ledger),
-                            store_holdings(self.ledger.path / "public", serving),
-                        ),
-                    )
-                # The torrents it shares (Sovereign's own per-file ones and
-                # Pirate Face ones), so their swarms stay findable from mirrors.
-                with contextlib.suppress(PreservationError, OSError, ValueError):
-                    atomic_bytes(
-                        root,
-                        "torrents.json",
-                        issue_torrents(
-                            mirror_key(self.ledger),
-                            [
-                                *seeded(self.ledger.read(), serving),
-                                *listed(self.ledger, serving),
-                            ],
-                        ),
-                    )
+            for name, data in documents.items():
+                if data is not None:
+                    with contextlib.suppress(OSError):
+                        atomic_bytes(root, name, data)
         return card
 
     def round(self, serving: frozenset[str], control: OperationControl) -> bool:
@@ -235,7 +295,7 @@ class Announcer:
             seeds = seeds + self.rendezvous.lookup(seconds=20, control=control)
         else:
             self.close()
-        relays = DEFAULT_RELAYS if policy.nostr else ()
+        relays = relays_for(policy)
         if relays:
             self.directory.ingest(
                 find_cards(
@@ -270,8 +330,18 @@ class Announcer:
                 relays,
                 relay_policy,
                 control=control,
-                max_bytes=RELAY_PUBLISH_BYTES,
+                max_bytes=RELAY_PUBLISH_BYTES // 2,
             )
+            if self.listing_card is not None:
+                # Relays carry it to people who never reach this mirror.
+                publish_card(
+                    self.listing_card,
+                    self._nostr_key(),
+                    relays,
+                    relay_policy,
+                    control=control,
+                    max_bytes=RELAY_PUBLISH_BYTES // 2,
+                )
         return True
 
     def close(self) -> None:

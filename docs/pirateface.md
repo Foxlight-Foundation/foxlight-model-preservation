@@ -127,4 +127,4 @@ These limits describe this adapter only. The Library app separately offers
 Pirate Face search, swarm downloads and, inside **Help keep models available**,
 an off-by-default choice to share matching Pirate Face torrents from a mirror's
 stored files; see [Pirate Face as a source](sovereign-desktop.md#pirate-face-as-a-source)
-and [Mirrors seeding on Pirate Face](sovereign-desktop.md#mirrors-seeding-on-pirate-face).
+and [Mirrors sharing on Pirate Face](sovereign-desktop.md#mirrors-sharing-on-pirate-face).

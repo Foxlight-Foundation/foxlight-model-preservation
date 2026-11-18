@@ -263,3 +263,50 @@ def test_pirate_face_seeding_alone_is_a_serving_transport(
         run_mirror(ledger, public=True, seconds=1, control=stopped)
     except PreservationError as error:
         assert "at least one" not in str(error)
+
+
+def test_a_native_only_mirror_still_lists_the_files_it_shares(
+    tmp_path, capture, monkeypatch
+):
+    pytest.importorskip("libtorrent", reason="optional native BitTorrent extra")
+    from foxlight_model_preservation.sovereign_listing import (
+        current_listing,
+        listing_manifests,
+    )
+
+    ledger = local_mirror(tmp_path)
+    retain_local(ledger, capture.store, capture.identity, local_grant(capture))
+    configure_http(ledger, enabled=False)
+    configure(ledger, file_torrents=True)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("disabled HTTP transport attempted to create a listener")
+
+    # No BitTorrent session starts here: only the listing is under test.
+    monkeypatch.setattr("foxlight_model_preservation.mirror.MirrorServer", forbidden)
+    monkeypatch.setattr(
+        "foxlight_model_preservation.mirror.NativeMirrors.tick", lambda self: None
+    )
+    grant_restart(ledger, int(time.time()) + 600)
+    control = OperationControl()
+    failures: list[BaseException] = []
+
+    def run() -> None:
+        try:
+            run_mirror(ledger, resume=True, control=control)
+        except BaseException as error:  # noqa: BLE001 - reported below
+            failures.append(error)
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    try:
+        deadline = time.monotonic() + 30
+        while current_listing(ledger.path) is None and time.monotonic() < deadline:
+            time.sleep(0.05)
+    finally:
+        control.cancel()
+        thread.join(30)
+    assert not failures or isinstance(failures[0], OperationCancelled)
+    listing = current_listing(ledger.path)
+    assert listing is not None
+    assert capture.identity in listing_manifests(listing)
