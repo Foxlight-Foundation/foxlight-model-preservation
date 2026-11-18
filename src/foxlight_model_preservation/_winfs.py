@@ -131,6 +131,7 @@ STATUS_FILE_IS_A_DIRECTORY = 0xC00000BA
 STATUS_NOT_SUPPORTED = 0xC00000BB
 STATUS_DIRECTORY_NOT_EMPTY = 0xC0000101
 STATUS_NOT_A_DIRECTORY = 0xC0000103
+STATUS_NOT_SAME_DEVICE = 0xC00000D4
 STATUS_CANNOT_DELETE = 0xC0000121
 STATUS_NOT_A_REPARSE_POINT = 0xC0000275
 UNSUPPORTED = (
@@ -402,6 +403,7 @@ def _nt_error(status: int, name: str) -> OSError:
         STATUS_SHARING_VIOLATION: PermissionError(errno.EACCES, "In use", name),
         STATUS_CANNOT_DELETE: PermissionError(errno.EACCES, "Cannot delete", name),
         STATUS_OBJECT_NAME_INVALID: OSError(errno.EINVAL, "Invalid name", name),
+        STATUS_NOT_SAME_DEVICE: OSError(errno.EXDEV, "Another drive", name),
     }
     if status in known:
         return known[status]
