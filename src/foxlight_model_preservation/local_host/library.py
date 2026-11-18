@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import hashlib
 import os
-import shutil
 import stat
 import threading
 import time
@@ -421,14 +420,14 @@ def move_tree(
     store keeps sharing its files with the copy it came from. Symbolic links
     and special files are refused. The source is never changed here.
     """
-    if not shutil.rmtree.avoids_symlink_attacks:
+    if not safefs.TREE_REMOVAL_SAFE:
         raise PreservationError("safe_temporary_cleanup_unavailable")
     real_source = source.resolve()
     real_staging = staging.parent.resolve() / staging.name
     if real_staging == real_source or real_source in real_staging.parents:
         raise PreservationError("library_folder_inside_sovereign")
     if os.path.lexists(staging):
-        shutil.rmtree(staging)
+        safefs.remove_tree(staging)
     safefs.make_dir(staging)
     expected: dict[Path, str] = {}
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 import time
 from collections.abc import Iterator
 from importlib.resources import files
@@ -16,7 +17,6 @@ from typing import cast
 
 from pydantic import JsonValue
 from tuf.api.exceptions import DownloadError, DownloadHTTPError, RepositoryError
-from tuf.ngclient import Updater
 from tuf.ngclient.config import UpdaterConfig
 from tuf.ngclient.fetcher import FetcherInterface
 
@@ -33,6 +33,36 @@ from ..registry_proof import (
 from ..signing import digest, encode_record, strict_json
 from ..storage import atomic_bytes, directory, read_metadata
 from ..transfer import MirrorHTTPError, TransferPolicy, response
+from ..tuf_client import TufUpdater
+
+_ROOT_HISTORY = re.compile(r"root_history/[1-9][0-9]{0,15}\.root\.json")
+
+
+def _current_root(root: int) -> str:
+    """The ``root_history`` file ``root.json`` stands for: a link, or a copy."""
+    try:
+        name = safefs.readlink_at(root, "root.json")
+        if sys.platform == "win32":
+            name = name.replace("\\", "/")
+    except FileNotFoundError:
+        raise
+    except OSError:
+        if sys.platform != "win32":
+            raise
+        # A copy (see _Updater): its own version names the history file.
+        data = read_metadata(root, "root.json")
+        value = strict_json(data)
+        signed = value.get("signed") if isinstance(value, dict) else None
+        version = signed.get("version") if isinstance(signed, dict) else None
+        if type(version) is not int or version < 1:
+            raise PreservationError("unsafe TUF root history") from None
+        name = f"root_history/{version}.root.json"
+        if read_metadata(root, name) != data:
+            raise PreservationError("unsafe TUF root history") from None
+    if not _ROOT_HISTORY.fullmatch(name):
+        raise PreservationError("unsafe TUF root history")
+    return name
+
 
 REGISTRY_URL = "https://registry.foxlight.ai/"
 VIRTUAL_URL = "https://registry.sovereign.invalid/"
@@ -144,7 +174,7 @@ class RegistryCatalog:
                 atomic_bytes(root, "root.json", self.anchor)
         with directory(targets, create=True):
             pass
-        updater = Updater(
+        updater = TufUpdater(
             str(metadata),
             VIRTUAL_URL + "metadata/",
             str(targets),
@@ -160,11 +190,7 @@ class RegistryCatalog:
         raw = path.read_bytes()
         target.verify_length_and_hashes(raw)
         with directory(metadata) as root:
-            root_name = safefs.readlink_at(root, "root.json")
-            if not re.fullmatch(
-                r"root_history/[1-9][0-9]{0,15}\.root\.json", root_name
-            ):
-                raise PreservationError("unsafe TUF root history")
+            root_name = _current_root(root)
             current = strict_json(read_metadata(root, root_name))
             if not isinstance(current, dict) or not isinstance(current["signed"], dict):
                 raise PreservationError("invalid root")
@@ -211,7 +237,7 @@ class RegistryCatalog:
 
     @staticmethod
     def _download_licences(
-        updater: Updater, catalog: bytes, proof: RegistryProof
+        updater: TufUpdater, catalog: bytes, proof: RegistryProof
     ) -> bytes | None:
         """Fetch the signed card-licence target, or None when this head has none.
 
@@ -355,11 +381,7 @@ class RegistryCatalog:
                     name = role + ".json"
                     try:
                         if role == "root":
-                            name = safefs.readlink_at(root, name)
-                            if not re.fullmatch(
-                                r"root_history/[1-9][0-9]{0,15}\.root\.json", name
-                            ):
-                                raise PreservationError("unsafe TUF root history")
+                            name = _current_root(root)
                         value = strict_json(read_metadata(root, name))
                     except FileNotFoundError:
                         continue

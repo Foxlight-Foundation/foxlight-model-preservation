@@ -11,7 +11,6 @@ from __future__ import annotations
 import ipaddress
 import os
 import re
-import shutil
 import socket
 import stat
 import threading
@@ -576,7 +575,7 @@ class Sharing:
         """Remove one owned scratch tree; callers fence active publication jobs."""
         if not self.work_exists(identifier):
             return
-        if not shutil.rmtree.avoids_symlink_attacks:
+        if not safefs.TREE_REMOVAL_SAFE:
             raise PreservationError("safe_temporary_cleanup_unavailable")
         with directory(self._work_root(identifier)) as root:
             safefs.remove_tree_at(root, identifier)

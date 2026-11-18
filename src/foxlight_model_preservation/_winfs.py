@@ -54,6 +54,8 @@ __all__ = [
     "path_private",
     "private",
     "readlink_at",
+    "TREE_REMOVAL_SAFE",
+    "remove_tree",
     "remove_tree_at",
     "rename_at",
     "replace_at",
@@ -1014,6 +1016,13 @@ def stat_at(parent: int, name: str, *, follow: bool = False) -> os.stat_result:
     return os.stat_result(values[:10], extra)
 
 
+def _plain_path(value: str) -> str:
+    """``C:\\x`` rather than ``\\\\?\\C:\\x``; ``\\\\server\\share`` for UNC."""
+    if value.startswith("\\\\?\\UNC\\"):
+        return "\\\\" + value[8:]
+    return value.removeprefix("\\\\?\\")
+
+
 class _pinned_path:  # noqa: N801 - used as a context manager
     """The path of a pinned folder, for the rare call that needs one."""
 
@@ -1029,7 +1038,7 @@ class _pinned_path:  # noqa: N801 - used as a context manager
             if length == 0:
                 raise ctypes.WinError(ctypes.get_last_error())
             if length < size:
-                return Path(buffer.value)
+                return Path(_plain_path(buffer.value))
             size = length + 1
 
     def __exit__(self, *_exc: object) -> None:
@@ -1119,6 +1128,19 @@ def unlink_at(parent: int, name: str) -> None:
         _close(handle)
 
 
+def _await_gone(parent: int, name: str) -> None:
+    """Wait (bounded) until a deleted folder's name has left ``parent``.
+
+    Windows keeps a folder visible while another program (Defender, the
+    indexer) still has it open; POSIX callers expect it gone once removed.
+    """
+    deadline = time.monotonic() + 2.5 * RETRY_SECONDS
+    delay = 0.01
+    while name in list_dir(parent) and time.monotonic() < deadline:
+        time.sleep(delay)
+        delay = min(delay * 2, 0.2)
+
+
 def rmdir_at(parent: int, name: str) -> None:
     """Remove the empty folder ``name`` from ``parent``."""
     handle = _open_to_change(parent, name, DELETE, FILE_DIRECTORY_FILE)
@@ -1129,6 +1151,7 @@ def rmdir_at(parent: int, name: str) -> None:
         _delete(handle, name)
     finally:
         _close(handle)
+    _await_gone(parent, name)
 
 
 def replace_at(
@@ -1254,6 +1277,25 @@ def readlink_at(parent: int, name: str) -> str:
         _close(handle)
 
 
+# remove_tree never follows a link on Windows: every entry is opened as itself.
+TREE_REMOVAL_SAFE = True
+
+
+def remove_tree(path: Path | str) -> None:
+    """Remove the folder ``path`` and everything in it, never following a link.
+
+    A link at ``path`` itself is refused, as ``shutil.rmtree`` refuses it.
+    """
+    target = Path(path)
+    parent = open_dir(target.parent, follow=True)
+    try:
+        if stat.S_ISLNK(stat_at(parent, target.name).st_mode):
+            raise OSError(errno.ELOOP, "Cannot remove a tree through a link", str(path))
+        remove_tree_at(parent, target.name)
+    finally:
+        os.close(parent)
+
+
 def remove_tree_at(parent: int, name: str, *, ignore_errors: bool = False) -> None:
     """Remove the folder ``name`` inside ``parent`` and everything in it.
 
@@ -1288,6 +1330,7 @@ def _remove_tree(parent: int, name: str, *, ignore_errors: bool) -> None:
                 _delete(_handle(descriptor), name)
             finally:
                 os.close(descriptor)
+            _await_gone(parent, name)
         else:
             _delete(handle, name)  # a file or a link: removed, never followed
     finally:

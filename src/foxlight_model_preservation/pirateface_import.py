@@ -24,7 +24,7 @@ from .pmf import new_pmf_tree
 from .pmf_models import PMFManifest
 from .signing import encode_record
 from .storage import atomic_bytes, copy_verified_object, directory, manifest_path
-from .torrent_binding import torrent_engine
+from .torrent_binding import torrent_engine, torrent_path
 
 
 def _component(value: object) -> str:
@@ -120,7 +120,7 @@ def repository_inventory(
             raise PreservationError("torrent infohash differs from candidate")
         files = native.files()
         actual = {
-            files.file_path(i): files.file_size(i) for i in range(files.num_files())
+            torrent_path(files, i): files.file_size(i) for i in range(files.num_files())
         }
         if files.num_files() != len(entries) or actual != native_expected:
             raise PreservationError("native torrent path interpretation differs")

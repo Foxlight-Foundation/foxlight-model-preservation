@@ -6,11 +6,12 @@ model signers, changes original cards, or authorizes runtime execution.
 
 from __future__ import annotations
 
-from pathlib import Path
+import sys
+from pathlib import Path, PureWindowsPath
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import Field, JsonValue, model_validator
+from pydantic import Field, JsonValue, field_validator, model_validator
 
 from .models import Digest, Identifier, PreservationError, Record, TrustProfile
 from .signing import decode_base64, key_identity
@@ -34,14 +35,28 @@ class SourceBootstrap(Record):
     root: str = Field(min_length=1, max_length=MAX_ROOT_BYTES * 2)
     endpoints: tuple[str, ...] = Field(min_length=1, max_length=8)
 
+    @field_validator("endpoints", mode="after")
+    @classmethod
+    def portable_local_endpoints(cls, endpoints: tuple[str, ...]) -> tuple[str, ...]:
+        """Keep a Windows folder (``C:\\...``) the portable way (``C:/...``)."""
+        if sys.platform != "win32":
+            return endpoints
+        return tuple(
+            PureWindowsPath(value).as_posix()
+            if "://" not in value and PureWindowsPath(value).is_absolute()
+            else value
+            for value in endpoints
+        )
+
     @model_validator(mode="after")
     def bounded_endpoints(self) -> SourceBootstrap:
         """Bound replaceable hints; enrollment itself performs no network reads."""
-        if len(set(self.endpoints)) != len(self.endpoints) or any(
-            not value or len(value) > 2048 for value in self.endpoints
+        endpoints = self.endpoints
+        if len(set(endpoints)) != len(endpoints) or any(
+            not value or len(value) > 2048 for value in endpoints
         ):
             raise PreservationError("source endpoints must be unique bounded hints")
-        for value in self.endpoints:
+        for value in endpoints:
             if (
                 value != value.strip()
                 or "\\" in value

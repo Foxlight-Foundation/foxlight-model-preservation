@@ -1,5 +1,7 @@
 """Typed foreign boundary to the optional, maintained libtorrent binding."""
 
+import os
+import socket
 from collections.abc import Callable
 from importlib import import_module
 from typing import Protocol, cast
@@ -123,3 +125,41 @@ def torrent_engine() -> TorrentEngine:
             "this adapter requires the qualified libtorrent 2.0 line"
         )
     return engine
+
+
+def torrent_path(files: TorrentFiles, index: int) -> str:
+    """A torrent file's path with ``/`` separators, whatever the platform.
+
+    libtorrent reports paths with the platform's own separator (``\\`` on
+    Windows); signed selections and manifests always use ``/``.
+    """
+    return files.file_path(index).replace(os.sep, "/")
+
+
+def listen_interfaces(*hosts: str, port: int = 0) -> str:
+    """libtorrent ``listen_interfaces`` with one port on every interface.
+
+    libtorrent opens a socket per network adapter for ``0.0.0.0``; asked for
+    port 0, each adapter gets a different port, and ``listen_port()`` reports
+    only the first (on Windows, not even loopback). One free port chosen here
+    keeps the reported, mapped and announced port right on every adapter.
+    """
+    chosen = port or _free_port()
+    return ",".join(f"{host}:{chosen}" for host in hosts)
+
+
+def _free_port() -> int:
+    """A port free for both TCP and UDP (BitTorrent and uTP) right now."""
+    for _attempt in range(32):
+        # Probing on loopback is enough to find a free port; the probe never
+        # listens, and libtorrent opens the real sockets.
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as tcp:
+            tcp.bind(("127.0.0.1", 0))
+            port = int(tcp.getsockname()[1])
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
+                    udp.bind(("127.0.0.1", port))
+            except OSError:
+                continue
+            return port
+    raise PreservationError("no free port for BitTorrent")

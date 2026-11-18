@@ -9,6 +9,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from importlib.resources import files
 
 import pytest
+from platforms import i2p_runtime
 
 from foxlight_model_preservation.i2p_models import I2PRuntime
 from foxlight_model_preservation.i2p_runtime import (
@@ -20,6 +21,8 @@ from foxlight_model_preservation.i2p_runtime import (
 from foxlight_model_preservation.models import PreservationError
 from foxlight_model_preservation.operations import OperationControl
 from foxlight_model_preservation.signing import digest, encode_record
+
+pytestmark = i2p_runtime
 
 
 @contextmanager

@@ -8,6 +8,7 @@ from functools import partial
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from permissions import make_private
 from securesystemslib.signer import CryptoSigner
 from test_cli_catalog import command
 from test_discovery import Publisher, follow, mirror
@@ -257,7 +258,7 @@ def test_cli_publisher_uses_protected_role_keys(tmp_path, capture):
             serialization.NoEncryption(),
         )
     )
-    key.chmod(0o600)
+    make_private(key)
     root, catalog, trust = [
         tmp_path / name for name in ("root.json", "catalog.json", "catalog-trust.json")
     ]

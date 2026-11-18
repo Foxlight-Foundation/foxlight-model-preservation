@@ -65,7 +65,7 @@ from .signing import (
     verify_payload,
 )
 from .storage import atomic_bytes, directory, object_path
-from .torrent_binding import torrent_engine
+from .torrent_binding import listen_interfaces, torrent_engine
 from .transfer import TransferPolicy
 
 TORRENTS_TYPE = "application/vnd.sovereign.mirror-torrents.v1+json"
@@ -152,7 +152,10 @@ class PirateFaceSeeder:
         }
         self._session = engine.session(
             {
-                "listen_interfaces": "0.0.0.0:0,[::]:0",
+                "listen_interfaces": listen_interfaces(
+                    "0.0.0.0",  # noqa: S104 - the consented public swarm
+                    "[::]",
+                ),
                 "enable_dht": True,
                 "enable_lsd": False,
                 "enable_upnp": False,

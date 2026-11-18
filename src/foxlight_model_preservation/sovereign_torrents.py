@@ -48,7 +48,7 @@ from .sovereign_listing import (
     previous_listing,
 )
 from .storage import object_path
-from .torrent_binding import torrent_engine
+from .torrent_binding import listen_interfaces, torrent_engine
 
 if TYPE_CHECKING:
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -144,10 +144,11 @@ def build_torrent(
 ) -> FileTorrent:
     """Build one stored file's torrent by reading it in place.
 
-    The file is reached through a symbolic link named as the torrent says, so
-    nothing is copied. The link lives in ``scratch`` (default: the system's
-    temporary folder), which must be able to hold symbolic links even when the
-    store can't (an exFAT library drive). Reading reports its progress as
+    A stored object is already named as the torrent says (its SHA-256) and is
+    hashed where it is. Any other file is reached through a symbolic link with
+    that name, so nothing is copied; the link lives in ``scratch`` (default:
+    the system's temporary folder), which must be able to hold symbolic links
+    even when the store can't (an exFAT library drive). Reading reports its progress as
     hashed bytes and stops on cancellation.
     """
     active = control or OperationControl()
@@ -158,13 +159,21 @@ def build_torrent(
     files = engine.file_storage()
     files.add_file(name, size)
     creator = engine.create_torrent(files, length)  # default: hybrid v1 + v2
-    if scratch is None:
-        folder = Path(tempfile.mkdtemp(prefix="sovereign-torrent-"))
+    resolved = source.resolve()
+    if resolved.name == name:
+        # A stored object is already named by its SHA-256: hash it in place.
+        # (Windows lets only privileged accounts create symbolic links.)
+        folder, temporary = resolved.parent, None
+        if scratch is not None:
+            safefs.make_dir(scratch, parents=True, exist_ok=True)
+    elif scratch is None:
+        folder = temporary = Path(tempfile.mkdtemp(prefix="sovereign-torrent-"))
     else:
-        folder = scratch / ("build-" + secrets.token_hex(8))
+        folder = temporary = scratch / ("build-" + secrets.token_hex(8))
         safefs.make_dir(folder, parents=True)
     try:
-        os.symlink(source.resolve(), folder / name)
+        if temporary is not None:
+            os.symlink(resolved, folder / name)
         stopped: list[BaseException] = []
 
         def progress(_piece: int) -> None:
@@ -182,7 +191,8 @@ def build_torrent(
         active.checkpoint()
         data = bytes(engine.bencode(creator.generate()))
     finally:
-        shutil.rmtree(folder, ignore_errors=True)
+        if temporary is not None:
+            shutil.rmtree(temporary, ignore_errors=True)
     return read_torrent(data, sha256, size)
 
 
@@ -241,7 +251,10 @@ class FileSharer:
         self._earlier = 0
         self.session = engine.session(
             {
-                "listen_interfaces": "0.0.0.0:0,[::]:0",
+                "listen_interfaces": listen_interfaces(
+                    "0.0.0.0",  # noqa: S104 - the consented public swarm
+                    "[::]",
+                ),
                 "enable_dht": True,
                 "enable_lsd": False,
                 "enable_upnp": open_router,
@@ -739,7 +752,10 @@ class FileSwarmReceiver:
         safefs.make_dir(self.staging, parents=True, exist_ok=True)
         self._session = engine.session(
             {
-                "listen_interfaces": "0.0.0.0:0,[::]:0",
+                "listen_interfaces": listen_interfaces(
+                    "0.0.0.0",  # noqa: S104 - the consented public swarm
+                    "[::]",
+                ),
                 "enable_dht": True,
                 "enable_lsd": False,
                 "enable_upnp": False,

@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+- Windows port, step 1 (foxlight-docs#768): the core runs its own work on
+  Windows. Fixes found there, several of which affected every platform:
+  - BitTorrent listens on one chosen port on every network adapter. libtorrent
+    opens a socket per adapter and, asked for any port, gave each its own, so
+    the reported, router-mapped and recorded port was wrong for the others.
+  - python-tuf links `root.json` to the current root with a symbolic link,
+    which Windows lets only privileged accounts create; catalog and discovery
+    refreshes keep a copy there instead, and the catalog reads either form.
+  - File torrents hash stored objects in place rather than through a symbolic
+    link in scratch.
+  - libtorrent file paths are compared with `/` separators on every platform.
+  - Kept listing copies are no longer named with the key's `:` (a hidden data
+    stream on Windows); older copies are pruned.
+  - Local discovery endpoints given as Windows folders are kept as `C:/...`.
+  - Removing scratch trees, saved copies and moved library folders uses the
+    storage seam's link-safe removal (`safefs.remove_tree`), since
+    `shutil.rmtree` resists links only on POSIX; a removed folder is gone
+    before removal returns.
+  - The storage seam takes one plain name per call on every platform, so a
+    link in a middle folder can't be followed; the one caller that passed a
+    path now walks to it.
+  - The library view reads a move's state as a snapshot, so a finished move
+    never reports a copy as still elsewhere.
+  - Tests: owner-only and shared access through a cross-platform helper, and
+    platform-only suites (Linux and macOS packaging, the Docker entrypoint,
+    the managed peer and I2P runtimes) skip on Windows with a reason.
 - Windows side of the storage seam (foxlight-docs#768). On Windows, `safefs`
   opens every path inside a store one component at a time with `NtCreateFile`
   relative to a pinned folder handle, opening any link (symbolic link,

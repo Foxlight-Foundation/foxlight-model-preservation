@@ -4,6 +4,7 @@ import hashlib
 import http.client
 import os
 import socket
+import sys
 import threading
 import time
 from contextlib import contextmanager
@@ -32,7 +33,9 @@ def slow_peer(capture, tmp_path, *, size=512 * 1024):
             super().setup()
             self.request.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 8192)
             # Scale the real 30-second policy down for a deterministic fast test.
-            self.request.settimeout(0.25)
+            # Windows loopback drains 8 KiB buffers more slowly; the whole
+            # object still takes far longer than one timeout.
+            self.request.settimeout(1.0 if sys.platform == "win32" else 0.25)
 
     class ControlledSeed(SeedServer):
         finished_at: float | None = None

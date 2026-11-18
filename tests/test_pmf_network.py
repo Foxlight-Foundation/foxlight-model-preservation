@@ -16,6 +16,7 @@ from conftest import Capture
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from test_peer_native import native_binary  # noqa: F401 - shared fixture
 
+from foxlight_model_preservation import safefs
 from foxlight_model_preservation.archives import verify_archive
 from foxlight_model_preservation.mirror import model_action, run_mirror
 from foxlight_model_preservation.mirror_intake import retain_local
@@ -96,7 +97,7 @@ def grant(trust: TrustProfile) -> SourceGrant:
 
 def stored_files(root: Path) -> dict[str, bytes]:
     return {
-        str(path.relative_to(root)): path.read_bytes()
+        path.relative_to(root).as_posix(): path.read_bytes()
         for path in sorted(root.rglob("*"))
         if path.is_file()
     }
@@ -476,7 +477,7 @@ def test_mirror_intake_can_share_immutable_objects_instead_of_copying(
     def refuse(*_args: object, **_kwargs: object) -> None:
         raise OSError("cross-device link")
 
-    monkeypatch.setattr(os, "link", refuse)
+    monkeypatch.setattr(safefs, "link_at", refuse)
     copied = mirror_ledger(tmp_path / "copied")
     retain_local(
         copied,
@@ -506,8 +507,8 @@ def test_linked_pmf_admission_needs_space_only_for_documents(
     )
     target = tmp_path / "target"
     target.mkdir()
-    source = os.open(public_pmf.store, os.O_RDONLY | os.O_DIRECTORY)
-    destination = os.open(target, os.O_RDONLY | os.O_DIRECTORY)
+    source = safefs.open_dir(public_pmf.store)
+    destination = safefs.open_dir(target)
     try:
         with pytest.raises(PreservationError, match="insufficient space"):
             pmf_module.check_pmf_space(destination, public_pmf.manifest)
@@ -537,8 +538,8 @@ def test_cancelled_linked_copy_leaves_no_pending_link(
     file = public_pmf.manifest.members[0].files[0]
     target = tmp_path / "target"
     target.mkdir()
-    source = os.open(public_pmf.store, os.O_RDONLY | os.O_DIRECTORY)
-    destination = os.open(target, os.O_RDONLY | os.O_DIRECTORY)
+    source = safefs.open_dir(public_pmf.store)
+    destination = safefs.open_dir(target)
     try:
         with pytest.raises(OperationCancelled):
             copy_verified_object(

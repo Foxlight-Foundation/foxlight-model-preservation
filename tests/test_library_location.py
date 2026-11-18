@@ -6,6 +6,7 @@ import time
 import pytest
 from test_local_owner import finish, submit
 
+from foxlight_model_preservation import safefs
 from foxlight_model_preservation.kits import export_kit
 from foxlight_model_preservation.local_host.library import (
     MARKER,
@@ -44,7 +45,7 @@ def test_chosen_folder_is_created_marked_and_used(tmp_path):
     view = library.setup(review["review_id"])
     folder = drive / "Sovereign Library"
     assert view["path"] == str(folder) and view["available"] and view["private"]
-    assert os.stat(folder).st_mode & 0o777 == 0o700
+    assert safefs.path_private(folder) and safefs.path_owned(folder)
     marker = LibraryMarker.model_validate_json((folder / MARKER).read_bytes())
     assert marker.owner_id == library.owner_id()
     assert library.root() == folder

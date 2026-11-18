@@ -12,7 +12,6 @@ import contextlib
 import http.client
 import os
 import re
-import shutil
 import stat
 import threading
 import time
@@ -395,6 +394,10 @@ class LocalOwner:
         return self.library.find("copies/" + copy_id)
 
     def _library_view(self) -> dict[str, JsonValue]:
+        # The move's state first: a move seen as finished has already removed
+        # what it moved, so the scan below can't count it as still elsewhere.
+        with self._lock:
+            move = None if self._move is None else dict(self._move)
         view = self.library.view()
         elsewhere: list[tuple[str, Path]] = []
         if view["available"]:
@@ -415,7 +418,7 @@ class LocalOwner:
                 for copy in self._journal.copies
                 if copy.copy_id in moved
             ),
-            "move": self._move,
+            "move": move,
         }
 
     def _elsewhere(self) -> list[tuple[str, Path]]:
@@ -608,7 +611,7 @@ class LocalOwner:
                             links[key] = target / value.relative_to(staging)
                 except BaseException:
                     with contextlib.suppress(OSError):
-                        shutil.rmtree(staging)
+                        safefs.remove_tree(staging)
                     raise
                 finally:
                     if pool:
@@ -616,7 +619,7 @@ class LocalOwner:
                             self._community_hold = False
                         self._community_wake.set()
                 # The new copy is found first from now on; the old one goes.
-                shutil.rmtree(source)
+                safefs.remove_tree(source)
                 with self._lock:
                     if self._move is not None:
                         self._move["items_done"] = (
@@ -1097,9 +1100,9 @@ class LocalOwner:
                     if (
                         work.is_dir()
                         and not work.is_symlink()
-                        and shutil.rmtree.avoids_symlink_attacks
+                        and safefs.TREE_REMOVAL_SAFE
                     ):
-                        shutil.rmtree(work)
+                        safefs.remove_tree(work)
 
     def _remove_job_files(self, job: Job) -> None:
         """Delete the files only this finished entry uses; keep everything else."""
@@ -1121,9 +1124,9 @@ class LocalOwner:
                     if (
                         partial.is_dir()
                         and not partial.is_symlink()
-                        and shutil.rmtree.avoids_symlink_attacks
+                        and safefs.TREE_REMOVAL_SAFE
                     ):
-                        shutil.rmtree(partial)
+                        safefs.remove_tree(partial)
         if job.kind == "publish":
             with contextlib.suppress(OSError, PreservationError):
                 self.sharing.remove_work(job.job_id)
@@ -1160,11 +1163,11 @@ class LocalOwner:
             # Its drive is unplugged (or the store is gone): keep the entry so
             # removal can finish once the drive is back.
             raise PreservationError("library_storage_unavailable")
-        if not shutil.rmtree.avoids_symlink_attacks:
+        if not safefs.TREE_REMOVAL_SAFE:
             raise PreservationError("safe_temporary_cleanup_unavailable")
         # Files first: if deleting fails part way, the entry stays and
         # removing it again finishes the job.
-        shutil.rmtree(store)
+        safefs.remove_tree(store)
         self._journal = self._journal.model_copy(
             update={
                 "copies": tuple(

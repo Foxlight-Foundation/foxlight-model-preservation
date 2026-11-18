@@ -11,6 +11,9 @@ import zipfile
 from pathlib import Path
 
 import pytest
+from platforms import macos_only
+
+pytestmark = macos_only
 
 
 def script(name):

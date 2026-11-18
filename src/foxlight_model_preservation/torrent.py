@@ -46,7 +46,13 @@ from .storage import (
     read_metadata,
     writer_lock,
 )
-from .torrent_binding import TorrentHandle, TorrentSession, torrent_engine
+from .torrent_binding import (
+    TorrentHandle,
+    TorrentSession,
+    listen_interfaces,
+    torrent_engine,
+    torrent_path,
+)
 
 
 @final
@@ -306,7 +312,7 @@ class TorrentSeeder:
         if (
             files.num_files() != len(inventory)
             or {
-                files.file_path(index): files.file_size(index)
+                torrent_path(files, index): files.file_size(index)
                 for index in range(files.num_files())
             }
             != inventory
@@ -328,7 +334,9 @@ class TorrentSeeder:
         active.checkpoint()
         session = engine.session(
             {
-                "listen_interfaces": f"{address}:{policy.listen_port}",
+                "listen_interfaces": listen_interfaces(
+                    address, port=policy.listen_port
+                ),
                 "enable_dht": policy.public_swarm,
                 "enable_lsd": False,
                 "enable_upnp": False,

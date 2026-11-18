@@ -15,6 +15,7 @@ import pytest
 from conftest import Capture
 
 from foxlight_model_preservation import bucket as module
+from foxlight_model_preservation import safefs
 from foxlight_model_preservation.bucket import (
     EMPTY_SHA256,
     RETRY_ATTEMPTS,
@@ -418,7 +419,7 @@ def test_a_multipart_upload_that_does_not_hash_to_its_identity_is_aborted(
     file = verify_store(capture.store, capture.identity, capture.trust).members[0]
     item = file.files[0]
     with bucket() as (server, client):
-        root = os.open(capture.store, os.O_RDONLY | os.O_DIRECTORY)
+        root = safefs.open_dir(capture.store)
         try:
             with pytest.raises(PreservationError, match="changed"):
                 client._multipart(  # noqa: SLF001 - the changed-bytes path

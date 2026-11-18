@@ -21,6 +21,7 @@ from pathlib import Path
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from platforms import posix_shell
 
 from foxlight_model_preservation import mirror_intake as intake_module
 from foxlight_model_preservation import starter as starter_module
@@ -983,6 +984,7 @@ def test_committed_starter_plan_and_recipes_are_pinned_with_notices():
         assert name in excluded
 
 
+@posix_shell
 def test_container_opts_into_the_starter_list(tmp_path):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -1171,6 +1173,7 @@ def test_known_licence_policy_admits_gated_terms_from_the_base_only():
         resolve(_card("my-own-terms"), None, "known")
 
 
+@posix_shell
 def test_container_passes_accepted_starter_terms(tmp_path):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -1278,6 +1281,7 @@ def test_default_import_excludes_mlx_and_gguf_mlx_includes_it(tmp_path, mlx_coll
     assert mlx_collection.entries["chat-mlx"].manifest in ledger.read().models
 
 
+@posix_shell
 def test_cli_formats_flag_and_container_env(tmp_path, mlx_collection):
     ledger = mirror(tmp_path)
     data, list_id = mlx_collection.signed(
@@ -1452,6 +1456,7 @@ def test_rerun_with_unchanged_acceptance_succeeds_without_downloading(
         )
 
 
+@posix_shell
 def test_container_restarts_cleanly_with_the_same_accepted_terms(
     tmp_path, gated_collection
 ):
@@ -1674,6 +1679,7 @@ def test_keep_going_reports_an_unavailable_bundle_and_imports_the_rest(
         )
 
 
+@posix_shell
 def test_container_serves_what_it_holds_when_one_bundle_is_unavailable(
     tmp_path, collection
 ):

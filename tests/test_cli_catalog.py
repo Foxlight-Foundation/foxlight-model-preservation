@@ -1,14 +1,15 @@
 """Portable signed bootstrap lists and the installed command surface."""
 
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 from conftest import Capture
+from permissions import make_shared
 
+from foxlight_model_preservation import safefs
 from foxlight_model_preservation.models import Catalog, CatalogEntry, PreservationError
 from foxlight_model_preservation.signing import (
     CATALOG_TYPE,
@@ -86,11 +87,11 @@ def test_cli_keygen_protection_and_no_overwrite(tmp_path: Path) -> None:
     first = command(*args)
     assert first.returncode == 0, first.stderr
     assert b"ENCRYPTED PRIVATE KEY" in key.read_bytes()
-    assert key.stat().st_mode & 0o077 == 0
+    assert safefs.path_private(key)
     before = key.read_bytes()
     assert command(*args).returncode == 1
     assert key.read_bytes() == before
-    os.chmod(key, 0o644)
+    make_shared(key)
     from foxlight_model_preservation.signing import load_key
 
     with pytest.raises(PreservationError, match="group/world"):

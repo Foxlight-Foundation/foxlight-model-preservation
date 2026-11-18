@@ -6,6 +6,7 @@ import sys
 
 assert sys.platform != "win32"  # noqa: S101 - imported only on POSIX
 
+import errno
 import fcntl
 import os
 import shutil
@@ -28,6 +29,8 @@ __all__ = [
     "path_private",
     "private",
     "readlink_at",
+    "TREE_REMOVAL_SAFE",
+    "remove_tree",
     "remove_tree_at",
     "rename_at",
     "replace_at",
@@ -40,6 +43,15 @@ __all__ = [
 ]
 
 PRIVATE_DIRECTORY = 0o700
+
+
+def _one(name: str) -> str:
+    """One plain component, as on Windows: never a path or the folder itself."""
+    if not name or name in {".", ".."} or "/" in name or "\0" in name:
+        raise OSError(errno.EINVAL, "Invalid name", name)
+    return name
+
+
 PRIVATE_FILE = 0o600
 
 
@@ -53,7 +65,9 @@ def open_dir(path: Path | str, *, follow: bool = False) -> int:
 
 def open_dir_at(parent: int, name: str) -> int:
     """Pin the directory ``name`` inside ``parent``, never through a symlink."""
-    return os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+    return os.open(
+        _one(name), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent
+    )
 
 
 def make_dir(
@@ -65,7 +79,7 @@ def make_dir(
 
 def mkdir_at(parent: int, name: str, mode: int = PRIVATE_DIRECTORY) -> None:
     """Create the folder ``name`` inside ``parent`` (private unless ``mode`` says)."""
-    os.mkdir(name, mode=mode, dir_fd=parent)
+    os.mkdir(_one(name), mode=mode, dir_fd=parent)
 
 
 def list_dir(handle: int) -> list[str]:
@@ -75,7 +89,7 @@ def list_dir(handle: int) -> list[str]:
 
 def open_at(parent: int, name: str, flags: int, mode: int = PRIVATE_FILE) -> int:
     """Open ``name`` inside ``parent`` with ``os.O_*`` flags, never via a symlink."""
-    return os.open(name, flags | os.O_NOFOLLOW, mode, dir_fd=parent)
+    return os.open(_one(name), flags | os.O_NOFOLLOW, mode, dir_fd=parent)
 
 
 def open_path(path: Path | str, flags: int, mode: int = PRIVATE_FILE) -> int:
@@ -85,7 +99,7 @@ def open_path(path: Path | str, flags: int, mode: int = PRIVATE_FILE) -> int:
 
 def sync_at(parent: int, name: str) -> None:
     """Make the data of the file ``name`` inside ``parent`` durable."""
-    descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent)
+    descriptor = os.open(_one(name), os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent)
     try:
         os.fsync(descriptor)
     finally:
@@ -99,36 +113,40 @@ def free_bytes(where: int | Path | str) -> int:
 
 def stat_at(parent: int, name: str, *, follow: bool = False) -> os.stat_result:
     """Stat ``name`` inside ``parent``; a symlink is described, not followed."""
-    return os.stat(name, dir_fd=parent, follow_symlinks=follow)
+    return os.stat(_one(name), dir_fd=parent, follow_symlinks=follow)
 
 
 def unlink_at(parent: int, name: str) -> None:
     """Remove the file (or symlink) ``name`` from ``parent``."""
-    os.unlink(name, dir_fd=parent)
+    os.unlink(_one(name), dir_fd=parent)
 
 
 def rmdir_at(parent: int, name: str) -> None:
     """Remove the empty folder ``name`` from ``parent``."""
-    os.rmdir(name, dir_fd=parent)
+    os.rmdir(_one(name), dir_fd=parent)
 
 
 def rename_at(source_parent: int, source: str, target_parent: int, target: str) -> None:
     """Rename between pinned directories (``os.rename`` semantics)."""
-    os.rename(source, target, src_dir_fd=source_parent, dst_dir_fd=target_parent)
+    os.rename(
+        _one(source), _one(target), src_dir_fd=source_parent, dst_dir_fd=target_parent
+    )
 
 
 def replace_at(
     source_parent: int, source: str, target_parent: int, target: str
 ) -> None:
     """Rename between pinned directories, atomically replacing ``target``."""
-    os.replace(source, target, src_dir_fd=source_parent, dst_dir_fd=target_parent)
+    os.replace(
+        _one(source), _one(target), src_dir_fd=source_parent, dst_dir_fd=target_parent
+    )
 
 
 def link_at(source_parent: int, source: str, target_parent: int, target: str) -> None:
     """Hard-link ``source`` as ``target``; a symlink is linked, never followed."""
     os.link(
-        source,
-        target,
+        _one(source),
+        _one(target),
         src_dir_fd=source_parent,
         dst_dir_fd=target_parent,
         follow_symlinks=False,
@@ -145,12 +163,22 @@ def remove_tree_at(parent: int, name: str, *, ignore_errors: bool = False) -> No
 
     Links inside are removed, never followed.
     """
-    shutil.rmtree(name, dir_fd=parent, ignore_errors=ignore_errors)
+    shutil.rmtree(_one(name), dir_fd=parent, ignore_errors=ignore_errors)
+
+
+# Whether remove_tree can't be steered out of the tree by a link (fd-based
+# rmtree); systems without it refuse removals that need it.
+TREE_REMOVAL_SAFE: bool = shutil.rmtree.avoids_symlink_attacks
+
+
+def remove_tree(path: Path | str) -> None:
+    """Remove the folder ``path`` and everything in it, never following a link."""
+    shutil.rmtree(path)
 
 
 def readlink_at(parent: int, name: str) -> str:
     """The target of the symlink ``name`` inside ``parent``."""
-    return os.readlink(name, dir_fd=parent)
+    return os.readlink(_one(name), dir_fd=parent)
 
 
 def lock(handle: int, *, wait: bool = False) -> None:

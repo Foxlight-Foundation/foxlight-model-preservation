@@ -143,6 +143,14 @@ _LOCKS: dict[Path, threading.Lock] = {}
 _LOCKS_GUARD = threading.Lock()
 
 
+def _listing_folder(key_id: str) -> str:
+    """The folder a listing's copy is kept in: its key without the ``:``.
+
+    Key IDs read ``ed25519:<hex>``; ``:`` names a hidden stream on Windows.
+    """
+    return key_id.replace(":", "-")
+
+
 class SeenMirror(Record):
     """One mirror card and this client's own experience with that mirror."""
 
@@ -1291,7 +1299,7 @@ class MirrorDirectory:
         due: list[tuple[int, ListingCard]] = []
         for raw in self.listing_cards(now=instant):
             card = verify_listing_card(raw, now=instant)
-            read_at = self._listing_read_at(card.mirror_key.key_id)
+            read_at = self._listing_read_at(_listing_folder(card.mirror_key.key_id))
             tried = self._tried.get(card.mirror_key.key_id, -(10**12))
             last = max(read_at, tried)
             if instant - last >= LISTING_REREAD_SECONDS:
@@ -1299,9 +1307,9 @@ class MirrorDirectory:
         due.sort(key=lambda item: item[0])
         return [card for _last, card in due[:limit]]
 
-    def _listing_read_at(self, key_id: str) -> int:
+    def _listing_read_at(self, folder: str) -> int:
         try:
-            with directory(self.path / "listing-copies" / key_id) as root:
+            with directory(self.path / "listing-copies" / folder) as root:
                 return int(read_metadata(root, "read-at").decode())
         except (OSError, ValueError, PreservationError):
             return -(10**12)
@@ -1340,6 +1348,7 @@ class MirrorDirectory:
                 if _manifest_identity(data) == manifest_id:
                     kept[name] = data
         key_id = card.mirror_key.key_id
+        folder = _listing_folder(key_id)
         base = self.path / "listing-copies"
         with self._exclusive():
             safefs.make_dir(base, parents=True, exist_ok=True)
@@ -1350,8 +1359,8 @@ class MirrorDirectory:
                     safefs.make_dir(target.parent, parents=True, exist_ok=True)
                     target.write_bytes(data)
                 (build / "read-at").write_bytes(str(instant).encode())
-                shutil.rmtree(base / key_id, ignore_errors=True)
-                os.replace(build, base / key_id)
+                shutil.rmtree(base / folder, ignore_errors=True)
+                os.replace(build, base / folder)
             finally:
                 shutil.rmtree(build, ignore_errors=True)
             self._prune_listing_copies(base, instant)
@@ -1362,7 +1371,7 @@ class MirrorDirectory:
         """Drop copies of listings whose card lapsed, then the least recently
         read ones until the rest fit the budget."""
         live = {
-            verify_listing_card(raw, now=instant).mirror_key.key_id
+            _listing_folder(verify_listing_card(raw, now=instant).mirror_key.key_id)
             for raw in self.listing_cards(now=instant)
         }
         sizes: list[tuple[int, int, Path]] = []
@@ -1389,7 +1398,9 @@ class MirrorDirectory:
         """Each live listing card's kept listing, with its verified holdings."""
         for raw in self.listing_cards(now=instant):
             card = verify_listing_card(raw, now=instant)
-            folder = self.path / "listing-copies" / card.mirror_key.key_id
+            folder = (
+                self.path / "listing-copies" / _listing_folder(card.mirror_key.key_id)
+            )
             try:
                 with directory(folder) as root:
                     data = read_metadata(root, "holdings.json")

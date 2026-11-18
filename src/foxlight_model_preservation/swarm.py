@@ -22,7 +22,7 @@ from .models import PreservationError
 from .operations import OperationControl
 from .pirateface_find import SwarmTorrent
 from .storage import CHUNK_SIZE
-from .torrent_binding import torrent_engine
+from .torrent_binding import listen_interfaces, torrent_engine
 
 # A swarm that delivers nothing for this long is given up for this file.
 STALL_SECONDS = 180
@@ -110,7 +110,10 @@ class SwarmReceiver:
             }
             if self._settings is not None
             else {
-                "listen_interfaces": "0.0.0.0:0,[::]:0",
+                "listen_interfaces": listen_interfaces(
+                    "0.0.0.0",  # noqa: S104 - the consented public swarm
+                    "[::]",
+                ),
                 "enable_dht": True,
                 "enable_lsd": False,
                 "enable_upnp": False,

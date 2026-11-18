@@ -26,7 +26,7 @@ def stuck_drive(monkeypatch):
         release.wait(30)
         return real(path)
 
-    monkeypatch.setattr(library_module.shutil, "disk_usage", disk_usage)
+    monkeypatch.setattr(shutil, "disk_usage", disk_usage)
     monkeypatch.setattr(library_module, "PROBE_SECONDS", 0.2)
     monkeypatch.setattr(library_module, "_probing", {})
     monkeypatch.setattr(library_module, "_probed", {})
@@ -103,7 +103,7 @@ def test_a_space_check_waits_for_a_probe_already_in_flight(
         release.wait(10)
         return shutil._ntuple_diskusage(1000, 999, 1)
 
-    monkeypatch.setattr(library_module.shutil, "disk_usage", slow)
+    monkeypatch.setattr(shutil, "disk_usage", slow)
     background = threading.Thread(target=library_module.free_space, args=(tmp_path, 5))
     background.start()
     assert entered.wait(5)

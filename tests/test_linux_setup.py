@@ -11,6 +11,9 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
+from platforms import linux_only
+
+pytestmark = linux_only
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location(
