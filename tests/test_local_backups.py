@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 
 import pytest
+from permissions import access, make_private, make_shared
 from test_local_owner import finish, submit
 
 from foxlight_model_preservation.kits import export_kit, verify_kit
@@ -140,9 +141,11 @@ def test_backup_review_never_creates_missing_mount_or_changes_permissions(tmp_pa
         assert not (tmp_path / "not-mounted").exists()
         shared = tmp_path / "shared"
         shared.mkdir(mode=0o755)
+        make_shared(shared)
+        before = access(shared)
         with pytest.raises(PreservationError, match="empty_private"):
             owner.control("backup-review", {"path": str(shared), "label": "Shared"})
-        assert shared.stat().st_mode & 0o777 == 0o755
+        assert access(shared) == before
     finally:
         owner.close()
 
@@ -183,6 +186,7 @@ def test_existing_destination_space_comes_from_that_drive_not_parent(
 
     folder = tmp_path / "drive"
     folder.mkdir(mode=0o700)
+    make_private(folder)
     owner = tmp_path / "owner"
     owner.mkdir(mode=0o700)
     target_inode = folder.stat().st_ino

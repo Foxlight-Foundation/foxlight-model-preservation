@@ -6,6 +6,7 @@ import http.server
 import os
 import re
 import socket
+import sys
 import threading
 import time
 from collections.abc import Callable
@@ -1379,6 +1380,7 @@ class MirrorServer(SeedServer):
                     connection.shutdown(socket.SHUT_RDWR)
                 except OSError:
                     pass
+                _cancel_blocked_io(connection)
 
     def handle_error(
         self,
@@ -1485,6 +1487,21 @@ class UploadNotices:
                 ),
             }
         )
+
+
+def _cancel_blocked_io(connection: socket.socket) -> None:
+    """Wake a worker blocked reading ``connection`` (Windows only).
+
+    POSIX ``shutdown`` returns a blocked ``recv`` in another thread; Windows
+    does not, so its pending I/O on the socket is cancelled too.
+    """
+    if sys.platform != "win32":
+        return
+    import ctypes  # noqa: PLC0415
+
+    handle = connection.fileno()
+    if handle >= 0:
+        ctypes.windll.kernel32.CancelIoEx(ctypes.c_void_p(handle), None)
 
 
 def run_mirror(
