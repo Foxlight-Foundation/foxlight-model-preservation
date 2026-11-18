@@ -472,7 +472,7 @@ def copy_verified_object(
             not moved and link and _link_object(source, source_path, target, pending)
         )
         placed = moved or linked
-        if not placed and shutil.disk_usage(target).free < file.size + 16 * CHUNK_SIZE:
+        if not placed and safefs.free_bytes(target) < file.size + 16 * CHUNK_SIZE:
             raise PreservationError("destination has insufficient free space")
         control.phase("copying")
         if not placed:

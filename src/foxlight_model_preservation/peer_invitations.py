@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import stat
 from pathlib import Path
 from typing import Literal
@@ -224,7 +223,7 @@ def _fetch_peer_invitation(
             except FileNotFoundError:
                 pass
         if (
-            shutil.disk_usage(target).free
+            safefs.free_bytes(target)
             < sum(file.size for file in missing) + 16 * CHUNK_SIZE
         ):
             raise PreservationError("destination has insufficient free space")

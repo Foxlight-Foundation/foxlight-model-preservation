@@ -6,7 +6,6 @@ import hashlib
 import http.client
 import os
 import platform
-import shutil
 import stat
 import tarfile
 import tempfile
@@ -258,7 +257,7 @@ def install_runtime(
         if existing is not None:
             return existing
         if (
-            shutil.disk_usage(root).free
+            safefs.free_bytes(root)
             < plan.artifact.archive_bytes
             + plan.artifact.executable_bytes
             + 16 * 1024**2

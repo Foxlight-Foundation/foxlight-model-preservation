@@ -30,6 +30,7 @@ __all__ = [
     "rename_at",
     "replace_at",
     "rmdir_at",
+    "free_bytes",
     "stat_at",
     "sync_at",
     "unlink_at",
@@ -87,6 +88,11 @@ def sync_at(parent: int, name: str) -> None:
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
+
+
+def free_bytes(where: int | Path | str) -> int:
+    """Free space on the drive holding a pinned folder (handle) or a path."""
+    return shutil.disk_usage(where).free
 
 
 def stat_at(parent: int, name: str, *, follow: bool = False) -> os.stat_result:

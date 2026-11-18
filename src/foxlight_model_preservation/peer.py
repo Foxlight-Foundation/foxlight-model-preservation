@@ -355,7 +355,7 @@ def publish_peer_model(
             if name.startswith("stage-"):
                 safefs.remove_tree_at(area, name)
         if (
-            shutil.disk_usage(area).free
+            safefs.free_bytes(area)
             < sum(file.size for file in files) + len(envelope) + 16 * CHUNK_SIZE
         ):
             raise PreservationError("store volume has insufficient free space")
@@ -410,7 +410,7 @@ def _stage_peer_objects(
             target, files, client.control, include_partials=True
         )
         additional = sum(file.size for file in missing) - partial
-        if missing and shutil.disk_usage(target).free < additional + 16 * CHUNK_SIZE:
+        if missing and safefs.free_bytes(target) < additional + 16 * CHUNK_SIZE:
             raise PreservationError("destination has insufficient free space")
         client.control.phase("downloading")
         for file in missing:

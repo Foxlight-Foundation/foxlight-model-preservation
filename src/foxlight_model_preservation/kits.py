@@ -228,7 +228,7 @@ def export_kit(
             + len(envelope)
             + sum(file.size for file in archive_objects(manifest))
         )
-        if shutil.disk_usage(parent).free < required + 16 * CHUNK_SIZE:
+        if safefs.free_bytes(parent) < required + 16 * CHUNK_SIZE:
             raise PreservationError("insufficient space for recovery kit")
         pending = ".kit-" + uuid.uuid4().hex
         try:
@@ -335,7 +335,7 @@ def import_kit(
             trust = info.trust
         _ = verify_archive_manifest(envelope, trust, expected_manifest_id)
         if (
-            shutil.disk_usage(parent).free
+            safefs.free_bytes(parent)
             < sum(file.size for file in archive_objects(info.manifest))
             + 16 * CHUNK_SIZE
         ):

@@ -114,7 +114,7 @@ def free_space(
 
             def run() -> None:
                 try:
-                    value: int | None = shutil.disk_usage(path).free
+                    value: int | None = safefs.free_bytes(path)
                 except OSError:
                     value = None
                 with _probe_lock:
@@ -296,11 +296,11 @@ class Library:
                 reattach = True
             elif entries:
                 raise PreservationError("library_folder_not_empty")
-            free = shutil.disk_usage(chosen).free
+            free = safefs.free_bytes(chosen)
         else:
             if not safefs.path_owned(parent) and not os.access(parent, os.W_OK):
                 raise PreservationError("library_folder_not_yours")
-            free = shutil.disk_usage(parent).free
+            free = safefs.free_bytes(parent)
         value: dict[str, JsonValue] = {
             "path": str(chosen),
             "exists": info is not None,
