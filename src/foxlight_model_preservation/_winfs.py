@@ -56,6 +56,7 @@ __all__ = [
     "rmdir_at",
     "stat_at",
     "unlink_at",
+    "unlock",
 ]
 
 ntdll = ctypes.WinDLL("ntdll")
@@ -299,6 +300,12 @@ advapi32.OpenProcessToken.argtypes = (
     wintypes.HANDLE,
     wintypes.DWORD,
     ctypes.POINTER(wintypes.HANDLE),
+)
+advapi32.SetTokenInformation.argtypes = (
+    wintypes.HANDLE,
+    ctypes.c_int,
+    ctypes.c_void_p,
+    wintypes.DWORD,
 )
 advapi32.GetTokenInformation.argtypes = (
     wintypes.HANDLE,
@@ -569,6 +576,35 @@ def _user_sid() -> str:
         _close(token.value or 0)
 
 
+def _own_new_objects() -> None:
+    """Make this user the default owner of everything the process creates.
+
+    An elevated process otherwise creates files owned by Administrators; on
+    POSIX what you create is yours, and the stores' checks expect that.
+    """
+    token = wintypes.HANDLE()
+    # TOKEN_QUERY | TOKEN_ADJUST_DEFAULT
+    if not advapi32.OpenProcessToken(
+        kernel32.GetCurrentProcess(), 0x0008 | 0x0080, ctypes.byref(token)
+    ):
+        return
+    try:
+        needed = wintypes.DWORD()
+        advapi32.GetTokenInformation(token, 1, None, 0, ctypes.byref(needed))
+        buffer = ctypes.create_string_buffer(needed.value)
+        if not advapi32.GetTokenInformation(
+            token, 1, buffer, needed, ctypes.byref(needed)
+        ):
+            return
+        owner = ctypes.c_void_p(ctypes.c_void_p.from_buffer(buffer).value)
+        # TOKEN_OWNER is one SID pointer; TokenOwner = 4.
+        advapi32.SetTokenInformation(
+            token, 4, ctypes.byref(owner), ctypes.sizeof(owner)
+        )
+    finally:
+        _close(token.value or 0)
+
+
 def _sid_string(sid: int | None) -> str:
     text = wintypes.LPWSTR()
     if not sid or not advapi32.ConvertSidToStringSidW(sid, ctypes.byref(text)):
@@ -705,6 +741,9 @@ def open_dir_at(parent: int, name: str) -> int:
         )
     _plain(handle, name, directory=True)
     return _wrap(handle)
+
+
+_own_new_objects()
 
 
 def make_dir(
