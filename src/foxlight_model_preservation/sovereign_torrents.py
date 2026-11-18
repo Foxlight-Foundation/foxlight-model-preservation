@@ -30,7 +30,6 @@ import shutil
 import tempfile
 import threading
 import time
-import warnings
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -219,13 +218,6 @@ class TorrentCache:
         os.replace(pending, self.path / (torrent.sha256 + ".torrent"))
 
 
-def _dht_nodes(session: Any) -> int:
-    """How many DHT nodes the session knows (0 while still bootstrapping)."""
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)  # status() still works
-        return int(session.status().dht_nodes)
-
-
 class FileSharer:
     """One upload-only BitTorrent session sharing stored files.
 
@@ -343,12 +335,11 @@ class FileSharer:
     ) -> bool:
         """Store a signed mutable DHT item (BEP 44) from this session.
 
-        False while the session's DHT hasn't started or knows no other node
-        yet: libtorrent silently drops a put made then (it reaches nobody), so
-        the caller asks again later.
+        False while the session's DHT hasn't started: libtorrent silently
+        drops requests made before then, so the caller asks again later.
         """
         with self._lock:
-            if not self.session.is_dht_running() or not _dht_nodes(self.session):
+            if not self.session.is_dht_running():
                 return False
             self.session.dht_put_mutable_item(secret, public, value, salt)
             return True
