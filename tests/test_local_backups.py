@@ -178,7 +178,6 @@ def test_existing_destination_space_comes_from_that_drive_not_parent(
     tmp_path, monkeypatch
 ):
     import os
-    from collections import namedtuple
 
     from foxlight_model_preservation.local_host.backups import Backups
 
@@ -187,14 +186,9 @@ def test_existing_destination_space_comes_from_that_drive_not_parent(
     owner = tmp_path / "owner"
     owner.mkdir(mode=0o700)
     target_inode = folder.stat().st_ino
-    Usage = namedtuple("Usage", "total used free")
     monkeypatch.setattr(
-        "foxlight_model_preservation.local_host.backups.shutil.disk_usage",
-        lambda fd: (
-            Usage(1000, 900, 100)
-            if os.fstat(fd).st_ino == target_inode
-            else Usage(10000, 100, 9900)
-        ),
+        "foxlight_model_preservation.safefs.free_bytes",
+        lambda fd: 100 if os.fstat(fd).st_ino == target_inode else 9900,
     )
     existing = Backups(owner).review(str(folder), "Connected drive")
     assert existing["free_bytes"] == 100
