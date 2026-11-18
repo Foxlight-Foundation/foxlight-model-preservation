@@ -20,6 +20,7 @@ from typing import Literal
 
 from pydantic import Field, JsonValue
 
+from .. import safefs
 from ..cards import identity_json
 from ..kits import export_kit
 from ..models import Digest, PreservationError, Record, TrustProfile
@@ -51,9 +52,7 @@ def _identity(descriptor: int) -> tuple[int, int]:
 
 @contextmanager
 def _child(parent: int, name: str) -> Generator[int]:
-    descriptor = os.open(
-        name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent
-    )
+    descriptor = safefs.open_dir_at(parent, name)
     try:
         yield descriptor
     finally:
@@ -71,7 +70,7 @@ class Backups:
         with directory(self.home / "backup-destinations", create=True) as root:
             return [
                 BackupDestination.model_validate_json(read_metadata(root, name))
-                for name in sorted(os.listdir(root))
+                for name in sorted(safefs.list_dir(root))
                 if len(name) == 69 and name.endswith(".json")
             ]
 
@@ -152,8 +151,7 @@ class Backups:
 
     @staticmethod
     def _empty_private(descriptor: int) -> None:
-        info = os.fstat(descriptor)
-        if info.st_uid != os.getuid() or info.st_mode & 0o077 or os.listdir(descriptor):
+        if not safefs.private(descriptor) or safefs.list_dir(descriptor):
             raise PreservationError("backup_requires_empty_private_folder")
 
     def setup(self, identifier: str) -> dict[str, JsonValue]:
@@ -183,7 +181,7 @@ class Backups:
             if list(_identity(parent)) != value["parent_identity"]:
                 raise PreservationError("backup_destination_changed")
             if value["identity"] is None:
-                os.mkdir(path.name, mode=0o700, dir_fd=parent)
+                safefs.mkdir_at(parent, path.name)
                 os.fsync(parent)
             with _child(parent, path.name) as target:
                 self._empty_private(target)
@@ -216,7 +214,7 @@ class Backups:
         """Remove only local settings; never contact the drive or delete a kit."""
         self._load(identifier)
         with directory(self.home / "backup-destinations") as root:
-            os.unlink(identifier + ".json", dir_fd=root)
+            safefs.unlink_at(root, identifier + ".json")
             os.fsync(root)
         return {"forgotten": True}
 

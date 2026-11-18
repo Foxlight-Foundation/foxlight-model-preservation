@@ -8,6 +8,7 @@ from typing import cast, final
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from pydantic import Field, JsonValue
 
+from . import safefs
 from .assurance import load_retained_card
 from .cards import identity_json
 from .models import (
@@ -331,7 +332,7 @@ def _publish_public(
     active = control
     active.checkpoint()
     try:
-        destination.mkdir(mode=0o700, parents=True)
+        safefs.make_dir(destination, parents=True)
     except FileExistsError as error:
         raise PreservationError("public output must be a fresh directory") from error
     with (

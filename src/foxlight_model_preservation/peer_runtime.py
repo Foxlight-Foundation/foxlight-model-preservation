@@ -22,6 +22,7 @@ from typing import BinaryIO, Literal, Protocol, cast
 
 from pydantic import Field, JsonValue
 
+from . import safefs
 from .models import PreservationError, Record
 from .operations import (
     BudgetExceeded,
@@ -248,8 +249,7 @@ def executable(value: str | None = None) -> str:
 
 def _private(repo: Path) -> None:
     with directory(repo) as root:
-        info = os.fstat(root)
-        if info.st_uid != os.getuid() or info.st_mode & 0o077:
+        if not safefs.private(root):
             raise PreservationError(
                 "peer runtime requires a dedicated owner-only repository"
             )
@@ -309,7 +309,7 @@ def _live_api(root: int) -> bool:
         with socket.create_connection(("127.0.0.1", int(match.group(1))), timeout=1):
             return True
     except ConnectionRefusedError:
-        os.unlink("api", dir_fd=root)
+        safefs.unlink_at(root, "api")
         return False
     except OSError:
         return True
@@ -342,7 +342,7 @@ def initialize_peer(
         raise PreservationError("peer bootstrap contacts must be unique and bounded")
     contacts = tuple(bootstrap_address(item, allow_private_peers) for item in bootstrap)
     repo.parent.resolve(strict=True)
-    repo.mkdir(mode=0o700)
+    safefs.make_dir(repo)
     _command(
         binary,
         repo,

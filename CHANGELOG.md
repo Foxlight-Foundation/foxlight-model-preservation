@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- First step toward Windows (foxlight-docs#768): every filesystem call the
+  stores' safety rests on (opening relative to a pinned folder without
+  following links, renames and links between pinned folders, folder listing,
+  writer locks, owner-only checks and private folder creation) now goes through
+  one module, `safefs`. On macOS and Linux it makes exactly the calls made
+  before, so nothing changes; `tests/test_safefs.py` states the guarantees
+  every platform must meet and fails if other code bypasses the module.
 - Server mirrors announce and share by default (foxlight-docs#767). With a
   public URL, `mirror quickstart`, `init` and the Docker image post the mirror
   card to Nostr relays (`--no-announce-nostr` / `SOVEREIGN_MIRROR_NOSTR=off`;

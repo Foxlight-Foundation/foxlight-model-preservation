@@ -18,6 +18,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import BinaryIO
 
+from . import safefs
 from .archives import ArchiveManifest, archive_objects, verify_archive_manifest
 from .models import (
     MAX_METADATA_BYTES,
@@ -60,7 +61,7 @@ class KitInspection(Record):
 
 @contextmanager
 def _input(path: Path) -> Generator[BinaryIO]:
-    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    descriptor = safefs.open_path(path, os.O_RDONLY | safefs.NONBLOCK)
     try:
         if not stat.S_ISREG(os.fstat(descriptor).st_mode):
             raise PreservationError("kit must be a regular file")
@@ -263,17 +264,11 @@ def export_kit(
                 _verify_objects(written, manifest, active)
             active.phase("publishing")
             # Hard-link publication cannot replace an existing file or symlink.
-            os.link(
-                pending,
-                destination.name,
-                src_dir_fd=parent,
-                dst_dir_fd=parent,
-                follow_symlinks=False,
-            )
+            safefs.link_at(parent, pending, parent, destination.name)
             os.fsync(parent)
             active.mark_committed()
         finally:
-            os.unlink(pending, dir_fd=parent)
+            safefs.unlink_at(parent, pending)
     return KitInspection(
         manifest_id=manifest_id, trust=trust, manifest=manifest, kit_bytes=size
     )
@@ -346,7 +341,7 @@ def import_kit(
         ):
             raise PreservationError("insufficient space for recovery kit")
         pending = ".kit-import-" + uuid.uuid4().hex
-        os.mkdir(pending, mode=0o700, dir_fd=parent)
+        safefs.mkdir_at(parent, pending)
         try:
             with directory(destination.parent / pending) as target:
                 active.phase("copying")
@@ -362,13 +357,11 @@ def import_kit(
                 atomic_bytes(target, manifest_path(info.manifest_id), envelope)
                 atomic_bytes(target, "kit-trust.json", encode_record(trust))
             active.phase("publishing")
-            os.mkdir(destination.name, mode=0o700, dir_fd=parent)
+            safefs.mkdir_at(parent, destination.name)
             try:
-                os.rename(
-                    pending, destination.name, src_dir_fd=parent, dst_dir_fd=parent
-                )
+                safefs.rename_at(parent, pending, parent, destination.name)
             except BaseException:
-                os.rmdir(destination.name, dir_fd=parent)
+                safefs.rmdir_at(parent, destination.name)
                 raise
             os.fsync(parent)
             active.mark_committed()

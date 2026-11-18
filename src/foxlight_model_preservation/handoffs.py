@@ -9,6 +9,7 @@ from typing import Annotated, Literal
 
 from pydantic import Field, model_validator
 
+from . import safefs
 from .invitations import Invitation, read_invitation
 from .models import MAX_METADATA_BYTES, PreservationError, Record
 from .peer import PeerSource, inspect_peer_source
@@ -112,7 +113,8 @@ def write_handoff(destination: Path, handoff: Handoff) -> None:
                 _ = output.write(data)
                 output.flush()
                 os.fsync(output.fileno())
-            os.link(path, destination.name, dst_dir_fd=root, follow_symlinks=False)
+            with directory(Path(staging)) as staged:
+                safefs.link_at(staged, "reference", root, destination.name)
             os.fsync(root)
 
 

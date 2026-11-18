@@ -13,6 +13,7 @@ from urllib.parse import quote, urljoin, urlsplit
 
 from pydantic import JsonValue
 
+from .. import safefs
 from ..assurance import retain_card
 from ..cards import ArtifactFile, ModelCardEnvelope, identity_json
 from ..models import (
@@ -366,12 +367,7 @@ def _place(partial: Path, destination: Path) -> None:
         directory(partial.parent) as staging,
         directory(destination.parent) as parent,
     ):
-        os.replace(
-            partial.name,
-            destination.name,
-            src_dir_fd=staging,
-            dst_dir_fd=parent,
-        )
+        safefs.replace_at(staging, partial.name, parent, destination.name)
         os.fsync(parent)
 
 
@@ -488,11 +484,8 @@ def download_file(
                 raise PreservationError("model source length changed")
             count = offset
             with directory(partial.parent) as parent:
-                descriptor = os.open(
-                    partial.name,
-                    os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW,
-                    0o600,
-                    dir_fd=parent,
+                descriptor = safefs.open_at(
+                    parent, partial.name, os.O_WRONLY | os.O_CREAT | os.O_APPEND
                 )
             with os.fdopen(descriptor, "ab") as output:
                 while chunk := stream.read(

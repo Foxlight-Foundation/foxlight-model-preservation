@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import fcntl
 import json
 import logging
 import os
@@ -18,6 +17,7 @@ from typing import TypeVar, cast
 
 from pydantic import JsonValue
 
+from . import safefs
 from .licences import licence_status
 from .mirror_models import (
     HeldModel,
@@ -166,7 +166,7 @@ def reenroll(path: Path) -> None:
             state, _legacy = decode_state(stream.read(MAX_STATE + 1))
         identities: dict[str, tuple[int, int]] = {}
         for name in DIRECTORIES:
-            info = os.stat(name, dir_fd=root, follow_symlinks=False)
+            info = safefs.stat_at(root, name)
             if not stat.S_ISDIR(info.st_mode):
                 raise PreservationError("mirror directories must be owner-only")
             identities[name] = (info.st_dev, info.st_ino)
@@ -193,13 +193,13 @@ class MirrorLedger:
     @staticmethod
     def initialize(path: Path, **config: object) -> MirrorLedger:
         """Create a new empty mirror offline; refuse occupied or replaced roots."""
-        path.mkdir(mode=0o700)
+        safefs.make_dir(path)
         identities: dict[str, tuple[int, int]] = {}
         with directory(path) as root:
             for name in DIRECTORIES:
                 if name != ".":
-                    os.mkdir(name, 0o700, dir_fd=root)
-                info = os.stat(name, dir_fd=root, follow_symlinks=False)
+                    safefs.mkdir_at(root, name)
+                info = safefs.stat_at(root, name)
                 identities[name] = (info.st_dev, info.st_ino)
             fields = dict(
                 config,
@@ -223,13 +223,22 @@ class MirrorLedger:
         """Reject unsafe owners, symlinks and replaced enrolled directories."""
         with directory(self.path) as root:
             for name in DIRECTORIES:
-                info = os.stat(name, dir_fd=root, follow_symlinks=False)
-                if (
-                    not stat.S_ISDIR(info.st_mode)
-                    or info.st_uid != os.getuid()
-                    or info.st_mode & 0o077
-                ):
-                    raise PreservationError("mirror directories must be owner-only")
+                # One handle answers both questions, so nothing can be swapped
+                # in between them.
+                try:
+                    fd = safefs.open_dir_at(root, name)
+                except FileNotFoundError:
+                    raise
+                except OSError as error:  # a symlink or not a directory
+                    raise PreservationError(
+                        "mirror directories must be owner-only"
+                    ) from error
+                try:
+                    if not safefs.private(fd):
+                        raise PreservationError("mirror directories must be owner-only")
+                    info = os.fstat(fd)
+                finally:
+                    os.close(fd)
                 expected = getattr(self, "_identity", {}).get(name)
                 if expected and (info.st_dev, info.st_ino) != expected:
                     raise PreservationError("mirror directory identity changed")
@@ -241,9 +250,7 @@ class MirrorLedger:
         if name not in DIRECTORIES or name == ".":
             raise PreservationError("unknown mirror child directory")
         with self.root() as root:
-            fd = os.open(
-                name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=root
-            )
+            fd = safefs.open_dir_at(root, name)
             try:
                 info = os.fstat(fd)
                 if (info.st_dev, info.st_ino) != self._identity[name]:
@@ -265,7 +272,7 @@ class MirrorLedger:
             for name, expected in state.identity.items():
                 if name not in DIRECTORIES:
                     raise PreservationError("unknown mirror directory identity")
-                info = os.stat(name, dir_fd=root, follow_symlinks=False)
+                info = safefs.stat_at(root, name)
                 if (info.st_dev, info.st_ino) != expected:
                     raise PreservationError("mirror directory identity changed")
             if set(state.identity) != set(DIRECTORIES):
@@ -304,7 +311,7 @@ class MirrorLedger:
             open_file(root, ".service.lock", write=True) as stream,
         ):
             try:
-                fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                safefs.lock(stream.fileno())
             except BlockingIOError as error:
                 raise PreservationError(
                     "stop the active mirror controller first"
@@ -312,17 +319,17 @@ class MirrorLedger:
             try:
                 yield
             finally:
-                fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+                safefs.unlock(stream.fileno())
 
     def running(self) -> bool:
         """Probe the existing kernel service lock offline without creating files."""
         try:
             with self.root() as root, open_file(root, ".service.lock") as stream:
                 try:
-                    fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    safefs.lock(stream.fileno())
                 except BlockingIOError:
                     return True
-                fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+                safefs.unlock(stream.fileno())
         except FileNotFoundError:
             pass
         return False
@@ -337,21 +344,19 @@ class MirrorLedger:
                 nonlocal count, total
                 if depth > 64:
                     raise PreservationError("mirror tree exceeds depth bound")
-                for name in os.listdir(fd):
+                for name in safefs.list_dir(fd):
                     count += 1
                     if count > 200000:
                         raise PreservationError("mirror tree exceeds inventory bound")
                     try:
-                        info = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                        info = safefs.stat_at(fd, name)
                     except FileNotFoundError:
                         # Owned exporters remove stages concurrently. Missing
                         # files consume no current disk; verification is separate.
                         continue
                     if stat.S_ISDIR(info.st_mode):
                         try:
-                            child = os.open(
-                                name, os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd
-                            )
+                            child = safefs.open_dir_at(fd, name)
                         except FileNotFoundError:
                             continue
                         try:

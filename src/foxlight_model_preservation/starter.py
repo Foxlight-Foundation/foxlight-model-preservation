@@ -29,6 +29,7 @@ from typing import Literal
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from pydantic import Field, JsonValue, field_validator, model_validator
 
+from . import safefs
 from .archives import ArchiveManifest, archive_objects, verify_archive_manifest
 from .licences import (
     LICENCE_DEFINITION_VERSION,
@@ -511,9 +512,7 @@ def missing_objects(
                     continue
                 seen.add(file.sha256)
                 try:
-                    info = os.stat(
-                        object_path(file.sha256), dir_fd=root, follow_symlinks=False
-                    )
+                    info = safefs.stat_at(root, object_path(file.sha256))
                 except FileNotFoundError:
                     missing[file.sha256] = file
                     continue
@@ -558,9 +557,9 @@ def _regular_size(path: Path) -> int | None:
 
 
 def _link(source: Path, target: Path) -> bool:
-    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    safefs.make_dir(target.parent, parents=True, exist_ok=True)
     try:
-        os.link(source, target, follow_symlinks=False)
+        safefs.link_path(source, target)
     except FileExistsError:
         return True
     except OSError:
@@ -607,7 +606,7 @@ def park_partials(staging: Path, view: str) -> None:
     if not partials.is_dir():
         return
     parked = staging / POOL / ".partial"
-    parked.mkdir(parents=True, exist_ok=True, mode=0o700)
+    safefs.make_dir(parked, parents=True, exist_ok=True)
     for item in partials.iterdir():
         size = _regular_size(item)
         if size is None or len(item.name) != 64:
@@ -629,7 +628,7 @@ def seed_view(
     linked one. A link that cannot be made (another volume) is skipped.
     """
     target = staging / view
-    target.mkdir(parents=True, exist_ok=True, mode=0o700)
+    safefs.make_dir(target, parents=True, exist_ok=True)
     for file in archive_objects(manifest):
         path = object_path(file.sha256)
         if _regular_size(target / path) == file.size:
@@ -644,7 +643,7 @@ def seed_view(
         parked = staging / POOL / ".partial" / file.sha256
         mine = target / ".partial" / file.sha256
         if _regular_size(parked) is not None and _regular_size(mine) is None:
-            mine.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            safefs.make_dir(mine.parent, parents=True, exist_ok=True)
             os.replace(parked, mine)
 
 
@@ -737,7 +736,7 @@ def disk_requirements(
     in the pool.
     """
     missing = missing_objects(ledger, [manifest for _view, _env, manifest in order])
-    staging.mkdir(parents=True, exist_ok=True, mode=0o700)
+    safefs.make_dir(staging, parents=True, exist_ok=True)
     same = same_volume(ledger, staging)
     every: dict[str, FileIdentity] = {}
     for _view, _envelope, manifest in order:

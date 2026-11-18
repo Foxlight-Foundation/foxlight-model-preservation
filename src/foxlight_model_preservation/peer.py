@@ -13,6 +13,7 @@ from typing import Literal
 from pydantic import Field, field_validator
 from tuf.api.metadata import Root, Snapshot, Targets, Timestamp  # pyright: ignore[reportPrivateImportUsage]
 
+from . import safefs
 from .archives import (
     ArchiveManifest,
     archive_objects,
@@ -133,7 +134,7 @@ def follow_peer_source(cache: Path, data: bytes, expected_peer_id: str) -> Sourc
     )
     with directory(path.parent, create=True) as root, writer_lock(root):
         if (
-            len([name for name in os.listdir(root) if name.endswith(".json")])
+            len([name for name in safefs.list_dir(root) if name.endswith(".json")])
             >= MAX_SOURCES
             and not path.exists()
         ):
@@ -350,9 +351,9 @@ def publish_peer_model(
         directory(store / ".peer-export", create=True) as area,
         writer_lock(area),
     ):
-        for name in os.listdir(area):
+        for name in safefs.list_dir(area):
             if name.startswith("stage-"):
-                shutil.rmtree(name, dir_fd=area)
+                safefs.remove_tree_at(area, name)
         if (
             shutil.disk_usage(area).free
             < sum(file.size for file in files) + len(envelope) + 16 * CHUNK_SIZE

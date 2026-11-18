@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import BinaryIO, TypeVar
 from urllib.parse import urlsplit
 
-from . import __version__
+from . import __version__, safefs
 from .archives import ArchiveManifest, archive_objects, verify_archive_manifest
 from .i2p_http import I2PHTTPProxy, i2p_http_response
 from .ledger import CreditCarry, TransferBudget, receipt_path
@@ -485,7 +485,7 @@ def _publish(
             parent,
             name,
         ):
-            os.replace(pending_name, name, src_dir_fd=pending_parent, dst_dir_fd=parent)
+            safefs.replace_at(pending_parent, pending_name, parent, name)
             os.fsync(parent)
     try:
         verify_object(target, file, control=control)

@@ -20,6 +20,7 @@ from urllib.parse import urljoin, urlsplit
 
 from pydantic import Field, TypeAdapter
 
+from . import safefs
 from .models import PreservationError, Record
 from .operations import OperationControl
 from .peer_runtime import KUBO_VERSION
@@ -131,7 +132,7 @@ def managed_executable(root: Path) -> str | None:
             raise PreservationError("managed runtime executable checksum mismatch")
         with open_file(descriptor, generation + "/ipfs") as stream:
             info = os.fstat(stream.fileno())
-            if info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o700:
+            if not safefs.owned(stream.fileno()) or stat.S_IMODE(info.st_mode) != 0o700:
                 raise PreservationError(
                     "managed runtime executable permissions changed"
                 )
@@ -139,8 +140,7 @@ def managed_executable(root: Path) -> str | None:
 
 
 def _private(descriptor: int) -> None:
-    info = os.fstat(descriptor)
-    if info.st_uid != os.getuid() or info.st_mode & 0o077:
+    if not safefs.private(descriptor):
         raise PreservationError(
             "managed runtime storage must be private and owned by this user"
         )
@@ -299,13 +299,14 @@ def install_runtime(
                             _ = destination.seek(0)
                             _ = destination.truncate()
             publication = stage / "generation"
-            publication.mkdir(mode=0o700)
+            safefs.make_dir(publication)
             _extract(compressed, publication, plan, active)
             active.checkpoint()
             with directory(publication) as generation:
                 os.fsync(generation)
             active.checkpoint()
-            os.rename(publication, _generation(plan), dst_dir_fd=descriptor)
+            with directory(stage) as staged:
+                safefs.rename_at(staged, "generation", descriptor, _generation(plan))
             os.fsync(descriptor)
             active.mark_committed()
     result = managed_executable(root)

@@ -7,7 +7,6 @@ catalog bytes and proof roles are retained for independent offline verification.
 from __future__ import annotations
 
 import json
-import os
 import re
 import time
 from collections.abc import Iterator
@@ -21,6 +20,7 @@ from tuf.ngclient import Updater
 from tuf.ngclient.config import UpdaterConfig
 from tuf.ngclient.fetcher import FetcherInterface
 
+from .. import safefs
 from ..cards import ModelCardEnvelope, identity_json, load_card
 from ..models import MAX_METADATA_BYTES, PreservationError
 from ..operations import OperationControl, OperationError
@@ -139,7 +139,7 @@ class RegistryCatalog:
         targets = self.cache / "targets"
         with directory(metadata, create=True) as root:
             try:
-                os.stat("root.json", dir_fd=root, follow_symlinks=False)
+                safefs.stat_at(root, "root.json")
             except FileNotFoundError:
                 atomic_bytes(root, "root.json", self.anchor)
         with directory(targets, create=True):
@@ -160,7 +160,7 @@ class RegistryCatalog:
         raw = path.read_bytes()
         target.verify_length_and_hashes(raw)
         with directory(metadata) as root:
-            root_name = os.readlink("root.json", dir_fd=root)
+            root_name = safefs.readlink_at(root, "root.json")
             if not re.fullmatch(
                 r"root_history/[1-9][0-9]{0,15}\.root\.json", root_name
             ):
@@ -355,7 +355,7 @@ class RegistryCatalog:
                     name = role + ".json"
                     try:
                         if role == "root":
-                            name = os.readlink(name, dir_fd=root)
+                            name = safefs.readlink_at(root, name)
                             if not re.fullmatch(
                                 r"root_history/[1-9][0-9]{0,15}\.root\.json", name
                             ):

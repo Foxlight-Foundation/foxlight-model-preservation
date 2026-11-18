@@ -16,7 +16,6 @@ import contextlib
 import http.client
 import ipaddress
 import json
-import os
 import re
 import secrets
 import shutil
@@ -38,6 +37,7 @@ from pydantic import (
     model_validator,
 )
 
+from .. import safefs
 from ..archives import ArchiveManifest, verify_archive_manifest
 from ..assurance import load_retained_card
 from ..bucket import (
@@ -626,7 +626,7 @@ class CommunityMirror:
             # earlier review behind, even within the same second.
             try:
                 with directory(self.path) as root:
-                    os.unlink("announce-review.json", dir_fd=root)
+                    safefs.unlink_at(root, "announce-review.json")
             except FileNotFoundError:
                 pass
         self._save(updated)
@@ -1282,7 +1282,7 @@ class CommunityMirror:
             if state is None:
                 return
             with directory(self.path) as root:
-                os.unlink("bucket.json", dir_fd=root)
+                safefs.unlink_at(root, "bucket.json")
         delete_credentials(state.target.key_name)
 
     def sync_bucket(self, control: OperationControl) -> BucketState | None:

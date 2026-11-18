@@ -14,6 +14,7 @@ from urllib.parse import urlsplit
 
 from pydantic import JsonValue
 
+from . import safefs
 from .archives import ArchiveManifest, verify_archive_manifest
 from .i2p_models import I2PContact, I2POffer
 from .i2p_runtime import SnarkRPC, native_status, owned_snark
@@ -212,11 +213,8 @@ def export_i2p(
                         parent_fd,
                         name,
                     ):
-                        descriptor = os.open(
-                            name,
-                            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                            0o600,
-                            dir_fd=parent_fd,
+                        descriptor = safefs.open_at(
+                            parent_fd, name, os.O_WRONLY | os.O_CREAT | os.O_EXCL
                         )
                         with os.fdopen(descriptor, "wb") as output:
                             copy_exact(stream, output, identity.size, control=active)
@@ -270,11 +268,8 @@ def _cache_hosting_kit(
         directory(data) as target,
     ):
         pending = ".hosting-" + uuid.uuid4().hex
-        descriptor = os.open(
-            pending,
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-            0o600,
-            dir_fd=target,
+        descriptor = safefs.open_at(
+            target, pending, os.O_WRONLY | os.O_CREAT | os.O_EXCL
         )
         try:
             with os.fdopen(descriptor, "wb") as output:
@@ -286,16 +281,10 @@ def _cache_hosting_kit(
                 != offer.kit.sha256
             ):
                 raise PreservationError("hosting kit changed during copy")
-            os.link(
-                pending,
-                offer.kit.path,
-                src_dir_fd=target,
-                dst_dir_fd=target,
-                follow_symlinks=False,
-            )
+            safefs.link_at(target, pending, target, offer.kit.path)
             os.fsync(target)
         finally:
-            os.unlink(pending, dir_fd=target)
+            safefs.unlink_at(target, pending)
 
 
 def transfer_i2p(
@@ -368,7 +357,7 @@ def _transfer_locked(
     active: OperationControl,
 ) -> dict[str, JsonValue]:
     data = profile.absolute() / "downloads"
-    data.mkdir(mode=0o700, exist_ok=True)
+    safefs.make_dir(data, exist_ok=True)
     with directory(data):
         pass
     if shutil.disk_usage(data).free < 2 * offer.kit.size + 16 * 1024**2:

@@ -7,6 +7,7 @@ from typing import Literal
 
 from pydantic import Field
 
+from . import safefs
 from .archives import ArchiveManifest, archive_objects
 from .mirror import selection_envelope, selection_manifest
 from .mirror_models import HeldModel, NativeCustodyName
@@ -39,7 +40,7 @@ def _unlink(root: int, path: str) -> None:
     try:
         with parent_directory(root, path) as (parent, name):
             try:
-                os.unlink(name, dir_fd=parent)
+                safefs.unlink_at(parent, name)
             except FileNotFoundError:
                 pass
             os.fsync(parent)
@@ -105,7 +106,7 @@ def prune(ledger: MirrorLedger, manifest: str, confirmation: str) -> dict[str, o
                     parent,
                     _name,
                 ):
-                    names = os.listdir(parent)
+                    names = safefs.list_dir(parent)
             except FileNotFoundError:
                 names = []
             for name in names:

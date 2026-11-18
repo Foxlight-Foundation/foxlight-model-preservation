@@ -10,6 +10,7 @@ from typing import Literal
 
 from pydantic import Field, TypeAdapter, field_validator, model_validator
 
+from . import safefs
 from .archives import ArchiveManifest, archive_objects, verify_archive_manifest
 from .invitations import accept_model_keys
 from .ledger import TransferBudget
@@ -219,7 +220,7 @@ def _fetch_peer_invitation(
         # A prior crash cannot retain an unverified extra full-file allocation.
         for file in missing:
             try:
-                os.unlink(".peer-object-" + file.sha256, dir_fd=target)
+                safefs.unlink_at(target, ".peer-object-" + file.sha256)
             except FileNotFoundError:
                 pass
         if (
@@ -235,11 +236,8 @@ def _fetch_peer_invitation(
                     client.control.phase("downloading")
                     staged_name = ".peer-object-" + file.sha256
                     try:
-                        descriptor = os.open(
-                            staged_name,
-                            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                            0o600,
-                            dir_fd=target,
+                        descriptor = safefs.open_at(
+                            target, staged_name, os.O_WRONLY | os.O_CREAT | os.O_EXCL
                         )
                         with os.fdopen(descriptor, "wb") as sink:
                             # Reserve only after local creation succeeds, and
@@ -267,14 +265,12 @@ def _fetch_peer_invitation(
                         with parent_directory(
                             target, object_path(file.sha256), create=True
                         ) as (parent, name):
-                            os.replace(
-                                staged_name, name, src_dir_fd=target, dst_dir_fd=parent
-                            )
+                            safefs.replace_at(target, staged_name, parent, name)
                             os.fsync(parent)
                         os.fsync(target)
                     finally:
                         try:
-                            os.unlink(staged_name, dir_fd=target)
+                            safefs.unlink_at(target, staged_name)
                         except FileNotFoundError:
                             pass
                     completed = True
