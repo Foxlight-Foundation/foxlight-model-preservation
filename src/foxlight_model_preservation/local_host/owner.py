@@ -394,6 +394,9 @@ class LocalOwner:
         return self.library.find("copies/" + copy_id)
 
     def _library_view(self) -> dict[str, JsonValue]:
+        # The move's state first: a move seen as finished has already removed
+        # what it moved, so the scan below can't count it as still elsewhere.
+        move = self._move
         view = self.library.view()
         elsewhere: list[tuple[str, Path]] = []
         if view["available"]:
@@ -414,7 +417,7 @@ class LocalOwner:
                 for copy in self._journal.copies
                 if copy.copy_id in moved
             ),
-            "move": self._move,
+            "move": move,
         }
 
     def _elsewhere(self) -> list[tuple[str, Path]]:
