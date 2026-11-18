@@ -154,6 +154,7 @@ FSCTL_GET_REPARSE_POINT = 0x000900A8
 IO_REPARSE_TAG_SYMLINK = 0xA000000C
 IO_REPARSE_TAG_MOUNT_POINT = 0xA0000003
 
+FILE_PERSISTENT_ACLS = 0x8
 SE_FILE_OBJECT = 1
 OWNER_SECURITY_INFORMATION = 0x1
 DACL_SECURITY_INFORMATION = 0x4
@@ -294,6 +295,17 @@ kernel32.DeviceIoControl.argtypes = (
     wintypes.DWORD,
     ctypes.POINTER(wintypes.DWORD),
     ctypes.c_void_p,
+)
+kernel32.GetVolumeInformationByHandleW.restype = wintypes.BOOL
+kernel32.GetVolumeInformationByHandleW.argtypes = (
+    wintypes.HANDLE,
+    wintypes.LPWSTR,
+    wintypes.DWORD,
+    ctypes.POINTER(wintypes.DWORD),
+    ctypes.POINTER(wintypes.DWORD),
+    ctypes.POINTER(wintypes.DWORD),
+    wintypes.LPWSTR,
+    wintypes.DWORD,
 )
 kernel32.GetCurrentProcess.restype = wintypes.HANDLE
 kernel32.LocalFree.argtypes = (ctypes.c_void_p,)
@@ -669,7 +681,21 @@ def _security(handle: int, which: int) -> tuple[int | None, int | None, int | No
     return owner.value, dacl.value, descriptor.value
 
 
+def _keeps_owners(handle: int) -> bool:
+    """Whether the volume stores owners and access lists (not FAT or exFAT)."""
+    flags = wintypes.DWORD()
+    if not kernel32.GetVolumeInformationByHandleW(
+        handle, None, 0, None, None, ctypes.byref(flags), None, 0
+    ):
+        return True  # can't tell: hold it to the stricter rule
+    return bool(flags.value & FILE_PERSISTENT_ACLS)
+
+
 def _owned_handle(handle: int) -> bool:
+    if not _keeps_owners(handle):
+        # Nothing on the drive belongs to anyone else, as when macOS mounts
+        # an exFAT drive as the user who plugged it in.
+        return True
     owner, _dacl, descriptor = _security(handle, OWNER_SECURITY_INFORMATION)
     try:
         return owner is not None and _sid_string(owner) == _user_sid()
