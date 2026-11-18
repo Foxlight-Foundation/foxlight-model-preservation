@@ -229,7 +229,7 @@ def test_only_the_seam_makes_these_calls() -> None:
     offenders = [
         f"{path.relative_to(package)}:{number}"
         for path in package.rglob("*.py")
-        if path.name not in {"safefs.py", "_winfs.py"}
+        if path.name not in {"safefs.py", "_posixfs.py", "_winfs.py"}
         for number, line in enumerate(path.read_text().splitlines(), 1)
         if forbidden.search(line)
     ]
