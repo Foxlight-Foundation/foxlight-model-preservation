@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
+from permissions import make_private
 
 from foxlight_model_preservation import peer_install, peer_runtime
 from foxlight_model_preservation.cli import argument_parser
@@ -237,7 +238,7 @@ def test_private_storage_and_offline_archive_links_refuse(artifact):
     root.mkdir(mode=0o755)
     with pytest.raises(PreservationError, match="private"):
         install_runtime(root, archive=archive)
-    root.chmod(0o700)
+    make_private(root)
     link = archive.with_suffix(".link")
     link.symlink_to(archive)
     with pytest.raises(OSError):

@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 from conftest import Capture
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from permissions import make_private
 from securesystemslib.signer import CryptoSigner
 from tuf.api.metadata import (
     Metadata,
@@ -511,7 +512,7 @@ def test_cache_rejects_shared_directory_and_symlink_state(publisher, tmp_path):
     cache.mkdir(mode=0o755)
     with pytest.raises(PreservationError, match="owner-only"):
         follow(cache, publisher.bootstrap())
-    cache.chmod(0o700)
+    make_private(cache)
     source = follow(cache, publisher.bootstrap(), allow_local=True)
     state = cache / (source.source_id + ".json")
     preserved = tmp_path / "state-original"
