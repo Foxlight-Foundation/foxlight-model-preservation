@@ -55,6 +55,7 @@ __all__ = [
     "replace_at",
     "rmdir_at",
     "stat_at",
+    "sync_at",
     "unlink_at",
     "unlock",
 ]
@@ -934,6 +935,23 @@ def open_path(path: Path | str, flags: int, mode: int = 0o600) -> int:
     )
     _plain(handle, str(path), directory=False)
     return _wrap(handle, runtime)
+
+
+def sync_at(parent: int, name: str) -> None:
+    """Make the data of the file ``name`` inside ``parent`` durable.
+
+    Windows flushes only through a handle with write access, so the file is
+    opened for writing (never created or truncated) just to flush it.
+    """
+    handle, _created = _nt_open(
+        parent, name, FILE_GENERIC_WRITE, FILE_OPEN, FILE_NON_DIRECTORY_FILE
+    )
+    _plain(handle, name, directory=False)
+    descriptor = _wrap(handle, 0)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def stat_at(parent: int, name: str, *, follow: bool = False) -> os.stat_result:

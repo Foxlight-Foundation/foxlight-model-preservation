@@ -524,11 +524,7 @@ def _move_object(
             safefs.rename_at(source_parent, source_name, parent, name)
             # Its data must be durable before anything naming it is published,
             # as a copy's is (the scratch writer may never have synced it).
-            moved = safefs.open_at(parent, name, os.O_RDONLY)
-            try:
-                os.fsync(moved)
-            finally:
-                os.close(moved)
+            safefs.sync_at(parent, name)
             os.fsync(parent)
             os.fsync(source_parent)
             return True

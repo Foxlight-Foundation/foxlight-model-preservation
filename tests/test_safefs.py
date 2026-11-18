@@ -234,3 +234,15 @@ def test_only_the_seam_makes_these_calls() -> None:
         if forbidden.search(line)
     ]
     assert offenders == []
+
+
+def test_a_file_can_be_made_durable_by_name(tmp_path: Path) -> None:
+    safefs.make_dir(tmp_path / "s")
+    (tmp_path / "s" / "moved").write_bytes(b"data")
+    root = safefs.open_dir(tmp_path / "s")
+    try:
+        safefs.sync_at(root, "moved")
+        with pytest.raises(FileNotFoundError):
+            safefs.sync_at(root, "missing")
+    finally:
+        os.close(root)

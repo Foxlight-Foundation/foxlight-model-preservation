@@ -31,6 +31,7 @@ __all__ = [
     "replace_at",
     "rmdir_at",
     "stat_at",
+    "sync_at",
     "unlink_at",
     "unlock",
 ]
@@ -77,6 +78,15 @@ def open_at(parent: int, name: str, flags: int, mode: int = PRIVATE_FILE) -> int
 def open_path(path: Path | str, flags: int, mode: int = PRIVATE_FILE) -> int:
     """Open ``path`` with ``os.O_*`` ``flags``; a final symlink is refused."""
     return os.open(path, flags | os.O_NOFOLLOW, mode)
+
+
+def sync_at(parent: int, name: str) -> None:
+    """Make the data of the file ``name`` inside ``parent`` durable."""
+    descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def stat_at(parent: int, name: str, *, follow: bool = False) -> os.stat_result:
