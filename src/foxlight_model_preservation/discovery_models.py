@@ -6,7 +6,8 @@ model signers, changes original cards, or authorizes runtime execution.
 
 from __future__ import annotations
 
-from pathlib import Path
+import sys
+from pathlib import Path, PureWindowsPath
 from typing import Literal
 from urllib.parse import urlsplit
 
@@ -37,11 +38,20 @@ class SourceBootstrap(Record):
     @model_validator(mode="after")
     def bounded_endpoints(self) -> SourceBootstrap:
         """Bound replaceable hints; enrollment itself performs no network reads."""
-        if len(set(self.endpoints)) != len(self.endpoints) or any(
-            not value or len(value) > 2048 for value in self.endpoints
+        endpoints = self.endpoints
+        if sys.platform == "win32":
+            # A Windows folder (C:\\...) is kept the portable way (C:/...).
+            endpoints = tuple(
+                PureWindowsPath(value).as_posix()
+                if "://" not in value and PureWindowsPath(value).is_absolute()
+                else value
+                for value in endpoints
+            )
+        if len(set(endpoints)) != len(endpoints) or any(
+            not value or len(value) > 2048 for value in endpoints
         ):
             raise PreservationError("source endpoints must be unique bounded hints")
-        for value in self.endpoints:
+        for value in endpoints:
             if (
                 value != value.strip()
                 or "\\" in value
@@ -70,6 +80,8 @@ class SourceBootstrap(Record):
                 )
             if parsed.port is not None and parsed.port == 0:
                 raise PreservationError("discovery endpoint port must be positive")
+        if endpoints != self.endpoints:
+            return self.model_copy(update={"endpoints": endpoints})
         return self
 
 
