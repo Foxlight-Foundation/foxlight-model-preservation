@@ -657,7 +657,7 @@ class LocalOwner:
 
     def _fingerprint(self) -> tuple[int, int]:
         value = os.stat(self.home, follow_symlinks=False)
-        return value.st_dev, value.st_ino
+        return safefs.identity(value)
 
     def _check(self) -> None:
         if self._closed or self._fingerprint() != self._identity:

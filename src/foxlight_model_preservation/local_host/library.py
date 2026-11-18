@@ -79,7 +79,7 @@ class LibraryMarker(Record):
 
 def _identity(path: Path) -> tuple[int, int]:
     value = os.stat(path, follow_symlinks=False)
-    return value.st_dev, value.st_ino
+    return safefs.identity(value)
 
 
 # A drive that stops answering (a stalled network share, or a request macOS's
@@ -304,7 +304,7 @@ class Library:
         value: dict[str, JsonValue] = {
             "path": str(chosen),
             "exists": info is not None,
-            "identity": [info.st_dev, info.st_ino] if info else None,
+            "identity": list(safefs.identity(info)) if info else None,
             "parent_identity": list(_identity(parent)),
             "reattach": reattach,
             "same_drive": (info.st_dev if info else _identity(parent)[0])

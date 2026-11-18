@@ -46,7 +46,7 @@ class BackupDestination(Record):
 
 def _identity(descriptor: int) -> tuple[int, int]:
     value = os.fstat(descriptor)
-    return value.st_dev, value.st_ino
+    return safefs.identity(value)
 
 
 @contextmanager

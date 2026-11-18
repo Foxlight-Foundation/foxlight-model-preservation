@@ -679,7 +679,7 @@ def fetch(
             pinned = os.fstat(target)
             if (
                 expected_directory is not None
-                and (pinned.st_dev, pinned.st_ino) != expected_directory
+                and safefs.identity(pinned) != expected_directory
             ):
                 raise PreservationError("destination directory identity changed")
             with writer_lock(target):

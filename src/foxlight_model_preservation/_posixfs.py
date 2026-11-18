@@ -12,6 +12,7 @@ import shutil
 from pathlib import Path
 
 __all__ = [
+    "identity",
     "link_at",
     "link_path",
     "list_dir",
@@ -185,3 +186,8 @@ def private(handle: int) -> bool:
     """Whether this user owns the open file or directory and nobody else has access."""
     info = os.fstat(handle)
     return info.st_uid == os.getuid() and not info.st_mode & 0o077
+
+
+def identity(info: os.stat_result) -> tuple[int, int]:
+    """The (device, file) pair that names one file or folder while it exists."""
+    return (info.st_dev, info.st_ino)

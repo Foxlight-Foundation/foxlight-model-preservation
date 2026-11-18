@@ -108,10 +108,7 @@ def new_pmf_tree(destination: Path, control: OperationControl) -> Generator[int]
                 safefs.rename_at(parent, pending, parent, destination.name)
             except BaseException:
                 current = safefs.stat_at(parent, destination.name)
-                if (current.st_dev, current.st_ino) == (
-                    reservation.st_dev,
-                    reservation.st_ino,
-                ):
+                if safefs.identity(current) == safefs.identity(reservation):
                     safefs.rmdir_at(parent, destination.name)
                 raise
             os.fsync(parent)

@@ -26,6 +26,7 @@ assert sys.platform == "win32"  # noqa: S101 - imported only on Windows
 
 import ctypes
 import errno
+import hashlib
 import msvcrt
 import os
 import shutil
@@ -37,6 +38,7 @@ from functools import cache
 from pathlib import Path
 
 __all__ = [
+    "identity",
     "link_at",
     "link_path",
     "list_dir",
@@ -1363,3 +1365,24 @@ def private(handle: int) -> bool:
     be this user. Nothing on a drive without access lists is private.
     """
     return _private_handle(_handle(handle))
+
+
+_JSON_SAFE = 2**53
+
+
+def _fold(value: int) -> int:
+    # Windows volume serial numbers and file IDs can exceed what JSON keeps
+    # exactly; larger values fold to 53 bits (a collision is ~2**-53).
+    if 0 <= value < _JSON_SAFE:
+        return value
+    digest = hashlib.blake2b(value.to_bytes(16, "big", signed=False), digest_size=8)
+    return int.from_bytes(digest.digest(), "big") >> 11
+
+
+def identity(info: os.stat_result) -> tuple[int, int]:
+    """The (volume, file) pair that names one file or folder while it exists.
+
+    Both stay within JSON's exact integer range, so identities can be stored
+    in the stores' state files.
+    """
+    return (_fold(info.st_dev), _fold(info.st_ino))

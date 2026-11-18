@@ -732,10 +732,7 @@ def _restore(
                 current = safefs.stat_at(
                     parent_descriptor, destination.name, follow=True
                 )
-                if (current.st_dev, current.st_ino) == (
-                    reservation.st_dev,
-                    reservation.st_ino,
-                ):
+                if safefs.identity(current) == safefs.identity(reservation):
                     try:
                         safefs.rmdir_at(parent_descriptor, destination.name)
                     except OSError:

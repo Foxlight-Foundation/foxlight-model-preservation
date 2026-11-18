@@ -34,8 +34,3 @@ if sys.platform == "win32":  # the NT handle-relative calls
     from ._winfs import *  # noqa: F403
 else:  # the POSIX calls, exactly as made before this module
     from ._posixfs import *  # noqa: F403
-
-
-def identity(info: os.stat_result) -> tuple[int, int]:
-    """The (device, file) pair that names one file or folder while it exists."""
-    return (info.st_dev, info.st_ino)

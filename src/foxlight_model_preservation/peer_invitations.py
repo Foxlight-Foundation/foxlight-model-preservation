@@ -289,10 +289,9 @@ def _fetch_peer_invitation(
         for file in files:
             verify_object(target, file, control=client.control)
         current = destination.lstat()
-        if not stat.S_ISDIR(current.st_mode) or (current.st_dev, current.st_ino) != (
-            pinned.st_dev,
-            pinned.st_ino,
-        ):
+        if not stat.S_ISDIR(current.st_mode) or safefs.identity(
+            current
+        ) != safefs.identity(pinned):
             raise PreservationError("peer destination changed")
         client.control.checkpoint()
         atomic_bytes(

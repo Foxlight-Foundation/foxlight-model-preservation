@@ -205,11 +205,11 @@ def export_kit(
     ):
         if expected_store_identity is not None:
             info = os.fstat(source)
-            if (info.st_dev, info.st_ino) != expected_store_identity:
+            if safefs.identity(info) != expected_store_identity:
                 raise PreservationError("kit source directory identity changed")
         if expected_destination_identity is not None:
             info = os.fstat(parent)
-            if (info.st_dev, info.st_ino) != expected_destination_identity:
+            if safefs.identity(info) != expected_destination_identity:
                 raise PreservationError("kit destination directory identity changed")
         envelope = read_metadata(source, manifest_path(manifest_id))
         if expected_envelope is not None and envelope != expected_envelope:

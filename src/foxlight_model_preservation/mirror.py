@@ -1218,10 +1218,7 @@ def _link(source: int, target: int, path: str) -> None:
             existing = safefs.stat_at(parent, name)
         except FileNotFoundError:
             pass
-        if existing and (existing.st_dev, existing.st_ino) == (
-            info.st_dev,
-            info.st_ino,
-        ):
+        if existing and safefs.identity(existing) == safefs.identity(info):
             return
         temporary = ".link-" + os.urandom(16).hex()
         with parent_directory(source, path) as (original, original_name):
