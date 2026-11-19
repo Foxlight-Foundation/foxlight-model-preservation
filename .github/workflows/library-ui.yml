@@ -1,9 +1,9 @@
 name: Library interface
 on:
   push:
-    paths: ['capability/**', 'src/foxlight_model_preservation/local_host/**', 'desktop/**', 'scripts/*macos.py', 'scripts/package_desktop.py', 'scripts/release_install.py', 'scripts/install_release.py', 'scripts/qualify_installed_desktop.py', 'scripts/qualify_macos_cli.py', '.github/workflows/library-ui.yml']
+    paths: ['capability/**', 'src/foxlight_model_preservation/local_host/**', 'desktop/**', 'scripts/*macos.py', 'scripts/package_desktop.py', 'scripts/release_install.py', 'scripts/install_release.py', 'scripts/qualify_installed_desktop.py', 'scripts/qualify_macos_cli.py', 'scripts/*windows.py', '.github/workflows/library-ui.yml']
   pull_request:
-    paths: ['capability/**', 'src/foxlight_model_preservation/local_host/**', 'desktop/**', 'scripts/*macos.py', 'scripts/package_desktop.py', 'scripts/release_install.py', 'scripts/install_release.py', 'scripts/qualify_installed_desktop.py', 'scripts/qualify_macos_cli.py', '.github/workflows/library-ui.yml']
+    paths: ['capability/**', 'src/foxlight_model_preservation/local_host/**', 'desktop/**', 'scripts/*macos.py', 'scripts/package_desktop.py', 'scripts/release_install.py', 'scripts/install_release.py', 'scripts/qualify_installed_desktop.py', 'scripts/qualify_macos_cli.py', 'scripts/*windows.py', '.github/workflows/library-ui.yml']
 permissions:
   contents: read
 jobs:
@@ -115,3 +115,67 @@ jobs:
         run: |
           sh -n desktop/macos/cli/launcher.sh
           python scripts/qualify_macos_cli.py --app /tmp/sovereign-native/Sovereign.app --directory /tmp/sovereign-native-cli
+
+  windows-app:
+    # Installer note foxlight-docs#769, step 2: the unsigned build lane. Until a
+    # Library release carries the Windows fixes, the Library is built from this
+    # checkout and the result is marked checkout-preview, never released.
+    name: Windows app and per-user MSI (unsigned)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - run: python -m pip install uv==0.12.23
+      - name: Shell unit tests and lints
+        working-directory: desktop/windows/shell
+        run: |
+          set -euo pipefail
+          cargo fmt --check
+          cargo test --release --locked
+          cargo clippy --release --locked -- -D warnings
+      - run: dotnet tool install --global wix --version 5.0.2
+      - name: Build the Library install archive from this checkout
+        run: |
+          set -euo pipefail
+          uv build --project capability --out-dir dist-library
+          uv build --wheel --out-dir dist-core
+          python scripts/release_install.py --project capability --dist dist-library --revision "$GITHUB_SHA" --desktop-core-wheel dist-core/*.whl
+      - name: Fetch pinned runtime inputs and the locked win_amd64 wheelhouse
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, json, pathlib, urllib.request
+          lock = json.loads(pathlib.Path('desktop/windows/inputs.json').read_bytes())
+          for name in ('python', 'notices'):
+              target = pathlib.Path('C:/sw') / name
+              target.parent.mkdir(exist_ok=True)
+              urllib.request.urlretrieve(lock[name]['url'], target)
+              assert hashlib.sha256(target.read_bytes()).hexdigest() == lock[name]['sha256'], name
+          PY
+          python -m pip download --only-binary=:all: --require-hashes --platform win_amd64 --python-version 3.13 --implementation cp --abi cp313 --find-links dist-library --dest C:/sw/wheelhouse -r dist-library/requirements-desktop.lock
+      - name: Build the app and its MSI
+        run: python scripts/build_windows.py --checkout-library --library-archive dist-library/*-install.zip --python-archive C:/sw/python --notices-archive C:/sw/notices --wheelhouse C:/sw/wheelhouse --directory C:/sb --wix "$USERPROFILE/.dotnet/tools/wix.exe"
+      - name: Build an upgrade MSI of the same app
+        run: |
+          set -euo pipefail
+          version=$(python -c "import json; l = json.load(open('desktop/windows/inputs.json')); a, b, _ = l['version'].split('.'); print(f'{a}.{b}.{int(l[\"build_number\"]) + 1}')")
+          "$USERPROFILE/.dotnet/tools/wix.exe" build desktop/windows/Sovereign.wxs -arch x64 -d "Version=$version" -bindpath App=C:/sb/Sovereign -bindpath desktop/windows -out C:/sb/upgrade-test.msi
+      - name: Install per user, run, upgrade and uninstall
+        run: python scripts/qualify_windows.py --msi C:/sb/Sovereign-*-windows-x64.msi --upgrade-msi C:/sb/upgrade-test.msi --logs C:/sb/logs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sovereign-windows-unsigned-preview
+          path: |
+            C:/sb/Sovereign-*-windows-x64.msi
+            C:/sb/Sovereign/build-receipt.json
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sovereign-windows-logs
+          path: C:/sb/logs

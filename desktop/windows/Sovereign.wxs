@@ -1,0 +1,81 @@
+<!--
+  Sovereign for Windows: a per-user MSI (installer note foxlight-docs#769).
+
+  - No administrator prompt: always installed per user (ALLUSERS=2 with
+    MSIINSTALLPERUSER=1), so Program Files content goes under
+    %LOCALAPPDATA%\Programs\Sovereign.
+  - Each build is a major upgrade under one fixed UpgradeCode, so a newer MSI
+    replaces the installed app in place.
+  - Uninstalling removes the app only. The Library's saved models, keys and
+    settings (%LOCALAPPDATA%\Foxlight\Sovereign) are never part of this package.
+
+  scripts/build_windows.py builds it:
+    wix build -arch x64 -bindpath App=<staged app> -d Version=<a.b.build>
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+      Name="Sovereign"
+      Manufacturer="FoxlightAI Inc."
+      Version="$(Version)"
+      UpgradeCode="E77F4FAD-75A7-4B4F-BD7E-8AEC3F651F9A"
+      Scope="perUserOrMachine"
+      Compressed="yes">
+    <MajorUpgrade
+        AllowSameVersionUpgrades="no"
+        DowngradeErrorMessage="A newer version of Sovereign is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="SovereignIcon" SourceFile="Sovereign.ico" />
+    <Property Id="ARPPRODUCTICON" Value="SovereignIcon" />
+    <Property Id="ARPURLINFOABOUT" Value="https://sovereign.foxlight.ai/" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="ARPNOREPAIR" Value="1" />
+
+    <!-- Windows 11 or later, 64-bit (storage decision 4). Windows Installer
+         reports a compatibility build number (9600) on Windows 10 and 11, so
+         the real one comes from the registry. -->
+    <Property Id="WINDOWSBUILDNUMBER">
+      <RegistrySearch
+          Root="HKLM"
+          Key="SOFTWARE\Microsoft\Windows NT\CurrentVersion"
+          Name="CurrentBuildNumber"
+          Type="raw"
+          Bitness="always64" />
+    </Property>
+    <Launch
+        Condition="Installed OR (VersionNT64 AND WINDOWSBUILDNUMBER &gt;= 22000)"
+        Message="Sovereign needs 64-bit Windows 11 or later." />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Sovereign" />
+    </StandardDirectory>
+
+    <ComponentGroup Id="Application" Directory="INSTALLFOLDER">
+      <Files Include="!(bindpath.App)\**" />
+    </ComponentGroup>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="StartMenuShortcut">
+        <Shortcut
+            Id="SovereignShortcut"
+            Name="Sovereign"
+            Description="Keep your own copies of AI models"
+            Target="[INSTALLFOLDER]Sovereign.exe"
+            WorkingDirectory="INSTALLFOLDER"
+            Icon="SovereignIcon" />
+        <RegistryValue
+            Root="HKCU"
+            Key="Software\Foxlight\Sovereign"
+            Name="StartMenuShortcut"
+            Type="integer"
+            Value="1"
+            KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <Feature Id="Sovereign">
+      <ComponentGroupRef Id="Application" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+  </Package>
+</Wix>

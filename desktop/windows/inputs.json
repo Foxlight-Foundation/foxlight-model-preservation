@@ -1,0 +1,20 @@
+{
+  "schema_version": "sovereign.windows-inputs.v1",
+  "version": "0.1.0",
+  "build_number": "1",
+  "architecture": "x64",
+  "minimum_windows": "10.0.22000",
+  "library": {
+    "url": "https://github.com/Foxlight-Foundation/foxlight-model-preservation/releases/download/library-v0.34.0/foxlight-preservation-library-0.34.0-install.zip",
+    "sha256": "573a6cfd0e9268ee3b851395dc7e9769914a32f159d97d025c62aaa245d99645",
+    "source_revision": "e2982df0612ba9cb263000cf3eb480b3b2e4f814"
+  },
+  "python": {
+    "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.13.13%2B20260408-x86_64-pc-windows-msvc-install_only_stripped.tar.gz",
+    "sha256": "d8dad87f274a6e50423ad7d5d01807c87ac6fec6eaff133eff76dabf135eb101"
+  },
+  "notices": {
+    "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260408/cpython-3.13.13%2B20260408-x86_64-pc-windows-msvc-pgo-full.tar.zst",
+    "sha256": "c5646fc4788e29bee55cd99f7e3638b118b7d3ab0bc2cbcb0a52868d272fbd84"
+  }
+}

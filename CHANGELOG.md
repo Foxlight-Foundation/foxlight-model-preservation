@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Sovereign for Windows, unsigned build lane (installer note
+  foxlight-docs#769, step 2): a small Rust window around WebView2
+  (`desktop/windows/shell`), pinned inputs (`desktop/windows/inputs.json`),
+  a per-user WiX MSI (`desktop/windows/Sovereign.wxs`), and
+  `scripts/build_windows.py` / `scripts/qualify_windows.py`. CI builds the
+  MSI, installs it per user, runs the Library, upgrades and uninstalls it.
+  Until a Library release carries the Windows fixes, CI builds the Library
+  from the checkout and marks the result `checkout-preview`. Signing comes
+  with the signing lane.
+
 - A mirror or seed asked for a file it is withdrawing answers 404 instead of
   closing the connection with no reply. The mirror removes a withdrawn file's
   public link a moment before it drops the path from what it serves; a
