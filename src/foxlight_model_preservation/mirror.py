@@ -1380,7 +1380,7 @@ class MirrorServer(SeedServer):
                     connection.shutdown(socket.SHUT_RDWR)
                 except OSError:
                     pass
-                _cancel_blocked_io(connection)
+                _wake_blocked_reader(connection)
 
     def handle_error(
         self,
@@ -1489,19 +1489,20 @@ class UploadNotices:
         )
 
 
-def _cancel_blocked_io(connection: socket.socket) -> None:
-    """Wake a worker blocked reading ``connection`` (Windows only).
+def _wake_blocked_reader(connection: socket.socket) -> None:
+    """Wake a worker waiting to read ``connection`` (Windows only).
 
-    POSIX ``shutdown`` returns a blocked ``recv`` in another thread; Windows
-    does not, so its pending I/O on the socket is cancelled too.
+    POSIX ``shutdown`` wakes it. On Windows a socket with a timeout waits in
+    ``select``, which neither ``shutdown`` nor ``CancelIoEx`` wakes; only
+    closing the handle does. ``detach`` first, so the worker's socket object
+    stops using the handle (its next call fails) and its buffered reader
+    cannot defer the close. New connections are already refused here.
     """
     if sys.platform != "win32":
         return
-    import ctypes  # noqa: PLC0415
-
-    handle = connection.fileno()
+    handle = connection.detach()
     if handle >= 0:
-        ctypes.windll.kernel32.CancelIoEx(ctypes.c_void_p(handle), None)
+        socket.socket(fileno=handle).close()
 
 
 def run_mirror(
