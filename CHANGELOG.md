@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- A mirror or seed asked for a file it is withdrawing answers 404 instead of
+  closing the connection with no reply. The mirror removes a withdrawn file's
+  public link a moment before it drops the path from what it serves; a
+  request in that gap used to see the connection closed with no reply.
 - Install docs point at the public 0.38.0 cohort: core 0.38.0, Library 0.34.0,
   Mac build 22, Linux revision 17 (guided setup 0.1.15, graphical setup 0.1.17)
   and `sovereign-mirror:0.38.0`.
