@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Windows port, step 2 (foxlight-docs#768):
+  - Secrets (the Hugging Face token, bucket keys) are kept in Windows
+    Credential Manager, per user and this computer only, through
+    `CredWriteW`/`CredReadW`/`CredDeleteW` in-process: no command line or
+    helper sees them, and failures carry only an error code.
+  - The handoff file and the I2P qualification event log are created
+    through the storage seam with private access, so Windows gives them an
+    owner-only access list (they were created with POSIX modes, which
+    Windows ignores).
+  - Stopping or pausing a mirror wakes connections still sending headers on
+    Windows too, where `shutdown` does not wake a worker waiting to read.
+  - Tests: Credential Manager round trip, privacy checks through the seam,
+    short IDs for long text parameters (Windows caps `PYTEST_CURRENT_TEST`),
+    and loopback DHT lab settings that libtorrent's per-address limit can't
+    ban (every lab node is 127.0.0.1). The macOS app launcher tests are
+    macOS packaging.
 - Windows port, step 1 (foxlight-docs#768): the core runs its own work on
   Windows. Fixes found there, several of which affected every platform:
   - BitTorrent listens on one chosen port on every network adapter. libtorrent
