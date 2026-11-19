@@ -1,6 +1,7 @@
 """Actual standalone local server; no Core socket, SDK or model execution."""
 
 import asyncio
+import sys
 
 import httpx
 import pytest
@@ -8,6 +9,12 @@ import pytest
 pytest.importorskip("foxlight_model_preservation")
 from foxlight_preservation_library.desktop import DesktopClient
 from foxlight_preservation_library.server import LibraryServer
+
+# These simulate the macOS and Linux pickers, which print POSIX paths; Windows
+# has no system picker on the owner side (the Windows app supplies one).
+POSIX_PICKER = pytest.mark.skipif(
+    sys.platform == "win32", reason="simulates a macOS or Linux folder picker"
+)
 
 
 @pytest.mark.parametrize(
@@ -271,6 +278,7 @@ async def test_shutdown_drains_delayed_chooser_spawn_and_refuses_new_choosers(
         await client.close()
 
 
+@POSIX_PICKER
 async def test_linux_folder_selection_keeps_unicode_and_trailing_spaces(
     tmp_path, monkeypatch
 ):
@@ -391,6 +399,7 @@ async def test_bucket_contents_is_an_allowed_control(tmp_path):
         await client.close()
 
 
+@POSIX_PICKER
 async def test_macos_folder_choice_comes_from_the_system_dialog(tmp_path, monkeypatch):
     import sys
 

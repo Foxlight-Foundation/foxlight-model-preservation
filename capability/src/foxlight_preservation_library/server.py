@@ -541,8 +541,52 @@ class LibraryServer:
 
 
 class _Handler(http.server.BaseHTTPRequestHandler):
+    # Largest request body the screen ever accepts (a kit upload chunk).
+    BODY_LIMIT = 4 * 1024 * 1024
+    _body_read = False
+
     def log_message(self, format: str, *args: object) -> None:
         """Keep ticket paths, operator addresses and model choices out of logs."""
+
+    def parse_request(self) -> bool:
+        self._body_read = False
+        return super().parse_request()
+
+    def _read_body(self, length: int) -> bytes:
+        self._body_read = True
+        return self.rfile.read(length)
+
+    def _discard_body(self) -> None:
+        """Read a refused request's bounded body before replying.
+
+        Closing a socket with unread received bytes makes Windows send a reset
+        that can discard the reply before the browser reads it, so a refusal
+        would arrive as a dropped connection instead of its status.
+        """
+        if self._body_read:
+            return
+        self._body_read = True
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            length = 0
+        if not 0 < length <= self.BODY_LIMIT:
+            if length:
+                self.close_connection = True
+            return
+        previous = self.connection.gettimeout()
+        try:
+            self.connection.settimeout(2)
+            while length > 0:
+                part = self.rfile.read(min(length, 65536))
+                if not part:
+                    break
+                length -= len(part)
+        except OSError:
+            pass
+        finally:
+            self.connection.settimeout(previous)
+            self.close_connection = True
 
     def _reply(
         self,
@@ -559,6 +603,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         from a 48-bit integer under a fixed template, so no request text can
         reach the header (no CR/LF, quotes or other separators).
         """
+        self._discard_body()
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         if attachment is not None:
@@ -818,7 +863,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 )
             ):
                 raise ValueError("invalid control")
-            body: JsonValue = json.loads(self.rfile.read(length))
+            body: JsonValue = json.loads(self._read_body(length))
             if not isinstance(body, dict):
                 raise ValueError("invalid object")
         except (ValueError, OSError):
@@ -901,7 +946,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 or not 0 < length <= 4 * 1024 * 1024
             ):
                 raise ValueError("invalid kit chunk")
-            content = self.rfile.read(length)
+            content = self._read_body(length)
             if len(content) != length:
                 raise ValueError("truncated chunk")
             future = asyncio.run_coroutine_threadsafe(
