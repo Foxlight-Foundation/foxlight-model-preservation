@@ -140,3 +140,29 @@ def test_revocation_interrupts_slow_body_without_refunding_upload(capture, tmp_p
         assert server.finished_at is not None
         assert 0 <= server.finished_at - started < 5
         assert server.reserved_upload_bytes == len(payload)
+
+
+def test_an_allowlisted_file_retired_before_the_reply_is_answered_not_served(
+    capture, tmp_path
+):
+    """A mirror unlinks a withdrawn file just before dropping its path; reply 404."""
+    store = tmp_path / "retired-store"
+    identity = pack(capture.recipe, capture.sources, store, (capture.key,))
+    server = SeedServer(("127.0.0.1", 0), store, (identity,), capture.trust)
+    path = next(path for path in server.allowed if path.startswith("/objects/"))
+    (store / path[1:]).unlink()
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        connection = http.client.HTTPConnection(
+            "127.0.0.1", server.server_port, timeout=5
+        )
+        connection.request("GET", path)
+        reply = connection.getresponse()
+        reply.read()
+        connection.close()
+        assert reply.status == 404
+    finally:
+        server.shutdown()
+        thread.join(5)
+        server.server_close()

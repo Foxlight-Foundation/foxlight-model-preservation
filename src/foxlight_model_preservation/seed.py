@@ -192,6 +192,7 @@ class SeedHandler(http.server.BaseHTTPRequestHandler):
             if not (0 <= start <= end < size):
                 self.send_error(416)
                 return
+        replied = False
         try:
             with (
                 directory(self.seed.store) as root,
@@ -209,6 +210,7 @@ class SeedHandler(http.server.BaseHTTPRequestHandler):
                     else:
                         self.send_error(self.seed.budget_status)
                     return
+                replied = True
                 self.send_response(206 if requested is not None else 200)
                 self.send_header("Content-Length", str(count))
                 self.send_header("Content-Type", "application/octet-stream")
@@ -218,6 +220,14 @@ class SeedHandler(http.server.BaseHTTPRequestHandler):
                     self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
                 self.end_headers()
                 self._send(stream, start, count)
+        except FileNotFoundError:
+            # A mirror retires a withdrawn file's public link moments before it
+            # drops the path from the allowlist; answer as not served rather
+            # than closing the connection with no reply.
+            if replied:
+                self.close_connection = True
+            else:
+                self.send_error(404)
         except (OSError, PreservationError):
             self.close_connection = True
 

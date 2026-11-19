@@ -236,7 +236,8 @@ def test_retained_service_survives_publisher_loss_and_pause_preserves_bytes(
         reply = client.getresponse()
         reply.read()
         client.close()
-        assert reply.status == 503
+        # 503 until the mirror's next pass retires the path, 404 after.
+        assert reply.status in (503, 404)
         ledger.update(lambda s: s.model_copy(update={"paused": True}))
         thread.join(10)
         assert not thread.is_alive()
