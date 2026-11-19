@@ -288,11 +288,15 @@ Skulk, capability SDK, model runtime, GPU or hosted account. Sharing is opt-in.
 To remove the software, use `sudo apt remove foxlight-sovereign`. The Library,
 models, provenance and saved recovery files remain under your control.
 
-The current recipe is **0.1.0 revision 16**, paired with the authenticated public
-core 0.37.1 / Library 0.33.1 cohort, which says plainly that sharing over BitTorrent lists the shared models on
-the public BitTorrent DHT, and whose Find search line names the sources that
-need the internet. Its packages, signed apt indexes and
-guided setup are published.
+The current recipe is **0.1.0 revision 17**, paired with the authenticated public
+core 0.38.0 / Library 0.34.0 cohort, whose core now also runs on Windows (no Windows app yet), whose server
+mirrors announce on Nostr and share over BitTorrent by default, and whose
+Pirate Face switch now reads Also share on Pirate Face. Its packages, signed apt indexes
+and qualification are published separately; until then the channel and guided
+setup remain revision 16.
+Revision 16 (core 0.37.1 / Library 0.33.1) said plainly that sharing over BitTorrent lists the shared models on
+the public BitTorrent DHT, and whose Find search line named the sources that
+need the internet.
 Revision 15 (core 0.37 / Library 0.33) shared model files over BitTorrent once you turn sharing on (one
 swarm per file, an optional router port mapping, and a signed listing other
 computers find through the DHT and Nostr), let Find save from those
