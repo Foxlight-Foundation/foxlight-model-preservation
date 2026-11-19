@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Install docs point at the public 0.38.0 cohort: core 0.38.0, Library 0.34.0,
+  Mac build 22, Linux revision 17 (guided setup 0.1.15, graphical setup 0.1.17)
+  and `sovereign-mirror:0.38.0`.
+
 - Windows port: CI runs the whole suite and the BitTorrent lab on Windows,
   and type-checks the whole project for Windows. Starting the managed peer
   runtime on Windows refuses with a clear error instead of failing on a
