@@ -81,22 +81,24 @@ def test_a_macos_keychain_file_and_an_oversized_secret_are_refused(
         keychain.load_secret("foxlight-test", account, error=ERROR)
 
 
-def test_a_locked_store_fails_without_the_secret(
-    account: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_locked_store_fails_without_the_secret(account: str) -> None:
     from foxlight_model_preservation import _wincred
 
     def denied(*_: object) -> int:
         ctypes.set_last_error(5)  # ERROR_ACCESS_DENIED
         return 0
 
-    monkeypatch.setattr(_wincred, "_CredDeleteW", denied)
-    with pytest.raises(PreservationError) as raised:
-        keychain.delete_secret("foxlight-test", account, error=ERROR, strict=True)
-    keychain.delete_secret("foxlight-test", account, error=ERROR)  # not strict
-    monkeypatch.setattr(_wincred, "_CredWriteW", denied)
-    with pytest.raises(PreservationError) as raised:
-        keychain.save_secret("foxlight-test", account, SECRET, label="t", error=ERROR)
+    # Undone before the fixture removes its entry.
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(_wincred, "_CredDeleteW", denied)
+        with pytest.raises(PreservationError):
+            keychain.delete_secret("foxlight-test", account, error=ERROR, strict=True)
+        keychain.delete_secret("foxlight-test", account, error=ERROR)  # not strict
+        patch.setattr(_wincred, "_CredWriteW", denied)
+        with pytest.raises(PreservationError) as raised:
+            keychain.save_secret(
+                "foxlight-test", account, SECRET, label="t", error=ERROR
+            )
     rendered = "".join(traceback.format_exception(raised.value))
     assert SECRET not in rendered and SECRET.encode().hex() not in rendered
     assert raised.value.__cause__ is None and raised.value.__suppress_context__
