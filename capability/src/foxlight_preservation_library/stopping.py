@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import signal
 import sys
 import threading
 from collections.abc import Callable
-from typing import BinaryIO
 
 
 def stop_on_signals(
@@ -37,7 +37,7 @@ def stop_on_signals(
 def stop_when_input_closes(
     loop: asyncio.AbstractEventLoop,
     stopped: asyncio.Event,
-    stream: BinaryIO | None = None,
+    descriptor: int | None = None,
 ) -> threading.Thread:
     """Stop once standard input reaches end of file.
 
@@ -45,12 +45,20 @@ def stop_when_input_closes(
     and closes it to ask for a clean stop. The pipe also closes if the shell
     exits for any other reason, so the screen never outlives its window.
     """
-    source = stream if stream is not None else getattr(sys.stdin, "buffer", None)
+    if descriptor is None:
+        try:
+            descriptor = sys.stdin.fileno()
+        except (AttributeError, OSError, ValueError):
+            descriptor = None
 
     def watch() -> None:
         try:
-            if source is not None:
-                while source.read(4096):
+            if descriptor is not None:
+                # The raw descriptor, never sys.stdin's buffered reader: if the
+                # screen stops another way, this daemon thread is still reading
+                # at exit, and a thread blocked in a buffered read aborts
+                # interpreter shutdown (Fatal Python error: _enter_buffered_busy).
+                while os.read(descriptor, 4096):
                     pass
         except (OSError, ValueError):
             pass

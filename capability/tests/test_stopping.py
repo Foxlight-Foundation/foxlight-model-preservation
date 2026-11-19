@@ -3,6 +3,8 @@
 import asyncio
 import os
 import socket
+import subprocess
+import sys
 import time
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -19,14 +21,48 @@ async def test_closing_standard_input_stops_the_screen():
     loop = asyncio.get_running_loop()
     stopped = asyncio.Event()
     read, write = os.pipe()
-    with os.fdopen(read, "rb", buffering=0) as stream:
-        thread = stop_when_input_closes(loop, stopped, stream)
+    try:
+        thread = stop_when_input_closes(loop, stopped, read)
         os.write(write, b"ignored")
         await asyncio.sleep(0.05)
         assert not stopped.is_set()
         os.close(write)
         await asyncio.wait_for(stopped.wait(), 5)
         thread.join(5)
+    finally:
+        os.close(read)
+
+
+def test_stopping_another_way_while_input_is_open_exits_cleanly():
+    """The watcher may still be reading when the screen stops by a signal."""
+    program = (
+        "import asyncio\n"
+        "from foxlight_preservation_library.stopping import stop_when_input_closes\n"
+        "async def main():\n"
+        "    stop_when_input_closes(asyncio.get_running_loop(), asyncio.Event())\n"
+        "    await asyncio.sleep(0.2)\n"
+        "asyncio.run(main())\n"
+        "print('clean', flush=True)\n"
+    )
+    child = subprocess.Popen(
+        [sys.executable, "-c", program],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    assert child.stdin is not None
+    assert child.stdout is not None and child.stderr is not None
+    try:
+        # Standard input stays open the whole time, as when the Windows app is
+        # still running and the screen stops another way.
+        child.wait(timeout=20)
+        out, err = child.stdout.read(), child.stderr.read()
+    finally:
+        child.stdin.close()
+        child.stdout.close()
+        child.stderr.close()
+    assert child.returncode == 0, err
+    assert out.strip() == b"clean"
 
 
 async def test_without_signal_support_handlers_are_skipped():
