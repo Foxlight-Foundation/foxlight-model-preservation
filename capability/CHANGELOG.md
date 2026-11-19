@@ -6,6 +6,10 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+## 0.34.0
+
+- Requires core 0.38.0.
+
 - **Also seed on Pirate Face** is now **Also share on Pirate Face**, and Find
   shows how many computers are sharing a model on Pirate Face rather than its
   "seeds". Core's server mirrors now announce on Nostr and share over
