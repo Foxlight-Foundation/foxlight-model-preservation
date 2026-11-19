@@ -305,14 +305,26 @@ def test_a_sharing_computer_with_no_address_can_be_found_through_its_listing(
         params.save_path = str(tmp_path / "fetched")
         handle = downloader.add_torrent(params)
         handle.connect_peer(("127.0.0.1", sharer.port()))
-        wait_for(lambda: handle.status().is_seeding, 60)
         inner = tmp_path / "fetched" / "sovereign-listing"
-        holdings = verify_holdings(
-            (inner / "holdings.json").read_bytes(), public_record(key)
-        )
+
+        def fetched_listing():  # type: ignore[no-untyped-def]
+            # libtorrent can report seeding before its disk writes land, so the
+            # fetch is complete when the listing verifies, not when the flag is set.
+            if not handle.status().is_seeding:
+                return None
+            if not (inner / "manifests" / f"{identity}.json").exists():
+                return None
+            if not (inner / "torrents.json").exists():
+                return None
+            try:
+                return verify_holdings(
+                    (inner / "holdings.json").read_bytes(), public_record(key)
+                )
+            except (OSError, ValueError, PreservationError):
+                return None
+
+        holdings = wait_for(fetched_listing, 60)
         assert [entry.manifest for entry in holdings.entries] == [identity]
-        assert (inner / "manifests" / f"{identity}.json").exists()
-        assert (inner / "torrents.json").exists()
     finally:
         owner.close()
         reader.close()

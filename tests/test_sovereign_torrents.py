@@ -141,11 +141,18 @@ def test_a_shared_file_reaches_a_downloader_and_is_never_written(
             }
         )
         handle.connect_peer(("127.0.0.1", sharer.port()))
+        # libtorrent can report seeding before its disk writes land: wait for
+        # the bytes themselves, not just the flag.
+        received = fetched / built.name
         end = time.monotonic() + 30
-        while not handle.status().is_seeding and time.monotonic() < end:
+        while time.monotonic() < end and not (
+            handle.status().is_seeding
+            and received.exists()
+            and received.read_bytes() == data
+        ):
             time.sleep(0.1)
         assert handle.status().is_seeding
-        assert (fetched / built.name).read_bytes() == data
+        assert received.read_bytes() == data
         end = time.monotonic() + 10
         while sharer.uploaded() < len(data) and time.monotonic() < end:
             time.sleep(0.1)
@@ -210,11 +217,19 @@ def test_a_mirror_shares_and_lists_every_file_of_a_held_copy(
         )
         assert manager.files.sharer is not None
         handle.connect_peer(("127.0.0.1", manager.files.sharer.port()))
-        end = time.monotonic() + 30
-        while not handle.status().is_seeding and time.monotonic() < end:
-            time.sleep(0.1)
         stored = (ledger.path / "store" / object_path(sha256)).read_bytes()
-        assert (fetched / torrent.name).read_bytes() == stored
+        # libtorrent can report seeding before its disk writes land: wait for
+        # the bytes themselves, not just the flag.
+        received = fetched / torrent.name
+        end = time.monotonic() + 30
+        while time.monotonic() < end and not (
+            handle.status().is_seeding
+            and received.exists()
+            and received.read_bytes() == stored
+        ):
+            time.sleep(0.1)
+        assert handle.status().is_seeding
+        assert received.read_bytes() == stored
         # Turning it off stops sharing and listing; built torrents are kept.
         configure(ledger, file_torrents=False)
         manager.tick()
