@@ -584,6 +584,10 @@ def test_a_concurrent_hardlink_does_not_fail_verification_but_tampering_does(
     class TamperKeepingMtime(OperationControl):
         def advance(self, **counts: int) -> None:
             target = tmp_path / "object"
+            # NTFS stamps times from a clock that ticks about every 16 ms: a
+            # change in the same tick as the file's creation keeps its
+            # change time. A real tamper comes long after the file was made.
+            time.sleep(0.05)
             stat = os.stat(target)
             target.write_bytes(b"X" * len(data))
             os.utime(target, ns=(stat.st_atime_ns, stat.st_mtime_ns))

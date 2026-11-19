@@ -667,6 +667,8 @@ def run_peer(
     """
     if not allow_network:
         raise PreservationError("peer network participation needs explicit permission")
+    if sys.platform == "win32":  # it supervises a POSIX process group
+        raise PreservationError("the managed peer runtime is not on Windows yet")
     profile = read_profile(repo)
     if (profile.mode == "mirror") != share_public:
         raise PreservationError("mirror profile needs separate public sharing consent")

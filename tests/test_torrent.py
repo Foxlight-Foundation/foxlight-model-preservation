@@ -206,12 +206,24 @@ def test_standard_client_receives_from_static_web_seed_alone(
                 "flags": 0,
             }
         )
+        # As with a peer above: libtorrent hashes pieces from its store buffer,
+        # so it can report seeding before the files are on disk (every time on
+        # GitHub's Windows runners). Complete means our verifier passes.
         deadline = time.monotonic() + 20
-        while not handle.status().is_seeding and time.monotonic() < deadline:
+        restored = None
+        while time.monotonic() < deadline:
+            if handle.status().is_seeding:
+                try:
+                    restored = verify_store(
+                        received / capture.identity, capture.identity, capture.trust
+                    )
+                except (FileNotFoundError, PreservationError):
+                    pass
+                else:
+                    break
             time.sleep(0.05)
-        assert handle.status().is_seeding
-        assert verify_store(
-            received / capture.identity, capture.identity, capture.trust
+        assert restored is not None, (
+            "web seed did not deliver a complete verified archive within the deadline"
         )
     finally:
         if receiver is not None:
