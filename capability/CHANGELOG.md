@@ -6,6 +6,11 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Pin Sovereign Mac build 22 and Linux revision 17 to the authenticated
+  Library 0.34.0 installation archive (sha256 573a6cfd…, source e2982df0; its
+  desktop lock carries core 0.38.0 and libtorrent 2.0.14). Native signing,
+  notarization, apt publication and qualification remain separate gates.
+
 ## 0.34.0
 
 - Requires core 0.38.0.

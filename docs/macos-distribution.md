@@ -17,9 +17,11 @@ rebuilding or signing them. Developer ID signing, Apple notarization and an
 installed-app journey remain separate checks. A locally passing Gatekeeper
 check does not establish clean-host acceptance, model compatibility or anonymity.
 
-The build21 recipe pairs the authenticated public core 0.37.1 / Library 0.33.1 cohort,
-which says plainly that sharing over BitTorrent lists the shared models on
-the public BitTorrent DHT, and whose Find search line names the sources that
+The build22 recipe pairs the authenticated public core 0.38.0 / Library 0.34.0 cohort,
+whose core now also runs on Windows (no Windows app yet), whose server
+mirrors announce on Nostr and share over BitTorrent by default, and whose
+Pirate Face switch now reads Also share on Pirate Face. Build 21 paired core 0.37.1 / Library 0.33.1, which said plainly that sharing over BitTorrent lists the shared models on
+the public BitTorrent DHT, and whose Find search line named the sources that
 need the internet. Build 20 paired core 0.37 / Library 0.33, which shared model files over BitTorrent once you turn sharing on (one
 swarm per file, an optional router port mapping, and a signed listing other
 computers find through the DHT and Nostr), let Find save from those
