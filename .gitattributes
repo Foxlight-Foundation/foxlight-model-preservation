@@ -1,2 +1,5 @@
 # Preserve verbatim upstream notices, including their original whitespace.
 capability/src/foxlight_preservation_library/static/THIRD_PARTY_NOTICES.txt -whitespace
+# Hash-pinned notices must check out byte-for-byte on Windows (core.autocrlf).
+desktop/notices/** -text
+desktop/macos/runtime-notices/** -text
