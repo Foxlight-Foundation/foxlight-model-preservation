@@ -155,6 +155,9 @@ class Rendezvous:
                     "dht_ignore_dark_internet": False,
                     "dht_enforce_node_id": False,
                     "dht_prefer_verified_node_ids": False,
+                    # Every lab node is 127.0.0.1, so libtorrent's per-address limit
+                    # (5 queries a second) would ban the whole lab for 5 minutes.
+                    "dht_block_ratelimit": 100_000,
                 }
             )
         self._engine = engine

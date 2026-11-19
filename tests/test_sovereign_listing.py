@@ -215,6 +215,9 @@ def test_a_sharing_computer_with_no_address_can_be_found_through_its_listing(
         "dht_ignore_dark_internet": False,
         "dht_enforce_node_id": False,
         "dht_prefer_verified_node_ids": False,
+        # Every lab node is 127.0.0.1, so libtorrent's per-address limit
+        # (5 queries a second) would ban the whole lab for 5 minutes.
+        "dht_block_ratelimit": 100_000,
     }
 
     class Recorded(real):  # type: ignore[misc, valid-type]
