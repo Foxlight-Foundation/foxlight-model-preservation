@@ -6,6 +6,14 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Windows: the Library starts and stops cleanly. It keeps its data in
+  `%LOCALAPPDATA%\Foxlight\Sovereign`, skips the signal handlers Windows'
+  event loop lacks (Ctrl+C still stops it), and a new
+  `--stop-on-input-close` lets the Windows app stop it by closing its
+  standard input. A refused request's body is read before the refusal is
+  sent: Windows resets a socket closed with unread bytes, which could lose
+  the reply. Windows CI now runs the Library's tests (`preview.py` is not
+  ported yet and its tests skip there).
 - Install docs point at the public 0.38.0 cohort: core 0.38.0, Library 0.34.0,
   Mac build 22, Linux revision 17 (guided setup 0.1.15, graphical setup 0.1.17)
   and `sovereign-mirror:0.38.0`.

@@ -7,7 +7,6 @@ import asyncio
 import os
 import re
 import shutil
-import signal
 import subprocess
 import sys
 import webbrowser
@@ -20,6 +19,7 @@ from pydantic import JsonValue
 from .client import CoreClient, CoreRefused
 from .contracts import HostReport, LibraryCall
 from .server import LibraryServer
+from .stopping import stop_on_signals, stop_when_input_closes
 
 
 class DesktopClient(CoreClient):
@@ -346,29 +346,38 @@ def default_home() -> Path:
     """Use the platform's per-user data directory without requiring a terminal."""
     if sys.platform == "darwin":
         return Path.home() / "Library/Application Support/Foxlight/Sovereign"
+    if sys.platform == "win32":
+        # Local, never roaming: OneDrive and roaming profiles never sync it.
+        local = os.environ.get("LOCALAPPDATA")
+        base = Path(local) if local else Path.home() / "AppData/Local"
+        return base / "Foxlight/Sovereign"
     return (
         Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share")))
         / "foxlight/sovereign"
     )
 
 
-async def run(home: Path, *, open_browser: bool) -> None:
+async def run(
+    home: Path, *, open_browser: bool, stop_on_input_close: bool = False
+) -> None:
     """Run the independent owner and its local screen until the app is closed."""
     client = DesktopClient(home)
     server = LibraryServer(None, client, asyncio.get_running_loop())
     stopped = asyncio.Event()
     loop = asyncio.get_running_loop()
+    remove_handlers = None
     try:
         server.start()
-        for event in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(event, stopped.set)
+        remove_handlers = stop_on_signals(loop, stopped)
+        if stop_on_input_close:
+            stop_when_input_closes(loop, stopped)
         print("Sovereign: " + server.url, flush=True)
         if open_browser:
             await asyncio.to_thread(webbrowser.open, server.url)
         await stopped.wait()
     finally:
-        for event in (signal.SIGINT, signal.SIGTERM):
-            loop.remove_signal_handler(event)
+        if remove_handlers is not None:
+            remove_handlers()
         await asyncio.to_thread(server.close)
         await client.close()
 
@@ -378,9 +387,22 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--home", type=Path, default=default_home())
     parser.add_argument("--no-browser", action="store_true")
+    parser.add_argument(
+        "--stop-on-input-close",
+        action="store_true",
+        help="stop when standard input closes (used by the Windows app)",
+    )
     args = parser.parse_args()
     try:
-        asyncio.run(run(args.home, open_browser=not args.no_browser))
+        asyncio.run(
+            run(
+                args.home,
+                open_browser=not args.no_browser,
+                stop_on_input_close=args.stop_on_input_close,
+            )
+        )
+    except KeyboardInterrupt:
+        raise SystemExit(130) from None
     except ImportError:
         print(
             "Sovereign needs its matching public preservation core. Use the "

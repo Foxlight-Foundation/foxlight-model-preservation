@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import signal
 import sys
 import webbrowser
 
@@ -12,6 +11,7 @@ from .client import CoreClient, CoreRefused
 from .compatibility import check_core
 from .contracts import LibraryCall, Settings
 from .server import LibraryServer
+from .stopping import stop_on_signals
 
 
 async def run(settings: Settings, *, open_browser: bool) -> None:
@@ -20,13 +20,13 @@ async def run(settings: Settings, *, open_browser: bool) -> None:
     server = LibraryServer(None, client, asyncio.get_running_loop())
     stopped = asyncio.Event()
     loop = asyncio.get_running_loop()
+    remove_handlers = None
     try:
         # Check the actual Core before reporting a usable screen. This never
         # creates an archive or starts copying, hosting, discovery or seeding.
         await client.library(LibraryCall())
         server.start()
-        for event in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(event, stopped.set)
+        remove_handlers = stop_on_signals(loop, stopped)
         print("Model Preservation Library: " + server.url, flush=True)
         print(
             "Keep this private local link on this device. Stop with Ctrl+C.", flush=True
@@ -35,8 +35,8 @@ async def run(settings: Settings, *, open_browser: bool) -> None:
             await asyncio.to_thread(webbrowser.open, server.url)
         await stopped.wait()
     finally:
-        for event in (signal.SIGINT, signal.SIGTERM):
-            loop.remove_signal_handler(event)
+        if remove_handlers is not None:
+            remove_handlers()
         await asyncio.to_thread(server.close)
         await client.close()
 

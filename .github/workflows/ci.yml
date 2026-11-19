@@ -27,6 +27,11 @@ jobs:
       - name: Qualify optional BitTorrent with real local peers
         run: uv run --extra bittorrent pytest --basetemp=C:\b tests/test_torrent.py tests/test_mirror_native.py tests/test_pirateface_native.py tests/test_i2p.py tests/test_i2p_runtime.py tests/test_pmf_network.py tests/test_mirror_rendezvous.py tests/test_find_listings.py tests/test_sovereign_listing.py
       - run: uv run model-preserve --help
+      # The Library (capability/, its own project and lock) on Windows.
+      - run: uv sync --locked --all-extras --dev
+        working-directory: capability
+      - run: uv run pytest -ra --tb=short --basetemp=C:\l
+        working-directory: capability
   check:
     strategy:
       fail-fast: false

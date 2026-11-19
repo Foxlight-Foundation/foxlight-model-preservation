@@ -6,12 +6,17 @@ import hashlib
 import json
 import socket
 import subprocess
+import sys
 from pathlib import Path
 
 import httpx
 import pytest
 
-from foxlight_preservation_library import preview
+if sys.platform == "win32":
+    # preview.py locks and owner-checks with POSIX calls; its port is separate.
+    pytest.skip("preview.py is not ported to Windows yet", allow_module_level=True)
+
+from foxlight_preservation_library import preview  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
