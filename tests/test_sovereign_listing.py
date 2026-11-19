@@ -629,3 +629,31 @@ def test_a_listing_file_is_accepted_only_exactly_as_its_torrent_describes(
     # Short: not accepted either.
     target.write_bytes(b"m" * 1000)
     assert _read_files(folder, info, entries) is None
+
+
+def test_the_first_pointer_stores_repeat_soon_then_every_half_hour(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A store made while the DHT is still joining can reach no node, so the
+    first few repeat sooner; after that it is refreshed before items lapse."""
+    from types import SimpleNamespace
+
+    from foxlight_model_preservation import sovereign_torrents
+
+    clock = [100.0]
+    monkeypatch.setattr(sovereign_torrents.time, "monotonic", lambda: clock[0])
+    stores: list[float] = []
+    sharer = SimpleNamespace(put_pointer=lambda *_: stores.append(clock[0]) or True)
+    sharing = object.__new__(sovereign_torrents.FileSharing)
+    sharing.listing_key = Ed25519PrivateKey.generate
+    sharing._pointed = None  # noqa: SLF001
+    first = SimpleNamespace(infohash_v2="a" * 64)
+    for second in range(0, 2 * 3600, 5):
+        clock[0] = 100.0 + second
+        sharing._point(sharer, first)  # type: ignore[arg-type]  # noqa: SLF001
+    starts = [round(t - 100.0) for t in stores]
+    assert starts == [0, 15, 75, 375, 2175, 3975, 5775]
+    # A new listing is pointed to at once, and its early repeats start over.
+    clock[0] += 1
+    sharing._point(sharer, SimpleNamespace(infohash_v2="b" * 64))  # type: ignore[arg-type]  # noqa: SLF001
+    assert stores[-1] == clock[0] and sharing._pointed[2] == 1  # noqa: SLF001

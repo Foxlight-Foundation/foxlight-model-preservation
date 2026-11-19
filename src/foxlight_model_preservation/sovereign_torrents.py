@@ -72,6 +72,10 @@ CHARGE_BYTES = 8 * 1024**2
 CHARGE_SECONDS = 5.0
 # How often the listing's DHT pointer is stored again (items last ~2 hours).
 POINTER_SECONDS = 30 * 60
+# A store made while the session is still joining the DHT can reach no node
+# (libtorrent reports it done, with no success), so the first few repeat
+# sooner. A repeat is cheap: readers keep the newest.
+EARLY_POINTER_SECONDS = (15.0, 60.0, 5 * 60.0)
 
 MIN_PIECE = 256 * 1024
 MAX_PIECE = 16 * 1024**2
@@ -460,8 +464,9 @@ class FileSharing:
     ) -> None:
         self.ledger = ledger
         self.listing_key = listing_key
-        # The listing the DHT pointer last named, and when it was stored.
-        self._pointed: tuple[str, float] | None = None
+        # The listing the DHT pointer last named, when it was stored, and how
+        # many times in a row.
+        self._pointed: tuple[str, float, int] | None = None
         self.settings = settings
         self.home = ledger.path / FILES_DIRECTORY
         self.cache = TorrentCache(self.home / "torrents")
@@ -541,16 +546,22 @@ class FileSharing:
             self._build.start()
 
     def _point(self, sharer: FileSharer, listing: Listing | None) -> None:
-        """Store the DHT pointer to the current listing: when it changes, and
-        again before stored items lapse (they last about two hours)."""
+        """Store the DHT pointer to the current listing: when it changes, soon
+        again a few times (EARLY_POINTER_SECONDS), then before stored items
+        lapse (they last about two hours)."""
         if listing is None or self.listing_key is None:
             return
         now = time.monotonic()
-        if self._pointed is not None and (
-            self._pointed[0] == listing.infohash_v2
-            and now - self._pointed[1] < POINTER_SECONDS
-        ):
-            return
+        count = 0
+        if self._pointed is not None and self._pointed[0] == listing.infohash_v2:
+            _v2, last, count = self._pointed
+            wait = (
+                EARLY_POINTER_SECONDS[count - 1]
+                if count <= len(EARLY_POINTER_SECONDS)
+                else POINTER_SECONDS
+            )
+            if now - last < wait:
+                return
         try:
             secret, public = dht_keys(self.listing_key())
             if not sharer.put_pointer(
@@ -559,7 +570,7 @@ class FileSharing:
                 return  # the DHT is still starting: try again next tick
         except (PreservationError, OSError, RuntimeError, ValueError):
             return
-        self._pointed = (listing.infohash_v2, now)
+        self._pointed = (listing.infohash_v2, now, count + 1)
 
     def _watchdog(self) -> None:
         while self._watching.is_set():
