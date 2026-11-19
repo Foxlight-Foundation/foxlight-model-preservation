@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from permissions import owner_only
 
 from foxlight_model_preservation.discovery import (
     bootstrap_identity,
@@ -219,7 +220,7 @@ def test_observations_are_bounded_and_exception_values_are_never_recorded(tmp_pa
     assert "PRIVATE_EXCEPTION_VALUE" not in raw and "secret.invalid" not in raw
     assert len([json.loads(line) for line in raw.splitlines()]) == 2
     assert summary["events_dropped"] == 1
-    assert (tmp_path / "transfer-events.jsonl").stat().st_mode & 0o777 == 0o600
+    assert owner_only(tmp_path / "transfer-events.jsonl")
 
 
 @pytest.mark.parametrize("finish", [True, False])

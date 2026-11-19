@@ -634,7 +634,9 @@ def _cli(*arguments: str, stdin: str | None = None) -> subprocess.CompletedProce
         [sys.executable, "-m", "foxlight_model_preservation.cli", *arguments],
         capture_output=True,
         timeout=60,
-        input=stdin.encode() if stdin is not None else None,
+        # Always a pipe: an inherited console (Windows over SSH) is a terminal,
+        # and the CLI would ask interactively instead of refusing.
+        input=(stdin or "").encode(),
     )
 
 

@@ -6,6 +6,7 @@ from importlib.resources import files
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from permissions import owner_only
 from test_discovery import Publisher
 from test_invitations import invitation, mirror
 
@@ -75,7 +76,7 @@ def test_schema_and_offline_review_keep_original_model_evidence(
     assert encode_record(read_reference(output.read_bytes())) == original
     assert reference_contacts(original) == ()
     assert read_handoff(output.read_bytes()).reference.envelope == reference.envelope
-    assert output.stat().st_mode & 0o777 == 0o600
+    assert owner_only(output)
 
 
 @pytest.mark.parametrize("mutation", ["version", "field", "duplicate", "signature"])

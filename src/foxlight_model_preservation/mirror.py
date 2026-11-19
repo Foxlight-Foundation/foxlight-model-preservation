@@ -6,6 +6,7 @@ import http.server
 import os
 import re
 import socket
+import sys
 import threading
 import time
 from collections.abc import Callable
@@ -1379,6 +1380,7 @@ class MirrorServer(SeedServer):
                     connection.shutdown(socket.SHUT_RDWR)
                 except OSError:
                     pass
+                _wake_blocked_reader(connection)
 
     def handle_error(
         self,
@@ -1485,6 +1487,22 @@ class UploadNotices:
                 ),
             }
         )
+
+
+def _wake_blocked_reader(connection: socket.socket) -> None:
+    """Wake a worker waiting to read ``connection`` (Windows only).
+
+    POSIX ``shutdown`` wakes it. On Windows a socket with a timeout waits in
+    ``select``, which neither ``shutdown`` nor ``CancelIoEx`` wakes; only
+    closing the handle does. ``detach`` first, so the worker's socket object
+    stops using the handle (its next call fails) and its buffered reader
+    cannot defer the close. New connections are already refused here.
+    """
+    if sys.platform != "win32":
+        return
+    handle = connection.detach()
+    if handle >= 0:
+        socket.socket(fileno=handle).close()
 
 
 def run_mirror(

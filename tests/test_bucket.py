@@ -439,12 +439,23 @@ def test_keychain_failures_never_carry_the_keys(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import subprocess
+    import sys
     import traceback
 
     def slow(command: list[str], **kwargs: object) -> None:
         raise subprocess.TimeoutExpired(command, 30, output=str(kwargs.get("input")))
 
     monkeypatch.setattr(subprocess, "run", slow)
+    if sys.platform == "win32":
+        import ctypes
+
+        from foxlight_model_preservation import _wincred
+
+        def denied(*_: object) -> int:
+            ctypes.set_last_error(5)  # ERROR_ACCESS_DENIED
+            return 0
+
+        monkeypatch.setattr(_wincred, "_CredWriteW", denied)
     with pytest.raises(PreservationError) as raised:
         module.save_credentials("probe", KEYS)
     rendered = "".join(traceback.format_exception(raised.value))

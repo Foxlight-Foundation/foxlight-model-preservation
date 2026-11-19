@@ -23,8 +23,8 @@ def private_capture(capture: Capture, tmp_path: Path) -> Capture:
     """Retain an intentionally private evidence member beside ordinary model data."""
     evidence = tmp_path / "evidence"
     evidence.mkdir()
-    (evidence / "LICENSE").write_text("Private owner observations.\n")
-    (evidence / "model.bin").write_text("private installed paths and old grants\n")
+    (evidence / "LICENSE").write_bytes(b"Private owner observations.\n")
+    (evidence / "model.bin").write_bytes(b"private installed paths and old grants\n")
     members = [
         item.model_copy(
             update={

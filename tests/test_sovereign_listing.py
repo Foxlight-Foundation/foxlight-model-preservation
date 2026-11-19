@@ -196,7 +196,10 @@ def test_a_sharing_computer_with_no_address_can_be_found_through_its_listing(
     from foxlight_model_preservation.mirror_holdings import verify_holdings
     from foxlight_model_preservation.operations import OperationControl
     from foxlight_model_preservation.signing import public_record
-    from foxlight_model_preservation.torrent_binding import torrent_engine
+    from foxlight_model_preservation.torrent_binding import (
+        listen_interfaces,
+        torrent_engine,
+    )
 
     router = Rendezvous(interface="127.0.0.1", bootstrap=(), lab=True)
     boot = (("127.0.0.1", router.port),)
@@ -205,7 +208,6 @@ def test_a_sharing_computer_with_no_address_can_be_found_through_its_listing(
     # a loopback DHT instead of the public one, and never to a router.
     real = sovereign_torrents.FileSharer.__mro__[1]
     lab = {
-        "listen_interfaces": "127.0.0.1:0",
         "enable_lsd": False,
         "dht_bootstrap_nodes": f"127.0.0.1:{router.port}",
         "dht_restrict_routing_ips": False,
@@ -213,6 +215,9 @@ def test_a_sharing_computer_with_no_address_can_be_found_through_its_listing(
         "dht_ignore_dark_internet": False,
         "dht_enforce_node_id": False,
         "dht_prefer_verified_node_ids": False,
+        # Every lab node is 127.0.0.1, so libtorrent's per-address limit
+        # (5 queries a second) would ban the whole lab for 5 minutes.
+        "dht_block_ratelimit": 100_000,
     }
 
     class Recorded(real):  # type: ignore[misc, valid-type]
@@ -221,7 +226,13 @@ def test_a_sharing_computer_with_no_address_can_be_found_through_its_listing(
                 home,
                 open_router=False,
                 upload_rate=upload_rate,
-                settings={**(settings or {}), **lab},
+                # One port for TCP and UDP: with port 0, Windows libtorrent
+                # binds them apart and DHT replies miss the UDP socket.
+                settings={
+                    **(settings or {}),
+                    **lab,
+                    "listen_interfaces": listen_interfaces("127.0.0.1"),
+                },
             )
             self.session.add_dht_node(("127.0.0.1", router.port))
             sharers.append(self)

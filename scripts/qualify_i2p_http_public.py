@@ -32,7 +32,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from securesystemslib.signer import CryptoSigner
 from tuf.api.metadata import Metadata, Root
 
-from foxlight_model_preservation import transfer
+from foxlight_model_preservation import safefs, transfer
 from foxlight_model_preservation.discovery import (
     bootstrap_identity,
     fetch_selection,
@@ -86,8 +86,10 @@ class HTTPObservations:
         self.lock = threading.Lock()
         self.changed = threading.Condition(self.lock)
         self.active_origins: set[int] = set()
-        descriptor = os.open(
-            root / "transfer-events.jsonl", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
+        descriptor = safefs.open_path(
+            root / "transfer-events.jsonl",
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            safefs.PRIVATE_FILE,
         )
         self.output = os.fdopen(descriptor, "w")
         self.counts = Counter()

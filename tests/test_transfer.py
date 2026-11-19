@@ -3,6 +3,7 @@
 import http.client
 import shutil
 import threading
+import time
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -60,7 +61,17 @@ def test_original_envelope_fetch_needs_no_later_metadata(capture, tmp_path):
     with mirror(capture.store) as (url, requests):
         envelope = inspect_envelope(capture.identity, capture.trust, (url,), policy)
         assert envelope == original
-        path.unlink()
+        # The server thread may still be closing the file it just sent, and
+        # Windows refuses to delete an open file.
+        deadline = time.monotonic() + 5
+        while True:
+            try:
+                path.unlink()
+                break
+            except PermissionError:
+                if time.monotonic() > deadline:
+                    raise
+                time.sleep(0.02)
         target = tmp_path / "received"
         fetch(
             capture.identity,

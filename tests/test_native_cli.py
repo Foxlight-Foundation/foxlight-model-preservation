@@ -11,6 +11,11 @@ import sys
 from pathlib import Path
 
 import pytest
+from platforms import macos_only
+
+# The macOS app's shell launchers; the Windows installer has its own
+# (foxlight-docs windows-installer-2026-11-17).
+pytestmark = macos_only
 
 SCRIPT = Path(__file__).parents[1] / "scripts/package_desktop.py"
 SPEC = importlib.util.spec_from_file_location("native_package", SCRIPT)

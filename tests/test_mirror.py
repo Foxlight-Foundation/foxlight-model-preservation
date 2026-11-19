@@ -535,7 +535,6 @@ def test_completed_intent_recovers_without_publisher_or_registry(tmp_path, captu
 def test_cli_kill_releases_owner_and_preserves_grants_budgets_and_copies(
     tmp_path, capture
 ):
-    import selectors
     import subprocess
     import sys
 
@@ -560,11 +559,13 @@ def test_cli_kill_releases_owner_and_preserves_grants_budgets_and_copies(
             text=True,
         )
         assert p.stdout
-        selector = selectors.DefaultSelector()
-        selector.register(p.stdout, selectors.EVENT_READ)
+        # A thread, not select(): Windows cannot select on a pipe.
+        lines: queue.Queue[str] = queue.Queue()
+        threading.Thread(
+            target=lambda: lines.put(p.stdout.readline()), daemon=True
+        ).start()
         try:
-            assert selector.select(10), "CLI readiness deadline"
-            ready = json.loads(p.stdout.readline())
+            ready = json.loads(lines.get(timeout=10))
             assert ready["ready"]
         except BaseException:
             p.kill()
@@ -573,8 +574,6 @@ def test_cli_kill_releases_owner_and_preserves_grants_budgets_and_copies(
             if p.stderr:
                 p.stderr.close()
             raise
-        finally:
-            selector.close()
         return p, ready["port"]
 
     process, port = start()

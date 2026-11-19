@@ -167,8 +167,9 @@ def test_a_refused_token_is_not_kept(
 def test_removing_a_token_reports_a_locked_keychain(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import os
     import subprocess
+
+    from foxlight_model_preservation import keychain
 
     codes = iter([44, 0, 36])
 
@@ -176,9 +177,7 @@ def test_removing_a_token_reports_a_locked_keychain(
         return subprocess.CompletedProcess(command, next(codes), "", "")
 
     monkeypatch.setattr(subprocess, "run", fake)
-    monkeypatch.setattr(
-        os, "uname", lambda: os.uname_result(("Darwin", "", "", "", ""))
-    )
+    monkeypatch.setattr(keychain, "system", lambda: "Darwin")
     hub.delete_token()  # 44: nothing stored, already removed
     hub.delete_token()  # 0: removed
     with pytest.raises(PreservationError, match="hub_keychain_unavailable"):

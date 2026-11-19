@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import http.client
 import json
-import os
 import queue
 import re
 import shutil
-import stat
 import subprocess
 import sys
 import tempfile
@@ -19,11 +17,13 @@ from pathlib import Path
 
 import pytest
 from conftest import Capture
+from permissions import owner_only
 from platforms import posix_shell
 from test_discovery import Publisher
 from test_mirror import cycle, mirror
 
 from foxlight_model_preservation import mirror as mirror_module
+from foxlight_model_preservation import safefs
 from foxlight_model_preservation.discovery import bootstrap_identity
 from foxlight_model_preservation.mirror import (
     configure_mirror,
@@ -1284,7 +1284,7 @@ def test_card_names_public_url_and_is_signed_by_its_own_mirror_key(tmp_path, cap
     assert claimed.addresses == ("https://mirror.example",)
     assert claimed.covers(capture.identity) and claimed.contact
     assert claimed.mirror_key.key_id not in {k.key_id for k in capture.trust.keys}
-    assert stat.S_IMODE((ledger.path / KEY_FILE).stat().st_mode) == 0o600
+    assert owner_only(ledger.path / KEY_FILE)
     (raw,) = read_peers((ledger.path / "peers.json").read_bytes())
     assert raw == card
     from foxlight_model_preservation.mirror_objects import (
@@ -2045,7 +2045,7 @@ def test_owner_only_paths_are_kept(tmp_path, capture):
         ledger, {"announce": AnnouncePolicy(public_url="https://m.example")}
     )
     Announcer(ledger).publish(frozenset())
-    assert not os.stat(ledger.path / "peers.json").st_mode & 0o077
+    assert safefs.path_private(ledger.path / "peers.json")
 
 
 # Withdrawal advisories with intake, quickstart and all-or-nothing config ---------

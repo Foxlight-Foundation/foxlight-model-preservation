@@ -10,6 +10,22 @@ from foxlight_model_preservation.models import Recipe, TrustProfile
 from foxlight_model_preservation.signing import public_record
 from foxlight_model_preservation.storage import pack
 
+_LONGEST_ID = 64
+
+
+def pytest_make_parametrize_id(
+    config: pytest.Config, val: object, argname: str
+) -> str | None:
+    """Name long text parameters by size, not content.
+
+    pytest puts the test ID in ``PYTEST_CURRENT_TEST``, and Windows refuses
+    environment values over 32767 characters.
+    """
+    del config
+    if isinstance(val, (str, bytes)) and len(val) > _LONGEST_ID:
+        return f"{argname}-{len(val)}"
+    return None
+
 
 @dataclass
 class Capture:

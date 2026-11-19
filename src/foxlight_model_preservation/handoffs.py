@@ -108,8 +108,10 @@ def write_handoff(destination: Path, handoff: Handoff) -> None:
     with directory(parent) as root:
         with tempfile.TemporaryDirectory(prefix=".handoff-", dir=parent) as staging:
             path = Path(staging) / "reference"
-            with path.open("xb") as output:
-                os.chmod(path, 0o600)
+            descriptor = safefs.open_path(
+                path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, safefs.PRIVATE_FILE
+            )
+            with os.fdopen(descriptor, "wb") as output:
                 _ = output.write(data)
                 output.flush()
                 os.fsync(output.fileno())
