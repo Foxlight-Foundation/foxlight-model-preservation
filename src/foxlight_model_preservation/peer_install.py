@@ -7,6 +7,7 @@ import http.client
 import os
 import platform
 import stat
+import sys
 import tarfile
 import tempfile
 import time
@@ -319,6 +320,10 @@ def _extract(
 ) -> None:
     # Never invoke tar extraction, installers, hooks or archive-supplied paths.
     # Copy only the regular executable after authenticating the complete archive.
+    if sys.platform == "win32":  # runtime_plan() already refuses Windows
+        raise UnsupportedRuntimePlatform(
+            "managed peer runtime supports macOS/Linux ARM64 and AMD64"
+        )
     seen = False
     with tarfile.open(archive, mode="r:gz") as bundle:
         for index, entry in enumerate(bundle):

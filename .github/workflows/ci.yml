@@ -5,10 +5,11 @@ on:
 permissions:
   contents: read
 jobs:
-  windows-storage:
-    # The Windows port (foxlight-docs#768): the storage seam must keep every
-    # guarantee here. The rest of the suite joins as the port proceeds.
+  windows:
+    # The Windows port (foxlight-docs#768): the whole suite, as on macOS and
+    # Linux. Platform-only tests skip with a stated reason (tests/platforms.py).
     runs-on: windows-latest
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -16,8 +17,15 @@ jobs:
           python-version: '3.13'
       - run: python -m pip install uv==0.12.23
       - run: uv sync --locked --dev
-      - run: uv run basedpyright --pythonplatform Windows src/foxlight_model_preservation/safefs.py src/foxlight_model_preservation/_winfs.py
-      - run: uv run pytest -ra --tb=short tests/test_safefs.py tests/test_safefs_windows.py tests/test_consume_moves.py tests/test_storage.py
+      - run: uv run basedpyright --pythonplatform Windows
+      # Windows refuses full paths over 260 characters unless long paths are
+      # enabled; a short base on the system drive (as on a person's computer)
+      # keeps test paths under it. One command per step:
+      # PowerShell reports only a step's last exit code.
+      - run: uv run pytest -ra --tb=short -o verbosity_assertions=0 --basetemp=C:\t
+      - run: uv sync --locked --dev --extra bittorrent
+      - name: Qualify optional BitTorrent with real local peers
+        run: uv run --extra bittorrent pytest --basetemp=C:\b tests/test_torrent.py tests/test_mirror_native.py tests/test_pirateface_native.py tests/test_i2p.py tests/test_i2p_runtime.py tests/test_pmf_network.py tests/test_mirror_rendezvous.py tests/test_find_listings.py tests/test_sovereign_listing.py
       - run: uv run model-preserve --help
   check:
     strategy:
@@ -41,7 +49,7 @@ jobs:
       - name: Qualify optional BitTorrent with real local peers
         run: |
           uv sync --locked --dev --extra bittorrent
-          uv run --extra bittorrent pytest tests/test_torrent.py tests/test_mirror_native.py tests/test_pirateface_native.py tests/test_i2p.py tests/test_i2p_runtime.py tests/test_pmf_network.py tests/test_mirror_rendezvous.py
+          uv run --extra bittorrent pytest tests/test_torrent.py tests/test_mirror_native.py tests/test_pirateface_native.py tests/test_i2p.py tests/test_i2p_runtime.py tests/test_pmf_network.py tests/test_mirror_rendezvous.py tests/test_find_listings.py tests/test_sovereign_listing.py
       - run: uv build
       - name: Qualify the hash-locked public installation bundle
         env:

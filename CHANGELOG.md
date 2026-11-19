@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Windows port: CI runs the whole suite and the BitTorrent lab on Windows,
+  and type-checks the whole project for Windows. Starting the managed peer
+  runtime on Windows refuses with a clear error instead of failing on a
+  POSIX-only call. The DHT lab tests now run in the macOS and Linux
+  BitTorrent lane too.
 - Guided Linux setup 0.1.15 and graphical setup 0.1.17 install revision 17
   (core 0.38.0 / Library 0.34.0), now served by the signed apt channel; package
   pins amd64 ce8fbc26… and arm64 4c06d2a9…, documented bootstrap hash c979dd7e….
