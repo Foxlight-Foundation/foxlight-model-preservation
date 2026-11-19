@@ -35,6 +35,8 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 const CLASS: PCWSTR = w!("Foxlight.Sovereign.Window");
 const WM_LIBRARY_READY: u32 = WM_APP + 1;
 const WM_LIBRARY_EXITED: u32 = WM_APP + 2;
+/// A dialog the page asked for, shown from the window's own message loop.
+const WM_DIALOG: u32 = WM_APP + 3;
 const QUIT_TIMER: usize = 1;
 const QUIT_WAIT_MS: u32 = 30_000;
 const STARTUP_LIMIT: usize = 4096;
@@ -83,6 +85,77 @@ struct App {
     message: Option<&'static str>,
     quitting: bool,
     font: HFONT,
+}
+
+/// Dialog work queued by WebView2 callbacks. Showing a modal dialog inside a
+/// callback would run a nested message loop under it, which WebView2 does not
+/// support, so the callback queues the work and returns.
+enum Dialog {
+    Folder {
+        id: u64,
+        library: bool,
+        reply: ICoreWebView2,
+    },
+    Save {
+        args: ICoreWebView2DownloadStartingEventArgs,
+        deferral: ICoreWebView2Deferral,
+        name: &'static str,
+        kind: &'static str,
+        pattern: &'static str,
+    },
+}
+
+thread_local! {
+    static DIALOGS: RefCell<std::collections::VecDeque<Dialog>> =
+        const { RefCell::new(std::collections::VecDeque::new()) };
+}
+
+fn queue_dialog(window: HWND, dialog: Dialog) {
+    DIALOGS.with(|queue| queue.borrow_mut().push_back(dialog));
+    unsafe {
+        let _ = PostMessageW(Some(window), WM_DIALOG, WPARAM(0), LPARAM(0));
+    }
+}
+
+/// Show the next queued dialog and complete the request that asked for it.
+fn show_dialog(window: HWND) -> windows::core::Result<()> {
+    let Some(dialog) = DIALOGS.with(|queue| queue.borrow_mut().pop_front()) else {
+        return Ok(());
+    };
+    match dialog {
+        Dialog::Folder { id, library, reply } => {
+            let chosen = choose_folder(window, library).map(|folder| {
+                folder
+                    .join(if library {
+                        "Sovereign Library"
+                    } else {
+                        "Sovereign Backups"
+                    })
+                    .to_string_lossy()
+                    .into_owned()
+            });
+            let message = serde_json::json!({ "id": id, "path": chosen });
+            unsafe { reply.PostWebMessageAsJson(&HSTRING::from(message.to_string())) }
+        }
+        Dialog::Save {
+            args,
+            deferral,
+            name,
+            kind,
+            pattern,
+        } => {
+            let result = match choose_save_path(window, name, kind, pattern) {
+                Some(path) => unsafe {
+                    args.SetResultFilePath(&HSTRING::from(path.as_os_str()))
+                        .and_then(|()| args.SetHandled(true))
+                },
+                None => unsafe { args.SetCancel(true) },
+            };
+            // Always release the download, even if setting its path failed.
+            let completed = unsafe { deferral.Complete() };
+            result.and(completed)
+        }
+    }
 }
 
 thread_local! {
@@ -516,25 +589,22 @@ fn watch_messages(webview: &ICoreWebView2, window: HWND) -> windows::core::Resul
             .and_then(serde_json::Value::as_object)
             .is_some_and(|b| b.is_empty());
         let library = name == "chooseLibraryFolder";
-        let reply = if !(library || name == "chooseBackupFolder")
+        if !(library || name == "chooseBackupFolder")
             || !empty
             || !current_base().is_some_and(|base| permitted(&base, &source))
         {
-            serde_json::json!({ "id": id, "error": "Folder selection is available only from Sovereign." })
+            let refusal = serde_json::json!({ "id": id, "error": "Folder selection is available only from Sovereign." });
+            unsafe { sender.PostWebMessageAsJson(&HSTRING::from(refusal.to_string()))? };
         } else {
-            let chosen = choose_folder(window, library).map(|folder| {
-                folder
-                    .join(if library {
-                        "Sovereign Library"
-                    } else {
-                        "Sovereign Backups"
-                    })
-                    .to_string_lossy()
-                    .into_owned()
-            });
-            serde_json::json!({ "id": id, "path": chosen })
-        };
-        unsafe { sender.PostWebMessageAsJson(&HSTRING::from(reply.to_string()))? };
+            queue_dialog(
+                window,
+                Dialog::Folder {
+                    id,
+                    library,
+                    reply: sender,
+                },
+            );
+        }
         Ok(())
     }));
     unsafe { webview.add_WebMessageReceived(&handler, &mut token)? };
@@ -584,13 +654,18 @@ fn watch_downloads(webview: &ICoreWebView2, window: HWND) -> windows::core::Resu
                 "*.foxkit",
             )
         };
-        match choose_save_path(window, name, kind, pattern) {
-            Some(path) => unsafe {
-                args.SetResultFilePath(&HSTRING::from(path.as_os_str()))?;
-                args.SetHandled(true)?;
+        // Hold the download until the save dialog has answered.
+        let deferral = unsafe { args.GetDeferral()? };
+        queue_dialog(
+            window,
+            Dialog::Save {
+                args,
+                deferral,
+                name,
+                kind,
+                pattern,
             },
-            None => unsafe { args.SetCancel(true)? },
-        }
+        );
         Ok(())
     }));
     unsafe { webview.add_DownloadStarting(&handler, &mut token)? };
@@ -771,6 +846,10 @@ extern "system" fn window_procedure(window: HWND, message: u32, w: WPARAM, l: LP
         }
         WM_PAINT => {
             paint(window);
+            LRESULT(0)
+        }
+        WM_DIALOG => {
+            let _ = show_dialog(window);
             LRESULT(0)
         }
         WM_LIBRARY_READY => {
