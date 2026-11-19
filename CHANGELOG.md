@@ -7,6 +7,9 @@
   runtime on Windows refuses with a clear error instead of failing on a
   POSIX-only call. The DHT lab tests now run in the macOS and Linux
   BitTorrent lane too.
+- Windows: verifying a file notices a same-size rewrite that restores its
+  modification time. It compared `st_ctime`, which is the creation time on
+  Windows; the storage seam's `change_time` reads NTFS's change time there.
 - Guided Linux setup 0.1.15 and graphical setup 0.1.17 install revision 17
   (core 0.38.0 / Library 0.34.0), now served by the signed apt channel; package
   pins amd64 ce8fbc26… and arm64 4c06d2a9…, documented bootstrap hash c979dd7e….

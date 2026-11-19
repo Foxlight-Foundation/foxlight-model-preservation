@@ -270,16 +270,19 @@ def test_a_sharing_computer_with_no_address_can_be_found_through_its_listing(
         assert owner.community.addresses() == ()
         key = owner.community._mirror_key()
         _secret, public = dht_keys(key)
+        # The pointer can name an earlier listing generation until the sharing
+        # session stores the new one; it settles on the current listing.
         found = None
         end = time.monotonic() + 90
-        while found is None and time.monotonic() < end:
+        while time.monotonic() < end:
             owner.community.gossip(OperationControl())
             value = reader.get_pointer(public, LISTING_SALT, seconds=5)
             found = read_pointer(value)
-        assert found is not None
-        listing = wait_for(
-            lambda: current_listing(owner.community._mirror()), seconds=10
-        )
+            now = current_listing(owner.community._mirror())
+            if found is not None and now is not None and now.infohash_v2 == found:
+                break
+        listing = current_listing(owner.community._mirror())
+        assert found is not None and listing is not None
         assert listing.infohash_v2 == found
         # Another round with nothing new shared keeps the same listing.
         owner.community.gossip(OperationControl())

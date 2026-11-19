@@ -8,8 +8,10 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from platforms import posix_shell
 
 
+@posix_shell  # the macOS/Linux install block; Git's bash on Windows is not it
 @pytest.mark.parametrize("shell", ["sh", "bash", "zsh"])
 @pytest.mark.parametrize("failure", ["curl", "gh", "none"])
 def test_desktop_install_block_stops_before_unverified_execution(

@@ -208,16 +208,17 @@ def file_identity(
     """Hash a stable source snapshot and reject mutation during the read.
 
     Creating or removing another hardlink to an immutable store object changes
-    only its link count and ctime. When that is the only change, the whole file
-    is hashed again (a few times at most) until one complete read is stable, so
-    a concurrent link never fails verification while any change to size,
-    mtime or identity still refuses.
+    only its link count and change time (ctime; NTFS ChangeTime). When that is
+    the only change, the whole file is hashed again (a few times at most) until
+    one complete read is stable, so a concurrent link never fails verification
+    while any change to size, mtime or identity still refuses.
     """
     for attempt in range(4):
         if control is not None:
             control.checkpoint()
         with open_file(root, path) as stream:
             before = os.fstat(stream.fileno())
+            changed_before = safefs.change_time(stream.fileno())
             if expected_size is not None and before.st_size != expected_size:
                 raise PreservationError("file length differs from signed size")
             hasher = hashlib.sha256()
@@ -228,6 +229,7 @@ def file_identity(
                 if control is not None:
                     control.advance(hashed=len(chunk))
             after = os.fstat(stream.fileno())
+            changed_after = safefs.change_time(stream.fileno())
         content = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
         if (
             content
@@ -240,7 +242,7 @@ def file_identity(
             or size != before.st_size
         ):
             break
-        if before.st_ctime_ns == after.st_ctime_ns:
+        if changed_before == changed_after:
             return FileIdentity(path=path, size=size, sha256=hasher.hexdigest())
         if before.st_nlink == after.st_nlink or attempt == 3:
             break

@@ -38,6 +38,7 @@ from functools import cache
 from pathlib import Path
 
 __all__ = [
+    "change_time",
     "identity",
     "link_at",
     "link_path",
@@ -1420,6 +1421,19 @@ def _fold(value: int) -> int:
         return value
     digest = hashlib.blake2b(value.to_bytes(16, "big", signed=False), digest_size=8)
     return int.from_bytes(digest.digest(), "big") >> 11
+
+
+def change_time(handle: int) -> int:
+    """When the open file's data or metadata last changed (NTFS ``ChangeTime``).
+
+    ``st_ctime`` is the creation time on Windows, so it never moves. Compared
+    only with itself: a different value means something changed. FAT and
+    exFAT keep no change time (always 0), leaving size and modification time.
+    """
+    basic = ctypes.create_string_buffer(40)  # FILE_BASIC_INFO
+    if not kernel32.GetFileInformationByHandleEx(_handle(handle), 0, basic, len(basic)):
+        raise ctypes.WinError(ctypes.get_last_error())
+    return ctypes.c_longlong.from_buffer(basic, 24).value
 
 
 def identity(info: os.stat_result) -> tuple[int, int]:

@@ -13,6 +13,7 @@ import shutil
 from pathlib import Path
 
 __all__ = [
+    "change_time",
     "identity",
     "link_at",
     "link_path",
@@ -214,6 +215,14 @@ def private(handle: int) -> bool:
     """Whether this user owns the open file or directory and nobody else has access."""
     info = os.fstat(handle)
     return info.st_uid == os.getuid() and not info.st_mode & 0o077
+
+
+def change_time(handle: int) -> int:
+    """When the open file's data or metadata last changed (``st_ctime``).
+
+    Compared only with itself: a different value means something changed.
+    """
+    return os.fstat(handle).st_ctime_ns
 
 
 def identity(info: os.stat_result) -> tuple[int, int]:
