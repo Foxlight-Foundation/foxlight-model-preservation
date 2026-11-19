@@ -215,7 +215,7 @@ wheels = [
 
 [[package]]
 name = "foxlight-model-preservation"
-version = "0.37.1"
+version = "0.38.0"
 source = { editable = "../" }
 dependencies = [
     { name = "cryptography" },
@@ -253,7 +253,7 @@ dev = [
 
 [[package]]
 name = "foxlight-preservation-library"
-version = "0.33.1"
+version = "0.34.0"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },

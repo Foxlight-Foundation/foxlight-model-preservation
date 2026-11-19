@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.38.0
+
 - Windows port, step 2 (foxlight-docs#768):
   - Secrets (the Hugging Face token, bucket keys) are kept in Windows
     Credential Manager, per user and this computer only, through
