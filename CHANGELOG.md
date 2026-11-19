@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.38.1
+
 - Sovereign for Windows, unsigned build lane (installer note
   foxlight-docs#769, step 2): a small Rust window around WebView2
   (`desktop/windows/shell`), pinned inputs (`desktop/windows/inputs.json`),
