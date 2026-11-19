@@ -57,7 +57,7 @@ def environment(tmp_path: Path) -> dict[str, str]:
         **os.environ,
         "PATH": str(binary) + os.pathsep + os.defpath,
         "GITHUB_ACTIONS": "true",
-        "GITHUB_REF": "refs/tags/sovereign-macos-publisher-v0.1.0-build21",
+        "GITHUB_REF": "refs/tags/sovereign-macos-publisher-v0.1.0-build22",
         "GITHUB_REPOSITORY": "Foxlight-Foundation/foxlight-model-preservation",
         "RUNNER_ENVIRONMENT": "github-hosted",
         "GITHUB_RUN_ID": "42",
