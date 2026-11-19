@@ -270,6 +270,17 @@ def test_a_sharing_computer_with_no_address_can_be_found_through_its_listing(
         assert owner.community.addresses() == ()
         key = owner.community._mirror_key()
         _secret, public = dht_keys(key)
+        # Each file torrent built in the background changes the listing; on a
+        # slow machine that goes on for a while. Wait until two rounds agree.
+        settled = None
+        end = time.monotonic() + 90
+        while time.monotonic() < end:
+            owner.community.gossip(OperationControl())
+            now = current_listing(owner.community._mirror())
+            if now is not None and now == settled:
+                break
+            settled = now
+            time.sleep(1)
         # The pointer can name an earlier listing generation until the sharing
         # session stores the new one; it settles on the current listing.
         found = None

@@ -210,9 +210,20 @@ def test_standard_client_receives_from_static_web_seed_alone(
         while not handle.status().is_seeding and time.monotonic() < deadline:
             time.sleep(0.05)
         assert handle.status().is_seeding
-        assert verify_store(
-            received / capture.identity, capture.identity, capture.trust
+        # Seen once on a GitHub Windows runner: an object missing after the
+        # torrent reported seeding. Name what arrived if it happens again.
+        arrived = sorted(
+            (str(path.relative_to(received)), path.stat().st_size)
+            for path in received.rglob("*")
+            if path.is_file()
         )
+        try:
+            assert verify_store(
+                received / capture.identity, capture.identity, capture.trust
+            )
+        except FileNotFoundError as error:
+            message = f"missing after seeding; arrived: {arrived}"
+            raise AssertionError(message) from error
     finally:
         if receiver is not None:
             if handle is not None:
