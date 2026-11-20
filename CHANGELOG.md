@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Pin Sovereign Mac build 23, Linux revision 18 and the Windows app's first
+  build to the authenticated Library 0.34.1 installation archive (sha256
+  f6c57f22…, source 07086189; its desktop lock carries core 0.38.1 and
+  libtorrent 2.0.14). Native signing, notarization, apt publication and
+  qualification remain separate gates.
+
 ## 0.38.1
 
 - Sovereign for Windows, unsigned build lane (installer note
