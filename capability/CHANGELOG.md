@@ -6,6 +6,10 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+## 0.34.1
+
+- Requires core 0.38.1.
+
 - Windows: the Library starts and stops cleanly. It keeps its data in
   `%LOCALAPPDATA%\Foxlight\Sovereign`, skips the signal handlers Windows'
   event loop lacks (Ctrl+C still stops it), and a new
