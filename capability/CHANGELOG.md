@@ -6,6 +6,10 @@ tagged `library-v*`; versions without a tag are source previews installed from
 
 ## Unreleased
 
+- Guided Linux setup 0.1.16 and graphical setup 0.1.18 install revision 18
+  (core 0.38.1 / Library 0.34.1), now served by the signed apt channel; package
+  pins amd64 fd2c852b… and arm64 f7a6632c…, documented bootstrap hash 3ccc6b7a….
+
 - Pin Sovereign Mac build 23, Linux revision 18 and the Windows app's first
   build to the authenticated Library 0.34.1 installation archive (sha256
   f6c57f22…, source 07086189; its desktop lock carries core 0.38.1 and
