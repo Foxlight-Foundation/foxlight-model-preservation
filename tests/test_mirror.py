@@ -598,6 +598,12 @@ def test_cli_kill_releases_owner_and_preserves_grants_budgets_and_copies(
         )
         process.kill()
         process.wait(timeout=5)
+        # Windows releases a killed process's file locks some time after it
+        # exits ("depends upon available system resources", LockFileEx), so
+        # the service lock is released soon, not necessarily at once.
+        end = time.monotonic() + 10
+        while ledger.running() and time.monotonic() < end:
+            time.sleep(0.05)
         assert not ledger.running()
         reserved = MirrorLedger(ledger.path).read().egress_month_used
         assert reserved > 0

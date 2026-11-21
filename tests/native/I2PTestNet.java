@@ -2,7 +2,10 @@
 import java.io.ByteArrayInputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashSet;
 import java.util.Properties;
+import java.util.Set;
+import net.i2p.data.Hash;
 import net.i2p.router.Router;
 import net.i2p.router.OutNetMessage;
 import net.i2p.data.router.RouterInfo;
@@ -69,6 +72,7 @@ public final class I2PTestNet {
         runner.setDaemon(true);
         runner.start();
         long deadline = System.nanoTime() + 600000000000L;
+        Set<Hash> addressed = new HashSet<>();
         while (System.nanoTime() < deadline) {
             if (router.getContext().netDb() != null && router.getContext().netDb().isInitialized()
                     && router.getRouterInfo() != null) {
@@ -80,6 +84,17 @@ public final class I2PTestNet {
                         RouterInfo info = new RouterInfo();
                         info.readBytes(new ByteArrayInputStream(Files.readAllBytes(file)));
                         if (info.getNetworkId() != 99) throw new IllegalStateException("public peer refused");
+                        // A router writes router.info before its address is published.
+                        // Storing that copy bans the peer ("No transports") for minutes,
+                        // which can leave too few peers for 3-hop client tunnels; wait
+                        // for the copy with an address, and lift a startup ban once,
+                        // when that copy first arrives (later bans, such as of a router
+                        // a test stops, are left alone).
+                        if (info.getAddresses().isEmpty()) continue;
+                        if (addressed.add(info.getIdentity().getHash())
+                                && router.getContext().banlist().isBanlisted(info.getIdentity().getHash())) {
+                            router.getContext().banlist().unbanlistRouter(info.getIdentity().getHash());
+                        }
                         router.getContext().netDb().store(info.getIdentity().getHash(), info);
                         router.getContext().profileManager().heardAbout(info.getIdentity().getHash(), info.getCapabilities());
                         // Establish actual native transport sessions with native router messages.
