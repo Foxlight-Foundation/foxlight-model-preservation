@@ -95,11 +95,6 @@ def test_follow_plan_are_offline_and_model_keys_independent(
 
 
 def test_response_reservations_survive_restart_rollover_and_rollback(tmp_path):
-    now = int(time.time())
-    if time.gmtime(now + 86400).tm_mon != time.gmtime(now).tm_mon:
-        # On a month's last day "tomorrow" would also reset the monthly
-        # window; start two days later so tomorrow stays in the same month.
-        now += 2 * 86400
     ledger = MirrorLedger.initialize(
         tmp_path / "mirror",
         name="Ledger",
@@ -108,6 +103,13 @@ def test_response_reservations_survive_restart_rollover_and_rollback(tmp_path):
         egress_daily=100,
         egress_monthly=150,
     )
+    # Start from the ledger's own clock floor: a clock read before it was
+    # created can be a second older, and an older instant is refused.
+    now = ledger.read().clock_floor
+    if time.gmtime(now + 86400).tm_mon != time.gmtime(now).tm_mon:
+        # On a month's last day "tomorrow" would also reset the monthly
+        # window; start two days later so tomorrow stays in the same month.
+        now += 2 * 86400
     assert ledger.reserve(90, now=now)
     assert not MirrorLedger(ledger.path).reserve(11, now=now)
     assert not ledger.reserve(1, now=now - 100)

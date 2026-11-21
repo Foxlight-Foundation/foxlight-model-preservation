@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 from pathlib import Path
 
@@ -83,6 +84,27 @@ def test_a_new_listing_keeps_the_one_it_replaced_and_drops_older_ones(
         publish_listing(tmp_path, {**DOCUMENTS, "objects.json": b"2"}) == generations[2]
     )
     assert current_listing(tmp_path) == generations[2]
+
+
+def test_republishing_returns_the_stored_torrent_not_a_rebuild(
+    tmp_path: Path,
+) -> None:
+    # A rebuild of the same files gets a new creation date (outside the info
+    # dictionary, so the same infohash); the stored torrent is what is seeded.
+    first = publish_listing(tmp_path, DOCUMENTS)
+    stored = first.folder / "listing.torrent"
+    stamp = re.search(rb"13:creation datei(\d+)e", stored.read_bytes())
+    assert stamp is not None
+    older = str(int(stamp.group(1)) - 1000).encode()
+    assert len(older) == len(stamp.group(1))
+    stored.write_bytes(
+        stored.read_bytes().replace(
+            stamp.group(0), b"13:creation datei" + older + b"e", 1
+        )
+    )
+    again = publish_listing(tmp_path, DOCUMENTS)
+    assert again.infohash_v2 == first.infohash_v2
+    assert again.data == stored.read_bytes() == current_listing(tmp_path).data
 
 
 def test_only_listing_torrents_are_read_as_listings(tmp_path: Path) -> None:
