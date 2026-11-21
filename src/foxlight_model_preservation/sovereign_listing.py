@@ -208,6 +208,16 @@ def _publish(
         if not generation.exists():
             (build / "listing.torrent").write_bytes(torrent)
             os.replace(build, generation)
+        else:
+            # Same content as a stored generation: that stored torrent is the
+            # one being seeded, so return it rather than this rebuild, whose
+            # creation date (outside the info dictionary) can differ.
+            try:
+                stored = (generation / "listing.torrent").read_bytes()
+                if read_listing(stored)[2] == v2:
+                    torrent = stored
+            except (OSError, PreservationError):
+                pass
     finally:
         shutil.rmtree(build, ignore_errors=True)
     _set_current(base, v2)
