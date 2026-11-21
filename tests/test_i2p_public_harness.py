@@ -83,9 +83,13 @@ def observations_module():
 
 
 # The injected stall must outlast the socket timeout, and the timeout must give a
-# loaded CI runner time for the honest retry to finish (0.2 s flaked on macOS).
-TIMEOUT = 1.0
-STALL = 2.5
+# loaded CI runner time for the honest retry to finish (0.2 s flaked on macOS,
+# and an honest request on a loaded macOS runner has taken just over 1.0 s).
+TIMEOUT = 2.0
+STALL = 4.5
+# Faults that do not stall need no short timeout; a generous one keeps every
+# honest request on a loaded runner from being recorded as a second failure.
+NO_STALL_TIMEOUT = 15.0
 
 
 @pytest.mark.parametrize(
@@ -174,7 +178,10 @@ def test_observed_fetch_preserves_verification_and_distinguishes_failures(
                 (f"http://{host}.b32.i2p/PRIVATE_ROUTE_MARKER",),
                 target,
                 I2PTransferPolicy(
-                    proxy=I2PHTTPProxy(port=server.server_port), timeout=TIMEOUT
+                    proxy=I2PHTTPProxy(port=server.server_port),
+                    timeout=TIMEOUT
+                    if fault in {"headers", "body"}
+                    else NO_STALL_TIMEOUT,
                 ),
             )
         assert value == verify_store(target, capture.identity, capture.trust)
