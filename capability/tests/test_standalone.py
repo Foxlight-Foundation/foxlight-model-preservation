@@ -271,7 +271,7 @@ async def test_screen_serves_exact_local_assets_with_explicit_font_types() -> No
     )
     assert set(manifest["data_files"]) == {
         "foxlight_preservation_library/static/" + name for name in STATIC_ASSETS
-    }
+    } | {"foxlight_preservation_library/licence_families_v1.json"}
     css = static.joinpath("assets/index.css").read_text(encoding="utf-8")
     page = static.joinpath("index.html").read_text(encoding="utf-8")
     referenced = {
@@ -311,6 +311,10 @@ async def test_screen_serves_exact_local_assets_with_explicit_font_types() -> No
                 await browser.get(server.url + "assets/other.woff2")
             ).status_code == 404
             assert (await browser.get(server.url + "assets/")).status_code == 404
+            # The internal definition is packaged for Python, not HTTP serving.
+            assert (
+                await browser.get(server.url + "licence_families_v1.json")
+            ).status_code == 404
     finally:
         await asyncio.to_thread(server.close)
         await client.close()

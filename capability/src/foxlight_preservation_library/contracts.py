@@ -228,6 +228,9 @@ def build_manifest(*, executable: str, executable_sha256: str) -> Manifest:
         bundle_id="foxlight.model-preservation",
         skulk_requires=">=2.0.3,<3",
         bundle_version=BUNDLE_VERSION,
+        # The managed publisher carries all application roots explicitly;
+        # standalone installation keeps its separate wheel dependencies.
+        runtime_dependencies=("httpx", "pydantic", "pyyaml"),
         executable=executable,
         executable_sha256=executable_sha256,
         arguments=(),

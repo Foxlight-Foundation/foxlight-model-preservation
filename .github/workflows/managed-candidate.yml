@@ -1,0 +1,259 @@
+# SDK1 candidate qualification only. Production distribution is a separate gate.
+name: Sovereign managed SDK1 candidate
+on:
+  pull_request:
+    paths:
+      - capability/**
+      - .github/workflows/managed-*.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  qualify:
+    name: Managed source (${{ matrix.runner }})
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+        working-directory: capability
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
+        with:
+          version: '0.13.5'
+          python-version: '3.13'
+          enable-cache: false
+      - run: uv sync --frozen --all-extras --group managed --group author
+      - run: uv run --no-sync ruff check
+      - run: uv run --no-sync ruff format --check
+      - run: uv run --no-sync basedpyright
+      - run: uv run --no-sync pytest -q --tb=short
+
+  plan:
+    needs: qualify
+    runs-on: ubuntu-24.04
+    outputs:
+      sequence: ${{ steps.plan.outputs.sequence }}
+      expires-at: ${{ steps.plan.outputs.expires-at }}
+      publisher: ${{ steps.plan.outputs.publisher }}
+    steps:
+      - id: plan
+        run: |
+          echo "sequence=$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "expires-at=$(( $(date +%s) + 30 * 86400 ))" >> "$GITHUB_OUTPUT"
+          echo 'publisher=qualification' >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ matrix.platform }}
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            platform: macos-arm64
+          - runner: ubuntu-24.04
+            platform: linux-glibc-x86_64
+          - runner: ubuntu-24.04-arm
+            platform: linux-glibc-aarch64
+    uses: ./.github/workflows/managed-build-runtime.yml
+    with:
+      runner: ${{ matrix.runner }}
+      platform: ${{ matrix.platform }}
+      publisher: qualification
+      sequence: ${{ needs.plan.outputs.sequence }}
+      expires-at: ${{ needs.plan.outputs.expires-at }}
+
+  reference:
+    name: Independent rebuild
+    needs: plan
+    uses: ./.github/workflows/managed-build-runtime.yml
+    with:
+      runner: macos-15
+      platform: macos-arm64
+      publisher: qualification
+      reference: true
+      sequence: ${{ needs.plan.outputs.sequence }}
+      expires-at: ${{ needs.plan.outputs.expires-at }}
+
+  feed:
+    name: Verify and sign the complete feed
+    outputs:
+      feed-artifact: sovereign-managed-feed-${{ github.run_id }}
+    needs: [plan, build, reference]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+        working-directory: capability
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          version: '0.12.23'
+          python-version: '3.13'
+          enable-cache: false
+      - name: Install only the public locked signer packages
+        run: |
+          set -euo pipefail
+          umask 077
+          work="$RUNNER_TEMP/sovereign-managed-feed"
+          mkdir -m 700 "$work"
+          echo "WORK=$work" >> "$GITHUB_ENV"
+          uv venv --no-config --python 3.13 "$work/signer"
+          uv pip install --no-config --python "$work/signer/bin/python" \
+            --require-hashes --no-deps --only-binary=:all: -r managed/author-requirements.txt
+          "$work/signer/bin/python" -I -c 'import importlib.util; assert all(importlib.util.find_spec(n) is None for n in ("foxlight_preservation_library", "skulk", "skulk_capability_nodes", "skulk_capability_kernel"))'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: sovereign-managed-runtime-*
+          path: ${{ runner.temp }}/sovereign-managed-feed/built
+      - name: Verify and assemble with the public feed command
+        env:
+          REFERENCE: ${{ needs.reference.outputs.reference }}
+          SEQUENCE: ${{ needs.plan.outputs.sequence }}
+          PUBLISHER: ${{ needs.plan.outputs.publisher }}
+          EXPIRES_AT: ${{ needs.plan.outputs.expires-at }}
+          SIGNING_ENVIRONMENT: ''
+          PUBLISHER_KEY: ''
+          EXPECTED_PUBLIC_KEY: ''
+        run: |
+          set -euo pipefail
+          find "$WORK/built" -type d -exec chmod 700 {} +
+          find "$WORK/built" -type f -exec chmod 600 {} +
+          printf '%s' "$REFERENCE" > "$WORK/reference.json"
+          signer="$WORK/signer/bin/python"
+          derive='import os; from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey; print(Ed25519PrivateKey.from_private_bytes(bytes.fromhex(os.environ["SIGNING_KEY"])).public_key().public_bytes_raw().hex())'
+          if [ -n "$SIGNING_ENVIRONMENT" ]; then
+            [[ "$EXPECTED_PUBLIC_KEY" =~ ^[0-9a-fA-F]{64}$ ]]
+            [ -n "$PUBLISHER_KEY" ]
+            signing_key="$PUBLISHER_KEY" public="$EXPECTED_PUBLIC_KEY" mode=signed-for-distribution
+          else
+            signing_key=$(openssl rand -hex 32)
+            public=$(SIGNING_KEY="$signing_key" "$signer" -I -c "$derive")
+            mode=unsigned-for-distribution
+          fi
+          unset PUBLISHER_KEY
+          args=(--native-candidate --private-key-env SIGNING_KEY --public-key "$public"
+            --publisher "$PUBLISHER" --feed-url https://skulkapps.foxlight.ai/releases/
+            --catalog-revision "$SEQUENCE" --catalog-expires-at "$(( $(date +%s) + 30 * 86400 ))"
+            --sequence "$SEQUENCE" --release-expires-at "$EXPIRES_AT"
+            --bundle-id foxlight.model-preservation --state-schema preservation-library-controls-v1
+            --permission 'Read local preservation inventory and control explicitly requested Core-owned preservation jobs'
+            --lock "$GITHUB_WORKSPACE/capability/managed/uv.lock" --reference "$WORK/reference.json"
+            --output "$WORK/feed" --trust-output "$WORK/public-trust.json")
+          for platform in macos-arm64 linux-glibc-x86_64 linux-glibc-aarch64; do
+            args+=(--platform "$platform")
+          done
+          for platform in macos-arm64 linux-glibc-x86_64 linux-glibc-aarch64; do
+            args+=("$WORK/built/sovereign-managed-runtime-$platform/release")
+          done
+          cd "$WORK"
+          SIGNING_KEY="$signing_key" "$signer" -I -m skulk_capability_tools.assemble_feed "${args[@]}" > feed.json
+          unset signing_key
+          printf '%s\n' "$mode" > "$WORK/feed/distribution-status.txt"
+          cp "$WORK/public-trust.json" "$WORK/feed/public-trust.json"
+          if [ "$mode" = unsigned-for-distribution ]; then
+            cp "$WORK/public-trust.json" "$WORK/feed/throwaway-trust.json"
+            printf '%s\n' 'Candidate only; not a production Store release.' > "$WORK/feed/UNSIGNED-NOT-FOR-DISTRIBUTION.txt"
+          fi
+          cat feed.json
+          echo "### $mode" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sovereign-managed-feed-${{ github.run_id }}
+          path: ${{ runner.temp }}/sovereign-managed-feed/feed/
+          if-no-files-found: error
+          retention-days: 7
+
+  installed:
+    name: Installed Core and Library (${{ matrix.platform }})
+    needs: [plan, feed]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            platform: macos-arm64
+          - runner: ubuntu-24.04
+            platform: linux-glibc-x86_64
+          - runner: ubuntu-24.04-arm
+            platform: linux-glibc-aarch64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+        working-directory: capability
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
+        with:
+          version: '0.13.5'
+          python-version: '3.13'
+          enable-cache: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: sovereign-managed-feed-${{ github.run_id }}
+          path: ${{ runner.temp }}/sovereign-managed-feed
+      - name: Install the frozen Core and separate public owner dependencies
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/sovereign-installed"
+          mkdir -m 700 "$work"
+          echo "WORK=$work" >> "$GITHUB_ENV"
+          repository=$(jq -r .repository managed/skulk-baseline.json)
+          commit=$(jq -r .commit managed/skulk-baseline.json)
+          [ "$repository" = Foxlight-Foundation/Skulk ]
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
+          git init -q "$work/core"
+          git -C "$work/core" fetch -q --depth=1 "https://github.com/$repository.git" "$commit"
+          git -C "$work/core" checkout -q FETCH_HEAD
+          uv sync --project "$work/core" --frozen
+          UV_PROJECT_ENVIRONMENT="$work/public-runtime" uv sync --project managed --frozen
+          "$work/core/.venv/bin/python" -I - "$work" <<'PYTHON'
+          import json, sys
+          from pathlib import Path
+          work = Path(sys.argv[1])
+          config = {
+              "typeCheckingMode": "strict",
+              "include": [str(Path.cwd() / "managed/qualify_runtime.py")],
+              "extraPaths": [str(work / "core/src"), str(work / "public-runtime/lib/python3.13/site-packages")],
+          }
+          (work / "pyrightconfig.json").write_text(json.dumps(config))
+          PYTHON
+          "$work/core/.venv/bin/basedpyright" --project "$work/pyrightconfig.json" --pythonpath "$work/core/.venv/bin/python"
+      - name: Exercise actual installed child and real durable Core job
+        run: |
+          set -euo pipefail
+          "$WORK/core/.venv/bin/python" -I - "$WORK" "$RUNNER_TEMP/sovereign-managed-feed" "$GITHUB_WORKSPACE/capability/managed/qualify_runtime.py" <<'PYTHON'
+          import os, pydantic, runpy, sys
+          from pathlib import Path
+          work, feed, script = map(Path, sys.argv[1:])
+          os.environ["SKULK_HOME"] = str(work / "core-home")
+          os.environ["PYTHONPATH"] = str(work / "core/src")
+          # Keep frozen Core dependencies first. Only missing owner/SDK modules
+          # resolve in the separately frozen public runtime environment.
+          sys.path.insert(0, str(work / "core/src"))
+          sys.path.append(str(work / "public-runtime/lib/python3.13/site-packages"))
+          sys.argv = [str(script), "--feed", str(feed), "--work", str(work / "journey")]
+          runpy.run_path(str(script), run_name="__main__")
+          PYTHON
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sovereign-managed-installed-${{ matrix.platform }}
+          path: ${{ runner.temp }}/sovereign-installed/journey/qualification.json
+          if-no-files-found: error
+          retention-days: 7
