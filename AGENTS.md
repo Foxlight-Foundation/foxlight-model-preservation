@@ -36,3 +36,18 @@ accounts. Internal strategy, plans and operations belong in private foxlight-doc
 Cross-project strategy and the initiative live in the private
 Foxlight-Foundation/foxlight-docs repository. Public docs describe this core's
 implemented format, behavior, limits and reproducible verification.
+
+## Optional managed Library SDK1 candidate
+
+The managed adapter lives under `capability/`, separate from standalone core and
+desktop dependencies. Use its public hash-locked SDK/author groups; never restore
+the old private SDK git pin. From that directory, full adapter validation uses
+`uv sync --frozen --all-extras --group managed --group author`, then its Ruff,
+basedpyright and pytest commands. The standalone wheel remains SDK-free.
+
+`capability/managed/` owns the separate POSIX runtime recipe and acceptance
+driver; `.github/workflows/managed-*.yml` build and verify disposable candidates.
+Never replace issued assets or present qualification signatures as production
+Store authority. Keep both complete descriptors/settings and standalone release
+identities intact. Core owns preservation jobs; no model/mirror download or
+sharing is part of SDK migration. See `capability/managed/README.md`.

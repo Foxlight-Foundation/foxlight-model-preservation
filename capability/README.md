@@ -1,5 +1,9 @@
 # Model Preservation Library capability
 
+For the optional public SDK1 managed candidate, author setup and three-platform
+installed qualification, see the [managed capability guide](managed/README.md).
+Standalone Sovereign installation remains independent of the managed SDK.
+
 This separately packaged capability provides Guided first setup, Library for
 everyday use, and Activity through Skulk Core's durable preservation host. It
 uses local HTTP; its optional managed adapter uses the capability authoring SDK. It includes no Skulk imports,

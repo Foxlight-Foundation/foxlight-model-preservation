@@ -1,0 +1,159 @@
+# Separate public author and full Core verifier; no private checkout or publisher key.
+name: Build one Sovereign managed runtime
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        required: true
+      platform:
+        type: string
+        required: true
+      publisher:
+        type: string
+        required: true
+      reference:
+        type: boolean
+        default: false
+      sequence:
+        type: string
+        required: true
+      expires-at:
+        type: string
+        required: true
+    outputs:
+      reference:
+        value: ${{ jobs.build.outputs.reference }}
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 30
+    outputs:
+      reference: ${{ steps.reference.outputs.reference }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: capability
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          version: '0.12.23'
+          python-version: '3.13'
+          enable-cache: false
+      - name: Prepare the isolated public author
+        run: |
+          set -euo pipefail
+          umask 077
+          work="$RUNNER_TEMP/sovereign-managed-runtime"
+          mkdir -m 700 "$work"
+          echo "WORK=$work" >> "$GITHUB_ENV"
+          uv venv --no-config --python 3.13 "$work/author"
+          uv pip install --no-config --python "$work/author/bin/python" \
+            --require-hashes --no-deps --only-binary=:all: -r managed/author-requirements.txt
+          "$work/author/bin/python" -I -c 'import importlib.util; assert all(importlib.util.find_spec(n) is None for n in ("skulk", "skulk_capability_nodes", "skulk_capability_kernel"))'
+      - name: Fetch the exact public Core baseline
+        run: |
+          set -euo pipefail
+          repository=$(jq -r .repository managed/skulk-baseline.json)
+          commit=$(jq -r .commit managed/skulk-baseline.json)
+          [[ "$repository" = Foxlight-Foundation/Skulk ]]
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
+          git init -q "$WORK/core"
+          git -C "$WORK/core" fetch -q --depth=1 "https://github.com/$repository.git" "$commit"
+          git -C "$WORK/core" checkout -q FETCH_HEAD
+          [ "$(git -C "$WORK/core" rev-parse HEAD)" = "$commit" ]
+      - name: Build the complete locked runtime
+        env:
+          EXPECTED_PLATFORM: ${{ inputs.platform }}
+          SEQUENCE: ${{ inputs.sequence }}
+          EXPIRES_AT: ${{ inputs.expires-at }}
+          PUBLISHER: ${{ inputs.publisher }}
+        run: |
+          set -euo pipefail
+          actual=$("$WORK/author/bin/python" -I -c 'from skulk_capability_tools.runtime_release import current_platform; print(current_platform())')
+          [ "$actual" = "$EXPECTED_PLATFORM" ]
+          "$WORK/author/bin/python" -I -m skulk_capability_tools.wheelhouse \
+            --lock managed/uv.lock --spec capability.toml --native-candidate --output "$WORK/wheelhouse" > "$WORK/wheelhouse.json"
+          # Only this build job imports the application source. The final
+          # signing job installs no application, Core or owner package.
+          PYTHONPATH="$GITHUB_WORKSPACE/capability/src" "$WORK/author/bin/python" managed/make_manifest.py --output "$WORK/manifest.json"
+          "$WORK/author/bin/python" -I - "$WORK" "$PUBLISHER" <<'PY'
+          import sys, time
+          from pathlib import Path
+          from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+          from skulk_capability_sdk.storage import atomic_private
+          from skulk_capability_tools.releases import PublisherTrust
+          work, publisher = Path(sys.argv[1]), sys.argv[2]
+          assert publisher in {"foxlight", "qualification"}
+          key = Ed25519PrivateKey.generate()
+          atomic_private(work / "job.key", key.private_bytes_raw())
+          trust = PublisherTrust(revision=1, expires_at=int(time.time()) + 86400,
+              publishers={publisher: key.public_key().public_bytes_raw().hex()})
+          atomic_private(work / "public-trust.json", trust.model_dump_json().encode())
+          PY
+          "$WORK/author/bin/python" -I -m skulk_capability_tools.cli sign \
+            --spec capability.toml --manifest "$WORK/manifest.json" --private-key "$WORK/job.key" \
+            --publisher "$PUBLISHER" --sequence "$SEQUENCE" --expires-at "$EXPIRES_AT" \
+            --state-schema preservation-library-controls-v1 \
+            --permission 'Read local preservation inventory and control explicitly requested Core-owned preservation jobs' \
+            --wheelhouse "$WORK/wheelhouse" --skulk-source "$WORK/core/src" \
+            --output "$WORK/release" > "$WORK/build.json"
+          rm "$WORK/job.key"
+          rm -f "$WORK/release/.verify.pyz"
+      - name: Install the separate full Core verifier
+        if: ${{ !inputs.reference }}
+        run: uv sync --frozen --project "$WORK/core"
+      - name: Verify with Core's own reader
+        if: ${{ !inputs.reference }}
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          set -euo pipefail
+          "$WORK/core/.venv/bin/python" -I - "$WORK" "$GITHUB_WORKSPACE/capability/managed/skulk-baseline.json" <<'PY'
+          import json, sys, time
+          from pathlib import Path
+          work, baseline = Path(sys.argv[1]), Path(sys.argv[2])
+          sys.path.insert(0, str(work / "core/src"))
+          from skulk.extensions.runtime_artifacts import RuntimeTrust, measure_host, verified_artifacts, verify_runtime
+          trust = RuntimeTrust.model_validate_json((work / "public-trust.json").read_bytes())
+          host = measure_host()
+          assert host.skulk_version == json.loads(baseline.read_text())["version"]
+          runtime = verify_runtime((work / "release/release.json").read_bytes(), trust, host, now=int(time.time()))
+          assert verified_artifacts(runtime, work / "release")
+          assert runtime.claims.protocol == 2
+          # Core projects only host-owned fields; inspect the already verified
+          # payload for the capability's preserved legacy declarations.
+          manifest = json.loads(runtime.payload)["release"]["manifest"]
+          assert manifest["protocol"] == 4 and manifest["effect"] == "governed"
+          print("Core accepts the complete Sovereign governed runtime")
+          PY
+      - id: reference
+        if: inputs.reference
+        name: Retain independent rebuild digests as job output
+        run: |
+          "$WORK/author/bin/python" -I - "$WORK/release" "$GITHUB_WORKSPACE/capability/managed/uv.lock" >> "$GITHUB_OUTPUT" <<'PY'
+          import sys
+          from pathlib import Path
+          from skulk_capability_tools.assemble_feed import release_reference
+          from skulk_capability_tools.wheelhouse import load_lock
+          value = release_reference(Path(sys.argv[1]), load_lock(Path(sys.argv[2])), native_candidate=True)
+          print("reference=" + value.model_dump_json())
+          PY
+      - name: Delete disposable private material
+        if: always()
+        run: rm -f "$WORK/job.key"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sovereign-managed-runtime-${{ inputs.reference && 'reference' || inputs.platform }}
+          path: |
+            ${{ runner.temp }}/sovereign-managed-runtime/release/
+            ${{ runner.temp }}/sovereign-managed-runtime/public-trust.json
+            ${{ runner.temp }}/sovereign-managed-runtime/build.json
+            ${{ runner.temp }}/sovereign-managed-runtime/wheelhouse.json
+          if-no-files-found: error
+          retention-days: 7
