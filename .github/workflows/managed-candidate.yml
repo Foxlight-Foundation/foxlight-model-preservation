@@ -8,6 +8,9 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: sovereign-managed-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   qualify:
     name: Managed source (${{ matrix.runner }})
@@ -214,6 +217,10 @@ jobs:
           work="$RUNNER_TEMP/sovereign-installed"
           mkdir -m 700 "$work"
           echo "WORK=$work" >> "$GITHUB_ENV"
+          # Artifact transport normalizes modes; restore the private input
+          # policy before Core reads the otherwise unchanged signed bytes.
+          find "$RUNNER_TEMP/sovereign-managed-feed" -type d -exec chmod 700 {} +
+          find "$RUNNER_TEMP/sovereign-managed-feed" -type f -exec chmod 600 {} +
           repository=$(jq -r .repository managed/skulk-baseline.json)
           commit=$(jq -r .commit managed/skulk-baseline.json)
           [ "$repository" = Foxlight-Foundation/Skulk ]
@@ -222,7 +229,7 @@ jobs:
           git -C "$work/core" fetch -q --depth=1 "https://github.com/$repository.git" "$commit"
           git -C "$work/core" checkout -q FETCH_HEAD
           uv sync --project "$work/core" --frozen
-          UV_PROJECT_ENVIRONMENT="$work/public-runtime" uv sync --project managed --frozen
+          UV_PROJECT_ENVIRONMENT="$work/public-runtime" uv sync --project managed --frozen --group qualification
           "$work/core/.venv/bin/python" -I - "$work" <<'PYTHON'
           import json, sys
           from pathlib import Path

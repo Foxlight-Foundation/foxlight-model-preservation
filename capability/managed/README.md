@@ -15,8 +15,10 @@ does not imply Windows managed capability hosting.
 The standalone core remains0.38.1 and Library remains0.34.1. Its base and desktop
 wheel dependencies do not include the SDK, owner, kernel or publisher. SDK and
 publisher acquisition are opt-in groups using exact public asset URLs and
-hash-locked dependencies. The separate `managed/uv.lock` is only the managed
-runtime recipe. No private repository credential is required.
+hash-locked dependencies. The separate `managed/uv.lock` is the managed runtime
+recipe; its opt-in `qualification` group adds the disposable driver's HTTP server
+without including it in the shipped runtime closure. No private repository
+credential is required.
 
 ## Contributor checks
 
