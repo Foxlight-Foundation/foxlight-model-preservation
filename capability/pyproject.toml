@@ -14,8 +14,8 @@ desktop = ["foxlight-model-preservation[bittorrent]==0.38.1"]
 foxlight-model-preservation = { path = "..", editable = true }
 # Optional managed authoring uses immutable public release assets.
 # Neither SDK nor publisher tools enter standalone wheel dependencies.
-skulk-capability-sdk = { url = "https://github.com/Foxlight-Foundation/skulk-capability-sdk/releases/download/v0.5.16-rc.1/skulk_capability_sdk-0.5.16rc1-py3-none-any.whl" }
-skulk-capability-tools = { url = "https://github.com/Foxlight-Foundation/skulk-capability-sdk/releases/download/tools-v0.2.0-rc.6/skulk_capability_tools-0.2.0rc6-py3-none-any.whl" }
+skulk-capability-sdk = { url = "https://github.com/Foxlight-Foundation/skulk-capability-sdk/releases/download/v1.0.1/skulk_capability_sdk-1.0.1-py3-none-any.whl" }
+skulk-capability-tools = { url = "https://github.com/Foxlight-Foundation/skulk-capability-sdk/releases/download/v1.0.0/skulk_capability_tools-0.2.0-py3-none-any.whl" }
 
 [project.scripts]
 foxlight-sovereign = "foxlight_preservation_library.desktop:main"
@@ -33,8 +33,8 @@ packages = ["src/foxlight_preservation_library"]
 [dependency-groups]
 # Managed and author groups are opt-in, not standalone wheel dependencies.
 # Exact public URLs above prevent dependency confusion for these distributions.
-managed = ["skulk-capability-sdk==0.5.16rc1"]
-author = ["skulk-capability-sdk==0.5.16rc1", "skulk-capability-tools==0.2.0rc6", "PyYAML>=6,<7"]
+managed = ["skulk-capability-sdk==1.0.1"]
+author = ["skulk-capability-sdk==1.0.1", "skulk-capability-tools==0.2.0", "PyYAML>=6,<7"]
 dev = ["pytest>=8,<10", "pytest-asyncio>=1,<2", "ruff>=0.12,<1", "basedpyright>=1.31,<2", "build>=1.3,<2", "types-jsonschema", "types-PyYAML"]
 
 [tool.pytest.ini_options]
