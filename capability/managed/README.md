@@ -5,10 +5,10 @@ The capability owns its interface and translates reviewed requests; Core retains
 storage, keys, durable jobs and byte workers. Closing or restarting Library does
 not cancel a Core job. Preserving never starts model inference or sharing.
 
-This SDK1 consumer candidate uses the public SDK **0.5.16rc1**, public author
-tools **0.2.0rc6**, owner **0.18.0rc8**, and native kernel **0.7.0rc7**. These are
-immutable candidate inputs, not the final stable SDK1 release. The managed
-runtime targets CPython3.13 on macOS ARM64 and glibc Linux x86_64/ARM64
+This SDK1 consumer candidate uses the public SDK **1.0.1**, public author
+tools **0.2.0**, owner **0.18.1**, and native kernel **0.7.0**. These are
+immutable published packages; the managed application remains a release candidate.
+The managed runtime targets CPython3.13 on macOS ARM64 and glibc Linux x86_64/ARM64
 (glibc2.34 or newer), with Skulk `>=2.0.3,<3`. Windows standalone desktop support
 does not imply Windows managed capability hosting.
 
@@ -18,7 +18,8 @@ publisher acquisition are opt-in groups using exact public asset URLs and
 hash-locked dependencies. The separate `managed/uv.lock` is the managed runtime
 recipe; its opt-in `qualification` group adds the disposable driver's HTTP server
 without including it in the shipped runtime closure. No private repository
-credential is required.
+credential is required. The tools0.2.0 wheel retains its original `v1.0.0`
+release URL; SDK1.0.1 does not replace that immutable asset.
 
 ## Contributor checks
 
@@ -71,8 +72,9 @@ The **Sovereign managed SDK1 candidate** workflow:
    receipt is uploaded, without service roots, keys or bearer URLs.
 
 The Core source is pinned in `skulk-baseline.json` to the accepted coordinated
-consumer baseline. Final Windows/engine reconciliation, stable SDK1 versions,
-matched host packages and release qualification remain separate gates.
+consumer comparison baseline `0996766a8da6cb5262207c911f25f5b6c95030ca`.
+Final Windows/engine reconciliation, matched host packages and release
+qualification remain separate gates.
 
 This is the first managed runtime qualification for this wrapper. It does not
 claim an upgrade from an issued managed Store package or replace an independent
